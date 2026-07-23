@@ -7,170 +7,86 @@
     <span class="scr-version">{{chaos.state.extensionVersion || 'alpha'}}</span>
   </header>
 
+  <nav class="scr-nav" aria-label="Chaos Randomizer sections">
+    <button type="button" ng-class="{'is-active': chaos.view === 'randomize'}" ng-click="chaos.openView('randomize')">Randomize</button>
+    <button type="button" ng-class="{'is-active': chaos.view === 'garage'}" ng-click="chaos.openView('garage')">Garage</button>
+    <button type="button" ng-class="{'is-active': chaos.view === 'compatibility'}" ng-click="chaos.openView('compatibility')">Compatibility</button>
+  </nav>
+
   <div class="scr-body">
-    <div class="scr-actions">
-      <button class="scr-button scr-button-wide" type="button"
-        title="Replace the current vehicle with one complete eligible installed configuration; do not scramble it"
-        aria-label="Random Config: replace with one complete configuration without scrambling"
-        ng-click="chaos.run('randomConfig')"
-        ng-disabled="chaos.state.busy || !chaos.state.capabilities.randomConfig">
-        RANDOM CONFIG
-      </button>
-      <div class="scr-action-row">
-        <button class="scr-button" type="button"
-          title="Keep the current model and scramble compatible parts, nested slots, tuning, wheels, tires, and paints"
-          aria-label="Scramble compatible content on the current model"
-          ng-click="chaos.run('scramble')"
-          ng-disabled="chaos.state.busy || !chaos.state.capabilities.scramble">
-          SCRAMBLE
-        </button>
-        <button class="scr-button scr-button-hot" type="button"
-          title="Replace with a random model and configuration, then automatically run the complete scramble pipeline in one operation"
-          aria-label="Full Random: replace and complete every supported randomization stage in one click"
-          ng-click="chaos.run('fullRandom')"
-          ng-disabled="chaos.state.busy || !chaos.state.capabilities.fullRandom">
-          FULL RANDOM
-        </button>
+    <div ng-if="chaos.view === 'randomize'">
+      <div class="scr-actions">
+        <button class="scr-button scr-button-wide" type="button" title="Load one complete eligible configuration without scrambling"
+          ng-click="chaos.run('randomConfig')" ng-disabled="chaos.state.busy || !chaos.state.capabilities.randomConfig">RANDOM CONFIG</button>
+        <div class="scr-action-row">
+          <button class="scr-button" type="button" title="Scramble compatible content on the current model"
+            ng-click="chaos.run('scramble')" ng-disabled="chaos.state.busy || !chaos.state.capabilities.scramble">SCRAMBLE</button>
+          <button class="scr-button scr-button-hot" type="button" title="Load a configuration and run every supported randomization stage"
+            ng-click="chaos.run('fullRandom')" ng-disabled="chaos.state.busy || !chaos.state.capabilities.fullRandom">FULL RANDOM</button>
+        </div>
+      </div>
+
+      <div class="scr-chaos-control">
+        <label for="scr-chaos-slider">Chaos</label>
+        <input id="scr-chaos-slider" type="range" min="0" max="100" step="1" ng-model="chaos.state.settings.chaos"
+          ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy" ng-attr-aria-valuenow="{{chaos.state.settings.chaos}}">
+        <output for="scr-chaos-slider">{{chaos.state.settings.chaos}}%</output>
+      </div>
+
+      <div class="scr-checks">
+        <label><input type="checkbox" ng-model="chaos.state.settings.allowMissingParts" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy"> Allow Missing Parts</label>
+        <label><input type="checkbox" ng-model="chaos.state.settings.protectCriticalParts" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy"> Protect Critical Parts</label>
+      </div>
+
+      <div class="scr-save-dna" ng-if="chaos.state.garage.pendingSave">
+        <label for="scr-dna-name">Result ready for Vehicle DNA</label>
+        <div><input id="scr-dna-name" type="text" maxlength="80" ng-model="chaos.dnaName" placeholder="Vehicle DNA name" ng-disabled="chaos.state.busy">
+          <button type="button" ng-click="chaos.saveDNA()" ng-disabled="chaos.state.busy || !chaos.state.capabilities.dnaWrite">Save Vehicle DNA</button></div>
+      </div>
+
+      <button class="scr-advanced-toggle" type="button" ng-click="chaos.toggleAdvanced()" ng-attr-aria-expanded="{{chaos.advancedOpen}}" aria-controls="scr-advanced">{{chaos.advancedOpen ? 'Hide' : 'Show'}} Advanced</button>
+      <div id="scr-advanced" class="scr-advanced" ng-if="chaos.advancedOpen">
+        <label class="scr-field"><span>Content</span><select ng-model="chaos.state.settings.contentFilter" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy"><option value="everything">Everything</option><option value="official">Official only</option><option value="mods">Mods only</option></select></label>
+        <label class="scr-field"><span>Fairness</span><select ng-model="chaos.state.settings.selectionFairness" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy"><option value="vehicle">Equal per vehicle</option><option value="configuration">Equal per configuration</option></select></label>
+        <div class="scr-filter-grid"><label><input type="checkbox" ng-model="chaos.state.settings.includeAutomation" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy"> Automation</label><label><input type="checkbox" ng-model="chaos.state.settings.includeTrailers" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy"> Trailers</label><label><input type="checkbox" ng-model="chaos.state.settings.includeProps" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy"> Props</label></div>
+        <label class="scr-field"><span>Manual seed</span><input type="text" maxlength="128" placeholder="Random each run" ng-model="chaos.state.settings.manualSeed" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy"></label>
+        <div class="scr-secondary-actions"><button type="button" ng-click="chaos.run('undo')" ng-disabled="chaos.state.busy || !chaos.state.canUndo">Undo</button><button type="button" ng-click="chaos.run('reindex')" ng-disabled="chaos.state.busy">Reindex Content</button></div>
+        <label class="scr-diagnostic"><input type="checkbox" ng-model="chaos.state.settings.diagnosticLogging" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy"> Diagnostic logging</label>
+        <div class="scr-index">{{chaos.state.index.models}} vehicles · {{chaos.state.index.configurations}} configurations · {{chaos.state.index.sources.unknown || 0}} unknown</div>
+        <div class="scr-capabilities" ng-if="(chaos.state.capabilities.warnings || []).length"><strong>Capability notes</strong><ul><li ng-repeat="warning in chaos.state.capabilities.warnings track by $index">{{warning}}</li></ul></div>
+        <div class="scr-blacklist"><strong>Session diagnostics</strong><p>{{chaos.state.index.blacklists.model || 0}} models · {{chaos.state.index.blacklists.config || 0}} configs · {{chaos.state.index.blacklists.part || 0}} parts · {{chaos.state.index.suspects || 0}} suspects</p></div>
       </div>
     </div>
 
-    <div class="scr-chaos-control">
-      <label for="scr-chaos-slider">Chaos</label>
-      <input id="scr-chaos-slider" type="range" min="0" max="100" step="1"
-        ng-model="chaos.state.settings.chaos"
-        ng-change="chaos.scheduleSettings()"
-        ng-disabled="chaos.state.busy"
-        ng-attr-aria-valuenow="{{chaos.state.settings.chaos}}"
-        aria-valuemin="0" aria-valuemax="100">
-      <output for="scr-chaos-slider">{{chaos.state.settings.chaos}}%</output>
+    <div class="scr-garage" ng-if="chaos.view === 'garage'">
+      <div class="scr-section-heading"><div><h2>Vehicle DNA Garage</h2><p>{{chaos.state.garage.total || 0}} / {{chaos.state.garage.limit || 100}} saved</p></div><span>{{chaos.state.garage.loadStatus}}</span></div>
+      <ul class="scr-dna-list" ng-if="chaos.state.garage.entries.length">
+        <li ng-repeat="dna in chaos.state.garage.entries track by dna.id" ng-class="{'is-selected': chaos.state.garage.selectedId === dna.id}">
+          <button class="scr-dna-select" type="button" ng-click="chaos.selectDNA(dna)"><strong>{{dna.favorite ? 'Favorite · ' : ''}}{{dna.name}}</strong><span>{{dna.modelKey}} · {{dna.seed}}</span><small>{{dna.operation}} · {{dna.updatedAt * 1000 | date:'yyyy-MM-dd'}} · {{dna.validationStatus}}</small></button>
+          <div class="scr-dna-actions"><button type="button" ng-click="chaos.toggleFavoriteDNA(dna)" ng-disabled="chaos.state.busy" ng-attr-aria-label="{{dna.favorite ? 'Remove from favorites' : 'Add to favorites'}}">{{dna.favorite ? 'Unfavorite' : 'Favorite'}}</button><button type="button" ng-click="chaos.restoreDNA(dna, 'exact')" ng-disabled="chaos.state.busy">Exact preflight</button><button type="button" ng-click="chaos.restoreDNA(dna, 'compatible')" ng-disabled="chaos.state.busy">Compatible preflight</button><button type="button" ng-click="chaos.replayDNA(dna)" ng-disabled="chaos.state.busy">Replay</button><button type="button" ng-click="chaos.exportDNA(dna, false)">Export JSON</button><button type="button" ng-if="chaos.state.capabilities.dnaExportFile" ng-click="chaos.exportDNA(dna, true)">Export file</button><button type="button" ng-click="chaos.renameDNA(dna)" ng-disabled="chaos.state.busy">Rename</button><button type="button" class="is-danger" ng-click="chaos.deleteDNA(dna)" ng-disabled="chaos.state.busy">Delete</button></div>
+        </li>
+      </ul>
+      <p class="scr-empty" ng-if="!chaos.state.garage.entries.length">No Vehicle DNA entries are saved.</p>
+      <div class="scr-pager"><button type="button" ng-click="chaos.dnaPage(-1)" ng-disabled="chaos.state.garage.page <= 0">Previous</button><span>{{(chaos.state.garage.page || 0) + 1}} / {{chaos.state.garage.pageCount || 1}}</span><button type="button" ng-click="chaos.dnaPage(1)" ng-disabled="chaos.state.garage.page + 1 >= chaos.state.garage.pageCount">Next</button></div>
+      <details class="scr-transfer"><summary>Import / export JSON</summary><textarea ng-model="chaos.importText" maxlength="131072" placeholder="Paste one Vehicle DNA JSON object"></textarea><div><button type="button" ng-click="chaos.importDNA()" ng-disabled="chaos.state.busy || !chaos.state.capabilities.dnaImportText">Import pasted JSON</button><button type="button" ng-click="chaos.copyExport()" ng-disabled="!chaos.state.garage.exportText">Copy exported JSON</button></div><p aria-live="polite">{{chaos.transferStatus}}</p></details>
     </div>
 
-    <div class="scr-checks">
-      <label title="Optional, non-core slots may be left empty">
-        <input type="checkbox" ng-model="chaos.state.settings.allowMissingParts"
-          ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy">
-        <span>Allow Missing Parts</span>
-      </label>
-      <label title="Best-effort metadata rules protect known critical slots">
-        <input type="checkbox" ng-model="chaos.state.settings.protectCriticalParts"
-          ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy">
-        <span>Protect Critical Parts</span>
-      </label>
+    <div class="scr-compat" ng-if="chaos.view === 'compatibility'">
+      <div class="scr-section-heading"><div><h2>Compatibility preflight</h2><p>No vehicle is modified during this check.</p></div></div>
+      <div ng-if="chaos.state.garage.preflight" class="scr-report">
+        <strong class="scr-status">{{chaos.state.garage.preflight.status}}</strong>
+        <p>Mode: {{chaos.state.garage.preflight.mode}} · Missing: {{chaos.state.garage.preflight.missing}} · Changed: {{chaos.state.garage.preflight.changed}} · Ambiguous: {{chaos.state.garage.preflight.ambiguous}} · Blocking: {{chaos.state.garage.preflight.blocking || 0}}</p>
+        <p>Model: {{chaos.state.garage.preflight.model.available ? 'available' : 'missing'}} · Configuration: {{chaos.state.garage.preflight.configuration.available ? (chaos.state.garage.preflight.configuration.confirmed ? 'confirmed' : 'available, unconfirmed') : 'missing'}}</p>
+        <ul><li ng-repeat="warning in chaos.state.garage.preflight.warnings track by $index">{{warning}}</li></ul>
+        <details><summary>Slots ({{chaos.state.garage.preflight.slots.length}})</summary><p ng-repeat="slot in chaos.state.garage.preflight.slots | limitTo:30 track by $index">{{slot.savedPath}} → {{slot.resolvedPath || slot.strategy}} · {{slot.available === true ? 'available' : (slot.available === false ? 'missing' : 'unverified')}}</p></details>
+        <details><summary>Tuning and paints</summary><p ng-repeat="item in chaos.state.garage.preflight.tuning | limitTo:30 track by $index">{{item.name}} · {{item.available ? (item.inRange ? 'available' : 'out of range') : 'missing'}}</p><p ng-repeat="paint in chaos.state.garage.preflight.paints track by $index">Paint layer {{paint.layer}} · {{paint.available ? 'available' : 'missing'}}</p></details>
+        <details><summary>Dependencies and planned changes</summary><p ng-repeat="dependency in chaos.state.garage.preflight.dependencies | limitTo:30 track by $index">{{dependency.kind}} · {{dependency.label || dependency.id}} · {{dependency.available === true ? 'available' : (dependency.available === false ? 'missing' : 'unverified')}}</p><p ng-repeat="action in chaos.state.garage.preflight.actions | limitTo:30 track by $index">{{action.phase}} · {{action.action}} · {{action.reason}}</p></details>
+        <div class="scr-report-actions"><button type="button" ng-click="chaos.confirmRestore('exact')" ng-disabled="chaos.state.busy || chaos.state.garage.preflight.status !== 'exact'">Confirm Exact Restore</button><button type="button" ng-click="chaos.confirmRestore('compatible')" ng-disabled="chaos.state.busy || chaos.state.garage.preflight.status === 'incompatible' || chaos.state.garage.preflight.status === 'unverified'">Confirm Compatible Restore</button></div>
+      </div>
+      <p class="scr-empty" ng-if="!chaos.state.garage.preflight">Select a Garage entry to run an Exact or Compatible preflight.</p>
     </div>
 
-    <div class="scr-progress" ng-if="chaos.state.busy" aria-live="polite">
-      <div class="scr-progress-label">
-        <span>{{chaos.state.progress.label}}</span>
-        <span>{{(chaos.state.progress.value * 100) | number:0}}%</span>
-      </div>
-      <div class="scr-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100"
-        ng-attr-aria-valuenow="{{(chaos.state.progress.value * 100) | number:0}}">
-        <span ng-style="{'width': ((chaos.state.progress.value || 0) * 100) + '%'}"></span>
-      </div>
-    </div>
-
-    <button class="scr-advanced-toggle" type="button" ng-click="chaos.toggleAdvanced()"
-      ng-attr-aria-expanded="{{chaos.advancedOpen}}" aria-controls="scr-advanced">
-      <span aria-hidden="true">{{chaos.advancedOpen ? '▾' : '▸'}}</span>
-      Advanced
-    </button>
-
-    <div id="scr-advanced" class="scr-advanced" ng-if="chaos.advancedOpen">
-      <label class="scr-field">
-        <span>Content</span>
-        <select ng-model="chaos.state.settings.contentFilter" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy">
-          <option value="everything">Everything</option>
-          <option value="official">Official only</option>
-          <option value="mods">Mods only</option>
-        </select>
-      </label>
-
-      <label class="scr-field">
-        <span>Fairness</span>
-        <select ng-model="chaos.state.settings.selectionFairness" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy">
-          <option value="vehicle">Equal per vehicle</option>
-          <option value="configuration">Equal per configuration</option>
-        </select>
-      </label>
-
-      <div class="scr-filter-grid">
-        <label><input type="checkbox" ng-model="chaos.state.settings.includeAutomation" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy"> Automation</label>
-        <label><input type="checkbox" ng-model="chaos.state.settings.includeTrailers" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy"> Trailers</label>
-        <label><input type="checkbox" ng-model="chaos.state.settings.includeProps" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy"> Props</label>
-      </div>
-
-      <label class="scr-field scr-seed-field">
-        <span>Manual seed</span>
-        <input type="text" maxlength="128" placeholder="Random each run"
-          ng-model="chaos.state.settings.manualSeed" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy">
-      </label>
-
-      <div class="scr-secondary-actions">
-        <button type="button" ng-click="chaos.run('undo')" ng-disabled="chaos.state.busy || !chaos.state.canUndo" title="Restore the most recent pre-randomization state">Undo</button>
-        <button type="button" ng-click="chaos.run('reindex')" ng-disabled="chaos.state.busy" title="Rebuild the installed vehicle and configuration index">Reindex Content</button>
-      </div>
-
-      <label class="scr-diagnostic">
-        <input type="checkbox" ng-model="chaos.state.settings.diagnosticLogging" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy">
-        Diagnostic logging
-      </label>
-
-      <div class="scr-index">
-        {{chaos.state.index.models}} vehicles · {{chaos.state.index.configurations}} configurations ·
-        {{chaos.state.index.sources.unknown || 0}} unknown source
-      </div>
-
-      <div class="scr-capabilities" ng-if="(chaos.state.capabilities.warnings || []).length">
-        <strong>Capability notes</strong>
-        <ul>
-          <li ng-repeat="warning in chaos.state.capabilities.warnings track by $index">{{warning}}</li>
-        </ul>
-      </div>
-
-      <div class="scr-blacklist">
-        <strong>Session blacklist</strong>
-        <p>
-          {{chaos.state.index.blacklists.model || 0}} models ·
-          {{chaos.state.index.blacklists.config || 0}} configs ·
-          {{chaos.state.index.blacklists.part || 0}} parts ·
-          {{chaos.state.index.blacklists.tuning || 0}} tuning variables
-        </p>
-        <p>{{chaos.state.index.suspects || 0}} suspect part candidates under bounded observation</p>
-        <dl ng-if="chaos.state.index.lastSuspect">
-          <dt>Suspect</dt><dd>{{chaos.state.index.lastSuspect.id}}</dd>
-          <dt>Score</dt><dd>{{chaos.state.index.lastSuspect.suspicionScore | number:2}}</dd>
-          <dt>Batches</dt><dd>{{chaos.state.index.lastSuspect.failedBatchCount || 0}}</dd>
-          <dt>Successes</dt><dd>{{chaos.state.index.lastSuspect.successfulUseCount || 0}}</dd>
-        </dl>
-        <dl ng-if="chaos.state.index.lastBlocked">
-          <dt>Type</dt><dd>{{chaos.state.index.lastBlocked.type}}</dd>
-          <dt>Last blocked</dt><dd>{{chaos.state.index.lastBlocked.id}}</dd>
-          <dt>Reason</dt><dd>{{chaos.state.index.lastBlocked.reason}}</dd>
-          <dt>Failures</dt><dd>{{chaos.state.index.lastBlocked.failureCount}}</dd>
-          <dt>Seed</dt><dd>{{chaos.state.index.lastBlocked.seed || 'Not recorded'}}</dd>
-        </dl>
-      </div>
-
-      <div class="scr-history" ng-if="chaos.state.history.length">
-        <strong>Recent history</strong>
-        <ol>
-          <li ng-repeat="item in chaos.state.history | limitTo:4 track by $index">
-            <span>{{item.modelKey}}</span><code>{{item.seed}}</code>
-          </li>
-        </ol>
-      </div>
-    </div>
-
-    <footer class="scr-footer">
-      <div>
-        <span class="scr-footer-label">Seed</span>
-        <code>{{chaos.state.seed || '—'}}</code>
-        <button class="scr-copy" type="button" ng-click="chaos.copySeed()" ng-disabled="!chaos.state.seed" title="Copy the current seed">COPY</button>
-        <span class="scr-copy-status" aria-live="polite">{{chaos.copyStatus}}</span>
-      </div>
-      <p ng-class="{'scr-result-error': chaos.state.lastResult && !chaos.state.lastResult.success}">
-        {{chaos.state.lastResult.message || 'Ready for chaos.'}}
-      </p>
-    </footer>
+    <div class="scr-progress" ng-if="chaos.state.busy" aria-live="polite"><div class="scr-progress-label"><span>{{chaos.state.progress.label}}</span><span>{{(chaos.state.progress.value * 100) | number:0}}%</span></div><div class="scr-progress-track" role="progressbar" ng-attr-aria-valuenow="{{(chaos.state.progress.value * 100) | number:0}}"><span ng-style="{'width': ((chaos.state.progress.value || 0) * 100) + '%'}"></span></div></div>
+    <footer class="scr-footer"><div><span class="scr-footer-label">Seed</span><code>{{chaos.state.seed || '—'}}</code><button class="scr-copy" type="button" ng-click="chaos.copySeed()" ng-disabled="!chaos.state.seed">COPY</button><span aria-live="polite">{{chaos.copyStatus}}</span></div><p ng-class="{'scr-result-error': chaos.state.lastResult && !chaos.state.lastResult.success}">{{chaos.state.lastResult.message || 'Ready for chaos.'}}</p></footer>
   </div>
 </section>

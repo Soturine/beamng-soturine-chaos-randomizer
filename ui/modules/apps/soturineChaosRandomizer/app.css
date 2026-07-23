@@ -80,10 +80,38 @@ soturine-chaos-randomizer {
 }
 
 .scr-body {
-  height: calc(100% - 59px);
+  height: calc(100% - 96px);
   padding: 11px 13px 13px;
   overflow-x: hidden;
   overflow-y: auto;
+}
+
+.scr-nav {
+  display: grid;
+  grid-template-columns: 1fr 0.8fr 1.25fr;
+  height: 37px;
+  background: #191b1f;
+  border-bottom: 1px solid var(--scr-line);
+}
+
+.scr-nav button {
+  min-width: 0;
+  padding: 7px 4px;
+  color: #c9cbce;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  font-size: 10px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.scr-nav button:hover,
+.scr-nav button:focus,
+.scr-nav button.is-active {
+  color: #fff;
+  border-bottom-color: var(--scr-orange);
+  outline: none;
 }
 
 .scr-actions {
@@ -266,7 +294,8 @@ soturine-chaos-randomizer {
 }
 
 .scr-app select,
-.scr-app input[type="text"] {
+.scr-app input[type="text"],
+.scr-app textarea {
   min-width: 0;
   width: 100%;
   height: 29px;
@@ -278,6 +307,170 @@ soturine-chaos-randomizer {
   font: inherit;
   font-size: 11px;
 }
+
+.scr-save-dna {
+  margin: 10px 0;
+  padding: 8px;
+  background: rgba(255, 106, 0, 0.12);
+  border: 1px solid rgba(255, 106, 0, 0.42);
+  border-radius: 4px;
+  font-size: 10px;
+}
+
+.scr-save-dna > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  margin-top: 5px;
+}
+
+.scr-save-dna button,
+.scr-dna-actions button,
+.scr-pager button,
+.scr-transfer button,
+.scr-report-actions button {
+  min-height: 27px;
+  color: #fff;
+  background: #3a3e44;
+  border: 1px solid var(--scr-line);
+  border-radius: 3px;
+  font-size: 9px;
+  cursor: pointer;
+}
+
+.scr-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.scr-section-heading h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.scr-section-heading p,
+.scr-section-heading > span {
+  margin: 2px 0 0;
+  color: #b7b9bc;
+  font-size: 9px;
+}
+
+.scr-dna-list {
+  display: grid;
+  gap: 7px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.scr-dna-list li {
+  padding: 7px;
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid transparent;
+  border-radius: 4px;
+}
+
+.scr-dna-list li.is-selected {
+  border-color: var(--scr-orange);
+}
+
+.scr-dna-select {
+  display: grid;
+  width: 100%;
+  padding: 0;
+  color: #fff;
+  background: transparent;
+  border: 0;
+  text-align: left;
+  cursor: pointer;
+}
+
+.scr-dna-select strong,
+.scr-dna-select span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scr-dna-select strong { font-size: 11px; }
+.scr-dna-select span,
+.scr-dna-select small { color: #bfc2c5; font-size: 9px; }
+
+.scr-dna-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.scr-dna-actions button:hover,
+.scr-dna-actions button:focus,
+.scr-pager button:hover,
+.scr-transfer button:hover {
+  border-color: var(--scr-orange);
+  outline: none;
+}
+
+.scr-dna-actions button.is-danger { color: #ffae9b; }
+
+.scr-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin: 9px 0;
+  font-size: 9px;
+}
+
+.scr-pager button { min-width: 60px; }
+
+.scr-transfer,
+.scr-report {
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  font-size: 9px;
+}
+
+.scr-transfer summary,
+.scr-report summary { cursor: pointer; font-weight: 700; }
+
+.scr-transfer textarea {
+  width: 100%;
+  height: 82px;
+  margin-top: 7px;
+  resize: vertical;
+  font-family: Consolas, monospace;
+}
+
+.scr-transfer > div {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+
+.scr-status {
+  display: inline-block;
+  padding: 3px 6px;
+  color: #181a1d;
+  background: var(--scr-orange-light);
+  border-radius: 3px;
+  text-transform: uppercase;
+}
+
+.scr-report p { overflow-wrap: anywhere; }
+.scr-report details p { margin: 4px 0; padding-top: 4px; border-top: 1px solid var(--scr-line); }
+.scr-report-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+  margin-top: 8px;
+}
+.scr-report-actions button:disabled { cursor: not-allowed; opacity: 0.45; }
+.scr-empty { color: #bfc2c5; font-size: 10px; }
 
 .scr-filter-grid {
   display: grid;
