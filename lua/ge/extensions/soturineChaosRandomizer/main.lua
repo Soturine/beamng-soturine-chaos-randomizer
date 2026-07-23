@@ -1,5 +1,6 @@
 local adapter = require("ge/extensions/soturineChaosRandomizer/apiAdapter")
 local configSelector = require("ge/extensions/soturineChaosRandomizer/configSelector")
+local configVerification = require("ge/extensions/soturineChaosRandomizer/configVerification")
 local contentIndex = require("ge/extensions/soturineChaosRandomizer/contentIndex")
 local diagnosticsModule = require("ge/extensions/soturineChaosRandomizer/diagnostics")
 local failureAttribution = require("ge/extensions/soturineChaosRandomizer/failureAttribution")
@@ -22,6 +23,9 @@ local vehicleSelector = require("ge/extensions/soturineChaosRandomizer/vehicleSe
 local vehicleDNA = require("ge/extensions/soturineChaosRandomizer/vehicleDNA")
 local vehicleDNACompatibility = require("ge/extensions/soturineChaosRandomizer/vehicleDNACompatibility")
 local vehicleDNAImport = require("ge/extensions/soturineChaosRandomizer/vehicleDNAImport")
+local vehicleDNAFingerprint = require("ge/extensions/soturineChaosRandomizer/vehicleDNAFingerprint")
+local vehicleDNANormalizer = require("ge/extensions/soturineChaosRandomizer/vehicleDNANormalizer")
+local vehicleDNAPassBudget = require("ge/extensions/soturineChaosRandomizer/vehicleDNAPassBudget")
 local vehicleDNARestore = require("ge/extensions/soturineChaosRandomizer/vehicleDNARestore")
 local vehicleDNASchema = require("ge/extensions/soturineChaosRandomizer/vehicleDNASchema")
 local vehicleDNAStorage = require("ge/extensions/soturineChaosRandomizer/vehicleDNAStorage")
@@ -30,12 +34,12 @@ local M = {}
 
 M.dependencies = {"core_modmanager", "core_vehicle_manager", "core_vehicle_partmgmt", "core_vehicles"}
 
-local EXTENSION_VERSION = "0.4.0-alpha.1"
+local EXTENSION_VERSION = "0.4.0-alpha.2"
 local TARGET_BEAMNG = "0.38.6.0.19963"
 local WAIT_TIMEOUT = 25
 local PAINT_CONFIRM_TIMEOUT = 2
 local RECENT_LIMIT = 4
-local DNA_RESTORE_PASS_CAP = 12
+local DNA_RESTORE_TIMEOUT = 120
 
 local runtime = {
   initialized = false,
@@ -81,6 +85,17 @@ local startDNATuning
 local startDNAPaint
 local validateDNAFinal
 local verifyDNAFinal
+local runDNATargetPreflight
+local completeReplayGeneration
+
+local function addDNADeviation(active, deviation)
+  if type(deviation) ~= "table" then return end
+  active.dnaDeviationKeys = active.dnaDeviationKeys or {}
+  local key = vehicleDNACompatibility.deviationKey(deviation)
+  if active.dnaDeviationKeys[key] then return end
+  active.dnaDeviationKeys[key] = true
+  active.dnaDeviations[#active.dnaDeviations + 1] = util.deepCopy(deviation)
+end
 
 local function pushRecent(list, value)
   if not value then return end
@@ -118,6 +133,7 @@ end
 
 local function publicState()
   local blacklist = contentIndex.blacklistCounts(runtime.index)
+  local storageMetrics = vehicleDNAStorage.metrics(runtime.dna.library) or {}
   local garageEntries, garageTotal = vehicleDNAStorage.summaries(
     runtime.dna.library, runtime.dna.page * runtime.dna.pageSize, runtime.dna.pageSize
   )
@@ -159,6 +175,7 @@ local function publicState()
       pageSize = runtime.dna.pageSize,
       pageCount = math.max(1, math.ceil(garageTotal / runtime.dna.pageSize)),
       limit = runtime.dna.library.limit,
+      storage = storageMetrics,
       pendingSave = runtime.dna.pending ~= nil,
       pending = runtime.dna.pending and {
         id = runtime.dna.pending.id,
@@ -708,11 +725,14 @@ local function currentDependencies(scan)
   }
   local seen = {parts = {}, wheelTire = {}, mods = {}, official = {}, user = {}, unknown = {}}
   for _, slot in ipairs(type(scan) == "table" and scan.slots or {}) do
+    if type(slot.currentPart) ~= "string" or slot.currentPart == "" then
+      -- Empty optional slots are state, not content dependencies.
+    else
     local metadata = slot.candidateMetadata and slot.candidateMetadata[slot.currentPart] or {}
     local kind = metadata.sourceKind == "mod" and "mods"
       or metadata.sourceKind == "official" and "official"
       or metadata.sourceKind == "user" and "user" or "unknown"
-    local id = tostring(metadata.modID or slot.currentPart or slot.path)
+    local id = tostring(metadata.modID or slot.currentPart)
     local record = {
       kind = metadata.sourceKind or "unknown",
       id = id,
@@ -739,9 +759,11 @@ local function currentDependencies(scan)
         values.wheelTire[#values.wheelTire + 1] = util.deepCopy(record)
       end
     end
-    if not seen[kind][id] then
-      seen[kind][id] = true
+    local aggregateId = kind == "mods" and metadata.modID and tostring(metadata.modID) or id
+    if aggregateId ~= "" and not seen[kind][aggregateId] then
+      seen[kind][aggregateId] = true
       values[kind][#values[kind] + 1] = util.deepCopy(record)
+    end
     end
   end
   for _, key in ipairs({"parts", "wheelTire", "mods", "official", "user", "unknown"}) do
@@ -819,11 +841,51 @@ local function capturePendingDNA(active, details)
   return true, entry
 end
 
+completeReplayGeneration = function(active, safetyResult)
+  active.phase = "dna_replay_verification"
+  setProgress("Verifying replayed generation", 0.97)
+  local okCapture, capture = adapter.captureCurrentState(active.kind, active.seed)
+  if not okCapture then failActive(capture, true, "dna_replay_verification"); return end
+  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot()
+  if not okSnapshot then failActive(snapshot, true, "dna_replay_verification"); return end
+  local scan, scanError = slotScanner.scan(snapshot.tree, snapshot.metadataByPath)
+  if not scan then failActive(adapter.errorValue(scanError, "Replay final slot scan failed"), true, "dna_replay_verification"); return end
+  local observed = {
+    modelKey = capture.modelKey,
+    configIdentity = capture.selectedConfiguration,
+    slots = vehicleDNANormalizer.normalizeSlots(scan),
+    tuning = vehicleDNANormalizer.normalizeTuning(snapshot.variables, capture.tuning or snapshot.currentTuning),
+    paints = vehicleDNANormalizer.normalizePaints(capture.paints or snapshot.paints),
+  }
+  local expected = util.deepCopy(active.dnaEntry.final or {})
+  local stateExact = util.deepEqual(expected, observed, 1e-8)
+  local environmentChanged = active.dnaEntry.environment
+    and active.dnaEntry.environment.beamNGVersion ~= adapter.getGameVersion()
+  local exact = stateExact and not environmentChanged
+  local observedFingerprint = vehicleDNAFingerprint.fingerprint(observed)
+  local fingerprintMatches = observedFingerprint ~= nil and observedFingerprint == (active.dnaEntry.fingerprints and active.dnaEntry.fingerprints.final)
+  local status = exact and "exact" or (#(active.dnaDeviations or {}) > 0 and "partial" or "close")
+  finishOperation(true, "dna_replay_" .. status, "Vehicle DNA generation replay: " .. status, {
+    replayStatus = status,
+    dnaId = active.dnaEntry.id,
+    baseSelectionFrozen = true,
+    exact = exact,
+    fingerprintMatches = fingerprintMatches,
+    observedFingerprint = observedFingerprint,
+    savedFingerprint = active.dnaEntry.fingerprints and active.dnaEntry.fingerprints.final,
+    deviations = util.deepCopy(active.dnaDeviations or {}),
+    safety = util.deepCopy(safetyResult),
+    stateExact = stateExact,
+    environmentChanged = environmentChanged,
+  })
+end
+
 local function completeChaos(active)
   operationState.transition(runtime.state, "validating", false)
   active.phase = "validation"
   local safe, safetyOrError = validateFinalVehicle(active)
   if not safe then failActive(safetyOrError, true, "validation"); return end
+  if active.replayGeneration then completeReplayGeneration(active, safetyOrError); return end
   local completionMessage
   if safetyOrError.status == "not_applicable" then
     active.warnings[#active.warnings + 1] = "Prop safety validation is not applicable; this result does not claim a controllable vehicle."
@@ -1298,7 +1360,8 @@ local function persistDNALibrary(candidate, successCode, successMessage)
   end
   local ok, writeResult = adapter.saveDNALibrary(normalized, runtime.dna.library)
   if not ok then
-    setResult(false, writeResult.code, writeResult.message)
+    setResult(false, writeResult.code, writeResult.message, writeResult.context)
+    if writeResult.code == "dna_storage_recovered" then runtime.dna.loadStatus = "last_known_good_recovered" end
     publishState()
     return false
   end
@@ -1411,7 +1474,9 @@ local function dnaEnvironment(entry)
   local currentConfigPath
   local okConfig, currentConfig = adapter.getCurrentConfig()
   if okConfig and type(currentConfig) == "table" then
-    currentConfigPath = currentConfig.partConfigFilename or currentConfig.configPath or currentConfig.configKey
+    currentConfigPath = configVerification.normalizePath(
+      currentConfig.partConfigFilename or currentConfig.configPath or currentConfig.configKey
+    )
   end
   if currentModel == (entry.base and entry.base.modelKey) then
     local okSnapshot, snapshotOrError = adapter.getCurrentSlotSnapshot()
@@ -1465,19 +1530,23 @@ local function preflightVehicleDNA(id, mode)
   local report = vehicleDNACompatibility.evaluate(entry, environment, mode)
   runtime.dna.preflight = report
   runtime.dna.selectedId = id
-  setResult(report.status ~= "incompatible", "dna_preflight_" .. report.status, "Vehicle DNA preflight: " .. report.status, report)
-  diagnosticsModule.write(runtime.diagnostics, "I", "dna_preflight", report, true)
+  local reasonCode = report.status == "target_inspection_required" and "dna_target_inspection_required"
+    or report.registryStatus == "registry_incompatible" and "dna_registry_preflight_incompatible"
+    or report.registryStatus == "registry_compatible" and "dna_registry_preflight_compatible"
+    or "dna_registry_preflight_exact"
+  setResult(report.status ~= "incompatible", reasonCode, "Vehicle DNA registry preflight: " .. report.status, report)
+  diagnosticsModule.write(runtime.diagnostics, "I", "dna_registry_preflight", report, true)
   publishState()
   return report.status ~= "incompatible", report
 end
 
-local function replayVehicleDNA(id)
+local function pureSeedReplayVehicleDNA(id)
   initialize()
   if runtime.state.busy then return false end
   local entry = vehicleDNAStorage.find(runtime.dna.library, id)
   if not entry then setResult(false, "dna_not_found", "Vehicle DNA entry was not found"); publishState(); return false end
   if tonumber(entry.generation and entry.generation.generatorVersion) ~= vehicleDNASchema.GENERATOR_VERSION then
-    setResult(false, "dna_replay_generator_unsupported", "This Vehicle DNA generator version is not supported for Replay Seed")
+    setResult(false, "dna_replay_generator_unsupported", "This Vehicle DNA generator version is not supported for Pure Seed Replay")
     publishState()
     return false
   end
@@ -1500,6 +1569,88 @@ local function replayVehicleDNA(id)
   return started
 end
 
+local function startVehicleDNABaseOperation(entry, registryReport, purpose, confirmPartial)
+  local kind = purpose == "replay" and "dnaReplayGeneration"
+    or (purpose == "restore_exact" and "dnaRestoreExact" or "dnaRestoreCompatible")
+  local okBegin, activeOrError = beginOperation(kind, {operationTimeout = DNA_RESTORE_TIMEOUT})
+  if not okBegin then setResult(false, activeOrError.code, activeOrError.message); publishState(); return false end
+  local active = activeOrError
+  active.seed = entry.generation.seed
+  active.rng = rngModule.new(active.seed)
+  active.phase = "dna_registry_preflight"
+  active.dnaEntry = entry
+  active.dnaMode = purpose == "restore_exact" and "exact" or purpose == "restore_compatible" and "compatible" or "replay"
+  active.replayGeneration = purpose == "replay"
+  active.confirmPartial = confirmPartial == true
+  active.policy = mutationPolicy.fromSettings(entry.generation and entry.generation.settings or runtime.settings)
+  active.dnaReport = registryReport
+  active.dnaDeviations = {}
+  active.dnaDeviationKeys = {}
+  for _, deviation in ipairs(registryReport.deviations or {}) do addDNADeviation(active, deviation) end
+  active.dnaAppliedParts = {}
+  active.dnaExpectedTuning = {}
+  active.dnaExpectedPaints = {}
+  active.dnaPass = 1
+  active.modelKey = entry.base.modelKey
+  active.baseConfirmed = false
+  local resolvedConfig = registryReport.configuration and registryReport.configuration.resolvedPath
+    or entry.base.configPath or entry.base.configKey
+  for _, model in ipairs(runtime.index.models or {}) do
+    if model.key == entry.base.modelKey then active.selectedModel = model; break end
+  end
+  for _, config in ipairs(runtime.index.allConfigs or {}) do
+    if config.modelKey == entry.base.modelKey and (
+      config.path == resolvedConfig or config.key == (registryReport.configuration and registryReport.configuration.resolvedKey)
+    ) then active.selectedConfig = config; break end
+  end
+  active.selectionContext = {strategy = "saved_base_frozen", modelKey = entry.base.modelKey, config = resolvedConfig}
+  local okCapture, captureError = captureOriginal(active)
+  if not okCapture then failActive(captureError, false, "dna_registry_preflight"); return false end
+  operationState.transition(runtime.state, "spawning", false)
+  local configIdentity = {
+    modelKey = entry.base.modelKey,
+    key = entry.base.configKey,
+    path = entry.base.configPath,
+    registryIdentity = entry.base.configKey ~= nil,
+  }
+  local okWait, waitError = enterWaiting(active, "dna_base_spawn", "dna_target_preflight", {
+    modelKey = entry.base.modelKey,
+    configIdentity = configIdentity,
+  }, "Loading saved Vehicle DNA base", 0.18)
+  if not okWait then failActive(waitError, false, "dna_base_spawn"); return false end
+  local okHistory, historyError = commitHistory(active)
+  if not okHistory then failActive(historyError, false, "dna_base_spawn"); return false end
+  local okReplace, replaceError = issueReplacement(active, entry.base.modelKey, resolvedConfig, "dna_base_spawn")
+  if not okReplace then failActive(replaceError, true, "dna_base_spawn"); return false end
+  return true
+end
+
+local function replayVehicleDNAGeneration(id)
+  initialize()
+  if runtime.state.busy then return false end
+  local entry = vehicleDNAStorage.find(runtime.dna.library, id)
+  if not entry then setResult(false, "dna_not_found", "Vehicle DNA entry was not found"); publishState(); return false end
+  if tonumber(entry.generation and entry.generation.generatorVersion) ~= vehicleDNASchema.GENERATOR_VERSION then
+    setResult(false, "dna_replay_generator_unsupported", "This Vehicle DNA generator version cannot replay generation stages")
+    publishState()
+    return false
+  end
+  local operation = entry.generation and entry.generation.operation
+  if operation ~= "randomConfig" and operation ~= "scramble" and operation ~= "fullRandom" then
+    setResult(false, "dna_replay_operation_unsupported", "This Vehicle DNA operation cannot be replayed")
+    publishState()
+    return false
+  end
+  local preflightOk, report = preflightVehicleDNA(id, "compatible")
+  if not preflightOk or not report or report.registryStatus == "registry_incompatible" then return false end
+  runtime.dna.selectedId = id
+  return startVehicleDNABaseOperation(entry, report, "replay", true)
+end
+
+local function replayVehicleDNA(id)
+  return replayVehicleDNAGeneration(id)
+end
+
 local function restoreVehicleDNA(id, mode, confirmPartial)
   initialize()
   if runtime.state.busy then return false end
@@ -1508,68 +1659,68 @@ local function restoreVehicleDNA(id, mode, confirmPartial)
   if not entry then setResult(false, "dna_not_found", "Vehicle DNA entry was not found"); publishState(); return false end
   local preflightOk, report = preflightVehicleDNA(id, mode)
   if not preflightOk or type(report) ~= "table" then return false end
-  if mode == "exact" and report.status ~= "exact" then
-    setResult(false, "dna_exact_preflight_failed", "Restore Exact requires a fully exact preflight", report)
-    publishState()
-    return false
+  if report.registryStatus == "registry_incompatible" or report.status == "incompatible" then return false end
+  if mode == "exact" and report.status ~= "exact" and report.status ~= "target_inspection_required" then
+    setResult(false, "dna_registry_preflight_incompatible", "Restore Exact registry preflight is incompatible", report)
+    publishState(); return false
   end
   if mode == "compatible" and report.status == "partial" and confirmPartial ~= true then
-    setResult(false, "dna_partial_confirmation_required", "Restore Compatible requires confirmation for a partial result", report)
+    setResult(false, "dna_partial_authorization_required", "Restore Compatible requires authorization for a partial result", report)
     publishState()
     return false
   end
-  if report.status == "unverified" or report.status == "incompatible" then
-    setResult(false, "dna_preflight_unverified", "Vehicle DNA restore cannot start without verified target metadata", report)
-    publishState()
-    return false
-  end
+  return startVehicleDNABaseOperation(entry, report, mode == "exact" and "restore_exact" or "restore_compatible", confirmPartial)
+end
 
-  local kind = mode == "exact" and "dnaRestoreExact" or "dnaRestoreCompatible"
-  local okBegin, activeOrError = beginOperation(kind, {})
-  if not okBegin then setResult(false, activeOrError.code, activeOrError.message); publishState(); return false end
-  local active = activeOrError
-  active.seed = entry.generation.seed
-  active.phase = "dna_preflight"
-  active.dnaEntry = entry
-  active.dnaMode = mode
-  active.policy = mutationPolicy.fromSettings(entry.generation and entry.generation.settings or runtime.settings)
-  active.dnaReport = report
-  active.dnaDeviations = {}
-  active.dnaAppliedParts = {}
-  active.dnaExpectedTuning = {}
-  active.dnaExpectedPaints = {}
-  active.dnaPass = 1
-  active.modelKey = entry.base.modelKey
-  active.baseConfirmed = false
-  local okCapture, captureError = captureOriginal(active)
-  if not okCapture then failActive(captureError, false, "dna_preflight"); return false end
-  operationState.transition(runtime.state, "spawning", false)
-  local config = entry.base.configPath or entry.base.configKey
-  local configIdentity = {
-    modelKey = entry.base.modelKey,
-    key = entry.base.configKey,
-    path = entry.base.configPath,
-    registryIdentity = entry.base.configKey ~= nil,
-  }
-  local okWait, waitError = enterWaiting(active, "dna_base_spawn", "dna_parts", {
-    modelKey = entry.base.modelKey,
-    configIdentity = configIdentity,
-  }, "Loading Vehicle DNA base", 0.18)
-  if not okWait then failActive(waitError, false, "dna_base_spawn"); return false end
-  local okHistory, historyError = commitHistory(active)
-  if not okHistory then failActive(historyError, false, "dna_base_spawn"); return false end
-  local okReplace, replaceError = issueReplacement(active, entry.base.modelKey, config, "dna_base_spawn")
-  if not okReplace then failActive(replaceError, true, "dna_base_spawn"); return false end
-  return true
+runDNATargetPreflight = function(active)
+  active.phase = "dna_target_preflight"
+  setProgress("Inspecting loaded Vehicle DNA target", 0.24)
+  local environment, environmentError = dnaEnvironment(active.dnaEntry)
+  if not environment then failActive(environmentError, true, "dna_target_preflight"); return end
+  local report = vehicleDNACompatibility.evaluate(
+    active.dnaEntry, environment, active.dnaMode == "exact" and "exact" or "compatible"
+  )
+  active.dnaTargetReport = report
+  runtime.dna.preflight = report
+  for _, deviation in ipairs(report.deviations or {}) do addDNADeviation(active, deviation) end
+  diagnosticsModule.write(runtime.diagnostics, "I", "dna_target_preflight", report, true)
+  if report.status == "target_inspection_required" or report.status == "incompatible" then
+    failActive(adapter.errorValue("dna_target_preflight_incompatible", "Loaded Vehicle DNA target is incompatible", {report = report}), true, "dna_target_preflight")
+    return
+  end
+  if active.dnaMode == "exact" and report.status ~= "exact" then
+    failActive(adapter.errorValue("dna_target_preflight_incompatible", "Restore Exact target inspection found differences", {report = report}), true, "dna_target_preflight")
+    return
+  end
+  if report.status == "partial" and active.dnaMode ~= "replay" and not active.confirmPartial then
+    failActive(adapter.errorValue("dna_partial_authorization_required", "Partial target restore was not authorized", {report = report}), true, "dna_target_preflight")
+    return
+  end
+  active.dnaTargetStatus = report.status
+  if active.replayGeneration then
+    if active.dnaEntry.generation.operation == "randomConfig" then
+      local transitioned, transitionError = operationState.transition(runtime.state, "validating", false)
+      if not transitioned then failActive(adapter.errorValue("state_error", transitionError), true, "dna_replay_verification"); return end
+      local safe, safetyOrError = validateFinalVehicle(active)
+      if not safe then failActive(safetyOrError, true, "dna_replay_verification"); return end
+      completeReplayGeneration(active, safetyOrError)
+    else
+      active.pass = 1
+      active.previousScan = nil
+      active.deferredPaths = {}
+      active.mutatedPaths = {}
+      operationState.transition(runtime.state, "scanning", false)
+      processMutationPass(active)
+    end
+    return
+  end
+  operationState.transition(runtime.state, "scanning", false)
+  processDNAParts(active)
 end
 
 processDNAParts = function(active)
   if not operationState.isCurrent(runtime.state, active.token) then return end
   active.phase = "dna_parts"
-  if active.dnaPass > DNA_RESTORE_PASS_CAP then
-    failActive(adapter.errorValue("dna_parts_pass_limit", "Vehicle DNA restore exceeded the bounded parts pass limit"), true, "dna_parts")
-    return
-  end
   local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot()
   if not okSnapshot then failActive(snapshot, true, "dna_parts"); return end
   local scan, scanError = slotScanner.scan(snapshot.tree, snapshot.metadataByPath)
@@ -1578,9 +1729,28 @@ processDNAParts = function(active)
     active.safetyBaseline = validator.buildGraph(scan, safetyContext(active, snapshot))
   end
   local tree, batch, issues = vehicleDNARestore.planPartsPass(active.dnaEntry, scan, active.dnaMode)
-  for _, issue in ipairs(issues or {}) do active.dnaDeviations[#active.dnaDeviations + 1] = issue end
+  for _, issue in ipairs(issues or {}) do addDNADeviation(active, issue) end
   if not tree then
     failActive(adapter.errorValue("dna_parts_incompatible", "Saved Vehicle DNA parts are unavailable", {issues = issues}), true, "dna_parts")
+    return
+  end
+  local scanState = {}
+  for _, slot in ipairs(scan.slots or {}) do scanState[#scanState + 1] = {path = slot.path, partName = slot.currentPart} end
+  local scanFingerprint = vehicleDNAFingerprint.fingerprint(scanState)
+  if not active.dnaPassBudget then
+    active.dnaPassBudget = vehicleDNAPassBudget.create(
+      active.dnaEntry.metrics and active.dnaEntry.metrics.maxDepth,
+      scan.metrics and scan.metrics.maxDepth,
+      active.startedAt,
+      DNA_RESTORE_TIMEOUT
+    )
+  end
+  local progressOk, progressReason = vehicleDNAPassBudget.observe(active.dnaPassBudget, scanFingerprint, #batch, adapter.clock())
+  if not progressOk then
+    failActive(adapter.errorValue(progressReason, "Vehicle DNA restore stopped because the parts tree did not make bounded progress", {
+      pass = active.dnaPassBudget.pass, passLimit = active.dnaPassBudget.passLimit,
+      pending = #batch, scanFingerprint = scanFingerprint,
+    }), true, "dna_parts")
     return
   end
   if #batch == 0 then
@@ -1597,7 +1767,7 @@ processDNAParts = function(active)
   active.currentBatch = util.deepCopy(batch)
   local okWait, waitError = enterWaiting(active, "dna_parts", "dna_parts", {
     vehicleId = active.vehicleId, modelKey = active.dnaEntry.final.modelKey, parts = expected,
-  }, "Restoring Vehicle DNA parts", 0.25 + math.min(active.dnaPass, DNA_RESTORE_PASS_CAP) * 0.035)
+  }, "Restoring Vehicle DNA parts", 0.25 + math.min(active.dnaPass / active.dnaPassBudget.passLimit, 1) * 0.42)
   if not okWait then failActive(waitError, true, "dna_parts"); return end
   local okApply, applyError = adapter.applyPartsTree(tree)
   if not okApply then failActive(applyError, true, "dna_parts"); return end
@@ -1611,7 +1781,7 @@ startDNATuning = function(active)
       failActive(adapter.errorValue("dna_tuning_capability_missing", "Restore Exact requires tuning read/write capability"), true, "dna_tuning")
       return
     end
-    active.dnaDeviations[#active.dnaDeviations + 1] = {reason = "tuning_capability_missing"}
+    addDNADeviation(active, {phase = "execution", reason = "tuning_capability_missing"})
     operationState.transition(runtime.state, "painting", false)
     startDNAPaint(active)
     return
@@ -1620,7 +1790,10 @@ startDNATuning = function(active)
   if not okSnapshot then failActive(snapshot, true, "dna_tuning"); return end
   local values, issues = vehicleDNARestore.tuningValues(active.dnaEntry, snapshot.variables, active.dnaMode)
   active.dnaExpectedTuning = util.deepCopy(values)
-  for _, issue in ipairs(issues) do active.dnaDeviations[#active.dnaDeviations + 1] = issue end
+  for _, issue in ipairs(issues) do
+    issue.phase = issue.phase or "execution"
+    addDNADeviation(active, issue)
+  end
   if active.dnaMode == "exact" and #issues > 0 then
     failActive(adapter.errorValue("dna_tuning_incompatible", "Restore Exact tuning preconditions changed", {issues = issues}), true, "dna_tuning")
     return
@@ -1640,7 +1813,7 @@ startDNAPaint = function(active)
   if #saved == 0 then validateDNAFinal(active); return end
   if not runtime.capabilities.scramblePaint then
     if active.dnaMode == "exact" then failActive(adapter.errorValue("dna_paint_capability_missing", "Restore Exact requires paint read/write capability"), true, "dna_paint"); return end
-    active.dnaDeviations[#active.dnaDeviations + 1] = {reason = "paint_capability_missing"}
+    addDNADeviation(active, {phase = "execution", reason = "paint_capability_missing"})
     validateDNAFinal(active)
     return
   end
@@ -1652,7 +1825,7 @@ startDNAPaint = function(active)
     return
   elseif active.dnaMode == "compatible" and #payload > #current then
     while #payload > #current do table.remove(payload) end
-    active.dnaDeviations[#active.dnaDeviations + 1] = {reason = "paint_layers_omitted", expected = #saved, actual = #current}
+    addDNADeviation(active, {phase = "execution", reason = "paint_layers_omitted", expected = #saved, actual = #current})
   end
   if #payload == 0 then validateDNAFinal(active); return end
   local okApply, applyResult = adapter.applyPaints(payload)
@@ -1873,7 +2046,7 @@ local function onVehicleSpawned(vehicleId)
     active.baseConfirmed = true
     active.dnaPass = 1
     operationState.transition(runtime.state, "scanning", false)
-    processDNAParts(active)
+    runDNATargetPreflight(active)
   elseif completedPhase == "dna_parts" then
     active.currentBatch = nil
     operationState.transition(runtime.state, "scanning", false)
@@ -2184,6 +2357,8 @@ M.importVehicleDNA = importVehicleDNA
 M.exportVehicleDNA = exportVehicleDNA
 M.preflightVehicleDNA = preflightVehicleDNA
 M.replayVehicleDNA = replayVehicleDNA
+M.replayVehicleDNAGeneration = replayVehicleDNAGeneration
+M.pureSeedReplayVehicleDNA = pureSeedReplayVehicleDNA
 M.restoreVehicleDNA = restoreVehicleDNA
 M.onExtensionLoaded = onExtensionLoaded
 M.onVehicleSpawned = onVehicleSpawned

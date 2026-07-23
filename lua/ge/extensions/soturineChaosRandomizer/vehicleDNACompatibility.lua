@@ -1,5 +1,6 @@
 local util = require("ge/extensions/soturineChaosRandomizer/util")
 local fingerprint = require("ge/extensions/soturineChaosRandomizer/vehicleDNAFingerprint")
+local configVerification = require("ge/extensions/soturineChaosRandomizer/configVerification")
 
 local M = {}
 
@@ -31,8 +32,19 @@ local function contains(values, expected)
   return false
 end
 
-local function normalizedPath(value)
-  return tostring(value or ""):gsub("\\", "/"):gsub("/+", "/"):lower()
+local function deviationKey(value)
+  return table.concat({
+    tostring(value.phase or "target"), tostring(value.savedPath or ""), tostring(value.slotId or ""),
+    tostring(value.partName or ""), tostring(value.reason or ""),
+  }, "|")
+end
+
+local function addDeviation(report, value)
+  report._deviationKeys = report._deviationKeys or {}
+  local key = deviationKey(value)
+  if report._deviationKeys[key] then return end
+  report._deviationKeys[key] = true
+  report.deviations[#report.deviations + 1] = value
 end
 
 local function evaluate(entry, environment, mode)
@@ -44,7 +56,7 @@ local function evaluate(entry, environment, mode)
     status = "exact",
     model = {expected = entry.base and entry.base.modelKey, available = false},
     configuration = {expected = entry.base and (entry.base.configPath or entry.base.configKey), available = false, confirmed = false},
-    slots = {}, tuning = {}, paints = {}, dependencies = {}, warnings = {}, actions = {},
+    slots = {}, tuning = {}, paints = {}, dependencies = {}, warnings = {}, actions = {}, deviations = {},
     environment = {},
     missing = 0, changed = 0, ambiguous = 0,
     blocking = 0,
@@ -52,15 +64,28 @@ local function evaluate(entry, environment, mode)
   local models = environment.modelsByKey or {}
   report.model.available = models[report.model.expected] ~= nil
   if not report.model.available then report.missing = report.missing + 1 end
-  for _, config in ipairs(environment.configs or {}) do
-    if config.modelKey == report.model.expected and (
-      (entry.base.configPath and config.path == entry.base.configPath) or (entry.base.configKey and config.key == entry.base.configKey)
-    ) then report.configuration.available = true; break end
-  end
+  local registryConfig, configStrategy = configVerification.resolveRegistryConfig(
+    report.model.expected,
+    entry.base and entry.base.configPath,
+    entry.base and entry.base.configKey,
+    entry.base and entry.base.stateSignature,
+    environment.configs
+  )
+  report.configuration.available = registryConfig ~= nil
+  report.configuration.strategy = configStrategy
+  report.configuration.resolvedPath = registryConfig and configVerification.normalizePath(registryConfig.path)
+  report.configuration.resolvedKey = registryConfig and registryConfig.key
   if not report.configuration.available then report.missing = report.missing + 1 end
-  local expectedConfig = normalizedPath(report.configuration.expected)
-  local currentConfig = normalizedPath(environment.currentConfigPath)
-  report.configuration.confirmed = expectedConfig ~= "" and currentConfig ~= "" and currentConfig == expectedConfig
+  local expectedConfig = configVerification.normalizePath(entry.base and entry.base.configPath)
+  local currentConfig = configVerification.normalizePath(environment.currentConfigPath)
+  local expectedScoped = configVerification.scopedKey(report.model.expected, entry.base and entry.base.configKey)
+  local currentScoped = configVerification.scopedKey(environment.currentModelKey, environment.currentConfigKey or currentConfig)
+  report.configuration.confirmed = (expectedConfig and currentConfig and currentConfig == expectedConfig)
+    or (expectedScoped and currentScoped and expectedScoped == currentScoped)
+
+  report.registryStatus = report.model.available and report.configuration.available
+    and (configStrategy == "normalized_path" and "registry_exact" or "registry_compatible")
+    or "registry_incompatible"
 
   local slotEvidence = type(environment.scan) == "table"
   for _, saved in ipairs(entry.final and entry.final.slots or {}) do
@@ -78,10 +103,29 @@ local function evaluate(entry, environment, mode)
       if strategy == "slot_resolution_ambiguous" then report.ambiguous = report.ambiguous + 1 else report.missing = report.missing + 1 end
       if item.required then report.blocking = report.blocking + 1 end
       report.actions[#report.actions + 1] = {phase = "parts", path = saved.path, action = "omit", reason = strategy}
+      if not item.required then addDeviation(report, {
+        phase = "target_preflight", savedPath = saved.path, resolvedPath = nil, slotId = saved.slotId,
+        partName = saved.partName, reason = "optional_slot_omitted", blocking = false,
+      }) end
     elseif not available then
       report.missing = report.missing + 1
       if item.required then report.blocking = report.blocking + 1 end
       report.actions[#report.actions + 1] = {phase = "parts", path = saved.path, action = "omit", reason = "part_missing"}
+      if not item.required then
+        addDeviation(report, {
+          phase = "target_preflight", savedPath = saved.path, resolvedPath = current.path, slotId = saved.slotId,
+          partName = saved.partName, reason = "optional_part_omitted", blocking = false,
+        })
+        if current.defaultPart and current.currentPart == current.defaultPart then addDeviation(report, {
+          phase = "target_preflight", savedPath = saved.path, resolvedPath = current.path, slotId = saved.slotId,
+          partName = saved.partName, reason = "optional_part_defaulted", blocking = false,
+        }) end
+      end
+    elseif strategy ~= "exact_path_slot_parent" then
+      addDeviation(report, {
+        phase = "target_preflight", savedPath = saved.path, resolvedPath = current.path, slotId = saved.slotId,
+        partName = saved.partName, reason = "slot_remapped", blocking = false,
+      })
     end
     report.slots[#report.slots + 1] = item
     end
@@ -99,9 +143,11 @@ local function evaluate(entry, environment, mode)
     if not available then
       report.missing = report.missing + 1
       report.actions[#report.actions + 1] = {phase = "tuning", name = saved.name, action = "omit", reason = "tuning_missing"}
+      addDeviation(report, {phase = "target_preflight", reason = "tuning_missing", name = saved.name, blocking = false})
     elseif not inRange then
       report.changed = report.changed + 1
       report.actions[#report.actions + 1] = {phase = "tuning", name = saved.name, action = "clamp", reason = "tuning_out_of_range"}
+      addDeviation(report, {phase = "target_preflight", reason = "tuning_clamped", name = saved.name, blocking = false})
     end
     report.tuning[#report.tuning + 1] = {name = saved.name, available = available, inRange = inRange}
   end
@@ -111,6 +157,7 @@ local function evaluate(entry, environment, mode)
     if not available then
       report.missing = report.missing + 1
       report.actions[#report.actions + 1] = {phase = "paint", layer = index, action = "omit", reason = "paint_layer_missing"}
+      addDeviation(report, {phase = "target_preflight", reason = "paint_layer_omitted", layer = index, blocking = false})
     end
     report.paints[#report.paints + 1] = {layer = index, available = available}
   end
@@ -179,17 +226,23 @@ local function evaluate(entry, environment, mode)
     report.warnings[#report.warnings + 1] = "Generator version differs; Replay Seed is unavailable for this algorithm."
   end
 
-  if not slotEvidence and report.model.available and report.configuration.available then report.status = "unverified"
-  elseif slotEvidence and not report.configuration.confirmed then report.status = "unverified"
+  if report.registryStatus == "registry_incompatible" then report.status = "incompatible"
+  elseif not slotEvidence or not report.configuration.confirmed
+    or (environment.currentModelKey ~= nil and environment.currentModelKey ~= report.model.expected)
+  then
+    report.status = "target_inspection_required"
+    report.targetInspectionRequired = true
   elseif report.ambiguous > 0 or report.blocking > 0 then report.status = "incompatible"
-  elseif report.missing == 0 and report.changed == 0 then report.status = "exact"
+  elseif report.missing == 0 and report.changed == 0 and #report.deviations == 0 then report.status = "exact"
   elseif mode == "compatible" and report.model.available and report.configuration.available then
-    report.status = report.missing > 0 and "partial" or "compatible"
+    report.status = (report.missing > 0 or #report.deviations > 0) and "partial" or "compatible"
   else report.status = "incompatible" end
+  report._deviationKeys = nil
   return report
 end
 
 M.resolveSlot = resolveSlot
 M.evaluate = evaluate
+M.deviationKey = deviationKey
 
 return M

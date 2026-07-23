@@ -11,7 +11,9 @@ local function desiredByResolvedPath(entry, scan, mode)
     local current, strategy = compatibility.resolveSlot(saved, scan, entry.final.modelKey)
     if not current then
       issues[#issues + 1] = {
-        path = saved.path, reason = strategy,
+        phase = "execution", savedPath = saved.path, path = saved.path, slotId = saved.slotId,
+        partName = saved.partName,
+        reason = (saved.required == true or saved.coreSlot == true) and strategy or "optional_slot_omitted",
         blocking = saved.required == true or saved.coreSlot == true,
       }
     else
@@ -21,10 +23,24 @@ local function desiredByResolvedPath(entry, scan, mode)
         result[current.path] = {saved = saved, current = current, strategy = strategy}
       elseif mode == "exact" or saved.required or saved.coreSlot then
         issues[#issues + 1] = {
-          path = saved.path, partName = saved.partName, reason = "part_missing",
+          phase = "execution", savedPath = saved.path, resolvedPath = current.path, path = saved.path,
+          slotId = saved.slotId, partName = saved.partName, reason = "part_missing",
           blocking = saved.required == true or saved.coreSlot == true,
         }
+      else
+        issues[#issues + 1] = {
+          phase = "execution", savedPath = saved.path, resolvedPath = current.path, path = saved.path,
+          slotId = saved.slotId, partName = saved.partName, reason = "optional_part_omitted", blocking = false,
+        }
+        if current.defaultPart and current.currentPart == current.defaultPart then issues[#issues + 1] = {
+          phase = "execution", savedPath = saved.path, resolvedPath = current.path, path = saved.path,
+          slotId = saved.slotId, partName = saved.partName, reason = "optional_part_defaulted", blocking = false,
+        } end
       end
+      if current and strategy ~= "exact_path_slot_parent" then issues[#issues + 1] = {
+        phase = "execution", savedPath = saved.path, resolvedPath = current.path, path = saved.path,
+        slotId = saved.slotId, partName = saved.partName, reason = "slot_remapped", blocking = false,
+      } end
     end
   end
   return result, issues
