@@ -2,7 +2,7 @@
 
 ## Current target
 
-Version `0.4.0-alpha.2` targets the currently installed BeamNG.drive `0.38.6.0.19963`, Steam build `23007233`.
+Version `0.5.0-alpha.1` targets the currently installed BeamNG.drive `0.38.6.0.19963`, Steam build `23007233`.
 
 | BeamNG version | Status | Evidence |
 | --- | --- | --- |
@@ -12,6 +12,10 @@ Version `0.4.0-alpha.2` targets the currently installed BeamNG.drive `0.38.6.0.1
 | Newer versions | Unknown | re-audit `apiAdapter.lua` before claiming support |
 
 Source compatibility is not interactive compatibility. No vehicle/mod row below should be read as Passed until [Testing](TESTING.md) contains reproducible live evidence.
+
+Creative locks and mutations do not expand BeamNG compatibility: they only preserve or vary choices exposed by the mounted registry, current hierarchical tree, tuning metadata, and supported paint fields. Unknown slot-category evidence remains `other`; an unresolved saved slot/part lock is reported rather than guessed.
+
+Gallery capture, SHA-256, controlled binary paths, and package exchange are granular optional capabilities. If a boundary is absent, core randomization and JSON copy remain available while the affected button is disabled or the Gallery uses fallback. `.vdna.zip` transfers identities/dependencies, not missing mods; the receiving PC must independently install compatible content and run preflight.
 
 ## Content classes
 

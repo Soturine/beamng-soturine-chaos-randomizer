@@ -76,6 +76,17 @@ No installed mod ZIP or content ZIP was opened manually. No screenshot,
 thumbnail, mod asset, JBeam, texture, sound, or third-party file was copied into
 the repository or fixtures.
 
+## 0.5.0-alpha.1 sharing and gallery audit
+
+The installed executable and Steam build remained unchanged. New optional boundaries were accepted only after source inspection:
+
+- `lua/ge/extensions/career/modules/inventory.lua` uses `util_screenshotCreator.frameVehicle`, a 500x281 `vec3` resolution, a controlled filename, and `render_renderViews.takeScreenshot(options, callback)`. `lua/ge/extensions/render/renderViews.lua` owns the temporary render view, hides/restores UI markers, writes the requested image, and invokes the callback. The adapter mirrors the bounded vehicle-framing shape only after explicit user action and re-reads the result before metadata is stored.
+- `lua/ge/ge_utils.lua:testZIP` documents installed `ZipArchive()` calls (`openArchiveName`, `addFile`, `getFileList`, `extractFile`, and `close`). `lua/ge/extensions/core/modmanager.lua` contains current reader call sites. The project nevertheless uses its own tiny stored-entry encoder/parser so archive bytes, local/central validation, CRC, names, bounds, and hostile fixtures remain deterministic and testable without extracting anything.
+- `lua/ge/map.lua` and current editor/telemetry call sites prove the global `hashStringSHA256(string)` shape. Package manifests require a lowercase 64-hex digest and fail closed when that capability is absent.
+- Installed VFS call sites reconfirm `FS:getUserPath`, `FS:directoryCreate`, `FS:removeFile`, and `FS:fileExists`. Binary `io.open` is capability-gated and receives only adapter-constructed real paths under constant `/settings/soturineChaosRandomizer/vehicleDNA/` roots. Imported names/IDs never provide a path segment without safe-ID normalization.
+
+Source inspection proves call shapes, not successful live capture, filesystem permissions, UI image loading, or cross-PC transfer. Those rows remain Pending. No installed mod ZIP was opened and no third-party thumbnail or asset was copied.
+
 ## Official documentation reviewed
 
 - [Lua extensions](https://documentation.beamng.com/modding/programming/extensions/)

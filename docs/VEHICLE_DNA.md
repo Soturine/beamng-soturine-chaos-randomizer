@@ -27,7 +27,7 @@ Compatible mode uses the same two-stage preflight and resolution order. It may p
 
 ### Replay Generation
 
-Replay Generation freezes the saved base model and normalized configuration, restores that base, and replays only the saved parts/tuning/paint generation stages using the recorded generator version, root seed, and settings. `randomConfig` DNA therefore validates its saved base and does not select another vehicle. The result is Exact, Close, or Partial according to field read-back and deviations; fingerprints are advisory and never replace comparison.
+Replay Generation freezes the saved base model and normalized configuration, restores that base, and replays only the saved parts/tuning/paint generation stages using the recorded generator version, root seed, and settings. `randomConfig` DNA therefore validates its saved base and does not select another vehicle. The explicit `original` lock policy uses the saved generation profile; `current` uses current settings and records preserved decisions as partial deviations. The result is Exact, Close, or Partial according to field read-back and deviations; fingerprints are advisory and never replace comparison.
 
 ### Pure Seed Replay
 
@@ -51,11 +51,17 @@ Every logical save validates the complete candidate library, writes it through t
 
 Limits are 100 entries, 128 KiB canonical data per entry, 1 MiB for the library, 2,048 slots, 2,048 tuning variables, 32 paint layers, 20 tags, 32 nested levels, 10,000 imported elements, and 4,096 characters per string. The UI reports entry, byte, element, and largest-entry usage. The restore parts pipeline has a depth-derived bounded budget rather than a fixed pass count.
 
+## Locks, mutations, and Garage metadata
+
+Vehicle DNA can retain the lock profile used during generation without changing its final snapshot. Restore ignores creative locks. Reroll Unlocked and mutations use current locks; deterministic Small/Medium/Wild children preserve parent/root/index/strength/seed lineage and never edit the saved parent. Garage metadata adds optional pins, ratings, tags, notes, collections, sort order, and managed thumbnail metadata without changing schema version 1.
+
 ## Import and export
 
-The default export is **Copy DNA JSON**. Optional file export writes one controlled filename under the same settings folder; an entry ID or name is never used as a path. Pasted text is capped and parsed with `JSON.parse` into a data object before BeamNG bridge serialization. Lua discards unknown top-level fields except the bounded `extensions` object, rejects non-JSON types, cycles, non-finite numbers, oversized/deep structures, invalid schema, and duplicate paths/names.
+`.vdna.json` uses a versioned share envelope and one controlled export filename. `.vdna.zip` uses a fixed export/inbox, five-entry allowlist, CRC/SHA manifest, strict schema identity, optional bounded managed PNG, and preview/confirmation before persistence. An entry ID or name never chooses a path. Pasted text is capped and parsed with `JSON.parse` into a data object before BeamNG bridge serialization. Lua discards unknown top-level fields except the bounded `extensions` object, rejects non-JSON types, cycles, non-finite numbers, oversized/deep structures, invalid schema, and duplicate paths/names.
 
 No import value becomes Lua or JavaScript source, selects a method name, accesses the network, or chooses a filesystem path.
+
+See [Locks](LOCKS.md), [Mutations](MUTATIONS.md), [Gallery](GALLERY.md), [Sharing](SHARING.md), and [Replay Semantics](REPLAY_SEMANTICS.md).
 
 ## Fingerprints
 

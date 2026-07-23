@@ -2,10 +2,10 @@
 
 Soturine's Chaos Randomizer is a BeamNG.drive UI App and GE Lua extension for seeded, bounded randomization of complete vehicle configurations, compatible hierarchical parts, tuning values, and paint layers.
 
-Current version: **0.4.0-alpha.2 — Vehicle DNA Restore Hotfix**
+Current version: **0.5.0-alpha.1 — Locks, Mutations, Favorites, Gallery and Sharing**
 Inspected target: **BeamNG.drive 0.38.6.0.19963** (Steam build 23007233)
 
-This is a Vehicle DNA persistence alpha artifact, not a gameplay-validated stable release. Automated and installed-source evidence is complete for the documented contracts; the interactive world/UI and multi-PC matrix remains Pending.
+This is an alpha artifact, not a gameplay-validated beta or stable release. Automated and installed-source evidence is complete for the documented contracts; the interactive world/UI and multi-PC matrix remains Pending at 0 Passed / 100 Pending.
 
 ## What it does
 
@@ -73,7 +73,7 @@ The adapter reports registry, replace, parts read/write, tuning read/write, pain
 
 ## Installation
 
-1. Download the attached `soturine_chaos_randomizer_0.4.0-alpha.2.zip` release asset, or build that filename locally.
+1. Download the attached `soturine_chaos_randomizer_0.5.0-alpha.1.zip` release asset, or build that filename locally.
 2. Copy the ZIP, without extracting it, into the active BeamNG user folder's `mods` directory.
 3. Enable it in Mod Manager.
 4. Enter Freeroam, open UI Apps, and add **Soturine's Chaos Randomizer**.
@@ -102,6 +102,16 @@ After Random Config, Scramble, or Full Random completes and a fresh final read-b
 - **Copy DNA JSON / Import pasted JSON** use schema v1 and bounded JSON-only validation. Imported text is parsed as data before crossing the UI bridge.
 
 New seeds use `SCR4-XXXX-XXXX`; legacy `XXXX-XXXX` seeds remain accepted without changing their generator sequence. Manual-seed selection ignores the hidden recent list. See [Vehicle DNA](docs/VEHICLE_DNA.md) and [Schema](docs/VEHICLE_DNA_SCHEMA.md).
+
+## Creative Vehicle DNA in 0.5
+
+- Persisted locks cover vehicle, configuration, evidence-based category, hierarchical slot, current part, tuning, and paint. Restore Snapshot ignores locks; Replay Generation explicitly chooses saved or current locks; Reroll Unlocked and Mutate use current locks.
+- **Reroll Unlocked** keeps every locked dimension and may create a deterministic child lineage. **Small**, **Medium**, and **Wild** mutations load the saved base and create a new pending child without editing the parent.
+- Garage adds pins, 0-5 rating, tags, notes, collections, search, filters, sort, grid/list, lineage, storage meter, and paginated lazy details. Compare uses normalized fields rather than fingerprints alone.
+- Explicit gallery capture is capped at 500x281, 256 KiB, and 100 managed images. Missing/unavailable images use a safe fallback; imported JSON never chooses a local path.
+- `.vdna.json` and `.vdna.zip` transfer inert metadata only, plus an optional image explicitly captured by this mod. ZIP import is fixed-inbox, bounded, allowlisted, checksummed, schema-validated, previewed, and confirmed before a unique local ID is created.
+
+See [Locks](docs/LOCKS.md), [Mutations](docs/MUTATIONS.md), [Gallery](docs/GALLERY.md), [Sharing](docs/SHARING.md), [UI Design](docs/UI_DESIGN.md), and [Replay Semantics](docs/REPLAY_SEMANTICS.md).
 
 ## Developer stress diagnostic
 
@@ -134,8 +144,8 @@ The package builder fixes entry order, timestamps, permissions, path separators,
 Expected release files:
 
 ```text
-dist/soturine_chaos_randomizer_0.4.0-alpha.2.zip
-dist/soturine_chaos_randomizer_0.4.0-alpha.2.sha256
+dist/soturine_chaos_randomizer_0.5.0-alpha.1.zip
+dist/soturine_chaos_randomizer_0.5.0-alpha.1.sha256
 dist/release-manifest.json
 ```
 
@@ -148,7 +158,7 @@ dist/release-manifest.json
 - Python/static/JS/JSON/package checks: automated.
 - Synthetic registry/config-pack/full-mod/part-pack/wheel-pack/user/unknown fixtures: automated.
 - Clean-profile ZIP install, UI rendering/resizing, gameplay operations, representative third-party mods, and bounded stress inside a world: **Pending**.
-- Vehicle DNA exact/compatible restore, corruption recovery, restart persistence, and multi-PC import inside the game: **Pending**.
+- Vehicle DNA exact/compatible restore, creative locks/mutations, managed capture, corruption recovery, restart persistence, and cross-PC package import inside the game: **Pending**.
 
 See [Testing](docs/TESTING.md), [Compatibility](docs/COMPATIBILITY.md), [Compatibility Matrix](docs/COMPATIBILITY_MATRIX.md), [Safety Model](docs/SAFETY_MODEL.md), [Performance](docs/PERFORMANCE.md), and [Troubleshooting](docs/TROUBLESHOOTING.md).
 
@@ -160,6 +170,8 @@ See [Testing](docs/TESTING.md), [Compatibility](docs/COMPATIBILITY.md), [Compati
 - Safety is metadata-based and cannot prove generic drivability; unknown/special layouts can remain `uncertain` without being destructively rejected.
 - Undo history is memory-only.
 - Vehicle DNA uses one bounded JSON library (100 entries, 128 KiB per entry, 1 MiB total) plus a last-known-good copy. The installed helper uses temp-write/rename, but the project does not claim transactional filesystem atomicity.
+- The optional share ZIP supports this project's deterministic stored-entry format only; it intentionally rejects compressed or feature-rich general-purpose ZIP variants.
+- Thumbnail capture is source-inspected and capability-gated but remains interactively unverified. Package images are included only when explicitly captured and revalidated; mod thumbnails are never discovered or copied.
 - A cross-model preflight may report `target_inspection_required`. Restore then loads the saved base inside the same history transaction, reruns target-specific preflight, and rolls back unless Exact is proven or the user explicitly authorized a reported Compatible partial result.
 - Fingerprints are deterministic change detectors, not cryptographic signatures or proof that two mod installations contain identical bytes.
 - Paint-design/skin semantics are not specialized beyond ordinary compatible part slots.

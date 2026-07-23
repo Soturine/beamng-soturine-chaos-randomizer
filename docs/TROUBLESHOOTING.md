@@ -106,7 +106,11 @@ If a write began, the entry is retained unless automatic rollback succeeds. Succ
 
 ## Immediate click used the wrong setting
 
-Version `0.4.0-alpha.2` sends the displayed action and complete settings snapshot in one Lua call. If the result reports a different manual seed/filter/Chaos value, collect the UI state and JavaScript log because that is a regression. The pending settings timer is cancelled on action and app destroy.
+Version `0.5.0-alpha.1` sends the displayed action and complete settings snapshot in one Lua call. If the result reports a different manual seed/filter/Chaos value, collect the UI state and JavaScript log because that is a regression. Settings/search timers are cancelled on action or app destroy.
+
+For `.vdna.zip`, place exactly one package at `/settings/soturineChaosRandomizer/vehicleDNA/inbox/import.vdna.zip`. General-purpose compressed ZIPs are intentionally unsupported; export a package from this mod. A validation error should identify archive, directory, entry, checksum, manifest, schema, or thumbnail bounds before confirmation becomes available.
+
+If a managed Gallery image is missing or rejected, the card should fall back without affecting Vehicle DNA. Load the DNA's model before capture, keep the current vehicle visible, and check capability notes plus `beamng.log`. Capture remains interactive Pending for this alpha.
 
 ## Developer stress stopped
 

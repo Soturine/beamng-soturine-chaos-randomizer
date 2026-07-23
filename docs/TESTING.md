@@ -35,11 +35,11 @@ find lua -type f -name '*.lua' -print0 | xargs -0 luac5.1 -p
 
 On 2026-07-23, every workflow SHA was resolved again through the official `actions/checkout`, `actions/setup-python`, `actions/setup-node`, and `actions/upload-artifact` GitHub repositories. Each pinned SHA matched its commented tag, and those tags were the repositories' latest releases at inspection time.
 
-Current suite structure after the Vehicle DNA implementation:
+Current suite structure after the creative Vehicle DNA implementation:
 
-- **36 Python `unittest` methods**;
-- one Python method runs **240 named Lua behavior/syntax/pipeline/performance cases** against BeamNG's shipped Lua 5.1 console when no standalone Lua is available;
-- **24 repository/static methods**, including real `node --check`, JSON/YAML parsing, links, versions, API boundary, UI atomicity/host/DNA boundary, icon limits, action pins, credentials, paths, and whitespace;
+- **39 Python `unittest` methods**;
+- one Python method runs **264 named Lua behavior/syntax/pipeline/performance cases** against BeamNG's shipped Lua 5.1 console when no standalone Lua is available;
+- **27 repository/static methods**, including real `node --check`, JSON/YAML parsing, links, versions, API boundary, UI atomicity/host/DNA/share boundary, accessibility/responsiveness, icon limits, action pins, credentials, paths, and whitespace;
 - **11 package methods**, including two-build equality, SHA, root layout, normalized metadata, version, manifest consistency, and machine-path checks;
 - **1 JavaScript file** syntax-checked;
 - **2 project JSON files** decoded;
@@ -75,7 +75,11 @@ Named Lua cases cover:
 - read-only exact/compatible preflight, conservative path/slot/parent resolution, missing/ambiguous/out-of-range reporting, dependency/environment warnings, and zero preflight writes;
 - parent-first Exact restore, compatible clamp/deviation/read-back, DNA-specific safety/final verification, one history transaction, and rollback on rejected writes;
 - explicit save only after successful final capture, no pending DNA after a failed operation, legacy/new seed parsing, and separate Replay/Restore APIs;
-- parsed-before-bridge import, fixed method allowlist, restore/delete confirmation, favorite controls, compact three-view navigation, eight-item Garage pagination, and controlled file export;
+- parsed-before-bridge import, fixed method allowlist, restore/delete confirmation, detailed favorite controls, five-view navigation, eight-item Garage pagination, one-off full-detail/export events, and controlled file export;
+- vehicle/config/category/slot/part/tuning/paint locks, evidence classification, unresolved locks, settings migration, restore lock independence, and explicit replay current-lock deviations;
+- Reroll Unlocked lock preservation/no-op capture, independent category/slot/tuning/paint substreams, deterministic mutation strengths/seeds/indices, parent immutability, unique children, bounded lineage, and missing-parent behavior;
+- pins/ratings/tags/notes/collections, filtered/sorted/paginated Garage queries, field-level comparison, fallback/PNG limits, safe managed IDs, and thumbnail count/cleanup policy;
+- `.vdna.json` envelopes plus stored-ZIP CRC/manifest/SHA/schema/allowlist/bounds, traversal/backslash/duplicate/symlink/flag/gap/offset/bomb rejection, missing-thumbnail validity, and origin/local-ID behavior;
 - release manifest version/tag/commit/package/schema/generator/test-count validation and non-publishing cross-platform beta-readiness workflow structure.
 
 Named Python UI cases cover `action_flushes_pending_settings`, immediate manual seed/filter use, destroy cancellation, and server-state non-resend. Package cases use the exact acceptance names for reproducibility, checksum, version, machine paths, root layout, and normalized metadata.
@@ -222,8 +226,52 @@ Use the exact final ZIP without extracting it and record the result of every row
 | 58 | partial discovered after target load requires prior authorization or rolls back | Pending |
 | 59 | adaptive restore budget handles a legitimately deep tree and stops no-progress/oscillation | Pending |
 | 60 | Cancel and Roll Back restores the previous vehicle; Pure Seed Replay remains a separate warned action | Pending |
+| 61 | vehicle lock keeps the loaded model during Reroll Unlocked | Pending |
+| 62 | configuration lock keeps the loaded base while unlocked stages change | Pending |
+| 63 | each evidence category lock preserves its current parts | Pending |
+| 64 | slot/part locks resolve after reload and unresolved evidence is visible | Pending |
+| 65 | named tuning and paint layer/field locks preserve exact read-back values | Pending |
+| 66 | lock profile survives restart and schema-3-to-4 migration | Pending |
+| 67 | all-locked Reroll Unlocked is a valid no-op with pending DNA | Pending |
+| 68 | locked parent and child slots remain coherent across fresh-tree passes | Pending |
+| 69 | Replay Generation visibly distinguishes original and current lock policies | Pending |
+| 70 | Restore Snapshot ignores creative locks and restores saved final state | Pending |
+| 71 | Reroll Unlocked changes only unlocked model/config/parts/tuning/paint | Pending |
+| 72 | unrelated locks do not shift unlocked deterministic substreams | Pending |
+| 73 | cancelled/failed reroll rolls back and saves no child | Pending |
+| 74 | successful reroll exposes explicit pending child save | Pending |
+| 75 | same parent/index/strength repeats mutation choices | Pending |
+| 76 | Small/Medium/Wild produce bounded visibly distinct strengths | Pending |
+| 77 | saved mutation records parent/root/generation/index/strength/seed lineage | Pending |
+| 78 | mutating never edits the saved parent | Pending |
+| 79 | repeated child saves receive unique IDs and increasing indices | Pending |
+| 80 | depth limit blocks deeper lineage; deleting parent marks surviving children | Pending |
+| 81 | favorite, pin, and 0–5 rating survive restart | Pending |
+| 82 | tags, notes, and collection edits survive restart and long text wraps | Pending |
+| 83 | Garage search/filter/sort/grid/list/pagination and storage meter | Pending |
+| 84 | no-capture Garage card renders deterministic fallback | Pending |
+| 85 | explicit capture can replace and remove one managed image | Pending |
+| 86 | missing managed image falls back without UI failure | Pending |
+| 87 | image dimension/byte/count limits reject over-limit captures | Pending |
+| 88 | no installed mod thumbnail, texture, or asset is copied/exported | Pending |
+| 89 | Compare reports model/config/slots/tuning/paint/dependency/safety/environment/locks/lineage fields | Pending |
+| 90 | `.vdna.json` export/copy/import roundtrip with dependency preview | Pending |
+| 91 | `.vdna.zip` export/fixed-inbox/import roundtrip without thumbnail | Pending |
+| 92 | traversal, backslash, absolute, and unknown ZIP entries are rejected | Pending |
+| 93 | duplicate and symlink ZIP entries are rejected | Pending |
+| 94 | bomb-shaped size, corrupt CRC, manifest, and SHA mismatch are rejected | Pending |
+| 95 | future schema is rejected and missing optional thumbnail is accepted | Pending |
+| 96 | import preserves origin ID/importedAt while assigning unique local ID | Pending |
+| 97 | five-view UI at minimum size and 100/125/150/200% keyboard focus | Pending |
+| 98 | fixed bridge actions, pending-operation disablement, cancel, and rollback message | Pending |
+| 99 | Share preview shows dependencies, privacy warning, sizes, and checksum | Pending |
+| 100 | exact exported package transfers PC A to PC B and preflights there | Pending |
 
-Interactive cases passed: **0**. Interactive cases pending: **60**.
+Interactive cases passed: **0**. Interactive cases pending: **100**.
+
+## 0.5.0-alpha.1 automated candidate
+
+The committed candidate has 39 Python methods and 264 named Lua cases green against the shipped Lua 5.1 console path, plus Node syntax, JSON/YAML, static trust-boundary, and package checks. Release ZIP bytes, entry count, SHA-256, CI run, tag, and downloaded-asset validation are recorded only after the exact release candidate is built and published. Interactive status remains 0 Passed / 100 Pending.
 
 ## 0.4.0-alpha.2 package and release result
 

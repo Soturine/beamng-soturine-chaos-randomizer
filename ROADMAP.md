@@ -2,6 +2,12 @@
 
 The roadmap is evidence-driven. A feature is not considered stable until it has been exercised against representative official and third-party content in the target BeamNG version.
 
+## 0.5.0-alpha.1 — creative Vehicle DNA
+
+Implemented on `main`: persisted vehicle/config/category/slot/part/tuning/paint locks; independent creative RNG substreams; Reroll Unlocked; deterministic Small/Medium/Wild child mutations and bounded lineage; pins, ratings, tags, notes, collections, filters and sort; paginated grid/list gallery with explicit bounded capture and fallback; field comparison; `.vdna.json` and validated fixed-inbox `.vdna.zip`; five-view responsive UI; schema-compatible optional DNA fields and settings schema 4 migration.
+
+Automated, source-inspection, and deterministic package evidence is implemented. Clean-profile gameplay, actual thumbnail capture, UI scaling/input, representative mods, restart recovery, and cross-PC transfer remain 0 Passed / 100 Pending, so this milestone is alpha only.
+
 ## 0.4.0-alpha.2 — restore hotfix
 
 Implemented on `main`: normalized/model-scoped configuration identity; cross-model Exact and Compatible target inspection; frozen-base Replay Generation; explicit Pure Seed Replay; adaptive parent-first pass budgets with timeout/no-progress/oscillation guards; optional-slot deviations; durable write recovery; visible storage metrics; and user cancellation with rollback. Interactive BeamNG evidence remains Pending, so this milestone is an alpha prerelease only.
@@ -79,11 +85,11 @@ The milestone remains a safety-and-compatibility alpha artifact until the intera
 
 The alpha may be published as an evidence-gathering prerelease. It is not a gameplay-validated release.
 
-## 0.4.0-beta — release preparation
+## 0.5.0-beta — release preparation
 
 - **Prepared, not published:** manual Windows/Ubuntu byte-comparison workflow and the multi-PC evidence checklist.
 - **Blocked on interactive evidence:** UI scaling, keyboard/controller and accessibility validation; restart/corruption recovery; Exact and Compatible restores on matching/changed content; repeated-operation and conflict stress; community compatibility reports.
-- Fix every alpha lifecycle, restore, storage, or UI regression found by that evidence before changing VERSION or creating `v0.4.0-beta.1`.
+- Fix every alpha lifecycle, restore, storage, sharing, or UI regression found by that evidence before changing VERSION or creating any beta tag.
 - Prepare localization and BeamNG Repository assets only after fallback labels, package behavior, and current submission requirements are revalidated.
 
 ## 1.0.0 — stable

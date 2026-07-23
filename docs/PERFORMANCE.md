@@ -38,12 +38,15 @@ The console timer has millisecond resolution, so a reported `0.000` means below 
 - Vehicle DNA libraries are capped at 100 entries and 1 MiB canonical JSON; each entry is capped at 128 KiB, 2,048 slots, 2,048 tuning variables, 32 paint layers, and 20 tags.
 - Canonical/import traversal is capped at 32 levels, 10,000 elements, 4,096 characters per string, and 512 characters per canonical path.
 - Garage pages expose eight summaries at a time; the pure summary helper never returns more than 25.
+- Garage search is debounced, compatibility/details/comparison/export/import are explicit lazy requests, and only the current eight-card page receives managed thumbnail URLs. Periodic state excludes full DNA, export text, and thumbnail bytes.
+- Lock profiles are capped at 2,048 slot/part locks, 2,048 tuning locks, and 32 paint layers. Lineage depth is 32 and comparison output is capped at 4,096 differences.
+- Managed images are capped at 100, 500x281, and 256 KiB each. Share archives are capped at 512 KiB, five entries, 256 KiB per entry, and 512 KiB total stored/uncompressed content.
 - Vehicle DNA restore applies only the shallowest changed slot depth per pass. Its budget is derived from saved/current tree depth plus safety margin, clamped to 12–128 passes, with a 120-second deadline and explicit no-progress/repeated-state guards. It performs no synchronous retry loop or per-frame tree scan.
 - Only one primary library and one last-known-good copy are retained. No per-entry backup directory can grow without bound.
 
 ## Runtime metrics
 
-Public state exposes index build/cache-hit counts and the last operation's total duration, reload count, slot scan time, mutation planning time, tree depth, slot count, and candidate count. Diagnostics record pass metrics and safety status. Absolute machine paths are never included.
+Public state exposes index build/cache-hit counts, `garageLoadMs`, `compatibilityMs`, `thumbnailLoadMs`, `compareMs`, `exportMs`, `importMs`, `storageBytes`, `storageElements`, and the last operation's total duration, reload count, slot scan time, mutation planning time, tree depth, slot count, and candidate count. Diagnostics record pass metrics and safety status. Absolute machine paths are never included.
 
 ## Regression fixtures
 

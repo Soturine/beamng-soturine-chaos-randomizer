@@ -14,10 +14,15 @@ The canonical format is `SoturineVehicleDNA`, the internal kind is `soturineVehi
   "createdAt": 0,
   "updatedAt": 0,
   "favorite": false,
+  "pinned": false,
+  "rating": 0,
+  "notes": "",
+  "collection": "",
+  "sortOrder": 0,
   "tags": [],
   "environment": {
     "beamNGVersion": "0.38.6.0",
-    "extensionVersion": "0.4.0-alpha.2",
+    "extensionVersion": "0.5.0-alpha.1",
     "targetBeamNG": "0.38.6.0.19963",
     "schemaVersion": 1,
     "generatorVersion": 4
@@ -107,10 +112,28 @@ The canonical format is `SoturineVehicleDNA`, the internal kind is `soturineVehi
     "source": "fresh_post_operation_readback",
     "interactive": false
   },
-  "lineage": {}
+  "lineage": {
+    "parentId": "dna-parent",
+    "rootId": "dna-root",
+    "generation": 1,
+    "mutationIndex": 1,
+    "mutationStrength": "small",
+    "mutationSeed": "SCR4-XXXX-XXXX"
+  },
+  "lockProfile": {
+    "kind": "soturineVehicleDNALockProfile",
+    "profileVersion": 1
+  },
+  "thumbnail": {
+    "kind": "managed",
+    "managedId": "dna-safe-id",
+    "width": 500,
+    "height": 281,
+    "bytes": 12345
+  }
 }
 ```
 
-The example uses `null` only to explain optional JSON fields; Lua omits non-applicable keys in generated entries. `final.slots` is the project-owned normalized slot array, never a raw `getConfig()` table. Paints contain only supported fields. Dependencies contain identities/labels, not third-party bytes. Unknown imported top-level fields are discarded, with `extensions` reserved for bounded JSON-only future data.
+The example uses `null` only to explain optional JSON fields; Lua omits non-applicable keys in generated entries. The 0.5 metadata, lineage, lock, and thumbnail fields are optional, so Vehicle DNA remains schema 1 and alpha.1/alpha.2 entries stay valid. Imported managed thumbnail metadata is stripped and replaced by fallback; only locally validated capture/package bytes may create it. `final.slots` is the project-owned normalized slot array, never a raw `getConfig()` table. Paints contain only supported fields. Dependencies contain identities/labels, not third-party bytes. Unknown imported top-level fields are discarded, with `extensions` reserved for bounded JSON-only future data.
 
 Strict equality is field-based. `fingerprints.final` is used for change detection and diagnostics but never substitutes for slot, tuning, and paint read-back.

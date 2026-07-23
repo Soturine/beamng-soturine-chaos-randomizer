@@ -44,13 +44,16 @@ Repository documentation, tools, tests, workflows, and fixtures do not enter the
 | `vehicleDNACompatibility.lua` | Read-only model/config/slot/tuning/paint/dependency/environment preflight |
 | `vehicleDNARestore.lua` | Parent-first compatible/exact restore planning without RNG fallback |
 | `vehicleDNAPassBudget.lua` | Depth-derived pass limit, deadline, no-progress, and repeated-state guards |
+| `vehicleDNALocks.lua` / `vehicleDNAMutations.lua` | Persisted normalized lock profiles, deterministic strengths/seeds, and bounded lineage |
+| `vehicleDNACompare.lua` / `vehicleDNAGallery.lua` | Bounded normalized field comparison and managed/fallback thumbnail policy |
+| `vehicleDNAPackage.lua` | Deterministic stored ZIP writer plus fail-closed archive/manifest validation |
 | selectors/policy/diagnostics/util | Pure selection, Chaos policy, structured logs, shared helpers |
 
 ## Settings schema
 
 ```lua
 {
-  schemaVersion = 3,
+  schemaVersion = 4,
   chaos = 75,
   allowMissingParts = true,
   protectCriticalParts = false,
@@ -64,11 +67,12 @@ Repository documentation, tools, tests, workflows, and fixtures do not enter the
   manualSeed = "",
   dnaLibraryLimit = 100,
   autoSaveDNA = false,
-  defaultRestoreMode = "exact"
+  defaultRestoreMode = "exact",
+  lockProfile = {kind = "soturineVehicleDNALockProfile", profileVersion = 1}
 }
 ```
 
-Schema 3 retains the schema-2 critical-parts migration, maps the temporary `dnaLimit` name to `dnaLibraryLimit`, forces autosave off, and bounds the library to 1–100 entries. Unknown keys are removed; numeric/enumerated settings are bounded.
+Schema 4 retains every schema-1/2/3 migration, maps the temporary `dnaLimit` name to `dnaLibraryLimit`, forces autosave off, bounds the library to 1–100 entries, and adds a normalized profile-version-1 lock object. Unknown keys are removed; numeric/enumerated settings and lock collections are bounded.
 
 ## Adapter write contracts
 
@@ -113,12 +117,17 @@ The selected persistence design is one bounded store because installed-source ev
 ```text
 /settings/soturineChaosRandomizer/vehicleDNA/library.json
 /settings/soturineChaosRandomizer/vehicleDNA/library.last-known-good.json
-/settings/soturineChaosRandomizer/vehicleDNA/export.json
+/settings/soturineChaosRandomizer/vehicleDNA/share/export.vdna.json
+/settings/soturineChaosRandomizer/vehicleDNA/share/export.vdna.zip
+/settings/soturineChaosRandomizer/vehicleDNA/inbox/import.vdna.zip
+/settings/soturineChaosRandomizer/vehicleDNA/thumbnails/<safe-id>.png
 ```
 
 Before a primary write, main passes the already schema-validated in-memory library as the last-known-good value. The adapter writes the backup, writes the normalized candidate through `jsonWriteFile(..., atomicWrite=true)`, reads the primary back, and main revalidates it. Startup rejects an invalid primary and explicitly revalidates the backup. This is bounded recovery, not a crash-proof atomicity claim.
 
 Restore uses one ordinary operation token, original snapshot, history commit, target ID, deadlines, and rollback. Its phases are `dna_preflight`, `dna_base_spawn`, `dna_parts`, `dna_tuning`, `dna_paint`, `dna_validation`, and `dna_final_verification`. Exact requires a fully proven preflight and full final field equality. Compatible applies only uniquely resolved available data, records every omission/clamp, confirms partial intent separately, and verifies the subset actually applied. Neither restore mode consumes RNG or consults recent/blacklist state for fallback selection.
+
+Creative operations snapshot the normalized current lock profile. Category/slot/part, tuning-name, and paint-field decisions use independent derived substreams, so an unrelated lock does not shift unlocked choices. Reroll Unlocked creates a pending result from the current vehicle/config lock policy; mutation first loads the saved parent base and derives its seed from parent seed/ID, index, and strength. Saved parents remain immutable and lineage is capped at 32 generations.
 
 ## Hierarchical mutation passes
 
@@ -222,7 +231,9 @@ Limits: default 10, maximum 50 iterations, maximum 300 seconds, per-operation ti
 
 ## UI boundary
 
-The UI calls only fixed public extension methods. An action click cancels the pending settings timer and sends `runAction(action, currentSettings)` as one serialized Lua call. Lua validates/applies the snapshot before beginning the operation. Pasted DNA is length-checked and parsed with `JSON.parse` before `serializeToLua`; raw import text never becomes Lua source or a method name. Exact/Compatible buttons run preflight first, and the Compatibility view owns the separate destructive confirmation. Server state events assign scope state without scheduling another settings write. Destroy cancels the pending timer.
+The UI has fixed Randomize, Locks, Garage, Compare, and Share destinations and calls only allowlisted public extension methods. An action click cancels the pending settings timer and sends `runAction(action, currentSettings)` as one serialized Lua call. Lua validates/applies the snapshot before beginning the operation. Pasted DNA is length-checked and parsed with `JSON.parse` before `serializeToLua`; raw import text never becomes Lua source or a method name. Exact/Compatible buttons run preflight first, and Garage compatibility owns the separate destructive confirmation. Server state events assign scope state without scheduling another settings write. Destroy cancels both settings and search timers.
+
+Periodic public state contains paginated summaries, bounded reports, metrics, and lock counts—not full DNA, export text, thumbnail bytes, or full details. Explicit details, comparison, lock resolution, and JSON export use dedicated one-off events.
 
 The custom-element host is explicitly block-sized to 100% width/height because the directive retains `replace: false`.
 
@@ -232,4 +243,4 @@ Random choices use operation, pass, variable, and group substreams. Maps are sor
 
 The ZIP builder normalizes member order, timestamps, Unix regular-file mode, path separators, packaged text line endings, compression level, and checksum format. It never adds a wrapper directory or development files. A deterministic external release manifest binds VERSION/tag/commit/source-date, filename/bytes/entries/SHA, BeamNG target, schema/generator versions, and real automated/interactive counts. Repeated same-environment builds must be byte-identical; cross-platform identity requires comparing the real archives.
 
-Runtime performance records index builds/cache hits and the last operation's duration, reload count, slot scan/planning time, slot count, candidate count, and depth. Diagnostics, history, passes, suspects, and paint confirmation are all bounded. Synthetic performance measurements are documented in [Performance](PERFORMANCE.md).
+Runtime performance records index builds/cache hits, Garage/compatibility/thumbnail/compare/export/import timings, storage bytes/elements, and the last operation's duration, reload count, slot scan/planning time, slot count, candidate count, and depth. Diagnostics, history, passes, lineage, compare, packages, images, suspects, and paint confirmation are all bounded. Synthetic performance measurements are documented in [Performance](PERFORMANCE.md).

@@ -2,7 +2,16 @@
 
 This matrix separates installed-source inspection, license-safe automated evidence, mocked pipeline evidence, and real interactive evidence. `Automated` never means gameplay-validated.
 
-Target: Soturine's Chaos Randomizer `0.4.0-alpha.2`; BeamNG.drive `0.38.6.0.19963`; Steam build `23007233`.
+Target: Soturine's Chaos Randomizer `0.5.0-alpha.1`; BeamNG.drive `0.38.6.0.19963`; Steam build `23007233`.
+
+| 0.5 boundary | Automated/source evidence | Live status |
+| --- | --- | --- |
+| Locks and independent creative substreams | Pure + mocked Lua cases | Pending |
+| Deterministic mutation lineage | Pure + mocked Lua cases | Pending |
+| Gallery fallback and PNG bounds | Pure/static + installed screenshot source | Pending |
+| JSON/ZIP sharing safety | Pure Lua, static boundary, deterministic package fixtures | Pending |
+| Five-view UI, focus, responsive overflow | Node/static CSS/HTML assertions | Pending |
+| Cross-PC package dependency/restore behavior | Documented procedure only | Pending |
 
 | Content class | Registry/source evidence | Safety behavior | Automated evidence | Interactive evidence |
 | --- | --- | --- | --- | --- |

@@ -49,9 +49,9 @@ Never write development files into the BeamNG installation's stock content direc
 - Treat safety profiles as metadata evidence, not as a promise of physical drivability.
 - Add tuning correlations only for explicit proven group metadata.
 - Preserve exact seeds and concise diagnostics in bug reports.
-- Keep the default UI limited to the three primary actions, Chaos slider, and two visible safety options.
+- Keep the five primary UI destinations stable and responsive; new operations belong in Randomize, Locks, Garage details, Compare, or Share instead of adding debug-style panels.
 - Keep developer stress bounded, cancellable, sequential, disabled by default, and outside the normal panel.
-- Treat imported Vehicle DNA as hostile JSON data: preserve size/type/schema/fingerprint limits, fixed method names, and adapter-owned paths.
+- Treat imported Vehicle DNA and `.vdna.zip` as hostile data: preserve size/type/schema/fingerprint/archive/image limits, fixed method names, and adapter-owned paths.
 - Keep Restore Exact, Restore Compatible, Replay Generation, and Pure Seed Replay separate. A fingerprint or seed is never sufficient evidence for an Exact result.
 - Preserve schema/generator versions and add an explicit migration before changing persisted formats.
 - Do not add a visible control for an unimplemented feature.
@@ -68,7 +68,7 @@ Never write development files into the BeamNG installation's stock content direc
 
 Run automated tests and package validation for every change. Engine/API, UI, vehicle mutation, tuning, paint, or lifecycle changes also require applicable rows from the interactive matrix in [Testing](docs/TESTING.md).
 
-Vehicle DNA changes also need focused coverage for canonicalization, storage recovery, preflight without writes, transactional restore/rollback, import limits, and final field read-back. Never add third-party mod bytes to a fixture; retain only small original metadata shapes.
+Vehicle DNA changes also need focused coverage for canonicalization, locks/substreams, parent/child lineage, storage recovery, preflight without writes, transactional restore/rollback, import/ZIP limits, and final field read-back. Never add third-party mod bytes or thumbnails to a fixture; retain only small original metadata shapes.
 
 Do not report an interactive case as passed without recording the exact environment and inspecting `beamng.log`. Never turn a one-off successful spawn into a broad compatibility claim.
 

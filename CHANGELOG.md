@@ -6,6 +6,28 @@ All notable changes are documented here using [Keep a Changelog](https://keepach
 
 No additional changes.
 
+## [0.5.0-alpha.1] - 2026-07-23
+
+Creative Vehicle DNA alpha prerelease. Automated and package checks pass; all real BeamNG world/UI and multi-PC cases remain Pending.
+
+### Added
+
+- Persisted locks for vehicle, configuration, evidence categories, hierarchical slots/current parts, tuning, and paint, with unresolved evidence and four direct presets.
+- Reroll Unlocked plus deterministic Small/Medium/Wild child mutations, independent substreams, mutation indices, origin-aware lineage, and parent deletion behavior.
+- Garage pins, ratings, tags, notes, collections, search/filter/sort, grid/list gallery, lazy details, bounded managed capture/fallback, and field-by-field Compare.
+- Validated `.vdna.json` envelopes and deterministic `.vdna.zip` packages with fixed paths, preview/confirmation, SHA-256 manifest, unique local IDs, and optional explicitly captured image.
+- Randomize, Locks, Garage, Compare, and Share UI views with fixed bridge allowlist, explicit Replay lock policy, responsive layout, focus/reduced-motion treatment, and one-off detail/export events.
+
+### Security
+
+- ZIP import rejects unknown entries, traversal, slashes/backslashes, absolute paths, duplicates, symlinks, encryption/flags, compression, hidden gaps, local/central mismatch, CRC/SHA/schema mismatch, over-limit PNGs, and bomb-shaped sizes.
+- Full DNA, thumbnail bytes, and export text are excluded from periodic public state. Imports cannot choose methods or local paths, and no mod assets are exported.
+
+### Compatibility
+
+- Vehicle DNA remains schema 1 because all new entry fields are optional; settings migrate explicitly to schema 4. Alpha.1/alpha.2 IDs, timestamps, favorites, seeds, and snapshots remain valid.
+- Restore Snapshot ignores locks. Replay Generation explicitly chooses original/current locks; current-lock deviations are partial. Pure Seed Replay remains separate.
+
 ## [0.4.0-alpha.2] - 2026-07-23
 
 Vehicle DNA restore hotfix prerelease. Automated tests and package validation pass; all real BeamNG world/UI and multi-PC cases remain Pending.
