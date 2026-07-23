@@ -10,23 +10,23 @@
   <div class="scr-body">
     <div class="scr-actions">
       <button class="scr-button scr-button-wide" type="button"
-        title="Load one complete eligible vehicle configuration"
-        aria-label="Random Config: load a complete configuration"
+        title="Replace the current vehicle with one complete eligible installed configuration; do not scramble it"
+        aria-label="Random Config: replace with one complete configuration without scrambling"
         ng-click="chaos.run('randomConfig')"
         ng-disabled="chaos.state.busy || !chaos.state.capabilities.randomConfig">
         RANDOM CONFIG
       </button>
       <div class="scr-action-row">
         <button class="scr-button" type="button"
-          title="Mutate compatible parts, tuning, and paint on the current model"
-          aria-label="Scramble the current vehicle"
+          title="Keep the current model and scramble compatible parts, nested slots, tuning, wheels, tires, and paints"
+          aria-label="Scramble compatible content on the current model"
           ng-click="chaos.run('scramble')"
           ng-disabled="chaos.state.busy || !chaos.state.capabilities.scramble">
           SCRAMBLE
         </button>
         <button class="scr-button scr-button-hot" type="button"
-          title="Load a random configuration, then scramble its parts, tuning, and paint"
-          aria-label="Run the full randomization pipeline"
+          title="Replace with a random model and configuration, then automatically run the complete scramble pipeline in one operation"
+          aria-label="Full Random: replace and complete every supported randomization stage in one click"
           ng-click="chaos.run('fullRandom')"
           ng-disabled="chaos.state.busy || !chaos.state.capabilities.fullRandom">
           FULL RANDOM
@@ -135,6 +135,13 @@
           {{chaos.state.index.blacklists.part || 0}} parts ·
           {{chaos.state.index.blacklists.tuning || 0}} tuning variables
         </p>
+        <p>{{chaos.state.index.suspects || 0}} suspect part candidates under bounded observation</p>
+        <dl ng-if="chaos.state.index.lastSuspect">
+          <dt>Suspect</dt><dd>{{chaos.state.index.lastSuspect.id}}</dd>
+          <dt>Score</dt><dd>{{chaos.state.index.lastSuspect.suspicionScore | number:2}}</dd>
+          <dt>Batches</dt><dd>{{chaos.state.index.lastSuspect.failedBatchCount || 0}}</dd>
+          <dt>Successes</dt><dd>{{chaos.state.index.lastSuspect.successfulUseCount || 0}}</dd>
+        </dl>
         <dl ng-if="chaos.state.index.lastBlocked">
           <dt>Type</dt><dd>{{chaos.state.index.lastBlocked.type}}</dd>
           <dt>Last blocked</dt><dd>{{chaos.state.index.lastBlocked.id}}</dd>
