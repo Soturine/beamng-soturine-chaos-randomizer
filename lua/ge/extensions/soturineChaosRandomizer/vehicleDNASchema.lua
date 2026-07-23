@@ -1,5 +1,7 @@
 local util = require("ge/extensions/soturineChaosRandomizer/util")
 local fingerprint = require("ge/extensions/soturineChaosRandomizer/vehicleDNAFingerprint")
+local vehicleDNALocks = require("ge/extensions/soturineChaosRandomizer/vehicleDNALocks")
+local vehicleDNAGallery = require("ge/extensions/soturineChaosRandomizer/vehicleDNAGallery")
 
 local M = {}
 
@@ -14,6 +16,7 @@ M.MAX_WARNINGS = 128
 M.MAX_DEVIATIONS = 512
 M.MAX_LINEAGE_ELEMENTS = 64
 M.MAX_EXTENSION_ELEMENTS = 256
+M.MAX_LOCK_ELEMENTS = 8192
 M.MAX_NAME_LENGTH = 80
 M.MAX_ENTRY_BYTES = 131072
 
@@ -55,6 +58,16 @@ local function validateEntry(entry, options)
   if not stringValue(entry.name, M.MAX_NAME_LENGTH) then return false, "dna_name_invalid" end
   if entry.description ~= nil and type(entry.description) ~= "string" then return false, "dna_description_invalid" end
   if entry.favorite ~= nil and type(entry.favorite) ~= "boolean" then return false, "dna_favorite_invalid" end
+  if entry.pinned ~= nil and type(entry.pinned) ~= "boolean" then return false, "dna_pinned_invalid" end
+  local rating = entry.rating ~= nil and tonumber(entry.rating) or nil
+  if rating and (not util.isFinite(rating) or rating ~= math.floor(rating) or rating < 0 or rating > 5) then
+    return false, "dna_rating_invalid"
+  end
+  if entry.notes ~= nil and (type(entry.notes) ~= "string" or #entry.notes > 2048) then return false, "dna_notes_invalid" end
+  if entry.collection ~= nil and (type(entry.collection) ~= "string" or #entry.collection > 80) then return false, "dna_collection_invalid" end
+  if entry.sortOrder ~= nil and (not util.isFinite(tonumber(entry.sortOrder)) or math.abs(entry.sortOrder) > 1000000000) then
+    return false, "dna_sort_order_invalid"
+  end
   local createdAt, updatedAt = tonumber(entry.createdAt), tonumber(entry.updatedAt)
   if not util.isFinite(createdAt) or not util.isFinite(updatedAt) or createdAt < 0 or updatedAt < createdAt then
     return false, "dna_timestamp_invalid"
@@ -121,6 +134,42 @@ local function validateEntry(entry, options)
   if entry.deviations ~= nil and not arrayWithin(entry.deviations, M.MAX_DEVIATIONS) then return false, "dna_deviations_limit" end
   local metadataValid, metadataReason = boundedMetadata(entry.lineage or {}, M.MAX_LINEAGE_ELEMENTS, "dna_lineage")
   if not metadataValid then return false, metadataReason end
+  if entry.lineage ~= nil then
+    local lineage = entry.lineage
+    for _, key in ipairs({"parentId", "rootId", "createdFrom", "parentSeed", "originId", "importStrategy"}) do
+      if lineage[key] ~= nil and not stringValue(lineage[key], 256) then return false, "dna_lineage_invalid" end
+    end
+    local generation = lineage.generation ~= nil and tonumber(lineage.generation) or nil
+    local mutationIndex = lineage.mutationIndex ~= nil and tonumber(lineage.mutationIndex) or nil
+    if generation and (generation ~= math.floor(generation) or generation < 0 or generation > 32) then return false, "dna_lineage_invalid" end
+    if mutationIndex and (mutationIndex ~= math.floor(mutationIndex) or mutationIndex < 1 or mutationIndex > 1000000) then return false, "dna_lineage_invalid" end
+    if lineage.mutationStrength ~= nil and lineage.mutationStrength ~= "small"
+      and lineage.mutationStrength ~= "medium" and lineage.mutationStrength ~= "wild"
+    then return false, "dna_lineage_invalid" end
+    if lineage.parentMissing ~= nil and type(lineage.parentMissing) ~= "boolean" then return false, "dna_lineage_invalid" end
+    if lineage.importedAt ~= nil and (not util.isFinite(tonumber(lineage.importedAt)) or tonumber(lineage.importedAt) < 0) then
+      return false, "dna_lineage_invalid"
+    end
+  end
+  if entry.lockProfile ~= nil then
+    metadataValid, metadataReason = boundedMetadata(entry.lockProfile, M.MAX_LOCK_ELEMENTS, "dna_lock_profile")
+    if not metadataValid then return false, metadataReason end
+    local normalizedLocks = vehicleDNALocks.normalize(entry.lockProfile)
+    if not util.deepEqual(entry.lockProfile, normalizedLocks) then return false, "dna_lock_profile_invalid" end
+  end
+  if entry.thumbnail ~= nil then
+    if type(entry.thumbnail) ~= "table" or (entry.thumbnail.kind ~= "fallback" and entry.thumbnail.kind ~= "managed") then
+      return false, "dna_thumbnail_invalid"
+    end
+    if entry.thumbnail.kind == "managed" then
+      local managedId = vehicleDNAGallery.safeId(entry.thumbnail.managedId)
+      if not managedId or managedId ~= entry.thumbnail.managedId
+        or tonumber(entry.thumbnail.width) < 1 or tonumber(entry.thumbnail.width) > vehicleDNAGallery.MAX_WIDTH
+        or tonumber(entry.thumbnail.height) < 1 or tonumber(entry.thumbnail.height) > vehicleDNAGallery.MAX_HEIGHT
+        or tonumber(entry.thumbnail.bytes) < 1 or tonumber(entry.thumbnail.bytes) > vehicleDNAGallery.MAX_BYTES
+      then return false, "dna_thumbnail_invalid" end
+    end
+  end
   metadataValid, metadataReason = boundedMetadata(entry.extensions or {}, M.MAX_EXTENSION_ELEMENTS, "dna_extensions")
   if not metadataValid then return false, metadataReason end
 

@@ -71,6 +71,11 @@ local function create(options)
     createdAt = math.floor(tonumber(options.timestamp) or os.time()),
     updatedAt = math.floor(tonumber(options.timestamp) or os.time()),
     favorite = options.favorite == true,
+    pinned = options.pinned == true,
+    rating = options.rating,
+    notes = "",
+    collection = "",
+    sortOrder = 0,
     tags = util.deepCopy(options.tags or {}),
     environment = environment,
     generation = {
@@ -105,6 +110,8 @@ local function create(options)
       interactive = false,
     },
     lineage = util.deepCopy(options.lineage or {}),
+    lockProfile = options.lockProfile and util.deepCopy(options.lockProfile) or nil,
+    thumbnail = options.thumbnail and util.deepCopy(options.thumbnail) or nil,
   }
   local valid, reason = schema.validateEntry(entry)
   if not valid then return nil, reason end
