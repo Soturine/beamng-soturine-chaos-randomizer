@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 3,
+  "schemaVersion": 4,
   "chaos": 75,
   "allowMissingParts": true,
   "protectCriticalParts": false,
@@ -13,5 +13,17 @@
   "manualSeed": "",
   "dnaLibraryLimit": 100,
   "autoSaveDNA": false,
-  "defaultRestoreMode": "exact"
+  "defaultRestoreMode": "exact",
+  "lockProfile": {
+    "kind": "soturineVehicleDNALockProfile",
+    "profileVersion": 1,
+    "vehicle": false,
+    "configuration": false,
+    "categories": {},
+    "slots": {},
+    "parts": {},
+    "tuning": {"all": false, "variables": {}, "normalized": {}},
+    "paints": {"all": false, "layers": {}, "fields": {}},
+    "updatedAt": 0
+  }
 }

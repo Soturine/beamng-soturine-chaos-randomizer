@@ -64,13 +64,26 @@ local function plan(scan, eligiblePaths, policy, generator, options)
 
   for _, slot in ipairs(scan.slots or {}) do
     local eligible = not eligiblePaths or eligiblePaths[slot.path]
+    local locked, lockReason = false, nil
+    if eligible and options.isLocked then locked, lockReason = options.isLocked(slot) end
     local deferredBy
     if eligible then
       for _, ancestor in ipairs(changedAncestors) do
         if isDescendant(slot, ancestor) then deferredBy = ancestor; break end
       end
     end
-    if deferredBy then
+    if locked then
+      decisions[#decisions + 1] = {
+        slotName = slot.id,
+        slotPath = slot.path,
+        previousPart = slot.currentPart,
+        selectedPart = slot.currentPart,
+        passNumber = passNumber,
+        skipped = true,
+        locked = true,
+        reason = lockReason or "locked",
+      }
+    elseif deferredBy then
       decisions[#decisions + 1] = {
         slotName = slot.id,
         slotPath = slot.path,
@@ -82,7 +95,13 @@ local function plan(scan, eligiblePaths, policy, generator, options)
         ancestorPath = deferredBy.path,
         reason = "deferred_due_to_ancestor_change",
       }
-    elseif eligible and generator:boolean(mutationPolicy.mutationChance(policy, slot, passNumber)) then
+    else
+      local slotGenerator = generator
+      if eligible and options.independentSubstreams and type(generator.fork) == "function" then
+        local category = options.categoryForSlot and options.categoryForSlot(slot) or "other"
+        slotGenerator = generator:fork("category:" .. tostring(category)):fork("slot:" .. tostring(slot.path))
+      end
+    if eligible and slotGenerator:boolean(mutationPolicy.mutationChance(policy, slot, passNumber)) then
       local alternatives, rejected = cleanCandidates(
         slot.candidates,
         slot.currentPart,
@@ -106,7 +125,7 @@ local function plan(scan, eligiblePaths, policy, generator, options)
         }
       end
       local canEmpty, emptyReason = validator.canEmpty(slot, policy.protectCriticalParts)
-      local chooseEmpty = policy.allowMissingParts and canEmpty and generator:boolean(policy.emptySlotChance)
+      local chooseEmpty = policy.allowMissingParts and canEmpty and slotGenerator:boolean(policy.emptySlotChance)
       local selected
       local reason
 
@@ -114,7 +133,7 @@ local function plan(scan, eligiblePaths, policy, generator, options)
         selected = ""
         reason = "chaos_missing_part"
       elseif #alternatives > 0 then
-        selected = generator:choice(alternatives)
+        selected = slotGenerator:choice(alternatives)
         reason = "compatible_alternative"
       end
 
@@ -169,6 +188,7 @@ local function plan(scan, eligiblePaths, policy, generator, options)
           reason = protectionReason,
         }
       end
+    end
     end
   end
 

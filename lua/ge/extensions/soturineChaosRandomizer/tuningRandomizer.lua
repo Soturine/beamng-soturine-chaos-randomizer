@@ -80,7 +80,8 @@ local function sample(variable, policy, generator)
   return value, distribution
 end
 
-local function randomize(variables, currentValues, policy, generator)
+local function randomize(variables, currentValues, policy, generator, options)
+  options = options or {}
   local values = util.deepCopy(currentValues or {})
   local changes = {}
   local groupDiagnostics = {}
@@ -99,6 +100,7 @@ local function randomize(variables, currentValues, policy, generator)
       values = {},
     }
     for _, variable in ipairs(group.members) do
+      if not (options.isLocked and options.isLocked(variable.name)) then
       local value = variable.minimum + (variable.maximum - variable.minimum) * base
       value = util.clamp(util.roundToStep(value, variable.step, variable.minimum), variable.minimum, variable.maximum)
       diagnostics.values[variable.name] = value
@@ -115,12 +117,14 @@ local function randomize(variables, currentValues, policy, generator)
           groupId = groupId,
         }
       end
+      end
     end
     groupDiagnostics[#groupDiagnostics + 1] = diagnostics
   end
 
   table.sort(independent, function(a, b) return a.name < b.name end)
   for _, variable in ipairs(independent) do
+    if not (options.isLocked and options.isLocked(variable.name)) then
     local value, distribution = sample(variable, policy, fork(generator, "tuning-variable:" .. variable.name))
     if math.abs(value - variable.current) > 1e-10 then
       values[variable.name] = value
@@ -133,6 +137,7 @@ local function randomize(variables, currentValues, policy, generator)
         step = variable.step,
         distribution = distribution,
       }
+    end
     end
   end
   table.sort(changes, function(a, b) return a.name < b.name end)

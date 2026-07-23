@@ -1,9 +1,10 @@
 local util = require("ge/extensions/soturineChaosRandomizer/util")
+local vehicleDNALocks = require("ge/extensions/soturineChaosRandomizer/vehicleDNALocks")
 
 local M = {}
 
 local DEFAULTS = {
-  schemaVersion = 3,
+  schemaVersion = 4,
   chaos = 75,
   allowMissingParts = true,
   protectCriticalParts = false,
@@ -18,6 +19,7 @@ local DEFAULTS = {
   dnaLibraryLimit = 100,
   autoSaveDNA = false,
   defaultRestoreMode = "exact",
+  lockProfile = vehicleDNALocks.empty(),
 }
 
 local FILTERS = {everything = true, official = true, mods = true}
@@ -50,7 +52,9 @@ local function migrate(raw)
     if raw.dnaLimit ~= nil and raw.dnaLibraryLimit == nil then raw.dnaLibraryLimit = raw.dnaLimit end
   end
 
-  raw.schemaVersion = 3
+  if version < 4 and raw.lockProfile == nil then raw.lockProfile = vehicleDNALocks.empty() end
+
+  raw.schemaVersion = 4
   raw.allowEmptyParts = nil
   raw.fairMode = nil
   raw.keepVehicleDrivable = nil
@@ -76,6 +80,7 @@ local function validate(raw)
   result.historyLimit = math.floor(util.clamp(raw.historyLimit or result.historyLimit, 1, 50))
   result.dnaLibraryLimit = math.floor(util.clamp(raw.dnaLibraryLimit or result.dnaLibraryLimit, 1, 100))
   if RESTORE_MODES[raw.defaultRestoreMode] then result.defaultRestoreMode = raw.defaultRestoreMode end
+  result.lockProfile = vehicleDNALocks.normalize(raw.lockProfile)
   if type(raw.manualSeed) == "string" then
     result.manualSeed = string.sub(raw.manualSeed:gsub("^%s+", ""):gsub("%s+$", ""), 1, 128)
   end
