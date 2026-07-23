@@ -174,9 +174,9 @@ The packaged inputs were built twice on Windows after the code, UI, asset, tests
 | Item | Result |
 | --- | --- |
 | Filename | `soturine_chaos_randomizer_0.2.0-alpha.1.zip` |
-| Bytes | `77,482` |
+| Bytes | `77,518` |
 | Entries | `32` |
-| Windows SHA-256 | `81872de4f9a623535ebcda9ccfc79f7b6b8013919ee6f9395e3185c0297b2361` |
+| Windows SHA-256 | `2b43b9420aa223a30f8b685bafd78d96507b16690a3db98bb6badd61ec103725` |
 | Same-environment two-build equality | Passed |
 | ZIP/checksum validation | Passed |
 | Text line-ending normalization | Passed |
