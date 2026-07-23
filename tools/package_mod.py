@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import os
 from pathlib import Path
+import subprocess
 import zipfile
 
 
@@ -16,6 +17,19 @@ OPTIONAL_CONTENT_ROOTS = ("mod_info",)
 PACKAGE_FILES = ("LICENSE", "NOTICE", "VERSION")
 ARCHIVE_PREFIX = "soturine_chaos_randomizer_"
 FIXED_TIMESTAMP = (2026, 1, 1, 0, 0, 0)
+TEXT_SUFFIXES = {".css", ".html", ".js", ".json", ".lua", ".md", ".txt", ".xml"}
+TEXT_FILENAMES = {"LICENSE", "NOTICE", "VERSION"}
+
+
+def get_commit_sha(root: Path = REPOSITORY_ROOT) -> str:
+    result = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else "unknown"
 
 
 def read_version(root: Path = REPOSITORY_ROOT) -> str:
@@ -50,6 +64,13 @@ def collect_files(root: Path = REPOSITORY_ROOT) -> list[tuple[Path, str]]:
     return entries
 
 
+def packaged_bytes(source: Path, name: str) -> bytes:
+    data = source.read_bytes()
+    if source.suffix.lower() in TEXT_SUFFIXES or name in TEXT_FILENAMES:
+        return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+    return data
+
+
 def build_archive(output: Path, root: Path = REPOSITORY_ROOT) -> Path:
     output.parent.mkdir(parents=True, exist_ok=True)
     entries = collect_files(root)
@@ -59,7 +80,7 @@ def build_archive(output: Path, root: Path = REPOSITORY_ROOT) -> Path:
             info.compress_type = zipfile.ZIP_DEFLATED
             info.create_system = 3
             info.external_attr = 0o100644 << 16
-            archive.writestr(info, source.read_bytes(), compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
+            archive.writestr(info, packaged_bytes(source, name), compress_type=zipfile.ZIP_DEFLATED, compresslevel=9)
     return output
 
 
@@ -78,6 +99,20 @@ def package(output_dir: Path, root: Path = REPOSITORY_ROOT) -> tuple[Path, Path]
     return archive, checksum
 
 
+def build_report(archive: Path, root: Path = REPOSITORY_ROOT) -> dict[str, object]:
+    digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+    with zipfile.ZipFile(archive, "r") as value:
+        entries = len(value.infolist())
+    return {
+        "version": read_version(root),
+        "commit": get_commit_sha(root),
+        "filename": archive.name,
+        "entries": entries,
+        "bytes": archive.stat().st_size,
+        "sha256": digest,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -88,8 +123,14 @@ def main() -> int:
     )
     args = parser.parse_args()
     archive, checksum = package(args.output_dir)
-    print(f"Built {archive}")
-    print(f"Wrote {checksum}")
+    report = build_report(archive)
+    print(f"Version: {report['version']}")
+    print(f"Commit: {report['commit']}")
+    print(f"Filename: {report['filename']}")
+    print(f"Entries: {report['entries']}")
+    print(f"Bytes: {report['bytes']}")
+    print(f"SHA-256: {report['sha256']}")
+    print(f"Checksum: {checksum.name}")
     return 0
 
 

@@ -7,14 +7,16 @@ import argparse
 import hashlib
 import json
 from pathlib import Path, PurePosixPath
+import re
 import stat
+import struct
 import tempfile
 import zipfile
 
 try:
-    from package_mod import ARCHIVE_PREFIX, REPOSITORY_ROOT, build_archive, read_version
+    from package_mod import ARCHIVE_PREFIX, REPOSITORY_ROOT, TEXT_FILENAMES, TEXT_SUFFIXES, build_archive, read_version
 except ImportError:  # Imported as tools.validate_package.
-    from tools.package_mod import ARCHIVE_PREFIX, REPOSITORY_ROOT, build_archive, read_version
+    from tools.package_mod import ARCHIVE_PREFIX, REPOSITORY_ROOT, TEXT_FILENAMES, TEXT_SUFFIXES, build_archive, read_version
 
 
 REQUIRED_PATHS = {
@@ -44,6 +46,12 @@ FORBIDDEN_COMPONENTS = {
     "tools",
 }
 FORBIDDEN_SUFFIXES = {".log", ".pyc", ".pyo", ".tmp", ".bak", ".swp"}
+FIXED_TIMESTAMP = (2026, 1, 1, 0, 0, 0)
+EXPECTED_FILE_MODE = 0o100644
+ICON_PATH = "ui/modules/apps/soturineChaosRandomizer/app.png"
+MAX_ICON_WIDTH = 500
+MAX_ICON_HEIGHT = 240
+MAX_ICON_BYTES = 100_000
 
 
 class PackageValidationError(ValueError):
@@ -76,6 +84,8 @@ def validate_archive(archive_path: Path, expected_version: str | None = None) ->
     with zipfile.ZipFile(archive_path, "r") as archive:
         infos = archive.infolist()
         names = [info.filename for info in infos]
+        if names != sorted(names):
+            raise PackageValidationError("ZIP entries are not in stable path order")
         if len(names) != len(set(names)) or len(names) != len({name.casefold() for name in names}):
             raise PackageValidationError("ZIP contains duplicate or case-colliding paths")
 
@@ -97,6 +107,22 @@ def validate_archive(archive_path: Path, expected_version: str | None = None) ->
                     json.loads(archive.read(info).decode("utf-8"))
                 except (UnicodeDecodeError, json.JSONDecodeError) as error:
                     raise PackageValidationError(f"Invalid JSON in {info.filename}: {error}") from error
+            if info.date_time != FIXED_TIMESTAMP:
+                raise PackageValidationError(f"Non-normalized timestamp in {info.filename}")
+            if info.create_system != 3 or mode != EXPECTED_FILE_MODE:
+                raise PackageValidationError(f"Non-normalized permissions in {info.filename}")
+            path = PurePosixPath(info.filename)
+            if path.suffix.lower() in TEXT_SUFFIXES or info.filename in TEXT_FILENAMES:
+                data = archive.read(info)
+                if b"\r\n" in data or b"\r" in data:
+                    raise PackageValidationError(f"Non-normalized text line endings in {info.filename}")
+
+        machine_path = re.compile(rb"(?:[A-Za-z]:\\|/" + rb"Users/|/" + rb"home/)")
+        for info in infos:
+            if info.filename.lower().endswith(".png"):
+                continue
+            if machine_path.search(archive.read(info)):
+                raise PackageValidationError(f"Machine path found in {info.filename}")
 
         packaged_version = archive.read("VERSION").decode("utf-8").strip()
         if packaged_version != expected_version:
@@ -105,6 +131,25 @@ def validate_archive(archive_path: Path, expected_version: str | None = None) ->
             )
 
     return names
+
+
+def png_dimensions(data: bytes) -> tuple[int, int]:
+    if len(data) < 24 or data[:8] != b"\x89PNG\r\n\x1a\n" or data[12:16] != b"IHDR":
+        raise PackageValidationError("App icon is not a valid PNG")
+    return struct.unpack(">II", data[16:24])
+
+
+def validate_icon(path: Path) -> tuple[int, int, int]:
+    data = path.read_bytes()
+    width, height = png_dimensions(data)
+    if width > MAX_ICON_WIDTH or height > MAX_ICON_HEIGHT:
+        raise PackageValidationError(f"App icon dimensions exceed {MAX_ICON_WIDTH}x{MAX_ICON_HEIGHT}")
+    if len(data) > MAX_ICON_BYTES:
+        raise PackageValidationError(f"App icon exceeds {MAX_ICON_BYTES} bytes")
+    expected_ratio = 1810 / 869
+    if abs((width / height) - expected_ratio) > 0.01:
+        raise PackageValidationError("App icon aspect ratio changed unexpectedly")
+    return width, height, len(data)
 
 
 def validate_checksum(archive_path: Path) -> None:
@@ -135,11 +180,13 @@ def main() -> int:
     version = read_version()
     archive = args.archive or REPOSITORY_ROOT / "dist" / f"{ARCHIVE_PREFIX}{version}.zip"
     names = validate_archive(archive, version)
+    icon = validate_icon(REPOSITORY_ROOT / ICON_PATH)
     validate_checksum(archive)
     if not args.no_reproducibility_check:
         validate_reproducible(archive)
 
     print(f"Validated {archive}")
+    print(f"Icon: {icon[0]}x{icon[1]}, {icon[2]} bytes")
     print(f"Entries ({len(names)}):")
     for name in names:
         print(f"  {name}")
