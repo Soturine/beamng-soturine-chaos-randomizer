@@ -6,6 +6,42 @@ All notable changes are documented here using [Keep a Changelog](https://keepach
 
 No additional changes.
 
+## [0.3.0-alpha.1] - 2026-07-23
+
+Safety-and-compatibility alpha artifact; interactive BeamNG and representative third-party content validation remains Pending.
+
+### Added
+
+- Evidence-based safety graph with standard-road, electric, hybrid-like, Automation, trailer, prop, special, and unknown profiles plus `safe`, `uncertain`, `unsafe`, and `not_applicable` results.
+- Layered loaded-config verification using model, normalized filename, registry identity, and minimal stable state signature.
+- Per-candidate part source metadata and separate previous/selected source diagnostics.
+- Bounded deferred paint confirmation, tolerant field normalization, and requested-field-only read-back comparison.
+- Full mocked `main.lua` success, failure, timeout, cancellation, rollback, Undo, and stress pipeline coverage.
+- Deterministic large-registry/deep-tree performance fixtures, profiling tool, metrics, budgets, and compatibility matrix.
+
+### Changed
+
+- Full Random is explicitly one seed/token/history transaction and completes only after spawn, parts, optional tuning/paint, and final safety validation.
+- External mod configurations use confirmed mounted-path ownership rather than inheriting their parent model's source.
+- Multi-candidate failures accumulate bounded suspicion with independent batch fingerprints; successful use reduces suspicion.
+- Selected part provenance comes from the selected candidate, not the previously installed part.
+- Advanced UI reports bounded suspect counts/details and clarifies all three action semantics.
+
+### Fixed
+
+- Vehicle replacement passes the exact recorded target object, then binds switch expectations to the ID extracted from the returned object; unrelated or ambiguous switches neither retarget the operation nor start an unsafe rollback.
+- Rollback and Undo reject unrelated restore targets and validate their original vehicle context.
+- Legitimate paint defaults, extra fields, equivalent color objects, float normalization, and delayed cache updates no longer create immediate false failures.
+- Config packs on official models and full-mod configs with confirmed path ownership are classified consistently.
+- Required/core and baseline-proven functional safety roles are checked after reload and before final success without assuming four wheels, fuel, one differential, or a conventional gearbox.
+- Undo now enters its legal spawn state before waiting for restore confirmation.
+
+### Known limitations
+
+- No interactive world/UI, Automation export, trailer, prop, electric vehicle, multi-differential vehicle, or third-party mod result is claimed.
+- Safety evidence cannot prove generic drivability; insufficient unusual layouts remain `uncertain`.
+- Installed 0.38.6 tuning metadata still provides no proven real correlation-group contract.
+
 ## [0.2.0-alpha.1] - 2026-07-23
 
 Content-hardening alpha artifact; interactive BeamNG validation remains Pending.

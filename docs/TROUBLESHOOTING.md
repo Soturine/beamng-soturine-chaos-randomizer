@@ -46,6 +46,20 @@ These mean the synchronous call returned an explicit rejection, no required vehi
 
 Check the `lifecycle_event_received` record for expected event, phase, verification reason, and elapsed time.
 
+`config_identity_unverified` is narrower: the model loaded, but the selected configuration could not be proved by normalized path, model-scoped registry key, or its minimal part/tuning signature. Model identity alone is deliberately insufficient.
+
+## Vehicle replacement could not be correlated
+
+`vehicle_replace_target_ambiguous` means `replaceVehicle` did not return a usable vehicle object/ID. `vehicle_replace_event_ambiguous`, `vehicle_switched`, or a restore target mismatch means switch events did not identify the exact returned replacement target. The extension never retargets an active operation to an unrelated manual switch.
+
+Wait for BeamNG to settle, inspect `replacement_target_bound` and `replacement_switch_*` diagnostics, and retry with no simultaneous vehicle-manager action. Undo is intentionally refused outside the vehicle context that created its history entry.
+
+## Paint remains on Confirming read-back
+
+The installed 0.38 source applies `setConfigPaints(..., false)` without a vehicle respawn. The extension therefore performs a short, bounded, tolerant cache read-back on `onUpdate`; it does not wait for `onVehicleSpawned`.
+
+`paint_apply_unconfirmed` means the requested fields did not appear before that bounded window expired. Extra fields and layers do not cause failure, and only requested supported fields are compared. A failed confirmation triggers rollback when a destructive write began.
+
 ## An operation timed out
 
 The code identifies the exact wait: vehicle replace, parts reload, tuning reload, rollback, or Undo. After a timeout:
@@ -63,7 +77,7 @@ Do not rapidly start more operations while the game is still loading.
 
 Advanced shows the last blocked ID, reason, failure count, and seed. Part IDs include model, slot path, and candidate; they do not share the configuration namespace.
 
-A multi-candidate batch is initially recorded only as suspect because the extension cannot prove which member caused the failure. Reindex clears all session model/config/part/tuning failures, suspects, and blacklists.
+A multi-candidate batch is initially recorded only as suspect because the extension cannot prove which member caused the failure. Repeated independent failure fingerprints can temporarily suppress the candidate and later promote it; a confirmed successful application reduces or clears its suspicion. Suspect storage, fingerprints, and age are bounded. Reindex clears all session model/config/part/tuning failures, suspects, and blacklists.
 
 ## Scramble changes little or nothing
 
@@ -80,6 +94,8 @@ A safe zero-change result is valid and does not create an Undo entry unless anot
 
 **Protect Critical Parts is not a drivability guarantee.** It prevents detectable required/core absence and blocks unproven critical substitutions, but it cannot understand every mechanical relationship or third-party script.
 
+The result safety status can be `validated`, `uncertain`, or `not_applicable`. Evidence profiles cover standard road, electric, hybrid-like, Automation, trailer, prop, special, and unknown shapes without assuming fuel, a gearbox, four wheels, steering, or exactly one differential. `uncertain` is an honest lack of sufficient metadata, not a successful physics validation.
+
 Use Undo immediately. If history is unavailable after restart, use BeamNG's normal saved/default configuration tools; history is session-only.
 
 ## Undo is unavailable after an early failure
@@ -90,7 +106,7 @@ If a write began, the entry is retained unless automatic rollback succeeds. Succ
 
 ## Immediate click used the wrong setting
 
-Version `0.2.0-alpha.1` sends the displayed action and complete settings snapshot in one Lua call. If the result reports a different manual seed/filter/Chaos value, collect the UI state and JavaScript log because that is a regression. The pending settings timer is cancelled on action and app destroy.
+Version `0.3.0-alpha.1` sends the displayed action and complete settings snapshot in one Lua call. If the result reports a different manual seed/filter/Chaos value, collect the UI state and JavaScript log because that is a regression. The pending settings timer is cancelled on action and app destroy.
 
 ## Developer stress stopped
 

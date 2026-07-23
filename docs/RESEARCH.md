@@ -14,6 +14,8 @@ The installed game source is the compatibility authority for this milestone. It 
 | Shipped console runtime | Lua 5.1, BeamNG `0.38.6.0` |
 | Interactive 0.38 profile/world | Not available during this implementation |
 
+The 0.3 audit revalidated `integrity.json` (`0.38.6.0`, buildbot build `19963`) and Steam manifest build `23007233` on 2026-07-23; no newer installed build was present.
+
 Machine-specific install, user-profile, and repository paths are intentionally omitted. Installed-source references below are paths relative to the BeamNG installation.
 
 ## Official documentation reviewed
@@ -37,13 +39,15 @@ BeamNG's programming documentation states that internal APIs can be incomplete o
 Installed definition: `lua/ge/extensions/core/vehicles.lua`.
 
 - `_replaceVehicle` either reuses/replaces the selected vehicle or falls back to `_spawnNewVehicle`.
+- The third `otherVeh` argument selects the exact object to replace. The adapter resolves the operation's recorded ID with installed `getObjectByID` and passes that object, so rollback/Undo do not implicitly target whichever vehicle happens to be current later.
 - The public wrapper returns `vehicle, {vehicles}` for a single vehicle; a failed internal multi-vehicle path can propagate `nil`.
 - A returned vehicle object is the synchronous acceptance signal used by the adapter.
+- The first returned object exposes the actual target ID through the installed `getID()` convention (`getId()` is also observed elsewhere). The adapter requires this ID and records the extraction strategy; an object without usable ID evidence is ambiguous failure.
 - `false`, `nil`, or an exception is immediate `vehicle_replace_rejected`; the pipeline does not wait for a timeout.
 - A non-`nil` object is not final success. `lua/ge/main.lua` emits `onVehicleSpawned(vid, vehicle)` after GE-side construction, and the randomizer then reads back the current model and `config.partConfigFilename`.
 - `_replaceVehicle` also emits `onVehicleReplaced`, but that hook occurs before full spawned-state confirmation and is not used as completion.
 
-Limitation: the hook contains no operation token or requested config. The extension supplies its own token and requires post-hook state equality.
+Limitation: the hook contains no operation token or requested config. The extension supplies its own token, exact target ID, and post-hook state equality.
 
 ### `core_vehicle_partmgmt.setPartsTreeConfig(tree, respawn)`
 
@@ -75,8 +79,9 @@ Installed definition: `lua/ge/extensions/core/vehicle/partmgmt.lua`.
 - The function calls `mergeConfig({paints = paints}, respawn)` and normally returns `nil`.
 - The project passes `respawn=false`. This updates live vehicle colors and serialized config without `vehicle:respawn`.
 - No `onVehicleSpawned` completion hook is expected for this write.
-- Explicit `false` or an exception becomes `paint_apply_rejected`; normal `nil` is followed immediately by a `getConfig()` read-back.
-- A mismatch or unavailable read becomes `paint_apply_unconfirmed` and rolls back when applicable.
+- Explicit `false` or an exception becomes `paint_apply_rejected`; normal `nil` is followed by `getConfig()` read-back.
+- Installed `validateVehiclePaint` supplies defaults for `baseColor`, `metallic`, `roughness`, `clearcoat`, and `clearcoatRoughness`. Verification therefore compares only requested supported fields, accepts equivalent array/object colors and small float normalization, and permits extra returned fields.
+- An unavailable/stale immediate read starts a two-second, interval/attempt-bounded `onUpdate` read-back. Significant mismatch at the bound becomes `paint_apply_unconfirmed` and rolls back. No paint spawn event is expected.
 
 ### Read calls
 
@@ -105,7 +110,7 @@ Source-derived expectations:
 | replace vehicle | `onVehicleSpawned` | player vehicle ID, model, config filename/key |
 | parts tree with respawn | `onVehicleSpawned` | player vehicle ID, model, every requested path/candidate |
 | tuning with respawn | `onVehicleSpawned` | player vehicle ID, model, every requested value |
-| paints without respawn | none | immediate paint-table read-back |
+| paints without respawn | none | immediate or bounded deferred requested-field read-back |
 
 The actual ordering/timing in a live world remains Pending interactive evidence.
 
@@ -119,14 +124,25 @@ Installed definition: `lua/ge/extensions/core/vehicles.lua`.
 - `Custom` for a non-official `.pc` path;
 - `Mod` otherwise.
 
-During configuration normalization, `core_modmanager.getModFromPath` can add `modID` and replace the display `Source` with mod filename/title. Consequently:
+During configuration normalization, `core_modmanager.getModFromPath(configFilename, true)` resolves mounted ownership through `FS:getOriginArchivePathRelative` and can add `modID`/display source. The adapter records that exact path-ownership evidence as well. Consequently:
 
 - exact `Custom`, `userSaved`, or `player` evidence maps to `user`;
 - `modID`/`modId` maps to `mod` even on an official parent model;
+- confirmed config-path ownership maps to `mod`, including mounted external/forum ZIPs, without inheriting from the parent model;
 - exact `BeamNG - Official` maps to `official`;
 - arbitrary titles without mod identity remain `unknown` instead of being guessed as mods.
 
 The original label is preserved for diagnostics. `Everything` includes unknown entries; Official-only and Mods-only exclude them.
+
+## Loaded configuration identity evidence
+
+`getConfig().partConfigFilename` is present for file-backed configurations, but installed code also accepts config tables and generated state. Exact model is always required. The implementation then tries normalized path, model-scoped registry key/path, and a minimal stable selected-parts/tuning signature. Correct model alone is never claimed as the exact requested configuration; lack of proof is `config_identity_unverified`.
+
+## Candidate part and safety evidence
+
+`jbeamIO.getAvailableParts(ioCtx)` exposes UI metadata per candidate, including `modName` where present. `jbeamIO.getPart(ioCtx, candidate)` exposes each candidate's own `powertrain`, `energyStorage`, wheels, brakes, hydros, controller, and slot data. Candidate lookups are cached once per snapshot and previous/selected provenance stays separate.
+
+Installed metadata supports a conservative graph, not a universal drivability ontology. No contract proves that all registered content has fuel, a battery, an engine, a gearbox, four wheels, steering, propulsion, or exactly one differential. Exact model type and loaded functional sections therefore select dynamic profiles; trailers/props omit road-only requirements and insufficient unusual layouts remain `uncertain`.
 
 ## Model type evidence
 
@@ -149,7 +165,7 @@ Installed definition: `lua/common/jbeam/variables.lua`.
 
 Processed range variables retain `name`, numeric `min`, `max`, `default`, selected `val`, display range, calculated `step`, `stepDis`, `unit`, and display `category`/`subCategory`. Variables are merged across loaded parts.
 
-No explicit paired-variable/correlation group ID or documented semantic grouping contract was found. Display category is not proof that two variables must share a value. Therefore 0.2.0-alpha.1 does not infer correlations from names, categories, front/rear wording, or part concepts.
+No explicit paired-variable/correlation group ID or documented semantic grouping contract was found. Display category is not proof that two variables must share a value. Therefore 0.3.0-alpha.1 does not infer correlations from names, categories, front/rear wording, or part concepts.
 
 The pure normalizer supports only explicit synthetic/future metadata (`correlationGroup` plus `correlationStrategy = "shared_normalized_sample"`). This architecture is tested, but no current BeamNG content correlation is claimed.
 

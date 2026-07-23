@@ -24,12 +24,14 @@ Repository documentation, tools, tests, workflows, and fixtures do not enter the
 | `apiAdapter.lua` | Only boundary for BeamNG registry, vehicle, JBeam, parts, tuning, paint, VFS, log, and UI calls |
 | `capabilities.lua` | Derive actions and user-visible warnings from granular API capabilities |
 | `lifecycle.lua` | Phase-specific wait expectations and post-event state verification |
+| `configVerification.lua` | Layered model/path/registry/signature configuration identity proof |
 | `contentIndex.lua` | Normalize mounted registry content, evidence-based source/type classes, filters, separated session blacklists |
 | `slotScanner.lua` | Copy/flatten hierarchical trees, stable depth/path/ID order, signatures, changed paths |
 | `mutationEngine.lua` | Plan one coherent compatible-parts batch and defer descendants of changed ancestors |
-| `validator.lua` | Required/core enforcement and optional conservative critical-part protection |
+| `validator.lua` | Evidence graph, dynamic safety profiles, required/core and baseline-role validation |
 | `tuningRandomizer.lua` | Normalize variables, independent sampling, explicit-group sampling, clamp, quantize |
 | `paintRandomizer.lua` | Generate bounded paint layers from the current paint count |
+| `paintVerification.lua` | Normalize supported paint fields and drive bounded tolerant read-back |
 | `history.lua` / `historyTransaction.lua` | Bounded snapshots and the one-time first-write commit point |
 | `failureAttribution.lua` | Map an operation phase to the only eligible blacklist namespace |
 | `stressRunner.lua` | Validate bounded developer-stress options and aggregate outcomes |
@@ -65,10 +67,10 @@ Adapter calls use explicit contracts rather than interpreting `pcall` alone as s
 
 | Write | Synchronous contract | Completion contract |
 | --- | --- | --- |
-| `replaceVehicle` | must return a vehicle object; `false`/`nil` reject immediately | `onVehicleSpawned`, expected model/config read-back |
+| `replaceVehicle` | receives the exact recorded target object and must return a vehicle object with `getID()`/`getId()`/ID evidence; `false`/`nil`/ambiguous ID reject | exact returned vehicle ID plus `onVehicleSpawned` and layered model/config read-back |
 | `setPartsTreeConfig` | installed API normally returns `nil`; `false` rejects | `onVehicleSpawned`, expected path/candidate read-back |
 | `setConfigVars` | installed API normally returns `nil`; `false` rejects | `onVehicleSpawned`, expected tuning values read-back |
-| `setConfigPaints(..., false)` | installed API normally returns `nil`; `false` rejects | immediate configuration read-back; no reload event |
+| `setConfigPaints(..., false)` | installed API normally returns `nil`; `false` rejects | requested-field read-back immediately or through a two-second bounded update retry; no reload event |
 
 Thrown exceptions retain their detail. Phase-specific codes include `vehicle_replace_rejected`, `parts_apply_rejected`, `tuning_apply_rejected`, and `paint_apply_rejected`. A synchronous rejection never waits for the normal timeout.
 
@@ -84,7 +86,9 @@ waitingForRollbackReplace
 waitingForUndoReplace
 ```
 
-An expectation stores operation token, phase, expected hook, expected vehicle/model/config, requested parts/tuning values, and start time. `onVehicleSpawned` is accepted only for the current player vehicle and current token. The post-event snapshot must satisfy the phase-specific expectation before the pipeline advances. A matching hook by itself is not success.
+An expectation stores operation token, phase, expected hook, exact vehicle/model/config evidence, requested parts/tuning values, and start time. Replacement writes bind to the vehicle ID extracted from the returned object. A synchronous switch emitted before the call returns is queued and checked against that ID; it is never used to retarget the expectation. `onVehicleSpawned` is accepted only for the exact current target and current token. The post-event snapshot must satisfy the phase-specific expectation before the pipeline advances. A matching hook by itself is not success.
+
+Config verification applies layers: exact model, normalized path, model-scoped registry key, minimal loaded-state signature, then explicit failure as `config_identity_unverified`. Paint confirmation is update-driven, interval-limited, attempt-limited, and does not use `onVehicleSpawned`.
 
 Timeouts report the exact phase. Manual map/vehicle/mod-state changes cancel with a distinct lifecycle reason; stale/wrong-vehicle hooks are logged and ignored.
 
@@ -103,11 +107,11 @@ Timeouts report the exact phase. Manual map/vehicle/mod-state changes cancel wit
 
 The per-pass diagnostics include slots scanned, ancestor paths changed, descendants deferred, blacklisted candidates rejected, protection blocks, actual changes, and reload reason.
 
-## Critical-part protection
+## Safety evidence graph
 
-Required/core slots can never be emptied, regardless of the setting. With `protectCriticalParts` enabled, conservative concepts are recognized only from slot ID, description, and allowed types. The current non-empty part is retained; when the slot is already empty, an explicitly compatible `defaultPart` is preferred. Other non-empty alternatives are rejected as unproven, even if present in `suitablePartNames`.
+Required/core slots can never be emptied, regardless of the setting. The adapter records source and functional evidence separately for every compatible candidate. `validator.lua` constructs nodes for selected parts, hierarchy edges, required/core roles, explicit powertrain/energy-storage sections, and conservative exact-token fallbacks. Candidate replacement is accepted under `protectCriticalParts` only when it preserves the current part's proven roles; otherwise current/default is retained with a reason.
 
-After reload, required/core and protected critical slots are checked for detectable absence. This is a conservative integrity guard, not a mechanical/drivability proof.
+Profile selection uses exact model type plus loaded functional evidence: standard road, electric, hybrid-like, Automation, trailer, prop, special, or unknown. Validation preserves baseline-proven applicable roles and required-role counts. It never globally requires fuel, battery, a gearbox, four wheels, steering, propulsion, or one differential. Trailer and prop concepts can be not applicable. Results are `safe`, `uncertain`, `unsafe`, or `not_applicable`; only unsafe fails and rolls back. Uncertain does not claim drivability.
 
 ## Failure model and session blacklists
 
@@ -141,7 +145,11 @@ part:<modelKey>:<slotPath>:<candidate>
 tuning:<modelKey>:<variable>
 ```
 
-Only an unconfirmed base spawn can penalize its configuration. A parts failure after base confirmation targets the applied part batch. A single-candidate failure uses the normal threshold; a multi-candidate batch only accumulates suspect evidence and does not immediately block every member. Reindex and mod-state hooks clear failures, suspects, and blacklists.
+Only an unconfirmed base spawn can penalize its configuration. A parts failure after base confirmation targets the applied part batch. A single-candidate failure adds strong evidence. A multi-candidate batch adds `1 / batchSize` suspicion and a bounded fingerprint. Repeated appearances in different failed batches can suppress selection and reach the blacklist threshold; successful confirmed use subtracts suspicion. The store is capped at 128 records, eight fingerprints each, and a 900-second inactive TTL. Reindex and mod-state hooks clear failures, suspects, and blacklists.
+
+## Full Random transaction
+
+Full Random owns one token, seed, original snapshot, history commit, and terminal result across selection, replacement, layered config confirmation, all bounded part passes, optional tuning, optional paint, and final safety validation. It cannot finish after the base spawn. The result reports base version/source, selected-part changes/removals, nested passes, tuning values, paint layers, warnings, safety status, and seed. Any destructive middle-stage failure enters the same rollback transaction, and a confirmed rollback removes its history entry.
 
 ## Tuning groups
 
@@ -193,3 +201,5 @@ The custom-element host is explicitly block-sized to 100% width/height because t
 Random choices use operation, pass, variable, and group substreams. Maps are sorted before choices. Results require identical game/content/settings/starting state/blacklist inputs.
 
 The ZIP builder normalizes member order, timestamps, Unix regular-file mode, path separators, packaged text line endings, compression level, and checksum format. It never adds a wrapper directory or development files. Repeated same-environment builds must be byte-identical; cross-platform identity requires comparing the real archives.
+
+Runtime performance records index builds/cache hits and the last operation's duration, reload count, slot scan/planning time, slot count, candidate count, and depth. Diagnostics, history, passes, suspects, and paint confirmation are all bounded. Synthetic performance measurements are documented in [Performance](PERFORMANCE.md).

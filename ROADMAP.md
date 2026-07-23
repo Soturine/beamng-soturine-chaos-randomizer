@@ -51,11 +51,18 @@ The milestone remains a content-hardening alpha artifact until its interactive m
 
 ## 0.3.0-alpha — safety and compatibility
 
-- strengthen the drivability validator without imposing rigid global vehicle assumptions;
-- validate Automation vehicles, trailers, props, electric drivetrains, and multi-differential layouts;
-- profile large mod collections and deeply nested slot trees;
-- revalidate the API adapter against the then-current BeamNG release;
-- publish an evidence-backed compatibility matrix.
+- **Implemented:** evidence-based safety graph and dynamic standard-road/electric/hybrid-like/Automation/trailer/prop/special/unknown profiles, without rigid engine/fuel/gearbox/wheel/differential assumptions.
+- **Pending interactive evidence:** Automation vehicles, trailers, props, electric drivetrains, and multi-differential layouts have license-safe fixtures and mocked regressions, but no world/UI result is claimed.
+- **Implemented:** bounded suspect evolution, success decay, candidate suppression/isolation, and stale-state cleanup.
+- **Implemented:** replacement writes pass the exact recorded target object and correlate the returned vehicle ID; unrelated switches cannot retarget spawn, rollback, or Undo.
+- **Implemented:** tolerant requested-field paint read-back with bounded update-driven confirmation and no paint spawn wait.
+- **Implemented:** external config ownership through the mounted VFS/mod-manager path and layered config identity verification.
+- **Implemented:** per-candidate part provenance, including separate previous/selected sources.
+- **Implemented:** one-click Full Random transaction through selection, spawn, bounded parts passes, optional tuning/paint, final safety validation, one history entry, and whole-pipeline rollback.
+- **Implemented:** mocked `main.lua` success/failure pipeline coverage plus deterministic 5,000-config and 120-level/2,400-candidate performance fixtures.
+- **Implemented:** installed adapter/UI source revalidation for BeamNG 0.38.6.0 build 19963 and an evidence-backed compatibility matrix.
+
+The milestone remains a safety-and-compatibility alpha artifact until the interactive matrix has real evidence.
 
 ## 0.4.0-beta — release preparation
 

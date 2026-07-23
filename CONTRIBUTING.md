@@ -21,6 +21,7 @@ Use Python 3.10+, Node.js, and Lua 5.1 (or BeamNG's shipped console). BeamNG 0.3
 python -m unittest discover -s tests -v
 python tools/package_mod.py
 python tools/validate_package.py
+python tools/profile_fixtures.py
 ```
 
 For an unpacked install, place the three content roots beneath:
@@ -42,6 +43,10 @@ Never write development files into the BeamNG installation's stock content direc
 - Treat each BeamNG write's return/event/read-back contract separately; `pcall` alone is not success.
 - Defer descendants after an ancestor change and never reuse candidates from the previous tree.
 - Keep source/type classification evidence-based; arbitrary labels remain unknown.
+- Correlate replacement lifecycle events to the exact vehicle ID returned by the adapter; never retarget an operation from an unrelated switch.
+- Keep suspect attribution bounded and reversible when a successful candidate application provides contrary evidence.
+- Preserve only requested supported paint fields and confirm live paint writes with bounded tolerant read-back.
+- Treat safety profiles as metadata evidence, not as a promise of physical drivability.
 - Add tuning correlations only for explicit proven group metadata.
 - Preserve exact seeds and concise diagnostics in bug reports.
 - Keep the default UI limited to the three primary actions, Chaos slider, and two visible safety options.

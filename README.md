@@ -2,23 +2,28 @@
 
 Soturine's Chaos Randomizer is a BeamNG.drive UI App and GE Lua extension for seeded, bounded randomization of complete vehicle configurations, compatible hierarchical parts, tuning values, and paint layers.
 
-Current version: **0.2.0-alpha.1 — Content Hardening**
+Current version: **0.3.0-alpha.1 — Safety and Compatibility**
 Inspected target: **BeamNG.drive 0.38.6.0.19963** (Steam build 23007233)
 
-This is a content-hardening alpha artifact, not a gameplay-validated stable release. The implementation and automated fixtures have been validated, but the interactive vehicle/mod matrix remains Pending until it is run in a BeamNG 0.38.6 world and UI session.
+This is a safety-and-compatibility alpha artifact, not a gameplay-validated stable release. The implementation, mocked pipelines, and synthetic fixtures are automated; the interactive vehicle/mod matrix remains Pending until it is run in a BeamNG 0.38.6 world and UI session.
 
 ## What it does
 
-- **Random Config** chooses an eligible mounted configuration with equal-per-vehicle or equal-per-configuration fairness.
-- **Scramble** mutates the current model through BeamNG-reported compatible slots, then independently runs available tuning and paint stages.
-- **Full Random** confirms a base configuration before running the Scramble pipeline.
+| Action | Behavior |
+| --- | --- |
+| **Random Config** | Replace the current vehicle with one complete eligible installed configuration; stop without scrambling it. |
+| **Scramble** | Keep the current model and randomize its BeamNG-reported compatible parts, nested slots, tuning, wheels, tires, and paints. |
+| **Full Random** | Replace with a random eligible model/configuration and automatically run the entire bounded scramble and validation pipeline in one click. |
+
+For example, you may start in an Ibishu Covet, press **Full Random** once, and finish controlling an ETK 800-Series 856 ttSport+ base configuration with newly randomized compatible engine, forced-induction, transmission, suspension, wheels, tires, optional body parts, tuning, and paints. The exact categories depend on what the loaded vehicle exposes; no second Scramble click is required.
+
 - **Undo** restores one complete pre-write state from bounded session history.
 - **Chaos** controls part probability, pass count, missing-part probability, tuning spread, and paint contrast.
 - **Manual seed** makes project-owned choices repeatable when the game version, content, settings, starting state, and session blacklist are unchanged.
 
 The randomizer never opens installed mod ZIPs, never forces a part that BeamNG did not report for the exact loaded slot, and never calls or reseeds global `math.random`.
 
-## Content hardening behavior
+## Safety and compatibility behavior
 
 ### Safe hierarchy passes
 
@@ -28,22 +33,23 @@ Slots are sorted by depth, path, and ID. When a parent changes, all of its desce
 
 The former **Keep Vehicle Drivable** setting is migrated to the more accurate **Protect Critical Parts** name. It does not promise drivability.
 
-When enabled, it:
+When enabled, it builds a graph from required/core slot metadata, loaded-part functional sections, hierarchy, powertrain/energy metadata, and exact model type. Dynamic profiles cover standard road, electric, hybrid-like, Automation, trailer, prop, special, and unknown layouts. It:
 
 - never empties `required` or `coreSlot` slots;
-- preserves the current part for recognized energy, propulsion, transmission, driveline, steering, suspension, hub, wheel, and tire concepts;
+- preserves baseline-proven energy, propulsion, power-path, and required functional roles without assuming one engine, fuel tank, gearbox, differential, four wheels, or steering system;
 - restores an explicitly compatible `defaultPart` when a recognized critical slot is already empty;
 - blocks a non-empty replacement when metadata cannot prove that it is a safe functional substitute;
-- validates detectable required/critical state after a parts reload and rolls back on failure.
+- treats trailer/prop concepts as not applicable where appropriate;
+- reports `safe`, `uncertain`, `unsafe`, or `not_applicable`, and rolls back on unsafe post-reload/final evidence.
 
-Unknown optional slots remain mutable. The broader mechanical validator remains a `0.3.0-alpha` goal.
+Unknown optional slots remain mutable. `uncertain` is honest evidence status, not a drivability claim.
 
 ### Evidence-based source classes
 
 Source precedence is explicit:
 
 1. confirmed user/custom metadata becomes `user`;
-2. `modID`/`modId` or the exact registry `Mod` marker becomes `mod`;
+2. explicit config mod identity or confirmed `core_modmanager.getModFromPath(pcFilename)` ownership becomes `mod`;
 3. explicit current official aliases become `official`;
 4. every other label remains `unknown`.
 
@@ -53,9 +59,13 @@ Source precedence is explicit:
 
 Failures retain their phase (`index`, `selection`, `spawn`, `parts`, `tuning`, `paint`, `validation`, `rollback`, `undo`, or `lifecycle`) and operation context. Models, configurations, part candidates, and optional tuning entries have separate session namespaces.
 
-A confirmed base configuration is not penalized for a later parts/tuning/paint failure. Part keys include model, slot path, and candidate. Multi-candidate batch failures are recorded as suspects and do not immediately blacklist every candidate. Reindex and mod activation/deactivation clear all session failure state.
+A confirmed base configuration is not penalized for a later parts/tuning/paint failure. Part keys include model, slot path, and candidate. Multi-candidate failures use bounded suspicion scores and batch fingerprints; repeated independent evidence can suppress and eventually isolate a candidate, while a confirmed success reduces suspicion. Reindex and mod activation/deactivation clear all session failure state.
 
-Advanced UI shows compact per-type counts and the latest blocked item; detailed records stay in `beamng.log` under `SoturineChaosRandomizer`.
+Advanced UI shows compact blacklist/suspect counts and the latest records; detailed records stay in `beamng.log` under `SoturineChaosRandomizer`.
+
+### Correlated writes and tolerant verification
+
+Vehicle replacement waits are bound to the ID extracted from the actual object returned by `core_vehicles.replaceVehicle`; unrelated switches never retarget spawn, rollback, or Undo. Configuration confirmation uses model, normalized filename, registry identity, and a minimal loaded-state signature in that order. Paint read-back compares only requested supported fields with numeric tolerance and uses a short bounded update-driven retry when the game cache is not immediately current; it never waits for a paint spawn event.
 
 ### Granular capabilities
 
@@ -63,7 +73,7 @@ The adapter reports registry, replace, parts read/write, tuning read/write, pain
 
 ## Installation
 
-1. Build or obtain `soturine_chaos_randomizer_0.2.0-alpha.1.zip`.
+1. Build or obtain `soturine_chaos_randomizer_0.3.0-alpha.1.zip`.
 2. Copy the ZIP, without extracting it, into the active BeamNG user folder's `mods` directory.
 3. Enable it in Mod Manager.
 4. Enter Freeroam, open UI Apps, and add **Soturine's Chaos Randomizer**.
@@ -93,7 +103,7 @@ soturineChaosRandomizer.runDeveloperStress({
   maxDuration = 300,
   operationTimeout = 25,
   stopOnFailure = false,
-  seed = "content-hardening"
+  seed = "safety-compatibility"
 })
 ```
 
@@ -113,8 +123,8 @@ The package builder fixes entry order, timestamps, permissions, path separators,
 Expected files:
 
 ```text
-dist/soturine_chaos_randomizer_0.2.0-alpha.1.zip
-dist/soturine_chaos_randomizer_0.2.0-alpha.1.sha256
+dist/soturine_chaos_randomizer_0.3.0-alpha.1.zip
+dist/soturine_chaos_randomizer_0.3.0-alpha.1.sha256
 ```
 
 `dist/` is ignored by Git.
@@ -122,22 +132,22 @@ dist/soturine_chaos_randomizer_0.2.0-alpha.1.sha256
 ## Current validation status
 
 - Installed 0.38.6 Lua/API/UI source: inspected.
-- Lua behavior suite: runs against the shipped BeamNG Lua 5.1 console.
+- Lua behavior and mocked main-pipeline suite: runs against the shipped BeamNG Lua 5.1 console.
 - Python/static/JS/JSON/package checks: automated.
 - Synthetic registry/config-pack/full-mod/part-pack/wheel-pack/user/unknown fixtures: automated.
 - Clean-profile ZIP install, UI rendering/resizing, gameplay operations, representative third-party mods, and bounded stress inside a world: **Pending**.
 
-See [Testing](docs/TESTING.md), [Compatibility](docs/COMPATIBILITY.md), and [Troubleshooting](docs/TROUBLESHOOTING.md).
+See [Testing](docs/TESTING.md), [Compatibility](docs/COMPATIBILITY.md), [Compatibility Matrix](docs/COMPATIBILITY_MATRIX.md), [Safety Model](docs/SAFETY_MODEL.md), [Performance](docs/PERFORMANCE.md), and [Troubleshooting](docs/TROUBLESHOOTING.md).
 
 ## Known limitations
 
 - No interactive gameplay result or third-party mod compatibility is claimed yet.
-- `onVehicleSpawned` is the installed 0.38.6 reload hook for replace, parts, and tuning writes; phase and post-event state verification distinguish them. Paint writes use immediate read-back because `respawn=false` emits no reload hook.
+- `onVehicleSpawned` is the installed 0.38.6 reload hook for replace, parts, and tuning writes; phase and post-event state verification distinguish them. Paint writes use immediate or bounded deferred read-back because `respawn=false` emits no reload hook.
 - Tuning metadata exposes display category/subcategory but no proven correlation-group contract. The normalizer supports only an explicit `correlationGroup` plus `shared_normalized_sample`; current installed metadata therefore remains independently sampled.
-- Protection is metadata-based and cannot prove generic drivability.
+- Safety is metadata-based and cannot prove generic drivability; unknown/special layouts can remain `uncertain` without being destructively rejected.
 - Undo history is memory-only.
 - Paint-design/skin semantics are not specialized beyond ordinary compatible part slots.
-- Byte identity is proven for repeated Windows builds, and the final CI/Linux ZIP matched the Windows ZIP exactly for this artifact.
+- Repeated local build identity is tested. Cross-platform identity is reported only after comparing the final CI artifact for this exact commit.
 
 ## License
 

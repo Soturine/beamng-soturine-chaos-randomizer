@@ -7,7 +7,7 @@ This is a preparation checklist, not evidence of submission or approval. No Beam
 - **Title:** Soturine's Chaos Randomizer
 - **Short name:** Chaos Randomizer
 - **Author:** Soturine
-- **Version candidate:** `0.2.0-alpha.1`
+- **Version candidate:** `0.3.0-alpha.1`
 - **Tagline:** Dynamic seeded vehicle, configuration, compatible-parts, tuning, wheel, and paint randomization.
 - **Category:** UI Apps / Gameplay (choose the closest current Repository category at submission time)
 - **License:** Apache License 2.0
@@ -20,12 +20,12 @@ Suggested description:
 
 - Complete all applicable cases in [Testing](TESTING.md), including normal ZIP installation in a clean 0.38 profile.
 - Resolve all console errors attributable to the mod.
-- Validate official vehicles plus representative config, vehicle, part, and wheel mods with permission-safe test content.
+- Validate official vehicles plus representative config, vehicle, part, wheel, Automation, trailer, prop, electric, multi-differential, and externally mounted mods with permission-safe test content.
 - Confirm UI layout, overflow, keyboard focus, common scaling, and app-selector preview.
 - Capture representative original screenshots with no private/paid content.
 - Confirm the supported BeamNG version immediately before upload.
 - Review current Repository rules, allowed categories/tags, image dimensions, file-size limits, and moderation requirements.
-- Decide explicitly whether `0.2.0-alpha.1` is ready to tag/release; do not infer that decision from the `VERSION` file alone.
+- Decide explicitly whether `0.3.0-alpha.1` is ready to tag/release; do not infer that decision from the `VERSION` file alone.
 
 ## Package checklist
 
@@ -55,6 +55,7 @@ BeamNG's mod manager recognizes Repository-generated `mod_info/<id>/info.json` m
 - [ ] Do not claim support for BeamNG versions not tested.
 - [ ] Do not claim every mod is compatible.
 - [ ] State that skin/paint-design selection is not yet implemented.
+- [ ] State that safety statuses come from metadata evidence and are not physics/drivability certification.
 - [ ] State that seeds require unchanged inputs.
 - [ ] State that the project is independent and not endorsed by BeamNG GmbH.
 

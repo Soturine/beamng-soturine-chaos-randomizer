@@ -24,6 +24,7 @@ python -m unittest discover -s tests -v
 node --check ui/modules/apps/soturineChaosRandomizer/app.js
 python tools/package_mod.py
 python tools/validate_package.py
+python tools/profile_fixtures.py
 ```
 
 CI additionally runs:
@@ -32,10 +33,12 @@ CI additionally runs:
 find lua -type f -name '*.lua' -print0 | xargs -0 luac5.1 -p
 ```
 
+On 2026-07-23, every workflow SHA was resolved again through the official `actions/checkout`, `actions/setup-python`, `actions/setup-node`, and `actions/upload-artifact` GitHub repositories. Each pinned SHA matched its commented tag, and those tags were the repositories' latest releases at inspection time.
+
 Current suite structure:
 
 - **29 Python `unittest` methods**;
-- one Python method runs **85 named Lua behavior/syntax cases** against BeamNG's shipped Lua 5.1 console when no standalone Lua is available;
+- one Python method runs **181 named Lua behavior/syntax/pipeline/performance cases** against BeamNG's shipped Lua 5.1 console when no standalone Lua is available;
 - **19 repository/static methods**, including real `node --check`, JSON/YAML parsing, links, versions, API boundary, UI atomicity/host, icon limits, action pins, credentials, paths, and whitespace;
 - **9 package methods**, including two-build equality, SHA, root layout, normalized metadata, version, and machine-path checks;
 - **1 JavaScript file** syntax-checked;
@@ -59,6 +62,13 @@ Named Lua cases cover:
 - delayed first-write history commit, one entry across passes, Undo behavior, and successful-rollback cleanup;
 - granular capability derivation and optional-stage warnings;
 - deterministic PRNG, selection fairness, tuning distributions, state transitions, package-independent utility behavior, and compilation of every Lua source.
+- bounded suspect promotion/suppression/decay/fingerprint/storage policy;
+- exact target-object writes and returned replacement correlation, queued synchronous switch handling, unrelated switch rejection, and restore-target safety;
+- tolerant paint normalization and immediate/bounded deferred confirmation without a spawn event;
+- mounted config path ownership, layered config identity proof, and per-candidate part provenance;
+- safety profiles for combustion/electric/hybrid-like/trailer/prop/unknown, direct drive, two wheels, multi-motor, multi-differential, and differential-free layouts;
+- mocked Random Config, Scramble, Full Random, rollback, Undo, timeout, stress, map/mod cancellation, and failure attribution pipelines;
+- deterministic 5,000-config registries, 100/160-level trees, diagnostics/suspect bounds, and index-cache reuse.
 
 Named Python UI cases cover `action_flushes_pending_settings`, immediate manual seed/filter use, destroy cancellation, and server-state non-resend. Package cases use the exact acceptance names for reproducibility, checksum, version, machine paths, root layout, and normalized metadata.
 
@@ -70,6 +80,7 @@ Named Python UI cases cover `action_flushes_pending_settings`, immediate manual 
 | --- | --- |
 | official vehicle + official config | exact official source baseline |
 | official vehicle + mod config pack | config source overrides official parent |
+| external mounted config ownership | config becomes mod only from confirmed path ownership |
 | full mod vehicle + config | model/config mod identity |
 | nested part-pack accessory | compatible third-party candidate behavior |
 | wheel → tire hierarchy | descendant deferral after wheel/ancestor changes |
@@ -84,6 +95,8 @@ Named Python UI cases cover `action_flushes_pending_settings`, immediate manual 
 | malformed config record | safe normalization rejection |
 | malformed tuning variable | nonnumeric metadata rejection |
 | one and three paint layers | dynamic paint-count handling |
+| normalized paint with extra field | requested-field/tolerant read-back behavior |
+| combustion/electric/differential part sections | evidence graph and dynamic profiles |
 | explicit synthetic tuning group | future proven-group architecture without claiming current content evidence |
 
 The conceptual field shapes came from installed `core/vehicles.lua`, `core/vehicle/partmgmt.lua`, `jbeam/io.lua`, `jbeam/slotSystem.lua`, and `jbeam/variables.lua` inspection.
@@ -95,7 +108,7 @@ The conceptual field shapes came from installed `core/vehicles.lua`, `core/vehic
 | `replaceVehicle` | object return, then `onVehicleSpawned` | Pending |
 | `setPartsTreeConfig(..., true)` | normal `nil`; `vehicle:respawn` → `onVehicleSpawned` | Pending |
 | `setConfigVars(..., true)` | normal `nil`; `vehicle:respawn` → `onVehicleSpawned` | Pending |
-| `setConfigPaints(..., false)` | normal `nil`; live update, no respawn hook | Pending |
+| `setConfigPaints(..., false)` | normal `nil`; live update, no respawn hook; tolerant bounded read-back | Pending |
 
 Automated mocks prove routing/verification behavior. The table does not claim that hook timing was observed in a world.
 
@@ -115,6 +128,11 @@ No third-party content was installed or redistributed. Fixture coverage is autom
 | Wheel pack | wheel compatibility; tire deferred; no stale tire candidate | Pending |
 | User config | `user`, Everything inclusion, filter behavior | Pending |
 | Unknown metadata | `unknown`, diagnostics count, no arbitrary mod promotion | Pending |
+| Automation vehicle | opt-in discovery; all actions; safety profile; optional-stage limits; Undo/rollback | Pending |
+| Trailer | opt-in discovery; no engine requirement; Full Random; Undo/rollback | Pending |
+| Prop | opt-in discovery; no road-system requirement; honest control limit | Pending |
+| Electric/direct-drive/dual-motor | energy profile; no fuel/gearbox assumption; protected group | Pending |
+| Multi-differential/differential-free | required role preservation without exactly-one assumption | Pending |
 
 For a real content result, record:
 
@@ -164,8 +182,15 @@ Use the exact final ZIP without extracting it and record the result of every row
 | 26 | repeated operations release busy lock | Pending |
 | 27 | no fatal Lua/JavaScript errors in `beamng.log` | Pending |
 | 28 | installed artifact SHA matches recorded final CI artifact | Pending until final CI comparison |
+| 29 | Automation vehicle: Random Config, Scramble, Full Random, Undo, rollback | Pending |
+| 30 | trailer: opt-in Full Random without engine/tuning/paint assumptions | Pending |
+| 31 | prop: opt-in real-slot mutation and honest control status | Pending |
+| 32 | electric/direct-drive/dual-motor safety evidence | Pending |
+| 33 | center/front/rear multi-differential or multi-axle layout | Pending |
+| 34 | external/forum config pack ownership through mounted path | Pending |
+| 35 | delayed paint-cache confirmation does not wait for spawn | Pending |
 
-Interactive cases passed: **0**. Interactive cases pending: **28**.
+Interactive cases passed: **0**. Interactive cases pending: **35**.
 
 ## Package result
 
@@ -173,13 +198,13 @@ The packaged inputs were built twice on Windows after the code, UI, asset, tests
 
 | Item | Result |
 | --- | --- |
-| Filename | `soturine_chaos_randomizer_0.2.0-alpha.1.zip` |
-| Bytes | `77,518` |
-| Entries | `32` |
-| Windows SHA-256 | `2b43b9420aa223a30f8b685bafd78d96507b16690a3db98bb6badd61ec103725` |
-| Same-environment two-build equality | Passed |
-| ZIP/checksum validation | Passed |
-| Text line-ending normalization | Passed |
-| Final CI/Linux artifact comparison | Passed; byte-identical to the Windows ZIP |
+| Filename | `soturine_chaos_randomizer_0.3.0-alpha.1.zip` |
+| Bytes | Pending final build |
+| Entries | Pending final build |
+| Windows SHA-256 | Pending final build |
+| Same-environment two-build equality | Pending final build |
+| ZIP/checksum validation | Pending final build |
+| Text line-ending normalization | Pending final build |
+| Final CI/Linux artifact comparison | Pending final CI artifact |
 
-The final commit SHA and workflow run belong to the delivery report. The Windows and CI/Linux inner ZIP bytes and their `.sha256` files matched exactly.
+The final commit SHA, bytes, entries, hash, workflow run, and CI comparison belong to the delivery report and will be recorded only from the final artifact.
