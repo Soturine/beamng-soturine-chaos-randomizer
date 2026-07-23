@@ -144,7 +144,7 @@ def test_counts(root: Path = REPOSITORY_ROOT) -> dict[str, int]:
             if not any(part in {".git", "dist", "__pycache__"} for part in path.relative_to(root).parts)
         ]),
         "interactivePassed": 0,
-        "interactivePending": 60,
+        "interactivePending": 100,
     }
 
 

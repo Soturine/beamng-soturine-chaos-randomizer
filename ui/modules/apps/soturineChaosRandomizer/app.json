@@ -4,7 +4,7 @@
   "types": [
     "ui.apps.categories.vehicle_control"
   ],
-  "description": "Randomize complete configurations, compatible parts, tuning, and paint with deterministic seeds.",
+  "description": "Create, lock, mutate, compare, and safely share deterministic Vehicle DNA.",
   "css": {
     "right": "20px",
     "top": "120px",
@@ -14,7 +14,7 @@
     "min-height": "330px"
   },
   "author": "Soturine",
-  "version": "0.4.0-alpha.2",
+  "version": "0.5.0-alpha.1",
   "preserveAspectRatio": false,
   "directive": "soturineChaosRandomizer",
   "category": "Gameplay",
