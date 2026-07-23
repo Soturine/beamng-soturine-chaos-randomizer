@@ -18,6 +18,64 @@ The 0.4 audit revalidated `integrity.json` (`0.38.6.0`, buildbot build `19963`) 
 
 Machine-specific install, user-profile, and repository paths are intentionally omitted. Installed-source references below are paths relative to the BeamNG installation.
 
+## 0.4.0-alpha.2 re-audit
+
+The hotfix re-audit was performed from clean repository commit
+`dffb86c0e4447eb509081e94b64b66aeacf8d01f` before code changes. The installed
+executable still reports `0.38.6.0.19963`; Steam app manifest `284160` still
+reports build `23007233`. The adapter therefore remains targeted at the same
+audited build, but every newly used optional API is capability-gated.
+
+Evidence is classified as follows throughout this milestone:
+
+| Classification | Meaning for this project |
+| --- | --- |
+| Source inspected | Contract or call shape was read in the installed BeamNG source. |
+| Automated | Pure or mocked behavior ran in the repository harness. |
+| Mocked | A BeamNG boundary was replaced by a controlled test double. |
+| Packaged artifact | The exact deterministic ZIP/checksum/manifest passed package validation. |
+| Interactive passed | Observed in a real BeamNG world/UI session with a recorded log. |
+| Interactive pending | Not observed live; source or mocks do not upgrade this status. |
+
+Baseline re-run before changes: `36` Python tests passed with `260` reported
+subtests under `pytest`. Interactive passed remains `0`; the existing `55`
+interactive cases remain pending until a real session is recorded.
+
+### Additional optional APIs revalidated
+
+- `lua/ge/extensions/render/renderViews.lua` exposes
+  `takeScreenshot(options, callback)`. It creates a Lua-owned render view,
+  applies caller-provided camera and bounded resolution, hides UI/markers,
+  writes through `saveToDisk`, destroys the view, restores visibility, and then
+  invokes the callback. `career/modules/inventory.lua` demonstrates a
+  `500 x 281` vehicle capture with an explicit filename and callback. This is
+  sufficient for an optional adapter capability, but no capture is claimed
+  interactive until its completion and file bounds are observed live.
+- `lua/ge/screenshot.lua` exposes general screenshots but chooses the normal
+  screenshots folder and may include environment/account metadata. It is not
+  used for Vehicle DNA gallery capture.
+- Installed source calls the global `setClipboard(text)` and ImGui clipboard
+  helpers. A fixed adapter wrapper may expose text copy when present; imported
+  data never supplies a method name or command. Browser-side clipboard remains
+  a progressive enhancement rather than a required contract.
+- Installed `ui/apps.lua` confirms discovery through
+  `FS:findFiles('/ui/modules/apps/', 'app.json', ...)`, JSON app metadata, and
+  UI hooks. This revalidates the current UI App packaging shape only; resize,
+  focus, controller behavior, and screen-reader output remain interactive
+  pending.
+- Installed source contains `FS:findFiles`, `FS:directoryCreate`,
+  `FS:copyFile`, `FS:removeFile`, and `FS:renameFile` call sites. The project
+  will use only constant controlled roots, normalized basenames, allowlisted
+  extensions, bounded entry counts/sizes, and capability detection. Source
+  presence alone is not treated as a portable multi-file transaction.
+- `core_modmanager.getModFromPath` remains the ownership evidence for a mounted
+  configuration/part. Empty identifiers and empty optional slots are not
+  dependencies, and `unknown` remains `unknown` without provenance.
+
+No installed mod ZIP or content ZIP was opened manually. No screenshot,
+thumbnail, mod asset, JBeam, texture, sound, or third-party file was copied into
+the repository or fixtures.
+
 ## Official documentation reviewed
 
 - [Lua extensions](https://documentation.beamng.com/modding/programming/extensions/)
