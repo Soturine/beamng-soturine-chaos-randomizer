@@ -42,6 +42,25 @@ local function normalizeLibrary(library, limit)
   return normalized, nil, {canonicalBytes = #canonical}
 end
 
+local function metrics(library)
+  local canonical, reason, canonicalMetrics = fingerprint.canonicalize(library, {maxElements = 30000, maxStringLength = 4096})
+  if not canonical then return nil, reason end
+  local largestEntryBytes = 0
+  for _, entry in ipairs(type(library) == "table" and library.entries or {}) do
+    local entryCanonical = fingerprint.canonicalize(entry)
+    if entryCanonical then largestEntryBytes = math.max(largestEntryBytes, #entryCanonical) end
+  end
+  return {
+    entryCount = #(library.entries or {}),
+    entryLimit = tonumber(library.limit) or M.DEFAULT_LIMIT,
+    canonicalBytes = #canonical,
+    byteLimit = M.MAX_TOTAL_BYTES,
+    elementCount = canonicalMetrics and canonicalMetrics.elements or 0,
+    elementLimit = 30000,
+    largestEntryBytes = largestEntryBytes,
+  }
+end
+
 local function find(library, id)
   for index, entry in ipairs(type(library) == "table" and library.entries or {}) do
     if entry.id == id then return util.deepCopy(entry), index end
@@ -128,6 +147,9 @@ local function summaries(library, offset, limit)
       id = entry.id,
       name = entry.name,
       modelKey = entry.final and entry.final.modelKey,
+      configKey = entry.base and entry.base.configKey,
+      configName = entry.base and entry.base.configName,
+      configPath = entry.base and entry.base.configPath,
       seed = entry.generation and entry.generation.seed,
       operation = entry.generation and entry.generation.operation,
       createdAt = entry.createdAt,
@@ -148,5 +170,6 @@ M.rename = rename
 M.setFavorite = setFavorite
 M.summaries = summaries
 M.uniqueId = uniqueId
+M.metrics = metrics
 
 return M

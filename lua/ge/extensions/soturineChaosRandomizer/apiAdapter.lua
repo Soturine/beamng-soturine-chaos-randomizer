@@ -167,7 +167,7 @@ local function captureCurrentState(operationType, seed)
   if not okConfig then return false, config end
   return true, {
     modelKey = modelKey,
-    selectedConfiguration = config.partConfigFilename,
+    selectedConfiguration = configVerification.normalizePath(config.partConfigFilename),
     config = util.deepCopy(config),
     partsTree = util.deepCopy(config.partsTree or {}),
     tuning = util.deepCopy(config.vars or {}),
@@ -369,7 +369,7 @@ local function getVerificationState()
     modelKey = modelKey,
     configKey = config.partConfigFilename,
     configIdentity = {
-      path = config.partConfigFilename,
+      path = configVerification.normalizePath(config.partConfigFilename),
       key = configVerification.stableKey(config.partConfigFilename),
       signature = configVerification.signature(config),
     },
@@ -592,17 +592,39 @@ local function saveDNALibrary(library, lastKnownGood)
     return false, errorValue("dna_storage_unavailable", "Vehicle DNA JSON storage is unavailable")
   end
   if type(library) ~= "table" then return false, errorValue("dna_library_invalid", "Vehicle DNA library data is invalid") end
-  if type(lastKnownGood) == "table" then
-    local backupOk = jsonWriteFile(DNA_BACKUP_PATH, util.deepCopy(lastKnownGood), true, nil, true)
-    if backupOk == false then
-      return false, errorValue("dna_backup_failed", "The previous Vehicle DNA library could not be backed up")
-    end
+  local function write(path, value)
+    local ok, result = pcall(jsonWriteFile, path, util.deepCopy(value), true, nil, true)
+    return ok and result ~= false
   end
-  local written = jsonWriteFile(DNA_LIBRARY_PATH, util.deepCopy(library), true, nil, true)
-  if written == false then return false, errorValue("dna_storage_write_failed", "Vehicle DNA library write failed") end
-  local readback = jsonReadFile(DNA_LIBRARY_PATH)
+  local function read(path)
+    local ok, result = pcall(jsonReadFile, path)
+    return ok and result or nil
+  end
+  local function recover(cause)
+    if type(lastKnownGood) ~= "table" or not write(DNA_LIBRARY_PATH, lastKnownGood) then
+      return false, errorValue("dna_storage_recovery_failed", "Vehicle DNA storage failed and last-known-good could not be restored", {cause = cause})
+    end
+    local recovered = read(DNA_LIBRARY_PATH)
+    if type(recovered) ~= "table" or not util.deepEqual(recovered, lastKnownGood, 1e-10) then
+      return false, errorValue("dna_storage_recovery_failed", "Vehicle DNA last-known-good read-back failed", {cause = cause})
+    end
+    return false, errorValue("dna_storage_recovered", "Vehicle DNA write failed; last-known-good was restored", {
+      cause = cause, recovered = true, revision = recovered.revision,
+    })
+  end
+  if type(lastKnownGood) == "table" and not write(DNA_BACKUP_PATH, lastKnownGood) then
+    local primary = read(DNA_LIBRARY_PATH)
+    if type(primary) == "table" and util.deepEqual(primary, lastKnownGood, 1e-10) then
+      return false, errorValue("dna_storage_recovered", "Vehicle DNA backup write failed; primary remained at last-known-good", {
+        cause = "dna_storage_backup_write_failed", recovered = true, revision = primary.revision,
+      })
+    end
+    return recover("dna_storage_backup_write_failed")
+  end
+  if not write(DNA_LIBRARY_PATH, library) then return recover("dna_storage_primary_write_failed") end
+  local readback = read(DNA_LIBRARY_PATH)
   if type(readback) ~= "table" or not util.deepEqual(readback, library, 1e-10) then
-    return false, errorValue("dna_storage_readback_failed", "Vehicle DNA library read-back did not match the requested data")
+    return recover("dna_storage_primary_readback_failed")
   end
   return true, {path = DNA_LIBRARY_PATH, backupPath = DNA_BACKUP_PATH, verified = true}
 end
