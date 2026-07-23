@@ -191,6 +191,12 @@ local function beginOperation(kind)
     ignoreNextSwitch = false,
     rollbackError = nil,
   }
+  diagnosticsModule.write(runtime.diagnostics, "D", "operation_started", {
+    kind = kind,
+    seed = seed,
+    vehicleId = vehicleId,
+    chaos = runtime.settings.chaos,
+  })
   setProgress("Starting " .. kind, 0.02)
   return true, runtime.active
 end
@@ -243,6 +249,11 @@ local function beginRollback(errorData)
   local okTransition = operationState.transition(runtime.state, "rollingBack", false)
   if not okTransition then runtime.state.state = "rollingBack" end
   active.rollbackError = errorData
+  diagnosticsModule.write(runtime.diagnostics, "W", "rollback_started", {
+    reason = errorData.code,
+    message = errorData.message,
+    originalModel = active.originalState.modelKey,
+  })
   active.afterReload = "rollback"
   active.ignoreNextSwitch = true
   operationState.transition(runtime.state, "waitingForVehicle", WAIT_TIMEOUT)
@@ -258,6 +269,12 @@ end
 
 local function failActive(errorData, attemptRollback)
   errorData = type(errorData) == "table" and errorData or adapter.errorValue("operation_failed", tostring(errorData))
+  diagnosticsModule.write(runtime.diagnostics, "E", "operation_error", {
+    code = errorData.code,
+    message = errorData.message,
+    context = errorData.context,
+    rollbackRequested = attemptRollback == true,
+  })
   if attemptRollback and runtime.active and runtime.active.destructiveStarted then
     beginRollback(errorData)
   else
@@ -280,6 +297,7 @@ startPaint = function(active)
   if not okPaints then failActive(paints, true); return end
   local result, changed = paintRandomizer.randomize(paints, active.policy, active.rng:fork("paint"))
   active.paintChanges = changed
+  diagnosticsModule.write(runtime.diagnostics, "D", "paint_randomized", {changes = changed})
   if changed > 0 then
     local okApply, applyError = adapter.applyPaints(result)
     if not okApply then failActive(applyError, true); return end
@@ -308,6 +326,7 @@ startTuning = function(active)
   if not okSnapshot then failActive(snapshot, true); return end
   local values, changes = tuningRandomizer.randomize(snapshot.variables, snapshot.values, active.policy, active.rng:fork("tuning"))
   active.tuningChanges = changes
+  diagnosticsModule.write(runtime.diagnostics, "D", "tuning_randomized", {changes = #changes})
   if #changes == 0 then
     operationState.transition(runtime.state, "painting", false)
     startPaint(active)
@@ -350,16 +369,20 @@ processMutationPass = function(active)
     passNumber = active.pass,
   })
   local actual = 0
+  local validationSkips = 0
   for _, decision in ipairs(decisions) do
     if not decision.skipped and decision.selectedPart ~= decision.previousPart then
       active.changes[#active.changes + 1] = decision
       actual = actual + 1
+    elseif decision.skipped then
+      validationSkips = validationSkips + 1
     end
   end
   diagnosticsModule.write(runtime.diagnostics, "D", "mutation_pass", {
     pass = active.pass,
     slots = #scan.slots,
     changes = actual,
+    validationSkips = validationSkips,
   })
   if actual == 0 then
     operationState.transition(runtime.state, "tuning", false)
@@ -388,6 +411,13 @@ local function startSpawnOperation(kind)
   if not model then failActive(selectionError, false); return false end
   active.selectedModel = model
   active.selectedConfig = config
+  diagnosticsModule.write(runtime.diagnostics, "D", "configuration_selected", {
+    model = model.key,
+    configuration = config.key,
+    source = config.sourceKind,
+    seed = active.seed,
+    fairness = runtime.settings.selectionFairness,
+  })
   local okCapture, captureError = captureHistory(active)
   if not okCapture then failActive(captureError, false); return false end
 
@@ -397,7 +427,13 @@ local function startSpawnOperation(kind)
   if not okWait then failActive(waitError, true); return false end
   local okReplace, replaceError = adapter.replaceVehicle(model.key, config.path or config.key)
   if not okReplace then
-    contentIndex.recordFailure(runtime.index, "config", config.modelKey .. "/" .. config.key)
+    local failureCount, blacklisted = contentIndex.recordFailure(runtime.index, "config", config.modelKey .. "/" .. config.key)
+    diagnosticsModule.write(runtime.diagnostics, "W", "configuration_failure", {
+      configuration = config.modelKey .. "/" .. config.key,
+      reason = replaceError.code,
+      failureCount = failureCount,
+      blacklisted = blacklisted,
+    })
     failActive(replaceError, true)
     return false
   end
@@ -572,7 +608,14 @@ local function onUpdate()
     return
   end
   if active and active.selectedConfig then
-    contentIndex.recordFailure(runtime.index, "config", active.selectedConfig.modelKey .. "/" .. active.selectedConfig.key)
+    local configurationId = active.selectedConfig.modelKey .. "/" .. active.selectedConfig.key
+    local failureCount, blacklisted = contentIndex.recordFailure(runtime.index, "config", configurationId)
+    diagnosticsModule.write(runtime.diagnostics, "W", "configuration_failure", {
+      configuration = configurationId,
+      reason = "vehicle_reload_timeout",
+      failureCount = failureCount,
+      blacklisted = blacklisted,
+    })
   end
   failActive(adapter.errorValue("vehicle_reload_timeout", "Vehicle reload timed out"), true)
 end
