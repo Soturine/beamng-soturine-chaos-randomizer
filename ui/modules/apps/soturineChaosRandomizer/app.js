@@ -18,12 +18,18 @@
             operationState: 'loading',
             progress: {label: 'Loading extension', value: 0},
             capabilities: {},
-            index: {models: 0, configurations: 0, blacklisted: 0},
+            index: {
+              models: 0,
+              configurations: 0,
+              blacklisted: 0,
+              blacklists: {model: 0, config: 0, part: 0, tuning: 0, total: 0},
+              sources: {official: 0, mod: 0, user: 0, unknown: 0}
+            },
             history: [],
             settings: {
               chaos: 75,
               allowMissingParts: true,
-              keepVehicleDrivable: false,
+              protectCriticalParts: false,
               contentFilter: 'everything',
               includeAutomation: false,
               includeTrailers: false,
@@ -37,6 +43,12 @@
 
         function engineCall(method) {
           bngApi.engineLua('if soturineChaosRandomizer then soturineChaosRandomizer.' + method + '() end')
+        }
+
+        function cancelSettingsTimer() {
+          if (!settingsTimer) return
+          $timeout.cancel(settingsTimer)
+          settingsTimer = null
         }
 
         function requestState() {
@@ -58,7 +70,7 @@
 
         scope.chaos.scheduleSettings = function () {
           if (scope.chaos.state.busy) return
-          if (settingsTimer) $timeout.cancel(settingsTimer)
+          cancelSettingsTimer()
           settingsTimer = $timeout(persistSettings, 250)
         }
 
@@ -71,7 +83,12 @@
             undo: true,
             reindex: true
           }
-          if (allowed[action]) engineCall(action)
+          if (!allowed[action]) return
+          cancelSettingsTimer()
+          var settings = angular.copy(scope.chaos.state.settings || {})
+          var serializedAction = bngApi.serializeToLua(action)
+          var serializedSettings = bngApi.serializeToLua(settings)
+          bngApi.engineLua('if soturineChaosRandomizer then soturineChaosRandomizer.runAction(' + serializedAction + ', ' + serializedSettings + ') end')
         }
 
         scope.chaos.toggleAdvanced = function () {
@@ -104,7 +121,7 @@
         })
 
         scope.$on('$destroy', function () {
-          if (settingsTimer) $timeout.cancel(settingsTimer)
+          cancelSettingsTimer()
         })
 
         bngApi.engineLua('extensions.load("soturineChaosRandomizer")')

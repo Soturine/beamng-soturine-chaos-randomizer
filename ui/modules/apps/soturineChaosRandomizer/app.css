@@ -1,3 +1,12 @@
+soturine-chaos-randomizer {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .scr-app {
   --scr-orange: #ff6a00;
   --scr-orange-light: #ff9f3f;
@@ -306,8 +315,45 @@
   overflow-wrap: anywhere;
 }
 
-.scr-history {
+.scr-history,
+.scr-capabilities,
+.scr-blacklist {
   font-size: 10px;
+}
+
+.scr-capabilities,
+.scr-blacklist {
+  padding: 7px;
+  color: #d9dbdd;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 3px;
+  overflow-wrap: anywhere;
+}
+
+.scr-capabilities ul {
+  margin: 5px 0 0;
+  padding-left: 16px;
+}
+
+.scr-blacklist p {
+  margin: 5px 0 0;
+}
+
+.scr-blacklist dl {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 3px 7px;
+  margin: 7px 0 0;
+}
+
+.scr-blacklist dt {
+  color: #b7b9bc;
+}
+
+.scr-blacklist dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
 }
 
 .scr-history ol {

@@ -52,9 +52,9 @@
         <span>Allow Missing Parts</span>
       </label>
       <label title="Best-effort metadata rules protect known critical slots">
-        <input type="checkbox" ng-model="chaos.state.settings.keepVehicleDrivable"
+        <input type="checkbox" ng-model="chaos.state.settings.protectCriticalParts"
           ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy">
-        <span>Keep Vehicle Drivable</span>
+        <span>Protect Critical Parts</span>
       </label>
     </div>
 
@@ -116,7 +116,32 @@
       </label>
 
       <div class="scr-index">
-        {{chaos.state.index.models}} vehicles · {{chaos.state.index.configurations}} configurations · {{chaos.state.index.blacklisted || 0}} blacklisted
+        {{chaos.state.index.models}} vehicles · {{chaos.state.index.configurations}} configurations ·
+        {{chaos.state.index.sources.unknown || 0}} unknown source
+      </div>
+
+      <div class="scr-capabilities" ng-if="(chaos.state.capabilities.warnings || []).length">
+        <strong>Capability notes</strong>
+        <ul>
+          <li ng-repeat="warning in chaos.state.capabilities.warnings track by $index">{{warning}}</li>
+        </ul>
+      </div>
+
+      <div class="scr-blacklist">
+        <strong>Session blacklist</strong>
+        <p>
+          {{chaos.state.index.blacklists.model || 0}} models ·
+          {{chaos.state.index.blacklists.config || 0}} configs ·
+          {{chaos.state.index.blacklists.part || 0}} parts ·
+          {{chaos.state.index.blacklists.tuning || 0}} tuning variables
+        </p>
+        <dl ng-if="chaos.state.index.lastBlocked">
+          <dt>Type</dt><dd>{{chaos.state.index.lastBlocked.type}}</dd>
+          <dt>Last blocked</dt><dd>{{chaos.state.index.lastBlocked.id}}</dd>
+          <dt>Reason</dt><dd>{{chaos.state.index.lastBlocked.reason}}</dd>
+          <dt>Failures</dt><dd>{{chaos.state.index.lastBlocked.failureCount}}</dd>
+          <dt>Seed</dt><dd>{{chaos.state.index.lastBlocked.seed || 'Not recorded'}}</dd>
+        </dl>
       </div>
 
       <div class="scr-history" ng-if="chaos.state.history.length">
