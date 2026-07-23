@@ -6,7 +6,7 @@ This checklist prepares `0.4.0-beta.1`; it is not evidence that the beta gate pa
 
 - PC A and PC B with documented OS, BeamNG full build, active user folder, enabled-mod inventory, and randomizer commit.
 - At least one clean 0.38.6 profile.
-- The exact attached `soturine_chaos_randomizer_0.4.0-alpha.1.zip`, verified against its attached `.sha256` on both machines.
+- The exact attached `soturine_chaos_randomizer_0.4.0-alpha.2.zip`, verified against its attached `.sha256` on both machines.
 
 ## Required evidence
 
@@ -23,6 +23,6 @@ This checklist prepares `0.4.0-beta.1`; it is not evidence that the beta gate pa
 
 ## Beta publication gate
 
-The gate requires all applicable alpha interactive cases Passed, exact attached-asset hash verification, at least one successful cross-PC Exact case with matching content, compatible/partial evidence with changed content, restart/corruption recovery evidence, UI scaling/input evidence, repeated-operation stress, and a documented clean log. Any Pending blocker keeps VERSION on `0.4.0-alpha.1` and forbids the beta tag/release.
+The gate requires all applicable alpha interactive cases Passed, exact attached-asset hash verification, at least one successful cross-PC Exact case with matching content, compatible/partial evidence with changed content, restart/corruption recovery evidence, UI scaling/input evidence, repeated-operation stress, and a documented clean log. Any Pending blocker forbids the beta tag/release. Published `0.4.0-alpha.2` remains evidence-gathering software and is not promoted in place.
 
 The alpha release workflow validates tag/VERSION identity, package/checksum/manifest consistency, and refuses release overwrite. `.github/workflows/beta-readiness.yml` is manual and non-publishing: it runs the full Ubuntu suite, portable Windows static/package checks, builds both artifacts, and requires byte-identical ZIP/checksum/manifest outputs. A green run still does not satisfy this interactive gate. Cross-platform artifact comparison and beta notes must be recorded from the actual final beta commit—not inferred from alpha builds.

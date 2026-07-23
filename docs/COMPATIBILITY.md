@@ -2,7 +2,7 @@
 
 ## Current target
 
-Version `0.4.0-alpha.1` targets the currently installed BeamNG.drive `0.38.6.0.19963`, Steam build `23007233`.
+Version `0.4.0-alpha.2` targets the currently installed BeamNG.drive `0.38.6.0.19963`, Steam build `23007233`.
 
 | BeamNG version | Status | Evidence |
 | --- | --- | --- |
@@ -72,9 +72,9 @@ External mod scripts, physics timing, and changed mounted content are outside th
 Vehicle DNA separates two different contracts:
 
 - Restore Exact applies a saved snapshot without RNG/recent/blacklist fallback and reports exact only after full slot/tuning/paint/topology read-back.
-- Replay Seed reruns generator version 4 with saved settings and can differ when any input changed. Legacy seed text is parseable, but an unsupported generator version is not silently replayed.
+- Replay Generation freezes the saved base and reruns generator version 4 parts/tuning/paint stages. Pure Seed Replay is explicitly separate and can reselect the base. Legacy seed text is parseable, but an unsupported generator version is not silently replayed.
 
-Restore Compatible never chooses a random substitute. It reports missing/ambiguous slots, absent parts/dependencies, clamps, paint-layer omissions, and environment differences before the user can confirm a partial application. Exact preflight is deliberately `unverified` when the target tree cannot be inspected read-only.
+Restore Compatible never chooses a random substitute. It reports missing/ambiguous slots, absent parts/dependencies, clamps, paint-layer omissions, and environment differences before the user can confirm a partial application. A cross-model registry preflight reports `target_inspection_required`; after the saved base loads, target inspection decides Exact, Compatible, or rollback.
 
 ## Reporting results
 

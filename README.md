@@ -2,7 +2,7 @@
 
 Soturine's Chaos Randomizer is a BeamNG.drive UI App and GE Lua extension for seeded, bounded randomization of complete vehicle configurations, compatible hierarchical parts, tuning values, and paint layers.
 
-Current version: **0.4.0-alpha.1 — Vehicle DNA and Persistence**
+Current version: **0.4.0-alpha.2 — Vehicle DNA Restore Hotfix**
 Inspected target: **BeamNG.drive 0.38.6.0.19963** (Steam build 23007233)
 
 This is a Vehicle DNA persistence alpha artifact, not a gameplay-validated stable release. Automated and installed-source evidence is complete for the documented contracts; the interactive world/UI and multi-PC matrix remains Pending.
@@ -73,7 +73,7 @@ The adapter reports registry, replace, parts read/write, tuning read/write, pain
 
 ## Installation
 
-1. Download the attached `soturine_chaos_randomizer_0.4.0-alpha.1.zip` release asset, or build that filename locally.
+1. Download the attached `soturine_chaos_randomizer_0.4.0-alpha.2.zip` release asset, or build that filename locally.
 2. Copy the ZIP, without extracting it, into the active BeamNG user folder's `mods` directory.
 3. Enable it in Mod Manager.
 4. Enter Freeroam, open UI Apps, and add **Soturine's Chaos Randomizer**.
@@ -96,9 +96,9 @@ UI actions send the currently displayed settings and action in one Lua call. A p
 
 After Random Config, Scramble, or Full Random completes and a fresh final read-back validates, **Save Vehicle DNA** becomes available. Saving is always explicit; `autoSaveDNA` is fixed off. A Vehicle DNA entry records normalized slot paths and selected parts, tuning metadata/values, supported paint fields, base configuration, environment, generation settings, warnings, dependencies, and fingerprints. It never embeds mod archives, JBeam files, textures, or executable code.
 
-- **Restore Exact** performs a no-write preflight, ignores recent/blacklist/RNG state, uses parent-first fresh-tree reloads, and succeeds only after strict read-back. Missing, ambiguous, changed, or unverified evidence blocks it.
+- **Restore Exact** performs a read-only registry preflight, loads the saved model/configuration when target inspection is required, then applies parent-first fresh-tree passes and succeeds only after strict read-back. Any target mismatch or divergence rolls back.
 - **Restore Compatible** reports every omission, clamp, and mapping; partial application requires confirmation and never substitutes a random part.
-- **Replay Seed** reruns the saved generator operation and settings. It is separate from restore and can differ when the environment or starting state changed.
+- **Replay Generation** freezes the saved base model/configuration and replays only the recorded parts/tuning/paint generation stages. **Pure Seed Replay** is a separate advanced action that may reselect the base and differ when content or algorithms changed.
 - **Copy DNA JSON / Import pasted JSON** use schema v1 and bounded JSON-only validation. Imported text is parsed as data before crossing the UI bridge.
 
 New seeds use `SCR4-XXXX-XXXX`; legacy `XXXX-XXXX` seeds remain accepted without changing their generator sequence. Manual-seed selection ignores the hidden recent list. See [Vehicle DNA](docs/VEHICLE_DNA.md) and [Schema](docs/VEHICLE_DNA_SCHEMA.md).
@@ -134,8 +134,8 @@ The package builder fixes entry order, timestamps, permissions, path separators,
 Expected release files:
 
 ```text
-dist/soturine_chaos_randomizer_0.4.0-alpha.1.zip
-dist/soturine_chaos_randomizer_0.4.0-alpha.1.sha256
+dist/soturine_chaos_randomizer_0.4.0-alpha.2.zip
+dist/soturine_chaos_randomizer_0.4.0-alpha.2.sha256
 dist/release-manifest.json
 ```
 
@@ -160,7 +160,7 @@ See [Testing](docs/TESTING.md), [Compatibility](docs/COMPATIBILITY.md), [Compati
 - Safety is metadata-based and cannot prove generic drivability; unknown/special layouts can remain `uncertain` without being destructively rejected.
 - Undo history is memory-only.
 - Vehicle DNA uses one bounded JSON library (100 entries, 128 KiB per entry, 1 MiB total) plus a last-known-good copy. The installed helper uses temp-write/rename, but the project does not claim transactional filesystem atomicity.
-- Exact preflight is `unverified` when the target model is not currently loaded and its slot tree cannot be inspected without mutation; Exact restore is blocked in that state.
+- A cross-model preflight may report `target_inspection_required`. Restore then loads the saved base inside the same history transaction, reruns target-specific preflight, and rolls back unless Exact is proven or the user explicitly authorized a reported Compatible partial result.
 - Fingerprints are deterministic change detectors, not cryptographic signatures or proof that two mod installations contain identical bytes.
 - Paint-design/skin semantics are not specialized beyond ordinary compatible part slots.
 - Repeated local build identity is tested. Cross-platform identity is reported only after comparing the final CI artifact for this exact commit.

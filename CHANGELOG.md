@@ -6,6 +6,27 @@ All notable changes are documented here using [Keep a Changelog](https://keepach
 
 No additional changes.
 
+## [0.4.0-alpha.2] - 2026-07-23
+
+Vehicle DNA restore hotfix prerelease. Automated tests and package validation pass; all real BeamNG world/UI and multi-PC cases remain Pending.
+
+### Fixed
+
+- Normalize configuration paths and scope registry keys by model during capture, import, preflight, and read-back.
+- Restore saved DNA from a different active model by loading the saved base, inspecting the actual target tree, and continuing or rolling back inside one transaction.
+- Restore the last-known-good library immediately when backup, primary write, or primary read-back fails.
+- Replace the fixed 12-pass restore cap with a bounded depth-derived budget plus timeout, no-progress, repeated-state, and maximum guards.
+
+### Changed
+
+- Replace the ambiguous Replay Seed primary action with Replay Generation, which freezes the saved base. Pure Seed Replay remains a separate advanced operation.
+- Record empty optional slots, remaps, clamps, omissions, environment differences, and partial authorization as explicit deviations.
+- Add storage usage metrics, clearer compatibility states, modern Garage cards, manual-seed copy, reduced-motion/focus treatment, and Cancel and Roll Back.
+
+### Tests
+
+- Expanded coverage for cross-model Exact/Compatible/Replay, config collisions, adaptive budgets, optional slots, durable storage recovery, and cancellation rollback. Exact final counts are recorded in `docs/TESTING.md` from the release tree.
+
 ## [0.4.0-alpha.1] - 2026-07-23
 
 Vehicle-DNA-and-persistence alpha artifact; interactive BeamNG, restart, corruption-recovery, representative-content, and multi-PC evidence remains Pending.

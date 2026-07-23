@@ -2,6 +2,10 @@
 
 The roadmap is evidence-driven. A feature is not considered stable until it has been exercised against representative official and third-party content in the target BeamNG version.
 
+## 0.4.0-alpha.2 — restore hotfix
+
+Implemented on `main`: normalized/model-scoped configuration identity; cross-model Exact and Compatible target inspection; frozen-base Replay Generation; explicit Pure Seed Replay; adaptive parent-first pass budgets with timeout/no-progress/oscillation guards; optional-slot deviations; durable write recovery; visible storage metrics; and user cancellation with rollback. Interactive BeamNG evidence remains Pending, so this milestone is an alpha prerelease only.
+
 ## 0.1.0-alpha — foundation
 
 Implemented on `main`:
@@ -68,7 +72,7 @@ The milestone remains a safety-and-compatibility alpha artifact until the intera
 
 - **Implemented:** schema-v1 Vehicle DNA created from fresh post-operation read-back, normalized slots/tuning/paints, categorized dependency evidence, generator context, and field-validated fingerprints.
 - **Implemented:** explicit Save Vehicle DNA, bounded single-store persistence, controlled last-known-good recovery, rename/favorite/delete/pagination, JSON import/copy, and fixed-path file export.
-- **Implemented:** read-only compatibility reports plus distinct Restore Exact, Restore Compatible, and Replay Seed contracts. Restore uses one token/history transaction, parent-first fresh-tree passes, DNA-specific lifecycle phases, safety validation, final read-back, and rollback.
+- **Implemented:** read-only registry reports plus distinct Restore Exact, Restore Compatible, Replay Generation, and Pure Seed Replay contracts. Restore uses one token/history transaction, target inspection, adaptive parent-first fresh-tree passes, safety validation, final read-back, and rollback.
 - **Implemented:** settings schema 3, generator version 4 seed display, legacy seed parsing, granular DNA capabilities, compact Garage/Compatibility UI, release manifest, and prerelease workflow.
 - **Implemented:** license-safe automated schema, fingerprint, storage, compatibility, pipeline, UI-boundary, and packaging regressions.
 - **Pending interactive evidence:** clean-profile install, live UI/input, persistence across restart, in-game corruption recovery, Exact/Compatible results, representative mod content, and multi-PC import/export.

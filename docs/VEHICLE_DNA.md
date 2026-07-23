@@ -8,28 +8,30 @@ An entry can become available only after an operation completes its lifecycle co
 
 Random Config results are eligible after their configuration lifecycle/read-back confirmation. Scramble and Full Random results additionally pass the final safety scan. A failed capture leaves the gameplay operation result intact but disables saving and records a diagnostic reason.
 
-## Three distinct operations
+## Four distinct operations
 
 ### Restore Exact
 
-Exact mode first performs a read-only preflight. Model, base configuration, slot topology, selected parts, tuning ranges, paint-layer count, and known environment evidence must be available and unambiguous. Resolution order is:
+Exact mode first performs a read-only registry preflight. If a different model is active, the report is `target_inspection_required`; after explicit restore initiation, the same transaction captures history, loads the saved normalized/model-scoped base configuration, and performs the target-tree preflight. Model, base configuration, slot topology, selected parts, tuning ranges, paint-layer count, and known environment evidence must then be available and unambiguous. Resolution order is:
 
 1. exact path + slot ID + parent part;
 2. exact path + slot ID;
 3. unique slot ID + parent part + model;
 4. incompatible when missing or ambiguous.
 
-Exact mode never uses RNG, recent selections, session blacklists, suspect state, a random compatible part, current/default fallback, or omission. It restores the base, then applies only the shallowest changed slot depth per pass, waits for the phase-specific reload, reads a fresh tree, and continues. Tuning and paint values use their saved values. A final strict read-back must match every saved slot/tuning/paint field and slot/paint topology; otherwise the transaction rolls back. Results are `exact`, `failed`, or `unverified`—never “exact enough.”
-
-When the target model is not loaded, the installed APIs available to this project do not expose a proven target slot tree without loading it. Preflight therefore reports `unverified` and blocks Exact instead of mutating first and calling that a preflight.
+Exact mode never uses RNG, recent selections, session blacklists, suspect state, a random compatible part, current/default fallback, or omission. It restores the base, then applies only the shallowest changed slot depth per pass, waits for the phase-specific reload, reads a fresh tree, and continues. The pass budget is derived from saved/current depth and clamped to 12–128, with a 120-second deadline and no-progress/repeated-state guards. Tuning and paint values use their saved values. A final strict read-back must match every saved slot/tuning/paint field and slot/paint topology; otherwise the transaction rolls back. Results are `exact` or `failed`—never “exact enough.”
 
 ### Restore Compatible
 
-Compatible mode uses the same preflight and resolution order. It may omit a missing optional slot, clamp a tuning value to a current range, or omit unsupported paint layers only when the report records the deviation and the user confirms a partial restore. Required/core parts are never omitted. It never chooses a random fallback. The final read-back verifies every subset value actually applied and safety validation runs before completion. Final status is `compatible`, `partial`, or `failed`.
+Compatible mode uses the same two-stage preflight and resolution order. It may preserve an empty optional slot, omit a missing optional part, remap a uniquely proven slot, clamp a tuning value to a current range, or omit unsupported paint layers only when the report records the deviation and the user explicitly confirms a partial restore. A partial discovered only after loading the target also requires that prior authorization or the transaction rolls back. Required/core parts are never omitted. It never chooses a random fallback. The final read-back verifies every subset value actually applied and safety validation runs before completion. Final status is `compatible`, `partial`, or `failed`.
 
-### Replay Seed
+### Replay Generation
 
-Replay Seed reruns the saved generator operation and validated settings. It is not a restore. The result can differ if BeamNG, enabled content, starting state, filters, or other environment inputs changed. Generator version 4 uses `SCR4-XXXX-XXXX`; legacy `XXXX-XXXX` input remains accepted with the same underlying generator sequence. Manual-seed selection ignores hidden recent history.
+Replay Generation freezes the saved base model and normalized configuration, restores that base, and replays only the saved parts/tuning/paint generation stages using the recorded generator version, root seed, and settings. `randomConfig` DNA therefore validates its saved base and does not select another vehicle. The result is Exact, Close, or Partial according to field read-back and deviations; fingerprints are advisory and never replace comparison.
+
+### Pure Seed Replay
+
+Pure Seed Replay is a separate advanced operation that reruns the original top-level generator action, including model/configuration selection. It can differ if BeamNG, enabled content, algorithms, filters, or other environment inputs changed. Generator version 4 uses `SCR4-XXXX-XXXX`; legacy `XXXX-XXXX` input remains accepted with the same underlying generator sequence.
 
 ## Persistence
 
@@ -47,7 +49,7 @@ Before replacing an existing primary, the adapter writes:
 
 Every logical save validates the complete candidate library, writes it through the observed temp/rename helper, reads it back, and compares it. Startup uses the primary, then last-known-good, then an empty library. This is a recovery strategy, not a claim of transactional or crash-proof filesystem atomicity.
 
-Limits are 100 entries, 128 KiB canonical data per entry, 1 MiB for the library, 2,048 slots, 2,048 tuning variables, 32 paint layers, 20 tags, 32 nested levels, 10,000 imported elements, and 4,096 characters per string. The restore parts pipeline is capped at 12 parent-first passes.
+Limits are 100 entries, 128 KiB canonical data per entry, 1 MiB for the library, 2,048 slots, 2,048 tuning variables, 32 paint layers, 20 tags, 32 nested levels, 10,000 imported elements, and 4,096 characters per string. The UI reports entry, byte, element, and largest-entry usage. The restore parts pipeline has a depth-derived bounded budget rather than a fixed pass count.
 
 ## Import and export
 

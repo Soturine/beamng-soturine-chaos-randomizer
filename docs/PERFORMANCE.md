@@ -38,7 +38,7 @@ The console timer has millisecond resolution, so a reported `0.000` means below 
 - Vehicle DNA libraries are capped at 100 entries and 1 MiB canonical JSON; each entry is capped at 128 KiB, 2,048 slots, 2,048 tuning variables, 32 paint layers, and 20 tags.
 - Canonical/import traversal is capped at 32 levels, 10,000 elements, 4,096 characters per string, and 512 characters per canonical path.
 - Garage pages expose eight summaries at a time; the pure summary helper never returns more than 25.
-- Vehicle DNA restore applies only the shallowest changed slot depth per pass and stops after 12 passes. It performs no synchronous retry loop or per-frame tree scan.
+- Vehicle DNA restore applies only the shallowest changed slot depth per pass. Its budget is derived from saved/current tree depth plus safety margin, clamped to 12–128 passes, with a 120-second deadline and explicit no-progress/repeated-state guards. It performs no synchronous retry loop or per-frame tree scan.
 - Only one primary library and one last-known-good copy are retained. No per-entry backup directory can grow without bound.
 
 ## Runtime metrics

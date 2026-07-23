@@ -38,8 +38,8 @@ Evidence is classified as follows throughout this milestone:
 | Interactive pending | Not observed live; source or mocks do not upgrade this status. |
 
 Baseline re-run before changes: `36` Python tests passed with `260` reported
-subtests under `pytest`. Interactive passed remains `0`; the existing `55`
-interactive cases remain pending until a real session is recorded.
+subtests under `pytest`. Interactive passed remains `0`; the alpha.2 gate expands
+the matrix from `55` to `60` pending cases, all requiring a real session.
 
 ### Additional optional APIs revalidated
 

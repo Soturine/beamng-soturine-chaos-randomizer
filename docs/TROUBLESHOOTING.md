@@ -106,7 +106,7 @@ If a write began, the entry is retained unless automatic rollback succeeds. Succ
 
 ## Immediate click used the wrong setting
 
-Version `0.4.0-alpha.1` sends the displayed action and complete settings snapshot in one Lua call. If the result reports a different manual seed/filter/Chaos value, collect the UI state and JavaScript log because that is a regression. The pending settings timer is cancelled on action and app destroy.
+Version `0.4.0-alpha.2` sends the displayed action and complete settings snapshot in one Lua call. If the result reports a different manual seed/filter/Chaos value, collect the UI state and JavaScript log because that is a regression. The pending settings timer is cancelled on action and app destroy.
 
 ## Developer stress stopped
 
@@ -136,9 +136,17 @@ The button appears only after a successful operation also completes a fresh fina
 
 Saving is explicit and `autoSaveDNA` is fixed off. A persistence failure leaves the pending entry available for retry and does not silently report success.
 
-## Exact preflight says unverified
+## Preflight says target inspection is required
 
-Exact preflight never changes the vehicle. Installed 0.38.6 APIs do not give this project a proven hierarchical slot tree for an arbitrary unloaded target. If the saved target model/configuration is not already inspectable, the result is `unverified` and Exact is blocked.
+Registry preflight never changes the vehicle. Installed 0.38.6 APIs do not expose a proven hierarchical slot tree for an arbitrary unloaded target, so a different active model produces `target_inspection_required`. Starting Restore Exact or Restore Compatible captures the current vehicle, loads the saved normalized/model-scoped base, and runs the target-tree preflight. Any Exact mismatch—or an unauthorized Compatible partial—rolls back to the captured vehicle.
+
+## Restore stops on pass budget or no progress
+
+The parent-first planner derives its budget from saved/current tree depth, then enforces a 12-pass minimum, 128-pass maximum, 120-second deadline, and repeated/no-progress guards. Codes such as `dna_restore_timeout`, `dna_restore_no_progress`, `dna_restore_repeated_state`, or `dna_restore_pass_limit` mean the transaction stopped safely and attempted rollback; collect the compatibility report and diagnostic log rather than retrying indefinitely.
+
+## Storage reports recovered
+
+`dna_storage_recovered` means a backup/primary write or primary read-back failed and the validated last-known-good document was restored immediately. Preserve the diagnostics and inspect filesystem/antivirus conditions. `dna_storage_recovery_failed` means the restoration attempt also failed; the in-memory library is not silently presented as durable.
 
 Load the matching base/model through normal BeamNG controls, wait for it to settle, then rerun preflight. Do not interpret a matching fingerprint alone as exact compatibility.
 

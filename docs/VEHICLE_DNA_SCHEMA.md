@@ -17,7 +17,7 @@ The canonical format is `SoturineVehicleDNA`, the internal kind is `soturineVehi
   "tags": [],
   "environment": {
     "beamNGVersion": "0.38.6.0",
-    "extensionVersion": "0.4.0-alpha.1",
+    "extensionVersion": "0.4.0-alpha.2",
     "targetBeamNG": "0.38.6.0.19963",
     "schemaVersion": 1,
     "generatorVersion": 4

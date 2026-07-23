@@ -7,7 +7,7 @@ This is a preparation checklist, not evidence of submission or approval. A GitHu
 - **Title:** Soturine's Chaos Randomizer
 - **Short name:** Chaos Randomizer
 - **Author:** Soturine
-- **Version candidate:** later than `0.4.0-alpha.1`, only after the beta interactive gate
+- **Version candidate:** later than `0.4.0-alpha.2`, only after the beta interactive gate
 - **Tagline:** Seeded vehicle randomization with bounded Vehicle DNA capture, compatibility reports, and restoration.
 - **Category:** UI Apps / Gameplay (choose the closest current Repository category at submission time)
 - **License:** Apache License 2.0
@@ -26,7 +26,7 @@ Suggested description:
 - Confirm the supported BeamNG version immediately before upload.
 - Pass the restart persistence, corruption recovery, Exact/Compatible restore, import/export, and multi-PC beta gate in [Multi-PC Testing](MULTI_PC_TESTING.md).
 - Review current Repository rules, allowed categories/tags, image dimensions, file-size limits, and moderation requirements.
-- Do not submit `0.4.0-alpha.1`; it deliberately retains Pending interactive evidence.
+- Do not submit `0.4.0-alpha.2`; it deliberately retains Pending interactive evidence.
 
 ## Package checklist
 

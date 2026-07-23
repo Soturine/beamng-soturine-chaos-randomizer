@@ -2,7 +2,7 @@
 
 This matrix separates installed-source inspection, license-safe automated evidence, mocked pipeline evidence, and real interactive evidence. `Automated` never means gameplay-validated.
 
-Target: Soturine's Chaos Randomizer `0.4.0-alpha.1`; BeamNG.drive `0.38.6.0.19963`; Steam build `23007233`.
+Target: Soturine's Chaos Randomizer `0.4.0-alpha.2`; BeamNG.drive `0.38.6.0.19963`; Steam build `23007233`.
 
 | Content class | Registry/source evidence | Safety behavior | Automated evidence | Interactive evidence |
 | --- | --- | --- | --- | --- |
@@ -27,8 +27,9 @@ Target: Soturine's Chaos Randomizer `0.4.0-alpha.1`; BeamNG.drive `0.38.6.0.1996
 | Case | Automated evidence | Interactive evidence |
 | --- | --- | --- |
 | Fresh capture after Random Config/Scramble/Full Random | final capture/scan/normalize/schema/fingerprint and failed-operation exclusion | Pending |
-| Exact preflight/restore | no-write preflight, conservative slot resolution, parent-first passes, strict read-back, rollback harness | Pending |
-| Compatible/partial restore | missing/changed report, no random fallback, clamp/omission records, applied-subset read-back | Pending |
+| Exact preflight/restore | no-write registry preflight, saved-base load, target inspection, adaptive parent-first passes, strict read-back, rollback harness | Pending |
+| Compatible/partial restore | cross-model target inspection, explicit partial authorization, no random fallback, clamp/omission/remap records, applied-subset read-back | Pending |
+| Replay Generation / Pure Seed Replay | frozen saved-base generation and separate base-reselecting advanced replay harnesses | Pending |
 | Restart persistence and last-known-good recovery | bounded store/schema/fingerprint/backup mocks | Pending |
 | JSON import/export | capped JSON-data bridge, schema/fingerprint rejection, fixed export path | Pending |
 | Cross-PC transfer | schema/fingerprint and environment report logic | Pending |

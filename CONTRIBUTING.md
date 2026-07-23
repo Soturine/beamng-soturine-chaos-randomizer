@@ -52,7 +52,7 @@ Never write development files into the BeamNG installation's stock content direc
 - Keep the default UI limited to the three primary actions, Chaos slider, and two visible safety options.
 - Keep developer stress bounded, cancellable, sequential, disabled by default, and outside the normal panel.
 - Treat imported Vehicle DNA as hostile JSON data: preserve size/type/schema/fingerprint limits, fixed method names, and adapter-owned paths.
-- Keep Restore Exact, Restore Compatible, and Replay Seed separate. A fingerprint or seed is never sufficient evidence for an Exact result.
+- Keep Restore Exact, Restore Compatible, Replay Generation, and Pure Seed Replay separate. A fingerprint or seed is never sufficient evidence for an Exact result.
 - Preserve schema/generator versions and add an explicit migration before changing persisted formats.
 - Do not add a visible control for an unimplemented feature.
 

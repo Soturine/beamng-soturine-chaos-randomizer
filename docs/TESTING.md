@@ -38,7 +38,7 @@ On 2026-07-23, every workflow SHA was resolved again through the official `actio
 Current suite structure after the Vehicle DNA implementation:
 
 - **36 Python `unittest` methods**;
-- one Python method runs **222 named Lua behavior/syntax/pipeline/performance cases** against BeamNG's shipped Lua 5.1 console when no standalone Lua is available;
+- one Python method runs **229 named Lua behavior/syntax/pipeline/performance cases** against BeamNG's shipped Lua 5.1 console when no standalone Lua is available;
 - **24 repository/static methods**, including real `node --check`, JSON/YAML parsing, links, versions, API boundary, UI atomicity/host/DNA boundary, icon limits, action pins, credentials, paths, and whitespace;
 - **11 package methods**, including two-build equality, SHA, root layout, normalized metadata, version, manifest consistency, and machine-path checks;
 - **1 JavaScript file** syntax-checked;
@@ -214,11 +214,16 @@ Use the exact final ZIP without extracting it and record the result of every row
 | 50 | confirmed Compatible partial applies no random fallback and reports deviations | Pending |
 | 51 | parent-first DNA restore reloads before resolving wheel/tire or other descendants | Pending |
 | 52 | stale/wrong hook, manual vehicle/map change, and mod-state change cancel DNA restore | Pending |
-| 53 | Replay Seed is visibly distinct from Exact and warns on changed environment | Pending |
+| 53 | Replay Generation is visibly distinct from Exact and freezes the saved base | Pending |
 | 54 | export on PC A and import/Exact preflight on PC B using the exact alpha asset | Pending |
 | 55 | Garage/Compatibility minimum size, overflow, keyboard/controller focus, and busy lock | Pending |
+| 56 | Restore Exact begins on a different active model and verifies the saved target | Pending |
+| 57 | Restore Compatible begins on a different model and reports every target deviation | Pending |
+| 58 | partial discovered after target load requires prior authorization or rolls back | Pending |
+| 59 | adaptive restore budget handles a legitimately deep tree and stops no-progress/oscillation | Pending |
+| 60 | Cancel and Roll Back restores the previous vehicle; Pure Seed Replay remains a separate warned action | Pending |
 
-Interactive cases passed: **0**. Interactive cases pending: **55**.
+Interactive cases passed: **0**. Interactive cases pending: **60**.
 
 ## Package result
 

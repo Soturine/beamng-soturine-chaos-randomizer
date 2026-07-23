@@ -43,6 +43,7 @@ Repository documentation, tools, tests, workflows, and fixtures do not enter the
 | `vehicleDNAStorage.lua` / `vehicleDNAImport.lua` | Pure bounded library operations and hostile-input sanitization |
 | `vehicleDNACompatibility.lua` | Read-only model/config/slot/tuning/paint/dependency/environment preflight |
 | `vehicleDNARestore.lua` | Parent-first compatible/exact restore planning without RNG fallback |
+| `vehicleDNAPassBudget.lua` | Depth-derived pass limit, deadline, no-progress, and repeated-state guards |
 | selectors/policy/diagnostics/util | Pure selection, Chaos policy, structured logs, shared helpers |
 
 ## Settings schema
@@ -99,7 +100,7 @@ waitingForDNATuningReload
 
 An expectation stores operation token, phase, expected hook, exact vehicle/model/config evidence, requested parts/tuning values, and start time. Replacement writes bind to the vehicle ID extracted from the returned object. A synchronous switch emitted before the call returns is queued and checked against that ID; it is never used to retarget the expectation. `onVehicleSpawned` is accepted only for the exact current target and current token. The post-event snapshot must satisfy the phase-specific expectation before the pipeline advances. A matching hook by itself is not success.
 
-Config verification applies layers: exact model, normalized path, model-scoped registry key, minimal loaded-state signature, then explicit failure as `config_identity_unverified`. Paint confirmation is update-driven, interval-limited, attempt-limited, and does not use `onVehicleSpawned`.
+Config verification applies layers: exact model, normalized path, model-scoped registry key, minimal loaded-state signature, then explicit failure as `config_identity_unverified`. A registry-only cross-model check can return `target_inspection_required`; the orchestrator loads the saved base within the existing transaction and repeats preflight against the confirmed target before any final claim. Paint confirmation is update-driven, interval-limited, attempt-limited, and does not use `onVehicleSpawned`.
 
 Timeouts report the exact phase. Manual map/vehicle/mod-state changes cancel with a distinct lifecycle reason; stale/wrong-vehicle hooks are logged and ignored.
 

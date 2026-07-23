@@ -38,9 +38,9 @@ Ordinary randomization outcomes—an undrivable vehicle, a third-party part that
 
 ## Project safeguards
 
-The in-game package has no network dependency, remote scripts, analytics, or credential handling. UI settings are serialized with BeamNG's bridge, engine actions use fixed method names, mutation/restore passes and timeouts are bounded, and package paths are validated against traversal, backslashes, duplicates, symlinks, and development content.
+The in-game package has no network dependency, remote scripts, analytics, or credential handling. UI settings are serialized with BeamNG's bridge, engine actions use fixed method names, mutation/restore passes and timeouts are bounded, and package paths are validated against traversal, absolute drive/UNC paths, backslashes, duplicates, symlinks, and development content.
 
-Vehicle DNA is untrusted data. Pasted input is capped at 128 KiB, parsed as JSON before bridge serialization, limited to JSON-safe finite values and bounded depth/elements/strings/slots/tuning/paints/tags, and validated against schema and field fingerprints. Unknown top-level fields are discarded except the bounded `extensions` area. Imports cannot provide a Lua/JavaScript method, network address, or filesystem path. Storage and optional export use adapter-owned constant paths under `/settings/soturineChaosRandomizer/vehicleDNA/`.
+Vehicle DNA is untrusted data. Pasted input is capped at 128 KiB, parsed as JSON before bridge serialization, limited to JSON-safe finite values and bounded depth/elements/strings/slots/tuning/paints/tags, and validated against schema and field fingerprints. Unknown top-level fields are discarded except the bounded `extensions` area. Imports cannot provide a Lua/JavaScript method, network address, or arbitrary filesystem path. Storage and optional export use adapter-owned constant paths under `/settings/soturineChaosRandomizer/vehicleDNA/`; failed writes immediately attempt to restore the validated last-known-good primary.
 
 Fingerprints are non-cryptographic change detectors. They are never treated as authentication, mod-file integrity, or a substitute for Exact field read-back.
 
