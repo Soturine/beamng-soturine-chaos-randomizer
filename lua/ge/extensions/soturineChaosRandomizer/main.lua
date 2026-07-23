@@ -2064,6 +2064,20 @@ local function cancelOperation(code, message)
   finishOperation(false, failure.code, failure.message, {failure = failure}, "cancelled")
 end
 
+local function cancelCurrentOperation()
+  if not runtime.state.busy or not runtime.active then return false end
+  local active = runtime.active
+  local isDNA = type(active.kind) == "string" and active.kind:sub(1, 3) == "dna"
+  local code = isDNA and "dna_partial_cancelled" or "operation_cancelled"
+  local message = isDNA and "Vehicle DNA operation cancelled by the user" or "Operation cancelled by the user"
+  if active.destructiveStarted then
+    failActive(adapter.errorValue(code, message), true, active.phase or "lifecycle", {requestedByUser = true})
+  else
+    cancelOperation(code, message)
+  end
+  return true
+end
+
 local function cancelDeveloperStressInternal(reason)
   if not runtime.stress or not runtime.stress.active then return false end
   stressRunner.cancel(runtime.stress, reason)
@@ -2347,6 +2361,7 @@ M.updateSettings = updateSettings
 M.requestState = requestState
 M.runDeveloperStress = runDeveloperStress
 M.cancelDeveloperStress = cancelDeveloperStress
+M.cancelCurrentOperation = cancelCurrentOperation
 M.getDeveloperStressState = getDeveloperStressState
 M.saveVehicleDNA = saveVehicleDNA
 M.setVehicleDNAPage = setVehicleDNAPage

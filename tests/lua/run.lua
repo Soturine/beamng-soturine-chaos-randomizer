@@ -2061,6 +2061,22 @@ tests.restore_exact_failure_rolls_back_original_state = function()
   equal(state.lastResult.details.rollback, "completed")
 end
 
+tests.user_cancel_rolls_back_an_active_dna_operation = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
+  truthy(harness.main.saveVehicleDNA("Cancel Fixture"))
+  local id = harness.main.requestState().garage.entries[1].id
+  harness.modelKey, harness.configPath = "fixture_old", "/vehicles/fixture_old/original.pc"
+  truthy(harness.main.restoreVehicleDNA(id, "compatible", true))
+  truthy(harness.main.cancelCurrentOperation())
+  truthy(harness.pendingReplacement ~= nil, "user cancellation must schedule rollback")
+  pipelineHarness.confirmReplacement(harness)
+  local result = harness.main.requestState().lastResult
+  equal(result.success, false)
+  equal(result.code, "dna_partial_cancelled")
+  equal(result.details.rollback, "completed")
+end
+
 tests.config_paths_are_normalized_across_supported_forms = function()
   local expected = "/vehicles/fixture/base.pc"
   for _, value in ipairs({
