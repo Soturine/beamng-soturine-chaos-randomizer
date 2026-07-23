@@ -137,7 +137,7 @@ See [Testing](docs/TESTING.md), [Compatibility](docs/COMPATIBILITY.md), and [Tro
 - Protection is metadata-based and cannot prove generic drivability.
 - Undo history is memory-only.
 - Paint-design/skin semantics are not specialized beyond ordinary compatible part slots.
-- Byte identity is proven for repeated builds in the same validated environment. Cross-platform identity is reported only after the local and final CI ZIP bytes are compared.
+- Byte identity is proven for repeated Windows builds, and the final CI/Linux ZIP matched the Windows ZIP exactly for this artifact.
 
 ## License
 

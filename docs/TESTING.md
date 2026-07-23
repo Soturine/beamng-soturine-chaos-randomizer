@@ -180,6 +180,6 @@ The packaged inputs were built twice on Windows after the code, UI, asset, tests
 | Same-environment two-build equality | Passed |
 | ZIP/checksum validation | Passed |
 | Text line-ending normalization | Passed |
-| Final CI/Linux artifact comparison | Pending until the final pushed workflow completes |
+| Final CI/Linux artifact comparison | Passed; byte-identical to the Windows ZIP |
 
-The final commit SHA and CI comparison belong to the delivery report; no cross-platform byte-identity claim is made here before that comparison.
+The final commit SHA and workflow run belong to the delivery report. The Windows and CI/Linux inner ZIP bytes and their `.sha256` files matched exactly.

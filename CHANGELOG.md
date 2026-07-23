@@ -56,7 +56,7 @@ Content-hardening alpha artifact; interactive BeamNG validation remains Pending.
 - No interactive world/UI or representative third-party content result is claimed.
 - Installed 0.38.6 tuning metadata revealed no proven correlation group, so real variables remain independent.
 - Protect Critical Parts is conservative metadata protection, not a generic drivability validator.
-- Cross-platform byte identity is claimed only after comparing the actual final CI and local archives.
+- Cross-platform byte identity applies to this artifact after comparing the actual CI/Linux and Windows ZIPs.
 
 ## [0.1.0-alpha.1] - 2026-07-23
 
