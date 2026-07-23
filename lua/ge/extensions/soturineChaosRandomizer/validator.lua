@@ -3,13 +3,13 @@ local util = require("ge/extensions/soturineChaosRandomizer/util")
 local M = {}
 
 local CRITICAL_TERMS = {
-  "engine", "motor", "battery", "fuel", "tank", "transmission", "gearbox",
+  "energy", "powertrain", "propulsion", "engine", "motor", "battery", "fuel", "tank", "transmission", "gearbox",
   "clutch", "converter", "driveshaft", "halfshaft", "transfer", "differential",
-  "finaldrive", "suspension", "spring", "shock", "steer", "hub", "wheel", "tire",
+  "finaldrive", "axle", "brake", "suspension", "spring", "shock", "steer", "hub", "wheel", "tire",
 }
 
 local function combinedMetadata(slot)
-  local values = {slot.description, slot.id}
+  local values = {tostring(slot.description or ""), tostring(slot.id or "")}
   for _, value in ipairs(slot.allowTypes or {}) do values[#values + 1] = value end
   return util.normalizeText(table.concat(values, " "))
 end
