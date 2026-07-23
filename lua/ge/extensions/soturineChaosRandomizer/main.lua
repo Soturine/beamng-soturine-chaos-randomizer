@@ -600,6 +600,19 @@ local function onClientEndMission()
   cancelOperation("map_changed", "Operation cancelled because the map changed")
 end
 
+local function onModStateChanged(modData)
+  runtime.index.valid = false
+  contentIndex.clearFailures(runtime.index)
+  diagnosticsModule.write(runtime.diagnostics, "I", "content_index_invalidated", {
+    mod = type(modData) == "table" and modData.modname or nil,
+  }, true)
+  if runtime.state.busy then
+    cancelOperation("content_changed", "Operation cancelled because enabled mod content changed")
+  else
+    publishState()
+  end
+end
+
 local function onUpdate()
   if not runtime.state.busy or not operationState.isExpired(runtime.state) then return end
   local active = runtime.active
@@ -638,6 +651,8 @@ M.onVehicleSpawned = onVehicleSpawned
 M.onVehicleSwitched = onVehicleSwitched
 M.onVehicleDestroyed = onVehicleDestroyed
 M.onClientEndMission = onClientEndMission
+M.onModActivated = onModStateChanged
+M.onModDeactivated = onModStateChanged
 M.onUpdate = onUpdate
 
 return M
