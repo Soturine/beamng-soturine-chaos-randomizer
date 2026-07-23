@@ -294,6 +294,16 @@ soturine-chaos-randomizer {
   transition: width 140ms ease;
 }
 
+.scr-cancel {
+  margin-top: 10px;
+  border: 1px solid rgba(255, 185, 80, 0.6);
+  border-radius: 6px;
+  padding: 7px 11px;
+  color: #ffe3b0;
+  background: rgba(82, 48, 8, 0.7);
+  cursor: pointer;
+}
+
 .scr-advanced-toggle {
   width: 100%;
   padding: 8px 2px;

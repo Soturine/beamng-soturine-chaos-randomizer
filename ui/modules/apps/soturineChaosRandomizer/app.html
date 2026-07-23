@@ -97,7 +97,7 @@
       <p class="scr-empty" ng-if="!chaos.state.garage.preflight">Select a Garage entry to run an Exact or Compatible preflight.</p>
     </div>
 
-    <div class="scr-progress" ng-if="chaos.state.busy" aria-live="polite"><div class="scr-progress-label"><span>{{chaos.state.progress.label}}</span><span>{{(chaos.state.progress.value * 100) | number:0}}%</span></div><div class="scr-progress-track" role="progressbar" ng-attr-aria-valuenow="{{(chaos.state.progress.value * 100) | number:0}}"><span ng-style="{'width': ((chaos.state.progress.value || 0) * 100) + '%'}"></span></div></div>
+    <div class="scr-progress" ng-if="chaos.state.busy" aria-live="polite"><div class="scr-progress-label"><span>{{chaos.state.progress.label}}</span><span>{{(chaos.state.progress.value * 100) | number:0}}%</span></div><div class="scr-progress-track" role="progressbar" ng-attr-aria-valuenow="{{(chaos.state.progress.value * 100) | number:0}}"><span ng-style="{'width': ((chaos.state.progress.value || 0) * 100) + '%'}"></span></div><button class="scr-cancel" type="button" ng-click="chaos.cancelCurrent()">Cancel and Roll Back</button></div>
     <footer class="scr-footer"><div><span class="scr-footer-label">Seed</span><code>{{chaos.state.seed || '—'}}</code><button class="scr-copy" type="button" ng-click="chaos.copySeed()" ng-disabled="!chaos.state.seed">COPY</button><span aria-live="polite">{{chaos.copyStatus}}</span></div><p ng-class="{'scr-result-error': chaos.state.lastResult && !chaos.state.lastResult.success}">{{chaos.state.lastResult.message || 'Ready for chaos.'}}</p></footer>
   </div>
 </section>

@@ -124,6 +124,10 @@
           callWithArgs('runAction', [action, settings])
         }
 
+        scope.chaos.cancelCurrent = function () {
+          if (scope.chaos.state.busy && window.confirm('Cancel this operation and restore the previous vehicle?')) engineCall('cancelCurrentOperation')
+        }
+
         scope.chaos.openView = function (view) {
           if (view === 'randomize' || view === 'garage' || view === 'compatibility') scope.chaos.view = view
         }
