@@ -5,6 +5,7 @@ local configSelector = require("ge/extensions/soturineChaosRandomizer/configSele
 local adapter = require("ge/extensions/soturineChaosRandomizer/apiAdapter")
 local capabilities = require("ge/extensions/soturineChaosRandomizer/capabilities")
 local contentIndex = require("ge/extensions/soturineChaosRandomizer/contentIndex")
+local configVerification = require("ge/extensions/soturineChaosRandomizer/configVerification")
 local failureAttribution = require("ge/extensions/soturineChaosRandomizer/failureAttribution")
 local history = require("ge/extensions/soturineChaosRandomizer/history")
 local historyTransaction = require("ge/extensions/soturineChaosRandomizer/historyTransaction")
@@ -12,6 +13,7 @@ local lifecycle = require("ge/extensions/soturineChaosRandomizer/lifecycle")
 local mutationEngine = require("ge/extensions/soturineChaosRandomizer/mutationEngine")
 local mutationPolicy = require("ge/extensions/soturineChaosRandomizer/mutationPolicy")
 local operationState = require("ge/extensions/soturineChaosRandomizer/operationState")
+local paintVerification = require("ge/extensions/soturineChaosRandomizer/paintVerification")
 local rng = require("ge/extensions/soturineChaosRandomizer/rng")
 local settings = require("ge/extensions/soturineChaosRandomizer/settings")
 local slotScanner = require("ge/extensions/soturineChaosRandomizer/slotScanner")
@@ -21,6 +23,7 @@ local util = require("ge/extensions/soturineChaosRandomizer/util")
 local validator = require("ge/extensions/soturineChaosRandomizer/validator")
 local vehicleSelector = require("ge/extensions/soturineChaosRandomizer/vehicleSelector")
 local fixtures = require("tests/lua/fixtures/content")
+local pipelineHarness = require("tests/lua/pipelineHarness")
 
 local tests = {}
 
@@ -362,10 +365,32 @@ tests.adapter_does_not_report_unconfirmed_write_as_success = function()
     setConfigPaints = function() return nil end,
     getConfig = function() return {paints = {{baseColor = {0, 0, 0, 1}}}} end,
   }
-  local ok, err = adapter.applyPaints({{baseColor = {1, 1, 1, 1}}})
+  local ok, result = adapter.applyPaints({{baseColor = {1, 1, 1, 1}}})
   core_vehicle_partmgmt = original
-  equal(ok, false)
-  equal(err.code, "paint_apply_unconfirmed")
+  equal(ok, true)
+  equal(result.confirmationRequired, true)
+  equal(result.verified, false)
+end
+
+tests.adapter_passes_exact_replacement_target = function()
+  local originalVehicles = core_vehicles
+  local originalGetObjectByID = getObjectByID
+  local target = {getID = function() return 42 end}
+  local receivedTarget
+  getObjectByID = function(id) if id == 42 then return target end end
+  core_vehicles = {
+    replaceVehicle = function(_, _, otherVehicle)
+      receivedTarget = otherVehicle
+      return otherVehicle
+    end,
+  }
+  local ok, result = adapter.replaceVehicle("fixture", "base", 42)
+  core_vehicles = originalVehicles
+  getObjectByID = originalGetObjectByID
+  truthy(ok)
+  equal(receivedTarget, target)
+  equal(result.vehicleId, 42)
+  equal(result.requestedTargetVehicleId, 42)
 end
 
 tests.changing_parent_defers_descendant_mutation = function()
@@ -436,7 +461,11 @@ tests.critical_nonempty_replacement_is_protected = function()
   local scan = assert(slotScanner.scan(fixtures.nestedTree, {}))
   local result, decisions = mutationEngine.plan(scan, {["/engine/"] = true}, fullMutationPolicy(true), scriptedGenerator({true}))
   equal(result.children.engine.chosenPartName, "engine_a")
-  truthy(decisions[1].reason:find("critical_current_preserved", 1, true) == 1)
+  local found = false
+  for _, decision in ipairs(decisions) do
+    if decision.reason and decision.reason:find("critical_current_preserved", 1, true) == 1 then found = true end
+  end
+  truthy(found)
 end
 
 tests.critical_slot_prefers_current_or_default = function()
@@ -468,7 +497,7 @@ tests.protection_reason_is_exposed = function()
     candidates = {"wheel_a", "wheel_b"},
   }, "wheel_b", true)
   equal(valid, false)
-  truthy(reason:find("critical_candidate_unproven", 1, true) == 1)
+  truthy(reason:find("safety_evidence_unproven", 1, true) == 1)
 end
 
 tests.part_blacklist_is_applied = function()
@@ -539,7 +568,7 @@ tests.batch_failure_does_not_immediately_blacklist_every_candidate = function()
   local context = {modelKey = "car", slotPath = "/slot/", candidate = "suspect", suspectBatch = true}
   contentIndex.recordFailure(index, "part", context, {code = "parts_reload_timeout"})
   equal(contentIndex.isBlacklisted(index, "part", context), false)
-  equal(index.suspects.part[contentIndex.identifier("part", context)], 1)
+  equal(index.suspects.part[contentIndex.identifier("part", context)].failedBatchCount, 1)
 end
 
 tests.spawn_event_cannot_complete_parts_wait = function()
@@ -566,11 +595,13 @@ tests.post_event_state_must_be_verified = function()
   local expectation = lifecycle.createExpectation({phase = "spawn", modelKey = "expected", configKey = "base"})
   local verified, reason = lifecycle.verify(expectation, {modelKey = "expected", configKey = "/vehicles/expected/other.pc"})
   equal(verified, false)
-  equal(reason, "config_mismatch")
+  equal(reason, "config_identity_unverified")
   local paintExpectation = lifecycle.createExpectation({phase = "undo", paints = fixtures.paints.one})
-  local paintVerified, paintReason = lifecycle.verify(paintExpectation, {paints = fixtures.paints.three})
+  local mismatchedPaints = util.deepCopy(fixtures.paints.one)
+  mismatchedPaints[1].baseColor[1] = 0.9
+  local paintVerified, paintReason = lifecycle.verify(paintExpectation, {paints = mismatchedPaints})
   equal(paintVerified, false)
-  equal(paintReason, "paint_state_mismatch")
+  truthy(paintReason:find("paint_state_mismatch", 1, true) == 1)
 end
 
 tests.wrong_vehicle_event_cancels_or_is_ignored = function()
@@ -826,12 +857,751 @@ tests.full_random_requires_replace_and_parts = function()
   equal(value.fullRandom, false)
 end
 
+tests.repeated_suspect_batch_eventually_isolates_candidate = function()
+  local index = contentIndex.create()
+  local context = {modelKey = "car", slotPath = "/wheel/", candidate = "bad", suspectBatch = true, batchSize = 2}
+  for attempt = 1, 3 do
+    context.batchFingerprint = "batch-" .. attempt
+    contentIndex.recordFailure(index, "part", context, {code = "parts_reload_timeout", timestamp = attempt})
+    if attempt == 2 then
+      local allowed, reason = contentIndex.isCandidateEligible(index, context)
+      equal(allowed, false)
+      equal(reason, "candidate_suspect_suppressed")
+      truthy(contentIndex.isCandidateEligible(index, context))
+    end
+  end
+  truthy(contentIndex.isBlacklisted(index, "part", context))
+end
+
+tests.successful_candidate_reduces_suspicion = function()
+  local index = contentIndex.create()
+  local context = {
+    modelKey = "car", slotPath = "/wheel/", candidate = "maybe", suspectBatch = true,
+    batchSize = 2, batchFingerprint = "first", timestamp = 1,
+  }
+  contentIndex.recordFailure(index, "part", context, {code = "parts_reload_timeout", timestamp = 1})
+  local record = index.suspects.part[contentIndex.identifier("part", context)]
+  local before = record.suspicionScore
+  contentIndex.recordSuccess(index, "part", context, 2)
+  record = index.suspects.part[contentIndex.identifier("part", context)]
+  truthy(record == nil or record.suspicionScore < before)
+end
+
+tests.suspect_batch_does_not_block_every_member_immediately = function()
+  local index = contentIndex.create()
+  for _, candidate in ipairs({"one", "two", "three"}) do
+    local context = {
+      modelKey = "car", slotPath = "/slot/", candidate = candidate,
+      suspectBatch = true, batchSize = 3, batchFingerprint = "same-batch",
+    }
+    contentIndex.recordFailure(index, "part", context, {code = "parts_reload_timeout", timestamp = 1})
+    truthy(not contentIndex.isBlacklisted(index, "part", context))
+  end
+end
+
+tests.suspect_entries_affect_selection_policy = function()
+  local index = contentIndex.create()
+  local context = {modelKey = "car", slotPath = "/slot/", candidate = "suspect", suspectBatch = true, batchSize = 2}
+  for attempt = 1, 2 do
+    context.batchFingerprint = "different-" .. attempt
+    contentIndex.recordFailure(index, "part", context, {code = "parts_reload_timeout", timestamp = attempt})
+  end
+  local allowed, reason = contentIndex.isCandidateEligible(index, context)
+  equal(allowed, false)
+  equal(reason, "candidate_suspect_suppressed")
+  equal(contentIndex.isBlacklisted(index, "part", context), false)
+end
+
+tests.single_candidate_failure_is_stronger_than_batch_failure = function()
+  local singleIndex = contentIndex.create()
+  local batchIndex = contentIndex.create()
+  local base = {modelKey = "car", slotPath = "/slot/", candidate = "part"}
+  contentIndex.recordFailure(singleIndex, "part", base, {code = "parts_apply_rejected", timestamp = 1})
+  contentIndex.recordFailure(batchIndex, "part", util.shallowMerge(base, {
+    suspectBatch = true, batchSize = 4, batchFingerprint = "batch",
+  }), {code = "parts_reload_timeout", timestamp = 1})
+  local id = contentIndex.identifier("part", base)
+  truthy(singleIndex.suspects.part[id].suspicionScore > batchIndex.suspects.part[id].suspicionScore)
+end
+
+tests.suspect_memory_is_bounded = function()
+  local index = contentIndex.create()
+  for value = 1, contentIndex.suspectLimits.records + 25 do
+    contentIndex.recordFailure(index, "part", {
+      modelKey = "car", slotPath = "/slot/", candidate = "part" .. value,
+      suspectBatch = true, batchSize = 2, batchFingerprint = "batch" .. value, timestamp = value,
+    }, {code = "parts_reload_timeout", timestamp = value})
+  end
+  truthy(contentIndex.suspectCount(index) <= contentIndex.suspectLimits.records)
+end
+
+tests.reindex_clears_suspects = function()
+  local index = contentIndex.create()
+  contentIndex.recordFailure(index, "part", {
+    modelKey = "car", slotPath = "/slot/", candidate = "part", suspectBatch = true,
+    batchSize = 2, batchFingerprint = "batch",
+  }, {code = "parts_reload_timeout"})
+  contentIndex.clearFailures(index)
+  equal(contentIndex.suspectCount(index), 0)
+  equal(index.lastSuspect, nil)
+end
+
+tests.mod_change_clears_stale_suspects = tests.reindex_clears_suspects
+tests.suspect_store_is_bounded = tests.suspect_memory_is_bounded
+
+tests.expected_replace_switch_is_accepted = function()
+  local harness = pipelineHarness.new({vehicleId = 1, returnedVehicleId = 2})
+  truthy(harness.main.fullRandom({chaos = 100, manualSeed = "replace"}))
+  harness.main.onVehicleSwitched(1, 2, 0)
+  local state = harness.main.requestState()
+  truthy(state.busy)
+  equal(state.operationState, "waitingForVehicle")
+end
+
+tests.unrelated_switch_during_spawn_cancels = function()
+  local harness = pipelineHarness.new({vehicleId = 1, returnedVehicleId = 2})
+  truthy(harness.main.randomConfig({manualSeed = "replace"}))
+  harness.main.onVehicleSwitched(1, 99, 0)
+  local state = harness.main.requestState()
+  equal(state.busy, false)
+  equal(state.lastResult.code, "vehicle_switched")
+end
+
+tests.manual_switch_does_not_retarget_spawn = function()
+  local harness = pipelineHarness.new({vehicleId = 1, returnedVehicleId = 2})
+  truthy(harness.main.randomConfig({manualSeed = "replace"}))
+  harness.main.onVehicleSwitched(1, 99, 0)
+  harness.vehicleId = 99
+  harness.main.onVehicleSpawned(99)
+  local state = harness.main.requestState()
+  equal(state.lastResult.code, "vehicle_switched")
+end
+
+tests.manual_switch_does_not_retarget_rollback = function()
+  local harness = pipelineHarness.new({partsFailure = true})
+  truthy(harness.main.fullRandom({chaos = 100, manualSeed = "rollback"}))
+  pipelineHarness.confirmReplacement(harness)
+  truthy(harness.pendingReplacement and harness.pendingReplacement.restoring)
+  harness.main.onVehicleSwitched(1, 77, 0)
+  equal(harness.main.requestState().lastResult.code, "vehicle_switched")
+end
+
+tests.undo_wait_rejects_unrelated_vehicle = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "scramble"))
+  truthy(harness.main.undo(), harness.main.requestState().lastResult.message)
+  harness.main.onVehicleSwitched(1, 88, 0)
+  equal(harness.main.requestState().lastResult.code, "vehicle_switched")
+end
+
+tests.spawn_event_for_other_vehicle_is_ignored = function()
+  local harness = pipelineHarness.new({vehicleId = 1, returnedVehicleId = 2})
+  truthy(harness.main.randomConfig({manualSeed = "spawn"}))
+  harness.vehicleId = 99
+  harness.main.onVehicleSpawned(99)
+  truthy(harness.main.requestState().busy)
+end
+
+tests.ambiguous_replace_target_fails_safely = function()
+  local harness = pipelineHarness.new({ambiguousReplace = true})
+  truthy(not harness.main.randomConfig({manualSeed = "ambiguous"}))
+  equal(harness.pendingReplacement, nil)
+  equal(harness.main.requestState().lastResult.code, "vehicle_replace_target_ambiguous")
+end
+
+tests.synchronous_expected_switch_is_correlated = function()
+  local harness = pipelineHarness.new({vehicleId = 1, returnedVehicleId = 2, synchronousSwitchId = 2})
+  truthy(harness.main.randomConfig({manualSeed = "synchronous-expected"}))
+  truthy(harness.main.requestState().busy)
+  pipelineHarness.confirmReplacement(harness)
+  equal(harness.main.requestState().lastResult.code, "random_config_loaded")
+end
+
+tests.synchronous_unrelated_switch_never_starts_rollback = function()
+  local harness = pipelineHarness.new({vehicleId = 1, returnedVehicleId = 2, synchronousSwitchId = 99})
+  truthy(not harness.main.randomConfig({manualSeed = "synchronous-unrelated"}))
+  truthy(harness.pendingReplacement and not harness.pendingReplacement.restoring)
+  equal(harness.main.requestState().lastResult.code, "vehicle_switched")
+end
+
+tests.rollback_never_targets_unrelated_vehicle = function()
+  local harness = pipelineHarness.new({vehicleId = 1, returnedVehicleId = 2, partsFailure = true})
+  truthy(harness.main.fullRandom({chaos = 100, manualSeed = "rollback-id"}))
+  pipelineHarness.confirmReplacement(harness)
+  truthy(harness.pendingReplacement and harness.pendingReplacement.restoring)
+  equal(harness.pendingReplacement.vehicleId, 1)
+end
+
+tests.paint_readback_allows_extra_fields = function()
+  local expected = {{baseColor = {0.1, 0.2, 0.3, 1}, metallic = 0.2}}
+  local actual = {{baseColor = {0.1, 0.2, 0.3, 1}, metallic = 0.2, extra = "preserved"}}
+  truthy(paintVerification.compare(expected, actual))
+end
+
+tests.paint_readback_compares_requested_fields_only = function()
+  local expected = {{baseColor = {0.1, 0.2, 0.3, 1}}}
+  local actual = {{baseColor = {0.1, 0.2, 0.3, 1}, metallic = 0.95, roughness = 0.01}}
+  truthy(paintVerification.compare(expected, actual))
+end
+
+tests.paint_readback_accepts_normalized_float_values = function()
+  local expected = {{baseColor = {0.1, 0.2, 0.3, 1}, roughness = 0.5}}
+  local actual = {{baseColor = {x = 0.100001, y = 0.199999, z = 0.3, w = 1}, roughness = 0.500001}}
+  truthy(paintVerification.compare(expected, actual))
+end
+
+tests.paint_readback_rejects_significant_mismatch = function()
+  local matches, reason = paintVerification.compare(
+    {{baseColor = {0.1, 0.2, 0.3, 1}}},
+    {{baseColor = {0.8, 0.2, 0.3, 1}}}
+  )
+  equal(matches, false)
+  truthy(reason:find("paint_field_mismatch", 1, true) == 1)
+end
+
+tests.paint_readback_supports_bounded_deferred_confirmation = function()
+  local state = paintVerification.createDeferred(fixtures.paints.one, 10, 2, 0.1, 3)
+  truthy(paintVerification.shouldCheck(state, 10))
+  paintVerification.recordAttempt(state, 10)
+  equal(state.attempts, 1)
+  truthy(not paintVerification.shouldCheck(state, 10.05))
+  truthy(paintVerification.expired(state, 12))
+end
+
+tests.paint_confirmation_does_not_use_spawn_event = function()
+  local harness = pipelineHarness.new({deferredPaint = true})
+  truthy(harness.main.scramble({chaos = 100, manualSeed = "paint"}))
+  pipelineHarness.confirmParts(harness)
+  pipelineHarness.confirmTuning(harness)
+  local before = harness.main.requestState()
+  equal(before.waitReason, nil)
+  harness.main.onVehicleSpawned(harness.vehicleId)
+  truthy(harness.main.requestState().busy)
+  harness.now = harness.now + 0.2
+  harness.main.onUpdate()
+  equal(harness.main.requestState().busy, false)
+end
+
+tests.external_mod_config_uses_confirmed_path_ownership = function()
+  local model = contentIndex.normalizeModel({key = "external", Source = "Unknown"})
+  local config = contentIndex.normalizeConfig({
+    model_key = "external", key = "base", pcFilename = "/vehicles/external/base.pc",
+    pathOwnership = {kind = "mod", modID = "external", sourceLabel = "External Pack", strategy = "core_modmanager.getModFromPath"},
+  }, {external = model})
+  equal(config.sourceKind, "mod")
+  equal(config.sourceStrategy, "core_modmanager.getModFromPath")
+end
+
+tests.official_parent_with_mod_config_remains_mod = function()
+  local model = contentIndex.normalizeModel({key = "official", Source = "BeamNG - Official"})
+  local config = contentIndex.normalizeConfig({
+    model_key = "official", key = "pack",
+    pathOwnership = {kind = "mod", modID = "pack", sourceLabel = "Pack"},
+  }, {official = model})
+  equal(config.sourceKind, "mod")
+end
+
+tests.mod_parent_without_config_evidence_stays_unknown = function()
+  local model = contentIndex.normalizeModel({key = "modcar", modID = "vehicle_mod"})
+  local config = contentIndex.normalizeConfig({model_key = "modcar", key = "base"}, {modcar = model})
+  equal(config.sourceKind, "unknown")
+end
+
+tests.arbitrary_brand_name_is_not_mod_evidence = function()
+  equal(contentIndex.sourceKind({Brand = "Community Customs", Source = "Unknown"}), "unknown")
+end
+
+tests.repository_and_external_mods_share_same_registry_path = function()
+  local repository = {pathOwnership = {kind = "mod", modID = "repo"}}
+  local external = {pathOwnership = {kind = "mod", modName = "forum_zip"}}
+  equal(contentIndex.sourceKind(repository), contentIndex.sourceKind(external))
+  equal(contentIndex.sourceKind(repository), "mod")
+end
+
+tests.unknown_is_not_promoted_without_proof = function()
+  equal(contentIndex.sourceKind({Source = "A Cool Author", pcFilename = "/vehicles/car/base.pc"}), "unknown")
+end
+
+tests.filename_verification_works = function()
+  local expected = configVerification.expectation({modelKey = "car", key = "base", path = "/vehicles/car/base.pc"})
+  local verified, _, details = configVerification.verify(expected, {
+    modelKey = "car", configIdentity = {path = "/vehicles/car/base.pc"},
+  })
+  truthy(verified)
+  equal(details.strategy, "filename")
+end
+
+tests.user_config_verifies_without_standard_filename = function()
+  local expected = configVerification.expectation({modelKey = "car", key = "my setup", path = "settings/vehicles/car/my setup"})
+  truthy(configVerification.verify(expected, {
+    modelKey = "car", configIdentity = {path = "\\settings\\vehicles\\car\\my setup.pc"},
+  }))
+end
+
+tests.generated_config_uses_state_signature = function()
+  local generated = {parts = {engine = "engine_a", body = "body_a"}, vars = {boost = 0.5}}
+  local expected = configVerification.expectation({modelKey = "car", raw = {loadedConfig = generated}}, generated)
+  local verified, _, details = configVerification.verify(expected, {
+    modelKey = "car", configIdentity = {signature = configVerification.signature(generated)},
+  })
+  truthy(verified)
+  equal(details.strategy, "state_signature")
+end
+
+tests.unusual_mod_path_normalizes_correctly = function()
+  equal(
+    configVerification.normalizePath("mods\\unpacked\\Pack\\vehicles\\Car\\Config"),
+    "/mods/unpacked/pack/vehicles/car/config.pc"
+  )
+end
+
+tests.model_mismatch_always_fails = function()
+  local expected = configVerification.expectation({modelKey = "expected", key = "base", path = "/vehicles/expected/base.pc"})
+  local verified, reason = configVerification.verify(expected, {
+    modelKey = "other", configIdentity = {path = "/vehicles/expected/base.pc"},
+  })
+  equal(verified, false)
+  equal(reason, "model_mismatch")
+end
+
+tests.unverified_config_identity_is_not_claimed = function()
+  local expected = configVerification.expectation({modelKey = "car", key = "base", path = "/vehicles/car/base.pc"})
+  local verified, reason, details = configVerification.verify(expected, {modelKey = "car"})
+  equal(verified, false)
+  equal(reason, "config_identity_unverified")
+  equal(details.identityConfirmed, false)
+end
+
+tests.verification_strategy_is_logged = function()
+  local expectation = lifecycle.createExpectation({
+    phase = "spawn", modelKey = "car",
+    configIdentity = configVerification.expectation({modelKey = "car", key = "base", path = "/vehicles/car/base.pc"}),
+  })
+  local verified, _, details = lifecycle.verify(expectation, {
+    modelKey = "car", configIdentity = {path = "/vehicles/car/base.pc"},
+  })
+  truthy(verified)
+  equal(details.strategy, "filename")
+end
+
+tests.selected_part_uses_selected_candidate_source = function()
+  local tree = {children = {slot = {
+    id = "slot", path = "/slot/", chosenPartName = "official_part",
+    suitablePartNames = {"official_part", "mod_part"}, children = {},
+  }}}
+  local scan = assert(slotScanner.scan(tree, { ["/slot/"] = {candidateMetadata = {
+    official_part = {sourceKind = "official", sourceLabel = "BeamNG - Official"},
+    mod_part = {sourceKind = "mod", sourceLabel = "Wheel Pack", modID = "wheel_pack"},
+  }}}))
+  local _, decisions = mutationEngine.plan(scan, nil, fullMutationPolicy(false), scriptedGenerator({true}))
+  equal(decisions[1].selectedSource.sourceKind, "mod")
+  equal(decisions[1].selectedSource.sourceLabel, "Wheel Pack")
+end
+
+tests.current_part_source_is_preserved_separately = function()
+  local tree = {children = {slot = {id = "slot", path = "/slot/", chosenPartName = "a", suitablePartNames = {"a", "b"}, children = {}}}}
+  local scan = assert(slotScanner.scan(tree, { ["/slot/"] = {candidateMetadata = {
+    a = {sourceKind = "official", sourceLabel = "Official"}, b = {sourceKind = "mod", sourceLabel = "Mod"},
+  }}}))
+  local _, decisions = mutationEngine.plan(scan, nil, fullMutationPolicy(false), scriptedGenerator({true}))
+  equal(decisions[1].previousSource.sourceKind, "official")
+  equal(decisions[1].selectedSource.sourceKind, "mod")
+end
+
+tests.unknown_candidate_source_remains_unknown = function()
+  local tree = {children = {slot = {id = "slot", path = "/slot/", chosenPartName = "a", suitablePartNames = {"a", "b"}, children = {}}}}
+  local scan = assert(slotScanner.scan(tree, {}))
+  local _, decisions = mutationEngine.plan(scan, nil, fullMutationPolicy(false), scriptedGenerator({true}))
+  equal(decisions[1].selectedSource.sourceKind, "unknown")
+end
+
+tests.mod_wheel_source_is_reported_correctly = tests.selected_part_uses_selected_candidate_source
+
+local function graphFixture(profile, roles, requiredRoles, missingRequired)
+  return {
+    profile = profile,
+    roles = util.deepCopy(roles or {}),
+    requiredRoles = util.deepCopy(requiredRoles or {}),
+    missingRequired = util.deepCopy(missingRequired or {}),
+  }
+end
+
+tests.combustion_vehicle_requires_applicable_energy_path = function()
+  local baseline = graphFixture("standard_road", {energy_fuel = 1, propulsion_combustion = 1, power_path = 1})
+  local current = graphFixture("standard_road", {propulsion_combustion = 1, power_path = 1})
+  equal(validator.validateGraph(current, baseline, true).status, "unsafe")
+end
+
+tests.electric_vehicle_does_not_require_fuel_tank = function()
+  local baseline = graphFixture("electric", {energy_electric = 1, propulsion_electric = 1, power_path = 1})
+  local current = graphFixture("electric", {energy_electric = 1, propulsion_electric = 2, power_path = 2})
+  equal(validator.validateGraph(current, baseline, true).status, "safe")
+end
+
+tests.electric_vehicle_preserves_battery_or_energy_source = function()
+  local baseline = graphFixture("electric", {energy_electric = 1, propulsion_electric = 1, power_path = 1})
+  local current = graphFixture("electric", {propulsion_electric = 1, power_path = 1})
+  equal(validator.validateGraph(current, baseline, true).status, "unsafe")
+end
+
+tests.trailer_does_not_require_engine = function()
+  local trailer = graphFixture("trailer", {})
+  equal(validator.validateGraph(trailer, trailer, true).status, "safe")
+end
+
+tests.prop_does_not_require_drivetrain = function()
+  local prop = graphFixture("prop", {})
+  equal(validator.validateGraph(prop, prop, true).status, "not_applicable")
+end
+
+tests.two_wheel_vehicle_is_not_forced_to_four_wheels = function()
+  local baseline = graphFixture("standard_road", {wheel = 2, tire_contact = 2})
+  local current = graphFixture("standard_road", {wheel = 2, tire_contact = 2})
+  truthy(validator.validateGraph(current, baseline, true).valid)
+end
+
+tests.multi_differential_layout_is_supported = function()
+  local baseline = graphFixture("standard_road", {differential = 3}, {differential = 3})
+  local current = graphFixture("standard_road", {differential = 3}, {differential = 3})
+  truthy(validator.validateGraph(current, baseline, true).valid)
+end
+
+tests.unknown_vehicle_uses_conservative_fallback = function()
+  local unknown = graphFixture("unknown", {power_path = 1})
+  local result = validator.validateGraph(unknown, unknown, true)
+  equal(result.status, "uncertain")
+  truthy(result.valid)
+end
+
+tests.required_core_missing_is_unsafe = function()
+  local graph = graphFixture("special", {}, {}, {"/required/"})
+  equal(validator.validateGraph(graph, graph, true).status, "unsafe")
+end
+
+tests.optional_cosmetic_missing_is_safe = function()
+  local graph = graphFixture("standard_road", {})
+  truthy(validator.validateGraph(graph, graph, true).valid)
+end
+
+tests.uncertain_layout_does_not_claim_drivable = function()
+  local graph = graphFixture("unknown", {})
+  equal(validator.validateGraph(graph, graph, true).status, "uncertain")
+end
+
+tests.trailer_profile_has_no_propulsion_requirement = tests.trailer_does_not_require_engine
+
+tests.trailer_full_random_can_complete_without_engine = function()
+  local harness = pipelineHarness.new({modelType = "Trailer", tuningUnavailable = true, paintUnavailable = true})
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
+  local state = harness.main.requestState()
+  equal(state.lastResult.success, true)
+  truthy(#state.lastResult.details.warnings >= 2)
+end
+
+tests.trailer_optional_attachment_mutation = function()
+  local tree = {children = {cargo = {id = "cargo", path = "/cargo/", chosenPartName = "a", suitablePartNames = {"a", "b"}, children = {}}}}
+  local scan = assert(slotScanner.scan(tree, {}))
+  local result = mutationEngine.plan(scan, nil, fullMutationPolicy(true), scriptedGenerator({true}))
+  equal(result.children.cargo.chosenPartName, "b")
+end
+
+tests.trailer_filters_remain_opt_in = function()
+  local defaults = settings.defaults()
+  equal(defaults.includeTrailers, false)
+end
+
+tests.prop_profile_does_not_require_vehicle_systems = tests.prop_does_not_require_drivetrain
+tests.prop_slots_can_mutate = tests.trailer_optional_attachment_mutation
+
+tests.prop_filter_is_opt_in = function()
+  equal(settings.defaults().includeProps, false)
+end
+
+tests.prop_operation_reports_control_limit_honestly = function()
+  local harness = pipelineHarness.new({modelType = "Prop", tuningUnavailable = true, paintUnavailable = true})
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
+  local result = harness.main.requestState().lastResult
+  equal(result.details.safety.status, "not_applicable")
+  truthy(result.message:find("prop control is not validated", 1, true) ~= nil)
+  truthy(#result.details.warnings >= 1)
+end
+
+tests.electric_energy_path_is_detected = function()
+  local evidence = validator.evidenceFromPart({
+    powertrain = {{"type"}, {type = "electricMotor"}},
+    energyStorage = {{"type"}, {type = "electricBattery"}},
+  })
+  truthy(util.arrayContains(evidence.roles, "propulsion_electric"))
+  truthy(util.arrayContains(evidence.roles, "energy_electric"))
+  truthy(util.arrayContains(evidence.roles, "power_path"))
+end
+
+tests.electric_without_fuel_is_valid = tests.electric_vehicle_does_not_require_fuel_tank
+
+tests.dual_motor_layout_is_supported = function()
+  local baseline = graphFixture("electric", {energy_electric = 1, propulsion_electric = 2, power_path = 2})
+  truthy(validator.validateGraph(baseline, baseline, true).valid)
+end
+
+tests.direct_drive_does_not_require_gearbox = function()
+  local baseline = graphFixture("electric", {energy_electric = 1, propulsion_electric = 1, power_path = 1})
+  truthy(validator.validateGraph(baseline, baseline, true).valid)
+end
+
+tests.electric_critical_group_is_preserved_when_unproven = function()
+  local tree = {children = {energy = {
+    id = "energy", path = "/energy/", chosenPartName = "battery_a",
+    suitablePartNames = {"battery_a", "unknown_pack"}, children = {},
+  }}}
+  local scan = assert(slotScanner.scan(tree, { ["/energy/"] = {candidateMetadata = {
+    battery_a = {roles = {"energy_electric"}}, unknown_pack = {roles = {}},
+  }}}))
+  local result = mutationEngine.plan(scan, nil, fullMutationPolicy(true), scriptedGenerator({true}))
+  equal(result.children.energy.chosenPartName, "battery_a")
+end
+
+tests.front_rear_differentials_are_both_preserved_when_required = function()
+  local baseline = graphFixture("standard_road", {differential = 2}, {differential = 2})
+  truthy(validator.validateGraph(baseline, baseline, true).valid)
+end
+
+tests.center_front_rear_layout_is_supported = tests.multi_differential_layout_is_supported
+
+tests.multiple_driven_axles_are_supported = function()
+  local graph = graphFixture("standard_road", {driven_axle = 4})
+  truthy(validator.validateGraph(graph, graph, true).valid)
+end
+
+tests.differential_free_layout_is_not_rejected = function()
+  local graph = graphFixture("electric", {energy_electric = 1, propulsion_electric = 2, power_path = 2})
+  truthy(validator.validateGraph(graph, graph, true).valid)
+end
+
+tests.full_random_is_one_operation = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
+  local state = harness.main.requestState()
+  equal(state.lastResult.success, true)
+  equal(#state.history, 1)
+end
+
+tests.full_random_does_not_finish_after_spawn = function()
+  local harness = pipelineHarness.new()
+  truthy(harness.main.fullRandom({chaos = 100, manualSeed = "full"}))
+  pipelineHarness.confirmReplacement(harness)
+  local state = harness.main.requestState()
+  truthy(state.busy)
+  truthy(harness.pendingParts ~= nil)
+end
+
+tests.full_random_runs_parts_tuning_and_paint = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
+  local seen = {}
+  for _, call in ipairs(harness.calls) do seen[call] = true end
+  truthy(seen.replace and seen.parts and seen.tuning and seen.paint)
+end
+
+tests.full_random_skips_unavailable_optional_stage_with_warning = function()
+  local harness = pipelineHarness.new({tuningUnavailable = true, paintUnavailable = true})
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
+  local details = harness.main.requestState().lastResult.details
+  truthy(#details.warnings >= 2)
+end
+
+tests.full_random_has_one_history_entry = tests.full_random_is_one_operation
+
+tests.full_random_rollback_restores_original = function()
+  local harness = pipelineHarness.new({partsFailure = true})
+  truthy(harness.main.fullRandom({chaos = 100, manualSeed = "rollback"}))
+  pipelineHarness.confirmReplacement(harness)
+  pipelineHarness.confirmReplacement(harness)
+  local state = harness.main.requestState()
+  equal(state.busy, false)
+  equal(state.lastResult.details.rollback, "completed")
+  equal(#state.history, 0)
+  equal(harness.modelKey, "fixture_old")
+end
+
+tests.full_random_result_reports_base_version_and_final_changes = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
+  local details = harness.main.requestState().lastResult.details
+  equal(details.baseConfiguration.key, "base_version")
+  equal(details.baseConfiguration.sourceKind, "official")
+  truthy(details.partsChanged >= 1)
+  truthy(#details.tuningValues >= 1)
+  truthy(details.paintLayers >= 1)
+  truthy(type(details.safety) == "table")
+end
+
+tests.random_config_mocked_success_pipeline = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "randomConfig"))
+  equal(harness.main.requestState().lastResult.code, "random_config_loaded")
+end
+
+tests.scramble_mocked_success_pipeline = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "scramble"))
+  equal(harness.main.requestState().lastResult.success, true)
+end
+
+tests.full_random_mocked_success_pipeline = tests.full_random_runs_parts_tuning_and_paint
+
+tests.spawn_failure_blacklists_config = function()
+  local harness = pipelineHarness.new({replaceFailure = true})
+  for attempt = 1, 3 do
+    truthy(not harness.main.randomConfig({manualSeed = "spawn-failure-" .. attempt}))
+    pipelineHarness.confirmReplacement(harness)
+  end
+  equal(harness.main.requestState().index.blacklists.config, 3 >= 3 and 1 or 0)
+end
+
+tests.parts_failure_after_confirmed_spawn_does_not_blacklist_config = function()
+  local harness = pipelineHarness.new({partsFailure = true})
+  truthy(harness.main.fullRandom({chaos = 100, manualSeed = "parts-failure"}))
+  pipelineHarness.confirmReplacement(harness)
+  equal(harness.main.requestState().index.blacklists.config, 0)
+end
+
+tests.parts_timeout_attributes_current_batch = function()
+  local harness = pipelineHarness.new()
+  truthy(harness.main.fullRandom({chaos = 100, manualSeed = "parts-timeout"}))
+  pipelineHarness.confirmReplacement(harness)
+  harness.now = 30
+  harness.main.onUpdate()
+  local state = harness.main.requestState()
+  equal(state.lastFailure.phase, "parts")
+  truthy(type(state.lastFailure.context.batch) == "table")
+end
+
+tests.paint_failure_rolls_back = function()
+  local harness = pipelineHarness.new({paintFailure = true})
+  truthy(harness.main.scramble({chaos = 100, manualSeed = "paint-failure"}))
+  pipelineHarness.confirmParts(harness)
+  pipelineHarness.confirmTuning(harness)
+  truthy(harness.pendingReplacement and harness.pendingReplacement.restoring)
+  pipelineHarness.confirmReplacement(harness)
+  equal(harness.main.requestState().lastResult.details.rollback, "completed")
+end
+
+tests.wrong_switch_during_replace_cancels = tests.unrelated_switch_during_spawn_cancels
+
+tests.rollback_restores_and_pops_history = function()
+  tests.full_random_rollback_restores_original()
+end
+
+tests.undo_restores_expected_vehicle = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "scramble"))
+  truthy(harness.main.undo(), harness.main.requestState().lastResult.message)
+  pipelineHarness.confirmReplacement(harness)
+  local state = harness.main.requestState()
+  equal(state.lastResult.code, "undo_completed")
+  equal(#state.history, 0)
+end
+
+tests.stress_runs_operations_sequentially = function()
+  local harness = pipelineHarness.new()
+  truthy(harness.main.runDeveloperStress({iterations = 2, mode = "randomConfig", seed = "stress"}))
+  harness.main.onUpdate()
+  truthy(harness.pendingReplacement ~= nil)
+  pipelineHarness.confirmReplacement(harness)
+  harness.main.onUpdate()
+  truthy(harness.pendingReplacement ~= nil)
+  pipelineHarness.confirmReplacement(harness)
+  local state = harness.main.getDeveloperStressState()
+  equal(state.active, false)
+  equal(state.summary.attempts, 2)
+end
+
+tests.mod_change_cancels_pipeline = function()
+  local harness = pipelineHarness.new()
+  truthy(harness.main.fullRandom({manualSeed = "mod-change"}))
+  harness.main.onModActivated({modname = "fixture"})
+  local state = harness.main.requestState()
+  equal(state.busy, false)
+  equal(state.lastResult.code, "content_changed")
+end
+
+tests.map_change_cancels_pipeline = function()
+  local harness = pipelineHarness.new()
+  truthy(harness.main.fullRandom({manualSeed = "map-change"}))
+  harness.main.onClientEndMission()
+  local state = harness.main.requestState()
+  equal(state.busy, false)
+  equal(state.lastResult.code, "map_changed")
+end
+
+tests.large_registry_fixture_is_deterministic = function()
+  local models, configs = {}, {}
+  for modelIndex = 1, 250 do
+    local modelKey = string.format("model_%03d", modelIndex)
+    models[modelKey] = {key = modelKey, Source = "BeamNG - Official", Type = "Car"}
+    for configIndex = 1, 20 do
+      local key = string.format("config_%03d_%02d", modelIndex, configIndex)
+      configs[key] = {model_key = modelKey, key = key, Source = "BeamNG - Official"}
+    end
+  end
+  local left, right = contentIndex.create(), contentIndex.create()
+  contentIndex.build(left, models, configs, 1, 0)
+  contentIndex.build(right, models, configs, 1, 0)
+  equal(#left.models, 250)
+  equal(#left.allConfigs, 5000)
+  equal(left.allConfigs[4321].key, right.allConfigs[4321].key)
+end
+
+local function deepTree(depth)
+  local root = {chosenPartName = "root", children = {}}
+  local node = root
+  for value = 1, depth do
+    local key = "slot" .. value
+    node.children[key] = {
+      id = key, path = "/" .. string.rep("nested/", value - 1) .. key .. "/",
+      chosenPartName = "part" .. value, suitablePartNames = {"part" .. value}, children = {},
+    }
+    node = node.children[key]
+  end
+  return root
+end
+
+tests.deep_tree_scan_is_bounded = function()
+  local scan = assert(slotScanner.scan(deepTree(100), {}))
+  equal(scan.metrics.slotCount, 100)
+  equal(scan.metrics.maxDepth, 100)
+  equal(scan.metrics.candidateCount, 100)
+end
+
+tests.deep_tree_does_not_overflow_reasonable_recursion = function()
+  local scan = assert(slotScanner.scan(deepTree(160), {}))
+  equal(#scan.slots, 160)
+end
+
+tests.diagnostic_history_is_bounded = function()
+  local diagnostics = require("ge/extensions/soturineChaosRandomizer/diagnostics")
+  local state = diagnostics.create(function() end)
+  diagnostics.setEnabled(state, true)
+  for value = 1, 250 do diagnostics.write(state, "D", "fixture", {value = value}) end
+  equal(#diagnostics.snapshot(state), 200)
+end
+
+tests.index_cache_is_reused = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "randomConfig"))
+  truthy(pipelineHarness.driveSuccess(harness, "randomConfig"))
+  local performance = harness.main.requestState().performance
+  equal(performance.indexBuilds, 1)
+  truthy(performance.indexCacheHits >= 1)
+end
+
 tests.all_lua_sources_compile = function()
   local paths = {
     "/lua/ge/extensions/soturineChaosRandomizer.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/apiAdapter.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/capabilities.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/configSelector.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/configVerification.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/contentIndex.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/diagnostics.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/failureAttribution.lua",
@@ -843,6 +1613,7 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/mutationPolicy.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/operationState.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/paintRandomizer.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/paintVerification.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/rng.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/settings.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/slotScanner.lua",

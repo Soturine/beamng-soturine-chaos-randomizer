@@ -13,6 +13,7 @@ return {
   configs = {
     {model_key = "official_simple", key = "official_base", Source = "BeamNG - Official", pcFilename = "/vehicles/official_simple/official_base.pc"},
     {model_key = "official_simple", key = "pack_config", Source = "Fixture Pack", modID = "fixture_pack", pcFilename = "/vehicles/official_simple/pack_config.pc"},
+    {model_key = "official_simple", key = "external_pack_config", pcFilename = "/vehicles/official_simple/external_pack_config.pc", pathOwnership = {kind = "mod", modName = "external_fixture", sourceLabel = "External Fixture Pack", strategy = "core_modmanager.getModFromPath"}},
     {model_key = "official_simple", key = "saved_config", Source = "Custom", player = true, pcFilename = "/vehicles/official_simple/saved_config.pc"},
     {model_key = "mod_complete", key = "mod_base", modID = "fixture_mod", pcFilename = "/vehicles/mod_complete/mod_base.pc"},
     {model_key = "unknown_vehicle", key = "unknown_base", Source = "Community Label", pcFilename = "/vehicles/unknown_vehicle/unknown_base.pc"},
@@ -71,8 +72,13 @@ return {
     },
   },
   electricMetadata = {
-    ["/energy/"] = {required = true, defaultPart = "battery_a", description = "Energy Storage", allowTypes = {"battery"}},
-    ["/motor/"] = {required = true, defaultPart = "motor_a", description = "Electric Motor", allowTypes = {"motor"}},
+    ["/energy/"] = {required = true, defaultPart = "battery_a", description = "Energy Storage", allowTypes = {"battery"}, candidateMetadata = {
+      battery_a = {sourceKind = "official", sourceLabel = "BeamNG - Official", roles = {"energy_electric"}},
+      battery_mod = {sourceKind = "mod", sourceLabel = "Fixture EV Pack", modID = "fixture_ev", roles = {"energy_electric"}},
+    }},
+    ["/motor/"] = {required = true, defaultPart = "motor_a", description = "Electric Motor", allowTypes = {"motor"}, candidateMetadata = {
+      motor_a = {sourceKind = "official", sourceLabel = "BeamNG - Official", roles = {"propulsion_electric", "power_path"}},
+    }},
   },
   multiDifferentialTree = {
     chosenPartName = "root",
@@ -97,6 +103,32 @@ return {
       {baseColor = {0.2, 0.3, 0.4, 1}},
       {baseColor = {0.4, 0.3, 0.2, 1}},
       {baseColor = {0.1, 0.5, 0.7, 1}},
+    },
+    normalized = {{
+      baseColor = {x = 0.2, y = 0.3, z = 0.4, w = 1},
+      metallic = 0.2,
+      roughness = 0.5,
+      clearcoat = 0.8,
+      clearcoatRoughness = 0,
+      gameDefault = "extra read-back field",
+    }},
+  },
+  safetyParts = {
+    combustion = {
+      powertrain = {{"type", "name"}, {type = "combustionEngine", name = "mainEngine"}},
+      energyStorage = {{"type", "name"}, {type = "fuelTank", name = "mainTank"}},
+    },
+    electric = {
+      powertrain = {{"type", "name"}, {type = "electricMotor", name = "frontMotor"}, {type = "electricMotor", name = "rearMotor"}},
+      energyStorage = {{"type", "name"}, {type = "electricBattery", name = "mainBattery"}},
+    },
+    differentialSet = {
+      powertrain = {
+        {"type", "name"},
+        {type = "differential", name = "centerDifferential"},
+        {type = "differential", name = "frontDifferential"},
+        {type = "differential", name = "rearDifferential"},
+      },
     },
   },
 }
