@@ -38,13 +38,18 @@ Repository documentation, tools, tests, workflows, and fixtures do not enter the
 | `operationState.lua` | Busy lock, legal transitions, deadlines, tokens, terminal cleanup |
 | `settings.lua` | Defaults, schema migration, validation, persistence-ready state |
 | `rng.lua` | Isolated Park-Miller generators, stable seeds, deterministic substreams |
+| `vehicleDNA.lua` / `vehicleDNANormalizer.lua` | Create a schema-owned entry from fresh final captures and normalized loaded state |
+| `vehicleDNASchema.lua` / `vehicleDNAFingerprint.lua` | Validate schema v1, bounds, field fingerprints, and canonical JSON-safe values |
+| `vehicleDNAStorage.lua` / `vehicleDNAImport.lua` | Pure bounded library operations and hostile-input sanitization |
+| `vehicleDNACompatibility.lua` | Read-only model/config/slot/tuning/paint/dependency/environment preflight |
+| `vehicleDNARestore.lua` | Parent-first compatible/exact restore planning without RNG fallback |
 | selectors/policy/diagnostics/util | Pure selection, Chaos policy, structured logs, shared helpers |
 
 ## Settings schema
 
 ```lua
 {
-  schemaVersion = 2,
+  schemaVersion = 3,
   chaos = 75,
   allowMissingParts = true,
   protectCriticalParts = false,
@@ -55,11 +60,14 @@ Repository documentation, tools, tests, workflows, and fixtures do not enter the
   selectionFairness = "vehicle",
   historyLimit = 10,
   diagnosticLogging = false,
-  manualSeed = ""
+  manualSeed = "",
+  dnaLibraryLimit = 100,
+  autoSaveDNA = false,
+  defaultRestoreMode = "exact"
 }
 ```
 
-Schema 2 migrates legacy `keepVehicleDrivable` to `protectCriticalParts` and then discards the old key. Unknown keys are removed; numeric/enumerated settings are bounded.
+Schema 3 retains the schema-2 critical-parts migration, maps the temporary `dnaLimit` name to `dnaLibraryLimit`, forces autosave off, and bounds the library to 1–100 entries. Unknown keys are removed; numeric/enumerated settings are bounded.
 
 ## Adapter write contracts
 
@@ -84,6 +92,9 @@ waitingForPartsReload
 waitingForTuningReload
 waitingForRollbackReplace
 waitingForUndoReplace
+waitingForDNABaseSpawn
+waitingForDNAPartsReload
+waitingForDNATuningReload
 ```
 
 An expectation stores operation token, phase, expected hook, exact vehicle/model/config evidence, requested parts/tuning values, and start time. Replacement writes bind to the vehicle ID extracted from the returned object. A synchronous switch emitted before the call returns is queued and checked against that ID; it is never used to retarget the expectation. `onVehicleSpawned` is accepted only for the exact current target and current token. The post-event snapshot must satisfy the phase-specific expectation before the pipeline advances. A matching hook by itself is not success.
@@ -91,6 +102,22 @@ An expectation stores operation token, phase, expected hook, exact vehicle/model
 Config verification applies layers: exact model, normalized path, model-scoped registry key, minimal loaded-state signature, then explicit failure as `config_identity_unverified`. Paint confirmation is update-driven, interval-limited, attempt-limited, and does not use `onVehicleSpawned`.
 
 Timeouts report the exact phase. Manual map/vehicle/mod-state changes cancel with a distinct lifecycle reason; stale/wrong-vehicle hooks are logged and ignored.
+
+## Vehicle DNA transaction
+
+A completed Random Config, Scramble, or Full Random result gets a fresh configuration capture and hierarchical scan. Only after normalization, schema validation, and fingerprint generation does `runtime.dna.pending` expose an explicit save. The pending entry is session-only; autosave is always false.
+
+The selected persistence design is one bounded store because installed-source evidence proves JSON read/write and the helper's temp/rename mode, but not a complete portable directory/listing transaction:
+
+```text
+/settings/soturineChaosRandomizer/vehicleDNA/library.json
+/settings/soturineChaosRandomizer/vehicleDNA/library.last-known-good.json
+/settings/soturineChaosRandomizer/vehicleDNA/export.json
+```
+
+Before a primary write, main passes the already schema-validated in-memory library as the last-known-good value. The adapter writes the backup, writes the normalized candidate through `jsonWriteFile(..., atomicWrite=true)`, reads the primary back, and main revalidates it. Startup rejects an invalid primary and explicitly revalidates the backup. This is bounded recovery, not a crash-proof atomicity claim.
+
+Restore uses one ordinary operation token, original snapshot, history commit, target ID, deadlines, and rollback. Its phases are `dna_preflight`, `dna_base_spawn`, `dna_parts`, `dna_tuning`, `dna_paint`, `dna_validation`, and `dna_final_verification`. Exact requires a fully proven preflight and full final field equality. Compatible applies only uniquely resolved available data, records every omission/clamp, confirms partial intent separately, and verifies the subset actually applied. Neither restore mode consumes RNG or consults recent/blacklist state for fallback selection.
 
 ## Hierarchical mutation passes
 
@@ -180,9 +207,11 @@ partsRead, partsWrite,
 tuningRead, tuningWrite,
 paintRead, paintWrite,
 settingsPersistence, uiEvents, lifecycleConfirmation
+settingsRead, settingsWrite,
+dnaRead, dnaWrite, dnaExportFile, dnaBackup
 ```
 
-Derived actions are `randomConfig`, `scrambleParts`, `scrambleTuning`, `scramblePaint`, `scramble`, `fullRandom`, `undo`, and `developerStress`. Parts read/write plus lifecycle confirmation are essential for Scramble. Tuning and paint are optional stages with public warnings.
+Derived actions also expose `dnaList`, `dnaDelete`, and `dnaImportText` independently of optional fixed-path file export. A missing export-file capability never disables basic save/list/copy behavior. Parts read/write plus lifecycle confirmation are essential for Scramble. Tuning and paint are optional stages with public warnings.
 
 ## Developer stress runner
 
@@ -192,7 +221,7 @@ Limits: default 10, maximum 50 iterations, maximum 300 seconds, per-operation ti
 
 ## UI boundary
 
-The UI calls only public extension methods. An action click cancels the pending settings timer and sends `runAction(action, currentSettings)` as one serialized Lua call. Lua validates/applies the snapshot before beginning the operation. Server state events assign scope state without scheduling another settings write. Destroy cancels the pending timer.
+The UI calls only fixed public extension methods. An action click cancels the pending settings timer and sends `runAction(action, currentSettings)` as one serialized Lua call. Lua validates/applies the snapshot before beginning the operation. Pasted DNA is length-checked and parsed with `JSON.parse` before `serializeToLua`; raw import text never becomes Lua source or a method name. Exact/Compatible buttons run preflight first, and the Compatibility view owns the separate destructive confirmation. Server state events assign scope state without scheduling another settings write. Destroy cancels the pending timer.
 
 The custom-element host is explicitly block-sized to 100% width/height because the directive retains `replace: false`.
 
@@ -200,6 +229,6 @@ The custom-element host is explicitly block-sized to 100% width/height because t
 
 Random choices use operation, pass, variable, and group substreams. Maps are sorted before choices. Results require identical game/content/settings/starting state/blacklist inputs.
 
-The ZIP builder normalizes member order, timestamps, Unix regular-file mode, path separators, packaged text line endings, compression level, and checksum format. It never adds a wrapper directory or development files. Repeated same-environment builds must be byte-identical; cross-platform identity requires comparing the real archives.
+The ZIP builder normalizes member order, timestamps, Unix regular-file mode, path separators, packaged text line endings, compression level, and checksum format. It never adds a wrapper directory or development files. A deterministic external release manifest binds VERSION/tag/commit/source-date, filename/bytes/entries/SHA, BeamNG target, schema/generator versions, and real automated/interactive counts. Repeated same-environment builds must be byte-identical; cross-platform identity requires comparing the real archives.
 
 Runtime performance records index builds/cache hits and the last operation's duration, reload count, slot scan/planning time, slot count, candidate count, and depth. Diagnostics, history, passes, suspects, and paint confirmation are all bounded. Synthetic performance measurements are documented in [Performance](PERFORMANCE.md).

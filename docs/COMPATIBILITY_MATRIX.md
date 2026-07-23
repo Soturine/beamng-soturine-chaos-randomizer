@@ -2,7 +2,7 @@
 
 This matrix separates installed-source inspection, license-safe automated evidence, mocked pipeline evidence, and real interactive evidence. `Automated` never means gameplay-validated.
 
-Target: Soturine's Chaos Randomizer `0.3.0-alpha.1`; BeamNG.drive `0.38.6.0.19963`; Steam build `23007233`.
+Target: Soturine's Chaos Randomizer `0.4.0-alpha.1`; BeamNG.drive `0.38.6.0.19963`; Steam build `23007233`.
 
 | Content class | Registry/source evidence | Safety behavior | Automated evidence | Interactive evidence |
 | --- | --- | --- | --- | --- |
@@ -21,6 +21,17 @@ Target: Soturine's Chaos Randomizer `0.3.0-alpha.1`; BeamNG.drive `0.38.6.0.1996
 | Hybrid-like | both electric and combustion loaded evidence | preserves both baseline-proven paths | graph profile/invariant fixtures | Pending |
 | Multi-differential / driven axles | loaded powertrain sections | preserves required role counts; no exactly-one assumption | front/rear/center/multi-axle/differential-free regressions | Pending |
 | Multi-vehicle config | registry exposure only | no special validated policy | none beyond generic registry normalization | Unknown |
+
+## Vehicle DNA evidence
+
+| Case | Automated evidence | Interactive evidence |
+| --- | --- | --- |
+| Fresh capture after Random Config/Scramble/Full Random | final capture/scan/normalize/schema/fingerprint and failed-operation exclusion | Pending |
+| Exact preflight/restore | no-write preflight, conservative slot resolution, parent-first passes, strict read-back, rollback harness | Pending |
+| Compatible/partial restore | missing/changed report, no random fallback, clamp/omission records, applied-subset read-back | Pending |
+| Restart persistence and last-known-good recovery | bounded store/schema/fingerprint/backup mocks | Pending |
+| JSON import/export | capped JSON-data bridge, schema/fingerprint rejection, fixed export path | Pending |
+| Cross-PC transfer | schema/fingerprint and environment report logic | Pending |
 
 ## API evidence
 

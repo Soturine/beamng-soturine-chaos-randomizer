@@ -2,7 +2,7 @@
 
 ## Current target
 
-Version `0.3.0-alpha.1` targets the currently installed BeamNG.drive `0.38.6.0.19963`, Steam build `23007233`.
+Version `0.4.0-alpha.1` targets the currently installed BeamNG.drive `0.38.6.0.19963`, Steam build `23007233`.
 
 | BeamNG version | Status | Evidence |
 | --- | --- | --- |
@@ -41,6 +41,9 @@ Synthetic license-safe fixtures cover all of these metadata/tree shapes without 
 | paint read + paint write | optional paint stage |
 | replace + lifecycle confirmation | Undo/rollback |
 | settings persistence | persistent UI settings; operations can still use current-session snapshots |
+| DNA read/write | persistent Garage save/list/delete/import; randomization remains available without it |
+| DNA file export | optional fixed-path export only; JSON copy remains available without it |
+| DNA backup | controlled last-known-good recovery; no transactional atomicity claim |
 
 If tuning or paint is unavailable, compatible-parts mutation can continue with a visible capability warning. Missing parts write disables Scramble and Full Random. Missing registry/replace disables Random Config.
 
@@ -65,6 +68,13 @@ Equal seeds reproduce project choices only when all inputs match:
 - session blacklist/suspect state.
 
 External mod scripts, physics timing, and changed mounted content are outside this guarantee.
+
+Vehicle DNA separates two different contracts:
+
+- Restore Exact applies a saved snapshot without RNG/recent/blacklist fallback and reports exact only after full slot/tuning/paint/topology read-back.
+- Replay Seed reruns generator version 4 with saved settings and can differ when any input changed. Legacy seed text is parseable, but an unsupported generator version is not silently replayed.
+
+Restore Compatible never chooses a random substitute. It reports missing/ambiguous slots, absent parts/dependencies, clamps, paint-layer omissions, and environment differences before the user can confirm a partial application. Exact preflight is deliberately `unverified` when the target tree cannot be inspected read-only.
 
 ## Reporting results
 

@@ -64,13 +64,23 @@ The milestone remains a content-hardening alpha artifact until its interactive m
 
 The milestone remains a safety-and-compatibility alpha artifact until the interactive matrix has real evidence.
 
+## 0.4.0-alpha — Vehicle DNA and Persistence
+
+- **Implemented:** schema-v1 Vehicle DNA created from fresh post-operation read-back, normalized slots/tuning/paints, categorized dependency evidence, generator context, and field-validated fingerprints.
+- **Implemented:** explicit Save Vehicle DNA, bounded single-store persistence, controlled last-known-good recovery, rename/favorite/delete/pagination, JSON import/copy, and fixed-path file export.
+- **Implemented:** read-only compatibility reports plus distinct Restore Exact, Restore Compatible, and Replay Seed contracts. Restore uses one token/history transaction, parent-first fresh-tree passes, DNA-specific lifecycle phases, safety validation, final read-back, and rollback.
+- **Implemented:** settings schema 3, generator version 4 seed display, legacy seed parsing, granular DNA capabilities, compact Garage/Compatibility UI, release manifest, and prerelease workflow.
+- **Implemented:** license-safe automated schema, fingerprint, storage, compatibility, pipeline, UI-boundary, and packaging regressions.
+- **Pending interactive evidence:** clean-profile install, live UI/input, persistence across restart, in-game corruption recovery, Exact/Compatible results, representative mod content, and multi-PC import/export.
+
+The alpha may be published as an evidence-gathering prerelease. It is not a gameplay-validated release.
+
 ## 0.4.0-beta — release preparation
 
-- UI scaling, keyboard/controller, and accessibility polish;
-- repeated-operation and conflict stress testing;
-- community bug fixes and compatibility reports;
-- localization design without broken fallback labels;
-- BeamNG Repository submission assets and final checklist.
+- **Prepared, not published:** manual Windows/Ubuntu byte-comparison workflow and the multi-PC evidence checklist.
+- **Blocked on interactive evidence:** UI scaling, keyboard/controller and accessibility validation; restart/corruption recovery; Exact and Compatible restores on matching/changed content; repeated-operation and conflict stress; community compatibility reports.
+- Fix every alpha lifecycle, restore, storage, or UI regression found by that evidence before changing VERSION or creating `v0.4.0-beta.1`.
+- Prepare localization and BeamNG Repository assets only after fallback labels, package behavior, and current submission requirements are revalidated.
 
 ## 1.0.0 — stable
 

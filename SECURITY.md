@@ -31,12 +31,17 @@ Security-relevant examples include:
 - unintended network activity or analytics;
 - command injection through UI-to-Lua settings/seed handling;
 - local file access outside the documented BeamNG VFS/settings boundary;
+- Vehicle DNA import escaping size/type/schema/fingerprint limits or selecting an arbitrary path/method;
 - a reproducible denial-of-service caused by an unbounded project loop.
 
 Ordinary randomization outcomes—an undrivable vehicle, a third-party part that fails to load, visual breakage, or a compatibility regression after a BeamNG update—are normally bugs rather than security vulnerabilities unless they cross a trust or data boundary.
 
 ## Project safeguards
 
-The in-game package has no network dependency, remote scripts, analytics, or credential handling. UI settings are serialized with BeamNG's bridge, engine actions use fixed method names, mutation passes/timeouts are bounded, and package paths are validated against traversal, backslashes, duplicates, symlinks, and development content.
+The in-game package has no network dependency, remote scripts, analytics, or credential handling. UI settings are serialized with BeamNG's bridge, engine actions use fixed method names, mutation/restore passes and timeouts are bounded, and package paths are validated against traversal, backslashes, duplicates, symlinks, and development content.
+
+Vehicle DNA is untrusted data. Pasted input is capped at 128 KiB, parsed as JSON before bridge serialization, limited to JSON-safe finite values and bounded depth/elements/strings/slots/tuning/paints/tags, and validated against schema and field fingerprints. Unknown top-level fields are discarded except the bounded `extensions` area. Imports cannot provide a Lua/JavaScript method, network address, or filesystem path. Storage and optional export use adapter-owned constant paths under `/settings/soturineChaosRandomizer/vehicleDNA/`.
+
+Fingerprints are non-cryptographic change detectors. They are never treated as authentication, mod-file integrity, or a substitute for Exact field read-back.
 
 No response or disclosure deadline is guaranteed for this volunteer alpha project, but valid reports will be assessed as promptly as practical.

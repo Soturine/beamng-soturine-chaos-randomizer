@@ -2,10 +2,10 @@
 
 Soturine's Chaos Randomizer is a BeamNG.drive UI App and GE Lua extension for seeded, bounded randomization of complete vehicle configurations, compatible hierarchical parts, tuning values, and paint layers.
 
-Current version: **0.3.0-alpha.1 — Safety and Compatibility**
+Current version: **0.4.0-alpha.1 — Vehicle DNA and Persistence**
 Inspected target: **BeamNG.drive 0.38.6.0.19963** (Steam build 23007233)
 
-This is a safety-and-compatibility alpha artifact, not a gameplay-validated stable release. The implementation, mocked pipelines, and synthetic fixtures are automated; the interactive vehicle/mod matrix remains Pending until it is run in a BeamNG 0.38.6 world and UI session.
+This is a Vehicle DNA persistence alpha artifact, not a gameplay-validated stable release. Automated and installed-source evidence is complete for the documented contracts; the interactive world/UI and multi-PC matrix remains Pending.
 
 ## What it does
 
@@ -57,7 +57,7 @@ Source precedence is explicit:
 
 ### Phase-aware failures and blacklists
 
-Failures retain their phase (`index`, `selection`, `spawn`, `parts`, `tuning`, `paint`, `validation`, `rollback`, `undo`, or `lifecycle`) and operation context. Models, configurations, part candidates, and optional tuning entries have separate session namespaces.
+Failures retain their phase (`index`, `selection`, `spawn`, `parts`, `tuning`, `paint`, `validation`, `rollback`, `undo`, `lifecycle`, or the matching `dna_*` restore/storage/import/export phase) and operation context. Models, configurations, part candidates, and optional tuning entries have separate session namespaces.
 
 A confirmed base configuration is not penalized for a later parts/tuning/paint failure. Part keys include model, slot path, and candidate. Multi-candidate failures use bounded suspicion scores and batch fingerprints; repeated independent evidence can suppress and eventually isolate a candidate, while a confirmed success reduces suspicion. Reindex and mod activation/deactivation clear all session failure state.
 
@@ -69,16 +69,16 @@ Vehicle replacement waits are bound to the ID extracted from the actual object r
 
 ### Granular capabilities
 
-The adapter reports registry, replace, parts read/write, tuning read/write, paint read/write, settings persistence, UI events, and lifecycle-confirmation capabilities separately. Missing parts write disables Scramble. Missing optional tuning or paint support skips only that stage and exposes a visible warning.
+The adapter reports registry, replace, parts read/write, tuning read/write, paint read/write, settings read/write, DNA read/write/list/delete/import/file-export/backup, UI events, and lifecycle-confirmation capabilities separately. Missing parts write disables Scramble. Missing optional tuning or paint support skips only that stage and exposes a visible warning. Missing optional DNA file export does not disable Save Vehicle DNA or JSON copy.
 
 ## Installation
 
-1. Build or obtain `soturine_chaos_randomizer_0.3.0-alpha.1.zip`.
+1. Download the attached `soturine_chaos_randomizer_0.4.0-alpha.1.zip` release asset, or build that filename locally.
 2. Copy the ZIP, without extracting it, into the active BeamNG user folder's `mods` directory.
 3. Enable it in Mod Manager.
 4. Enter Freeroam, open UI Apps, and add **Soturine's Chaos Randomizer**.
 
-The ZIP must expose `lua/`, `ui/`, and `settings/` at its root. GitHub source archives are not installable mod packages.
+The ZIP must expose `lua/`, `ui/`, and `settings/` at its root. GitHub's automatic source archives are not installable mod packages. Verify the attached `.sha256` against the same release ZIP.
 
 ## Controls
 
@@ -91,6 +91,17 @@ The ZIP must expose `lua/`, `ui/`, and `settings/` at its root. GitHub source ar
 - **Reindex Content:** rebuilds mounted registry data and clears all session blacklists.
 
 UI actions send the currently displayed settings and action in one Lua call. A pending debounce cannot make a click use older Chaos, seed, filter, or checkbox values.
+
+## Vehicle DNA Garage
+
+After Random Config, Scramble, or Full Random completes and a fresh final read-back validates, **Save Vehicle DNA** becomes available. Saving is always explicit; `autoSaveDNA` is fixed off. A Vehicle DNA entry records normalized slot paths and selected parts, tuning metadata/values, supported paint fields, base configuration, environment, generation settings, warnings, dependencies, and fingerprints. It never embeds mod archives, JBeam files, textures, or executable code.
+
+- **Restore Exact** performs a no-write preflight, ignores recent/blacklist/RNG state, uses parent-first fresh-tree reloads, and succeeds only after strict read-back. Missing, ambiguous, changed, or unverified evidence blocks it.
+- **Restore Compatible** reports every omission, clamp, and mapping; partial application requires confirmation and never substitutes a random part.
+- **Replay Seed** reruns the saved generator operation and settings. It is separate from restore and can differ when the environment or starting state changed.
+- **Copy DNA JSON / Import pasted JSON** use schema v1 and bounded JSON-only validation. Imported text is parsed as data before crossing the UI bridge.
+
+New seeds use `SCR4-XXXX-XXXX`; legacy `XXXX-XXXX` seeds remain accepted without changing their generator sequence. Manual-seed selection ignores the hidden recent list. See [Vehicle DNA](docs/VEHICLE_DNA.md) and [Schema](docs/VEHICLE_DNA_SCHEMA.md).
 
 ## Developer stress diagnostic
 
@@ -120,11 +131,12 @@ node --check ui/modules/apps/soturineChaosRandomizer/app.js
 
 The package builder fixes entry order, timestamps, permissions, path separators, text line endings, compression settings, and checksum format. Its output includes version, current commit, filename, entry count, byte count, and SHA-256. The matching `.sha256` is generated from the final ZIP in the same directory.
 
-Expected files:
+Expected release files:
 
 ```text
-dist/soturine_chaos_randomizer_0.3.0-alpha.1.zip
-dist/soturine_chaos_randomizer_0.3.0-alpha.1.sha256
+dist/soturine_chaos_randomizer_0.4.0-alpha.1.zip
+dist/soturine_chaos_randomizer_0.4.0-alpha.1.sha256
+dist/release-manifest.json
 ```
 
 `dist/` is ignored by Git.
@@ -136,6 +148,7 @@ dist/soturine_chaos_randomizer_0.3.0-alpha.1.sha256
 - Python/static/JS/JSON/package checks: automated.
 - Synthetic registry/config-pack/full-mod/part-pack/wheel-pack/user/unknown fixtures: automated.
 - Clean-profile ZIP install, UI rendering/resizing, gameplay operations, representative third-party mods, and bounded stress inside a world: **Pending**.
+- Vehicle DNA exact/compatible restore, corruption recovery, restart persistence, and multi-PC import inside the game: **Pending**.
 
 See [Testing](docs/TESTING.md), [Compatibility](docs/COMPATIBILITY.md), [Compatibility Matrix](docs/COMPATIBILITY_MATRIX.md), [Safety Model](docs/SAFETY_MODEL.md), [Performance](docs/PERFORMANCE.md), and [Troubleshooting](docs/TROUBLESHOOTING.md).
 
@@ -146,6 +159,9 @@ See [Testing](docs/TESTING.md), [Compatibility](docs/COMPATIBILITY.md), [Compati
 - Tuning metadata exposes display category/subcategory but no proven correlation-group contract. The normalizer supports only an explicit `correlationGroup` plus `shared_normalized_sample`; current installed metadata therefore remains independently sampled.
 - Safety is metadata-based and cannot prove generic drivability; unknown/special layouts can remain `uncertain` without being destructively rejected.
 - Undo history is memory-only.
+- Vehicle DNA uses one bounded JSON library (100 entries, 128 KiB per entry, 1 MiB total) plus a last-known-good copy. The installed helper uses temp-write/rename, but the project does not claim transactional filesystem atomicity.
+- Exact preflight is `unverified` when the target model is not currently loaded and its slot tree cannot be inspected without mutation; Exact restore is blocked in that state.
+- Fingerprints are deterministic change detectors, not cryptographic signatures or proof that two mod installations contain identical bytes.
 - Paint-design/skin semantics are not specialized beyond ordinary compatible part slots.
 - Repeated local build identity is tested. Cross-platform identity is reported only after comparing the final CI artifact for this exact commit.
 

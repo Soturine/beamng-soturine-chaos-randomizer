@@ -6,6 +6,39 @@ All notable changes are documented here using [Keep a Changelog](https://keepach
 
 No additional changes.
 
+## [0.4.0-alpha.1] - 2026-07-23
+
+Vehicle-DNA-and-persistence alpha artifact; interactive BeamNG, restart, corruption-recovery, representative-content, and multi-PC evidence remains Pending.
+
+### Added
+
+- Versioned Vehicle DNA schema v1 with normalized final slots, tuning, supported paint fields, base identity, generation context, categorized dependencies, safety evidence, and deterministic change-detection fingerprints.
+- Explicit Save Vehicle DNA flow and bounded persistent Garage with rename, favorite, delete, pagination, JSON copy/import, controlled file export, and last-known-good recovery.
+- Separate read-only compatibility preflight, transactional Restore Exact, explicitly confirmed Restore Compatible, and generator-versioned Replay Seed operations.
+- Parent-first restore passes, DNA-specific lifecycle phases, safety validation, strict/subset final read-back, one history transaction, and rollback on divergence.
+- Generator version 4 seeds in `SCR4-XXXX-XXXX` form while preserving legacy `XXXX-XXXX` parsing and generator sequences.
+- Release manifest, tag/VERSION validation, verified prerelease workflow, and a non-publishing Windows/Ubuntu beta-readiness comparison workflow.
+- Vehicle DNA, schema, and multi-PC/beta-gate documentation plus expanded schema/storage/import/compatibility/pipeline/UI/package regressions.
+
+### Changed
+
+- Settings schema is now 3 with a 100-entry DNA limit, autosave fixed off, and Exact as the default restore mode.
+- The UI uses compact Randomize, Garage, and Compatibility views; destructive restores happen only after a visible preflight and confirmation.
+- Persistence capabilities are split into settings read/write and DNA read/write/list/delete/import/export/backup behavior.
+- Package output now includes a deterministic external `release-manifest.json` with real automated counts and zero invented interactive passes.
+
+### Security
+
+- Pasted imports are capped, parsed as JSON data before bridge serialization, canonicalized, schema/fingerprint validated, and denied arbitrary paths, method names, code execution, network access, non-finite numbers, cycles, and unbounded structures.
+- DNA IDs and names never become storage paths; file export uses one adapter-controlled path under the documented settings directory.
+
+### Known limitations
+
+- No BeamNG world/UI session, exact restart restore, last-known-good recovery in game, third-party content, or cross-PC transfer result is claimed.
+- Exact preflight blocks as `unverified` when the target slot tree cannot be inspected without first changing the active vehicle.
+- Fingerprints are deterministic change detectors, not cryptographic signatures, mod-file hashes, or equality proof.
+- `0.4.0-beta.1` is prepared but must not be versioned, tagged, or published until the documented interactive gate passes.
+
 ## [0.3.0-alpha.1] - 2026-07-23
 
 Safety-and-compatibility alpha artifact; interactive BeamNG and representative third-party content validation remains Pending.

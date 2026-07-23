@@ -14,7 +14,7 @@ The installed game source is the compatibility authority for this milestone. It 
 | Shipped console runtime | Lua 5.1, BeamNG `0.38.6.0` |
 | Interactive 0.38 profile/world | Not available during this implementation |
 
-The 0.3 audit revalidated `integrity.json` (`0.38.6.0`, buildbot build `19963`) and Steam manifest build `23007233` on 2026-07-23; no newer installed build was present.
+The 0.4 audit revalidated `integrity.json` (`0.38.6.0`, buildbot build `19963`) and Steam manifest build `23007233` on 2026-07-23; no newer installed build was present.
 
 Machine-specific install, user-profile, and repository paths are intentionally omitted. Installed-source references below are paths relative to the BeamNG installation.
 
@@ -94,6 +94,25 @@ Installed definition: `lua/ge/extensions/core/vehicle/partmgmt.lua`.
 | `getPlayerVehicle(0)` | current vehicle or `nil` | require object for model lookup |
 | `be:getPlayerVehicleID(0)` | numeric ID; negative means absent | normalize absence to `nil` |
 
+## VFS JSON persistence evidence
+
+Installed definition: `lua/common/utils.lua`.
+
+- `jsonReadFile(filename)` opens the supplied VFS path, decodes JSON, and returns a table/value or `nil` on failure.
+- `jsonWriteFile(filename, obj, pretty, precision, atomicWrite)` encodes the object. With `atomicWrite=true`, it writes a temporary sibling and treats `FS:renameFile(temp, filename) == 0` as the final replacement result.
+- Installed VFS methods also expose directory, find, copy, remove, and rename operations, but source presence alone did not establish one cross-platform multi-file transaction contract for this project.
+
+The selected design is therefore a single bounded library plus one controlled last-known-good path. The adapter owns all three constant paths; imported IDs/names never choose them. Before a primary write, the caller supplies the already validated current library for the backup. Both write and read-back results are checked. The project calls this recovery, not atomic or crash-proof storage.
+
+Evidence classification:
+
+| Claim | Evidence |
+| --- | --- |
+| JSON helper signatures and temp/rename branch | Installed source |
+| Schema/storage/failure/recovery decisions | Pure and mocked automated tests |
+| Primary corruption recovery after a real BeamNG restart | Pending interactive evidence |
+| Persistence across two machines | Pending multi-PC evidence |
+
 ## Hook sequence
 
 Relevant installed source:
@@ -165,7 +184,7 @@ Installed definition: `lua/common/jbeam/variables.lua`.
 
 Processed range variables retain `name`, numeric `min`, `max`, `default`, selected `val`, display range, calculated `step`, `stepDis`, `unit`, and display `category`/`subCategory`. Variables are merged across loaded parts.
 
-No explicit paired-variable/correlation group ID or documented semantic grouping contract was found. Display category is not proof that two variables must share a value. Therefore 0.3.0-alpha.1 does not infer correlations from names, categories, front/rear wording, or part concepts.
+No explicit paired-variable/correlation group ID or documented semantic grouping contract was found. Display category is not proof that two variables must share a value. Therefore 0.4.0-alpha.1 does not infer correlations from names, categories, front/rear wording, or part concepts.
 
 The pure normalizer supports only explicit synthetic/future metadata (`correlationGroup` plus `correlationStrategy = "shared_normalized_sample"`). This architecture is tested, but no current BeamNG content correlation is claimed.
 

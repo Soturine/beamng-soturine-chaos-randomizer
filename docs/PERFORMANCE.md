@@ -15,11 +15,11 @@ Measured in five consecutive runs on 2026-07-23 with the shipped BeamNG 0.38.6 L
 ```text
 models=500
 configs=5000
-index_seconds median=0.020 range=0.019..0.023
+index_seconds median=0.022 range=0.022..0.025
 slots=120
 depth=120
 candidates=2400
-scan_seconds median=0.001 range=0.001..0.002
+scan_seconds median=0.001 range=0.001..0.001
 plan_seconds median=0.000 range=0.000..0.001
 ```
 
@@ -35,6 +35,11 @@ The console timer has millisecond resolution, so a reported `0.000` means below 
 - Diagnostics retain 200 records; history is settings-bounded to 1–50 entries.
 - Part suspects retain at most 128 records, eight fingerprints each, with a 900-second inactive TTL.
 - Developer stress is capped at 50 sequential operations and 300 seconds.
+- Vehicle DNA libraries are capped at 100 entries and 1 MiB canonical JSON; each entry is capped at 128 KiB, 2,048 slots, 2,048 tuning variables, 32 paint layers, and 20 tags.
+- Canonical/import traversal is capped at 32 levels, 10,000 elements, 4,096 characters per string, and 512 characters per canonical path.
+- Garage pages expose eight summaries at a time; the pure summary helper never returns more than 25.
+- Vehicle DNA restore applies only the shallowest changed slot depth per pass and stops after 12 passes. It performs no synchronous retry loop or per-frame tree scan.
+- Only one primary library and one last-known-good copy are retained. No per-entry backup directory can grow without bound.
 
 ## Runtime metrics
 

@@ -106,7 +106,7 @@ If a write began, the entry is retained unless automatic rollback succeeds. Succ
 
 ## Immediate click used the wrong setting
 
-Version `0.3.0-alpha.1` sends the displayed action and complete settings snapshot in one Lua call. If the result reports a different manual seed/filter/Chaos value, collect the UI state and JavaScript log because that is a regression. The pending settings timer is cancelled on action and app destroy.
+Version `0.4.0-alpha.1` sends the displayed action and complete settings snapshot in one Lua call. If the result reports a different manual seed/filter/Chaos value, collect the UI state and JavaScript log because that is a regression. The pending settings timer is cancelled on action and app destroy.
 
 ## Developer stress stopped
 
@@ -129,6 +129,36 @@ Validated user settings are written through BeamNG VFS to:
 ```
 
 If persistence is unavailable, Advanced shows a capability warning. The settings snapshot can still apply for the current action/session.
+
+## Save Vehicle DNA is unavailable
+
+The button appears only after a successful operation also completes a fresh final capture, fresh hierarchical scan, normalization, schema validation, and fingerprints. It stays unavailable after an operation failure or DNA capture failure. Check the tagged `dna_capture_failed` diagnostic; the gameplay result can still be valid even when it could not be serialized.
+
+Saving is explicit and `autoSaveDNA` is fixed off. A persistence failure leaves the pending entry available for retry and does not silently report success.
+
+## Exact preflight says unverified
+
+Exact preflight never changes the vehicle. Installed 0.38.6 APIs do not give this project a proven hierarchical slot tree for an arbitrary unloaded target. If the saved target model/configuration is not already inspectable, the result is `unverified` and Exact is blocked.
+
+Load the matching base/model through normal BeamNG controls, wait for it to settle, then rerun preflight. Do not interpret a matching fingerprint alone as exact compatibility.
+
+## Compatible restore reports partial
+
+Open every preflight section before confirmation. Partial means at least one slot/part/tuning variable/paint layer/dependency is missing or a value will be clamped/omitted. The operation never chooses a random fallback. Required/core parts and ambiguous slot mappings block unsafe application.
+
+The final result lists deviations. If an applied subset fails read-back or safety validation, the entire transaction rolls back.
+
+## The Vehicle DNA library is corrupt
+
+Primary storage is `/settings/soturineChaosRandomizer/vehicleDNA/library.json`; the only recovery copy is `library.last-known-good.json`. Startup schema/fingerprint-validates the primary and then the backup. A recovered library shows `last_known_good_recovered` in Garage state. If both are invalid, normal randomization still loads with an empty/unavailable Garage rather than executing or rewriting unknown data.
+
+Preserve both files before troubleshooting. Never paste private mod content into an issue. In-game restart recovery remains an interactive Pending case for this alpha.
+
+## Import or export was rejected
+
+Pasted import accepts one JSON object up to 131,072 characters and then applies stricter canonical/schema/fingerprint limits. Common codes identify future schema, invalid format, duplicate slot/tuning keys, non-finite values, excessive depth/size, or a fingerprint mismatch. Unknown top-level fields are discarded except bounded `extensions` data.
+
+Copy JSON is independent of file export. Optional file export always writes the adapter-controlled `/settings/soturineChaosRandomizer/vehicleDNA/export.json`; DNA names and IDs never become paths.
 
 ## Useful issue report
 

@@ -1,20 +1,20 @@
 # BeamNG Repository Submission Preparation
 
-This is a preparation checklist, not evidence of submission or approval. No BeamNG Repository upload, Git tag, or GitHub Release has been created for this alpha.
+This is a preparation checklist, not evidence of submission or approval. A GitHub alpha prerelease is not BeamNG Repository approval or a stable-support claim.
 
 ## Proposed listing
 
 - **Title:** Soturine's Chaos Randomizer
 - **Short name:** Chaos Randomizer
 - **Author:** Soturine
-- **Version candidate:** `0.3.0-alpha.1`
-- **Tagline:** Dynamic seeded vehicle, configuration, compatible-parts, tuning, wheel, and paint randomization.
+- **Version candidate:** later than `0.4.0-alpha.1`, only after the beta interactive gate
+- **Tagline:** Seeded vehicle randomization with bounded Vehicle DNA capture, compatibility reports, and restoration.
 - **Category:** UI Apps / Gameplay (choose the closest current Repository category at submission time)
 - **License:** Apache License 2.0
 
 Suggested description:
 
-> Choose a complete installed configuration, scramble the current vehicle through BeamNG-reported compatible slots, or run the complete pipeline. A single Chaos slider controls bounded part, tuning, missing-part, and paint behavior. Includes deterministic seeds, content filters, phase-aware diagnostics, rollback, and Undo. Protect Critical Parts is a conservative metadata safeguard, not a drivability guarantee.
+> Choose a complete installed configuration, scramble the current vehicle through BeamNG-reported compatible slots, or run the complete pipeline. Save a bounded Vehicle DNA snapshot, inspect compatibility, restore verified available data, or replay the generator seed. Includes phase-aware diagnostics, rollback, and Undo. Protect Critical Parts is a conservative metadata safeguard, not a drivability guarantee.
 
 ## Blocking work before submission
 
@@ -24,8 +24,9 @@ Suggested description:
 - Confirm UI layout, overflow, keyboard focus, common scaling, and app-selector preview.
 - Capture representative original screenshots with no private/paid content.
 - Confirm the supported BeamNG version immediately before upload.
+- Pass the restart persistence, corruption recovery, Exact/Compatible restore, import/export, and multi-PC beta gate in [Multi-PC Testing](MULTI_PC_TESTING.md).
 - Review current Repository rules, allowed categories/tags, image dimensions, file-size limits, and moderation requirements.
-- Decide explicitly whether `0.3.0-alpha.1` is ready to tag/release; do not infer that decision from the `VERSION` file alone.
+- Do not submit `0.4.0-alpha.1`; it deliberately retains Pending interactive evidence.
 
 ## Package checklist
 
@@ -57,6 +58,8 @@ BeamNG's mod manager recognizes Repository-generated `mod_info/<id>/info.json` m
 - [ ] State that skin/paint-design selection is not yet implemented.
 - [ ] State that safety statuses come from metadata evidence and are not physics/drivability certification.
 - [ ] State that seeds require unchanged inputs.
+- [ ] State that Vehicle DNA files contain metadata, not required mod assets, and that fingerprints are not cryptographic mod hashes.
+- [ ] State that Exact requires a fully verified read-only preflight and field read-back; Compatible may be partial only after confirmation.
 - [ ] State that the project is independent and not endorsed by BeamNG GmbH.
 
 ## License and attribution

@@ -35,15 +35,15 @@ find lua -type f -name '*.lua' -print0 | xargs -0 luac5.1 -p
 
 On 2026-07-23, every workflow SHA was resolved again through the official `actions/checkout`, `actions/setup-python`, `actions/setup-node`, and `actions/upload-artifact` GitHub repositories. Each pinned SHA matched its commented tag, and those tags were the repositories' latest releases at inspection time.
 
-Current suite structure:
+Current suite structure after the Vehicle DNA implementation:
 
-- **29 Python `unittest` methods**;
-- one Python method runs **181 named Lua behavior/syntax/pipeline/performance cases** against BeamNG's shipped Lua 5.1 console when no standalone Lua is available;
-- **19 repository/static methods**, including real `node --check`, JSON/YAML parsing, links, versions, API boundary, UI atomicity/host, icon limits, action pins, credentials, paths, and whitespace;
-- **9 package methods**, including two-build equality, SHA, root layout, normalized metadata, version, and machine-path checks;
+- **36 Python `unittest` methods**;
+- one Python method runs **222 named Lua behavior/syntax/pipeline/performance cases** against BeamNG's shipped Lua 5.1 console when no standalone Lua is available;
+- **24 repository/static methods**, including real `node --check`, JSON/YAML parsing, links, versions, API boundary, UI atomicity/host/DNA boundary, icon limits, action pins, credentials, paths, and whitespace;
+- **11 package methods**, including two-build equality, SHA, root layout, normalized metadata, version, manifest consistency, and machine-path checks;
 - **1 JavaScript file** syntax-checked;
 - **2 project JSON files** decoded;
-- **2 workflow YAML files** decoded.
+- **3 workflow YAML files** decoded.
 
 These counts must be rechecked in the final report from the final committed tree.
 
@@ -69,6 +69,14 @@ Named Lua cases cover:
 - safety profiles for combustion/electric/hybrid-like/trailer/prop/unknown, direct drive, two wheels, multi-motor, multi-differential, and differential-free layouts;
 - mocked Random Config, Scramble, Full Random, rollback, Undo, timeout, stress, map/mod cancellation, and failure attribution pipelines;
 - deterministic 5,000-config registries, 100/160-level trees, diagnostics/suspect bounds, and index-cache reuse.
+- schema-v1 required fields, future-version rejection, idempotent current migration, JSON-only bounds, duplicate path/tuning rejection, and canonical finite/cycle/depth/string/element handling;
+- change detection for slot/tuning/paint edits, field-fingerprint revalidation, and the rule that fingerprints never replace final field comparison;
+- bounded library add/rename/favorite/delete/page/limit behavior, primary/last-known-good adapter writes, explicit backup loading, and confirmed persistence read-back;
+- read-only exact/compatible preflight, conservative path/slot/parent resolution, missing/ambiguous/out-of-range reporting, dependency/environment warnings, and zero preflight writes;
+- parent-first Exact restore, compatible clamp/deviation/read-back, DNA-specific safety/final verification, one history transaction, and rollback on rejected writes;
+- explicit save only after successful final capture, no pending DNA after a failed operation, legacy/new seed parsing, and separate Replay/Restore APIs;
+- parsed-before-bridge import, fixed method allowlist, restore/delete confirmation, favorite controls, compact three-view navigation, eight-item Garage pagination, and controlled file export;
+- release manifest version/tag/commit/package/schema/generator/test-count validation and non-publishing cross-platform beta-readiness workflow structure.
 
 Named Python UI cases cover `action_flushes_pending_settings`, immediate manual seed/filter use, destroy cancellation, and server-state non-resend. Package cases use the exact acceptance names for reproducibility, checksum, version, machine paths, root layout, and normalized metadata.
 
@@ -189,8 +197,28 @@ Use the exact final ZIP without extracting it and record the result of every row
 | 33 | center/front/rear multi-differential or multi-axle layout | Pending |
 | 34 | external/forum config pack ownership through mounted path | Pending |
 | 35 | delayed paint-cache confirmation does not wait for spawn | Pending |
+| 36 | successful Random Config exposes explicit Save Vehicle DNA | Pending |
+| 37 | successful Scramble and Full Random capture fresh final state, not planned changes | Pending |
+| 38 | failed/rolled-back operation exposes no savable DNA | Pending |
+| 39 | save, rename, favorite, paginate, delete, and restart persistence | Pending |
+| 40 | library survives restart with identical schema and fingerprints | Pending |
+| 41 | disposable corrupt primary recovers validated last-known-good copy | Pending |
+| 42 | corrupt primary and backup do not prevent normal randomization startup | Pending |
+| 43 | Copy DNA JSON and import the same bounded object | Pending |
+| 44 | optional fixed-path file export writes only the documented VFS path | Pending |
+| 45 | oversized, future-schema, malformed, and fingerprint-mismatched imports show specific errors | Pending |
+| 46 | Exact preflight performs no write and lists model/config/slots/tuning/paints/dependencies | Pending |
+| 47 | Restore Exact on matching loaded content verifies complete final state | Pending |
+| 48 | Exact mismatch/divergence blocks or rolls back and never reports exact | Pending |
+| 49 | Compatible preflight shows every omission, clamp, ambiguity, and environment difference | Pending |
+| 50 | confirmed Compatible partial applies no random fallback and reports deviations | Pending |
+| 51 | parent-first DNA restore reloads before resolving wheel/tire or other descendants | Pending |
+| 52 | stale/wrong hook, manual vehicle/map change, and mod-state change cancel DNA restore | Pending |
+| 53 | Replay Seed is visibly distinct from Exact and warns on changed environment | Pending |
+| 54 | export on PC A and import/Exact preflight on PC B using the exact alpha asset | Pending |
+| 55 | Garage/Compatibility minimum size, overflow, keyboard/controller focus, and busy lock | Pending |
 
-Interactive cases passed: **0**. Interactive cases pending: **35**.
+Interactive cases passed: **0**. Interactive cases pending: **55**.
 
 ## Package result
 
@@ -198,13 +226,13 @@ The packaged inputs were built twice on Windows after the code, UI, asset, tests
 
 | Item | Result |
 | --- | --- |
-| Filename | `soturine_chaos_randomizer_0.3.0-alpha.1.zip` |
-| Bytes | `89,411` |
-| Entries | `34` |
-| Windows SHA-256 | `2193862883c8c1b247b7c135dbfd49b4d3b2b560ba79e8c01d6cd829c39c8e7b` |
+| Filename | `soturine_chaos_randomizer_0.4.0-alpha.1.zip` |
+| Bytes | `112,125` |
+| Entries | `42` |
+| Windows SHA-256 | `75b0bf00d7e701f70c4d8d2de15e594d67845e599d2de326e87a2c45237cc6f2` |
 | Same-environment two-build equality | Passed; byte-identical consecutive builds |
 | ZIP/checksum validation | Passed |
 | Text line-ending normalization | Passed |
-| Final CI/Linux artifact comparison | Passed; byte-identical ZIP and matching checksum |
+| Final CI/Linux and downloaded-release comparison | Pending until the tagged workflow and release asset exist |
 
-The final commit SHA and workflow run ID belong to the delivery report; the artifact facts above are recorded from the locally validated ZIP and its downloaded CI/Linux counterpart.
+The local facts above were recorded after the implementation/test/release-tooling commits. Documentation is outside the ZIP, so this documentation commit does not change its bytes. The final commit SHA, workflow run, and downloaded release-asset verification belong to the delivery report; no CI/download equality is claimed here before publication.
