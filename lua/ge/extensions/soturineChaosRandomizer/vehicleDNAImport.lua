@@ -11,6 +11,7 @@ local KNOWN_FIELDS = {
   format = true, kind = true, schemaVersion = true, generatorVersion = true,
   id = true, name = true, description = true, createdAt = true, updatedAt = true,
   favorite = true, tags = true, environment = true, generation = true, base = true, final = true,
+  pinned = true, rating = true, notes = true, collection = true, sortOrder = true, lockProfile = true,
   operation = true, seed = true,
   safety = true, warnings = true, metrics = true, dependencies = true, fingerprints = true,
   validation = true, lineage = true, extensions = true,
@@ -45,6 +46,8 @@ local function sanitize(value)
     if pathError then return nil, pathError end
     result.dependencies.baseConfiguration.configPath = normalizedPath
   end
+  -- Managed thumbnail paths are local-only. JSON import always derives a safe fallback.
+  result.thumbnail = nil
   if type(result.fingerprints) == "table" then
     result.fingerprints.base = fingerprint.fingerprint(result.base)
     result.fingerprints.final = fingerprint.fingerprint(result.final)

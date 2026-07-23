@@ -11,7 +11,10 @@ local SETTINGS_PATH = "/settings/soturineChaosRandomizer/settings.json"
 local DEFAULTS_PATH = "/settings/soturineChaosRandomizer/defaults.json"
 local DNA_LIBRARY_PATH = "/settings/soturineChaosRandomizer/vehicleDNA/library.json"
 local DNA_BACKUP_PATH = "/settings/soturineChaosRandomizer/vehicleDNA/library.last-known-good.json"
-local DNA_EXPORT_PATH = "/settings/soturineChaosRandomizer/vehicleDNA/export.json"
+local DNA_EXPORT_PATH = "/settings/soturineChaosRandomizer/vehicleDNA/share/export.vdna.json"
+local DNA_PACKAGE_EXPORT_PATH = "/settings/soturineChaosRandomizer/vehicleDNA/share/export.vdna.zip"
+local DNA_PACKAGE_INBOX_PATH = "/settings/soturineChaosRandomizer/vehicleDNA/inbox/import.vdna.zip"
+local DNA_THUMBNAIL_DIRECTORY = "/settings/soturineChaosRandomizer/vehicleDNA/thumbnails/"
 
 local jbeamIO
 local okJbeam, loadedJbeam = pcall(require, "jbeam/io")
@@ -94,6 +97,11 @@ local function getCapabilities()
     dnaWrite = jsonRead and jsonWrite,
     dnaExportFile = jsonWrite,
     dnaBackup = jsonRead and jsonWrite,
+    dnaPackageWrite = type(hashStringSHA256) == "function" and type(io) == "table" and FS ~= nil,
+    dnaPackageRead = type(hashStringSHA256) == "function" and type(io) == "table" and FS ~= nil,
+    thumbnailCapture = type(extensions) == "table" and type(extensions.load) == "function"
+      and type(getObjectByID) == "function" and FS ~= nil,
+    thumbnailDelete = FS ~= nil,
     uiEvents = type(guihooks) == "table" and type(guihooks.trigger) == "function",
     lifecycleConfirmation = type(extensions) == "table" and type(extensions.hook) == "function",
   }
@@ -638,6 +646,157 @@ local function encodeJSON(value, pretty)
   return true, encoded
 end
 
+local function decodeJSON(value)
+  if type(jsonDecode) ~= "function" or type(value) ~= "string" then
+    return false, errorValue("dna_import_unavailable", "JSON decoding is unavailable")
+  end
+  local ok, decoded = safeCall("Vehicle DNA JSON decode", function() return jsonDecode(value) end)
+  if not ok then return false, decoded end
+  if type(decoded) ~= "table" then return false, errorValue("dna_import_invalid", "Decoded JSON is not an object") end
+  return true, decoded
+end
+
+local function sha256(value)
+  if type(hashStringSHA256) ~= "function" or type(value) ~= "string" then
+    return false, errorValue("checksum_unavailable", "SHA-256 is unavailable")
+  end
+  local ok, digest = safeCall("hashStringSHA256", function() return hashStringSHA256(value) end)
+  if not ok then return false, digest end
+  digest = tostring(digest or ""):lower()
+  if not digest:match("^[0-9a-f]+$") or #digest ~= 64 then
+    return false, errorValue("checksum_invalid", "BeamNG returned an invalid SHA-256 digest")
+  end
+  return true, digest
+end
+
+local function userRealPath(virtualPath, directory)
+  if FS == nil or type(virtualPath) ~= "string" or virtualPath:find("..", 1, true)
+    or not virtualPath:match("^/settings/soturineChaosRandomizer/vehicleDNA/")
+  then return nil, errorValue("controlled_path_invalid", "The controlled Vehicle DNA path is invalid") end
+  local ok, result = safeCall("FS:getUserPath", function()
+    local root = FS:getUserPath()
+    if type(root) ~= "string" or root == "" then return nil end
+    if directory and type(FS.directoryCreate) == "function" then FS:directoryCreate(directory, true) end
+    local separator = package.config and package.config:sub(1, 1) or "/"
+    local relative = virtualPath:gsub("^/", ""):gsub("/", separator)
+    if root:sub(-1) ~= "/" and root:sub(-1) ~= "\\" then root = root .. separator end
+    return root .. relative
+  end)
+  if not ok or type(result) ~= "string" then return nil, result end
+  return result
+end
+
+local function writeControlledBinary(virtualPath, directory, data)
+  if type(io) ~= "table" or type(io.open) ~= "function" or type(data) ~= "string" then
+    return false, errorValue("binary_write_unavailable", "Controlled binary writing is unavailable")
+  end
+  local realPath, pathError = userRealPath(virtualPath, directory)
+  if not realPath then return false, pathError end
+  local ok, result = safeCall("controlled binary write", function()
+    local file = io.open(realPath, "wb")
+    if not file then return false end
+    local written = file:write(data)
+    file:close()
+    if not written then return false end
+    local readback = io.open(realPath, "rb")
+    if not readback then return false end
+    local observed = readback:read("*all")
+    readback:close()
+    return observed == data
+  end)
+  if not ok or result ~= true then return false, errorValue("binary_write_failed", "Controlled binary write/read-back failed") end
+  return true, {path = virtualPath, bytes = #data}
+end
+
+local function readControlledBinary(virtualPath, maximum)
+  if type(io) ~= "table" or type(io.open) ~= "function" then
+    return false, errorValue("binary_read_unavailable", "Controlled binary reading is unavailable")
+  end
+  local realPath, pathError = userRealPath(virtualPath)
+  if not realPath then return false, pathError end
+  local ok, result = safeCall("controlled binary read", function()
+    local file = io.open(realPath, "rb")
+    if not file then return nil end
+    local value = file:read((maximum or 524288) + 1)
+    file:close()
+    return value
+  end)
+  if not ok then return false, result end
+  if type(result) ~= "string" then return false, errorValue("controlled_file_missing", "The controlled file does not exist") end
+  if #result > (maximum or 524288) then return false, errorValue("controlled_file_size_limit", "The controlled file exceeds its size limit") end
+  return true, result
+end
+
+local function exportDNAPackage(data)
+  return writeControlledBinary(DNA_PACKAGE_EXPORT_PATH, "/settings/soturineChaosRandomizer/vehicleDNA/share/", data)
+end
+
+local function importDNAPackage()
+  return readControlledBinary(DNA_PACKAGE_INBOX_PATH, 524288)
+end
+
+local function thumbnailPath(id)
+  local safe = tostring(id or ""):gsub("[^A-Za-z0-9_-]", "-"):sub(1, 96)
+  if safe == "" then return nil end
+  return DNA_THUMBNAIL_DIRECTORY .. safe .. ".png"
+end
+
+local function captureDNAThumbnail(id, callback)
+  local virtualPath = thumbnailPath(id)
+  if not virtualPath or type(callback) ~= "function" or type(extensions) ~= "table" or type(extensions.load) ~= "function" then
+    return false, errorValue("thumbnail_capture_unavailable", "Thumbnail capture is unavailable")
+  end
+  pcall(extensions.load, "render_renderViews")
+  pcall(extensions.load, "util_screenshotCreator")
+  if type(render_renderViews) ~= "table" or type(render_renderViews.takeScreenshot) ~= "function"
+    or type(util_screenshotCreator) ~= "table" or type(util_screenshotCreator.frameVehicle) ~= "function"
+    or type(vec3) ~= "function" or type(quatFromDir) ~= "function"
+  then return false, errorValue("thumbnail_capture_unavailable", "The inspected screenshot chain is unavailable") end
+  local okVehicle, vehicleId = getCurrentVehicleId()
+  local vehicle = okVehicle and getObjectByID(vehicleId) or nil
+  if not vehicle or type(vehicle.getSpawnWorldOOBB) ~= "function" then
+    return false, errorValue("thumbnail_vehicle_unavailable", "No active vehicle is available for thumbnail capture")
+  end
+  local realPath, pathError = userRealPath(virtualPath, DNA_THUMBNAIL_DIRECTORY)
+  if not realPath then return false, pathError end
+  local ok, result = safeCall("bounded Vehicle DNA thumbnail capture", function()
+    local box = vehicle:getSpawnWorldOOBB()
+    local center = box:getCenter()
+    local resolution, fov, nearPlane = vec3(500, 281, 0), 50, 0.1
+    local position = util_screenshotCreator.frameVehicle(vehicle, fov, nearPlane, resolution.x / resolution.y)
+    render_renderViews.takeScreenshot({
+      pos = position,
+      rot = quatFromDir(center - position),
+      filename = realPath,
+      renderViewName = "soturineVehicleDNAThumbnail",
+      resolution = resolution,
+      fov = fov,
+      nearPlane = nearPlane,
+      screenshotDelay = 0.5,
+    }, function()
+      local readOk, data = readControlledBinary(virtualPath, 262144)
+      callback(readOk, readOk and {path = virtualPath, data = data, bytes = #data} or data)
+    end)
+    return true
+  end)
+  if not ok or result ~= true then return false, result end
+  return true, {pending = true, path = virtualPath}
+end
+
+local function removeDNAThumbnail(id)
+  local virtualPath = thumbnailPath(id)
+  if not virtualPath or FS == nil or type(FS.removeFile) ~= "function" then
+    return false, errorValue("thumbnail_delete_unavailable", "Thumbnail deletion is unavailable")
+  end
+  local ok, result = safeCall("FS:removeFile Vehicle DNA thumbnail", function()
+    if type(FS.fileExists) == "function" and not FS:fileExists(virtualPath) then return true end
+    local removed = FS:removeFile(virtualPath)
+    return removed == 0 or removed == true
+  end)
+  if not ok or result ~= true then return false, errorValue("thumbnail_delete_failed", "Managed thumbnail could not be removed") end
+  return true, {path = virtualPath}
+end
+
 local function exportDNAFile(entry)
   if type(jsonWriteFile) ~= "function" then return false, errorValue("dna_export_unavailable", "Vehicle DNA file export is unavailable") end
   local ok, result = safeCall("jsonWriteFile Vehicle DNA export", function()
@@ -704,7 +863,13 @@ M.loadDNALibrary = loadDNALibrary
 M.loadDNALibraryBackup = loadDNALibraryBackup
 M.saveDNALibrary = saveDNALibrary
 M.encodeJSON = encodeJSON
+M.decodeJSON = decodeJSON
+M.sha256 = sha256
 M.exportDNAFile = exportDNAFile
+M.exportDNAPackage = exportDNAPackage
+M.importDNAPackage = importDNAPackage
+M.captureDNAThumbnail = captureDNAThumbnail
+M.removeDNAThumbnail = removeDNAThumbnail
 M.logRecord = logRecord
 M.clock = clock
 M.entropy = entropy
@@ -716,5 +881,8 @@ M._vehicleObjectId = vehicleObjectId
 M.DNA_LIBRARY_PATH = DNA_LIBRARY_PATH
 M.DNA_BACKUP_PATH = DNA_BACKUP_PATH
 M.DNA_EXPORT_PATH = DNA_EXPORT_PATH
+M.DNA_PACKAGE_EXPORT_PATH = DNA_PACKAGE_EXPORT_PATH
+M.DNA_PACKAGE_INBOX_PATH = DNA_PACKAGE_INBOX_PATH
+M.DNA_THUMBNAIL_DIRECTORY = DNA_THUMBNAIL_DIRECTORY
 
 return M

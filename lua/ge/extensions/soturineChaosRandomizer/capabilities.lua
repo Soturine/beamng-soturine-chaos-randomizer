@@ -23,6 +23,10 @@ local function derive(raw)
   result.dnaImportText = result.dnaWrite
   result.dnaExportFile = raw.dnaExportFile == true
   result.dnaBackup = raw.dnaBackup == true
+  result.dnaPackageWrite = raw.dnaPackageWrite == true
+  result.dnaPackageRead = raw.dnaPackageRead == true
+  result.thumbnailCapture = raw.thumbnailCapture == true
+  result.thumbnailDelete = raw.thumbnailDelete == true
   result.warnings = {}
   if result.scrambleParts and not result.scrambleTuning then
     result.warnings[#result.warnings + 1] = "Tuning writes are unavailable and will be skipped."
