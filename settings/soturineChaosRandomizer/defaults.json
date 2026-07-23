@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "chaos": 75,
+  "allowMissingParts": true,
+  "keepVehicleDrivable": false,
+  "contentFilter": "everything",
+  "includeAutomation": false,
+  "includeTrailers": false,
+  "includeProps": false,
+  "selectionFairness": "vehicle",
+  "historyLimit": 10,
+  "diagnosticLogging": false,
+  "manualSeed": ""
+}
