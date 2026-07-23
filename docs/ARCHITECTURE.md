@@ -22,7 +22,7 @@ ui/modules/apps/soturineChaosRandomizer/             AngularJS UI App
 settings/soturineChaosRandomizer/defaults.json       packaged defaults
 ```
 
-The distribution ZIP starts with `lua/`, `ui/`, and `settings/`. Repository-only files such as tests, tools, documentation, and workflows are excluded.
+The distribution ZIP starts with `lua/`, `ui/`, and `settings/`, plus root `LICENSE`, `NOTICE`, and `VERSION` files. Repository-only files such as tests, tools, documentation, and workflows are excluded.
 
 The top-level extension file returns the implementation from `soturineChaosRandomizer/main.lua`. The UI explicitly loads `soturineChaosRandomizer`, matching BeamNG's underscore-based extension name rules without requiring a global startup script.
 
@@ -180,9 +180,9 @@ History is memory-only in the first alpha. Undo does not create another destruct
 The extension exposes a deliberately small surface:
 
 ```text
-randomConfig(options)
-scramble(options)
-fullRandom(options)
+randomConfig()
+scramble()
+fullRandom()
 undo()
 reindex()
 updateSettings(partialSettings)
@@ -201,15 +201,15 @@ The UI receives `SoturineChaosRandomizerState` payloads containing:
 - recent history summaries;
 - compatibility flags.
 
-All buttons are disabled while busy. A second call while an operation is active returns a clear `busy` result rather than replacing the operation.
+All state-changing action/settings controls are disabled while busy. Nonmutating disclosure/copy controls may remain available. A second engine call while an operation is active returns a clear `busy` result rather than replacing the operation.
 
 ## Deterministic seed behavior
 
-`rng.lua` owns its state and never calls or seeds global `math.random`. Text seeds are normalized with a stable 32-bit hash and displayed as an uppercase `XXXX-XXXX` value. Empty manual seeds are derived from adapter-provided time/entropy and then normalized before the first random choice.
+`rng.lua` owns its state and never calls or seeds global `math.random`. Text seeds are normalized with a stable integer hash and displayed as an uppercase `XXXX-XXXX` value. Empty manual seeds are derived from adapter-provided time/entropy and then normalized before the first random choice.
 
 The RNG supports:
 
-- unsigned 32-bit output;
+- positive Park-Miller state output below `2^31`;
 - float and integer ranges;
 - probability checks;
 - array choice;
@@ -311,11 +311,10 @@ The validator never claims to prove that a vehicle will drive. It enforces conse
 
 - never empty the main/root or `coreSlot` nodes;
 - preserve slots with explicit required metadata;
-- protect likely propulsion, energy storage, transmission path, drivetrain, steering, suspension, hub, wheel, and tire concepts when metadata is incomplete;
-- prefer a non-empty current/default candidate for protected concepts;
+- require a non-empty selection for likely propulsion, energy storage, transmission path, drivetrain, steering, suspension, hub, wheel, and tire concepts when metadata is incomplete;
 - allow unknown optional slots to mutate normally.
 
-Heuristics examine slot descriptions, allowed types, part metadata, and slot IDs in that order. They are isolated and logged. This approach accommodates unconventional vehicles better than assuming one combustion engine, one fuel tank, two differentials, or four wheels.
+Heuristics examine slot descriptions, allowed types, and slot IDs. They are isolated and their rejected empty selections are counted in diagnostics. This approach accommodates unconventional vehicles better than assuming one combustion engine, one fuel tank, two differentials, or four wheels.
 
 ## Tuning and appearance
 
@@ -326,7 +325,7 @@ Tuning is scanned after the final parts reload. Only finite numeric variables wi
 - High Chaos increasingly selects values near declared extremes.
 - Every result is clamped and quantized to a positive usable step.
 
-Paint generation uses the number of existing supported paint slots. Low Chaos shares a coordinated hue family; high Chaos increases hue separation and material contrast. Numeric paint fields remain within documented/current ranges. Paint-design slots are already eligible as normal compatible part slots.
+Paint generation uses the number of existing supported paint slots. Low Chaos shares a coordinated hue family; high Chaos increases hue separation and material contrast. Numeric paint fields remain within documented/current ranges. There is no dedicated paint-design/skin selector; such a part can only change through the generic compatible-slot pipeline when BeamNG exposes it there.
 
 ## State, concurrency, and cancellation
 
@@ -355,7 +354,7 @@ Protected calls are limited to API boundaries. Logic errors are not silently swa
 
 Before a destructive action, `main.lua` captures a complete state. Rollback replaces the target model using the captured configuration table, waits for the normal spawn hook, and reports complete or partial restoration. If a third-party model or part disappeared, the error remains visible and the history entry is retained for diagnosis.
 
-Failures are counted per session. A model/config/candidate crosses a small threshold before being blacklisted, and the blacklist is cleared by extension reload or explicit reindex. Retries are bounded.
+Configuration load failures are counted per session. A configuration crosses a three-failure threshold before being blacklisted, and the blacklist is cleared by extension reload, a reliable mod activation/deactivation event, or explicit reindex. Retries are bounded.
 
 ## Indexing and caching
 
@@ -365,8 +364,9 @@ Cache invalidation occurs on:
 
 - explicit `Reindex Content`;
 - extension reload;
-- supported mod-manager lifecycle hooks when available;
-- a registry operation reporting stale/missing content.
+- current 0.38 `onModActivated` and `onModDeactivated` hooks.
+
+If enabled content changes during an operation, the operation is cancelled and the next action rebuilds the index. Manual Reindex remains available for external content changes that do not produce those hooks.
 
 Selection uses sorted stable arrays, a small recent-choice queue, and the session blacklist. Equal-per-vehicle first chooses a model and then one of its configs. Equal-per-configuration chooses from the global config array.
 
@@ -376,7 +376,7 @@ Packaged defaults live at `/settings/soturineChaosRandomizer/defaults.json`. Use
 
 ## Diagnostics
 
-All logs use `SoturineChaosRandomizer`. Normal mode records lifecycle, results, and actionable failures. Diagnostic mode additionally records game/extension version, index size/time, selection, seed, pass signatures, mutation counts, tuning/paint counts, validation actions, timeouts, rollback, API failures, and blacklist changes.
+All logs use `SoturineChaosRandomizer`. Normal mode records lifecycle, results, and actionable failures. Diagnostic mode additionally records game/extension version, index size/time, selection, seed, mutation-pass slot/change/validation-skip counts, tuning/paint counts, timeouts, rollback reasons, API failure context, and blacklist changes.
 
 Diagnostic records never include authentication data or arbitrary personal paths. Environment paths appear only in developer documentation, not runtime export.
 
