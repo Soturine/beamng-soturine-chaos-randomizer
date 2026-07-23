@@ -29,6 +29,14 @@ REQUIRED_PATHS = {
     "lua/ge/extensions/soturineChaosRandomizer/configVerification.lua",
     "lua/ge/extensions/soturineChaosRandomizer/paintVerification.lua",
     "lua/ge/extensions/soturineChaosRandomizer/validator.lua",
+    "lua/ge/extensions/soturineChaosRandomizer/vehicleDNA.lua",
+    "lua/ge/extensions/soturineChaosRandomizer/vehicleDNACompatibility.lua",
+    "lua/ge/extensions/soturineChaosRandomizer/vehicleDNAFingerprint.lua",
+    "lua/ge/extensions/soturineChaosRandomizer/vehicleDNAImport.lua",
+    "lua/ge/extensions/soturineChaosRandomizer/vehicleDNANormalizer.lua",
+    "lua/ge/extensions/soturineChaosRandomizer/vehicleDNARestore.lua",
+    "lua/ge/extensions/soturineChaosRandomizer/vehicleDNASchema.lua",
+    "lua/ge/extensions/soturineChaosRandomizer/vehicleDNAStorage.lua",
     "ui/modules/apps/soturineChaosRandomizer/app.json",
     "ui/modules/apps/soturineChaosRandomizer/app.js",
     "ui/modules/apps/soturineChaosRandomizer/app.html",
@@ -174,6 +182,28 @@ def validate_reproducible(archive_path: Path, root: Path = REPOSITORY_ROOT) -> N
             raise PackageValidationError("Archive is not reproducible from the current inputs")
 
 
+def validate_release_manifest(archive_path: Path) -> dict[str, object]:
+    manifest_path = archive_path.parent / "release-manifest.json"
+    if not manifest_path.is_file():
+        raise PackageValidationError(f"Release manifest does not exist: {manifest_path}")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    expected_digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
+    with zipfile.ZipFile(archive_path) as archive:
+        expected_entries = len(archive.infolist())
+    expected = {
+        "version": read_version(),
+        "tag": f"v{read_version()}",
+        "filename": archive_path.name,
+        "bytes": archive_path.stat().st_size,
+        "entries": expected_entries,
+        "sha256": expected_digest,
+    }
+    for key, value in expected.items():
+        if manifest.get(key) != value:
+            raise PackageValidationError(f"Release manifest {key} does not match the ZIP")
+    return manifest
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("archive", type=Path, nargs="?", help="ZIP to validate")
@@ -185,6 +215,7 @@ def main() -> int:
     names = validate_archive(archive, version)
     icon = validate_icon(REPOSITORY_ROOT / ICON_PATH)
     validate_checksum(archive)
+    manifest = validate_release_manifest(archive)
     if not args.no_reproducibility_check:
         validate_reproducible(archive)
 
@@ -193,6 +224,7 @@ def main() -> int:
     print(f"Entries ({len(names)}):")
     for name in names:
         print(f"  {name}")
+    print(f"Manifest commit: {manifest['commit']}")
     return 0
 
 

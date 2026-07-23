@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import hashlib
 import os
 from pathlib import Path
 import subprocess
 import zipfile
+import re
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -19,11 +21,25 @@ ARCHIVE_PREFIX = "soturine_chaos_randomizer_"
 FIXED_TIMESTAMP = (2026, 1, 1, 0, 0, 0)
 TEXT_SUFFIXES = {".css", ".html", ".js", ".json", ".lua", ".md", ".txt", ".xml"}
 TEXT_FILENAMES = {"LICENSE", "NOTICE", "VERSION"}
+TARGET_BEAMNG = "0.38.6.0.19963"
+GENERATOR_VERSION = 4
+DNA_SCHEMA_VERSION = 1
 
 
 def get_commit_sha(root: Path = REPOSITORY_ROOT) -> str:
     result = subprocess.run(
         ["git", "rev-parse", "HEAD"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else "unknown"
+
+
+def get_commit_timestamp(root: Path = REPOSITORY_ROOT) -> str:
+    result = subprocess.run(
+        ["git", "show", "-s", "--format=%cI", "HEAD"],
         cwd=root,
         text=True,
         capture_output=True,
@@ -113,6 +129,47 @@ def build_report(archive: Path, root: Path = REPOSITORY_ROOT) -> dict[str, objec
     }
 
 
+def test_counts(root: Path = REPOSITORY_ROOT) -> dict[str, int]:
+    python_methods = 0
+    for path in (root / "tests").glob("test_*.py"):
+        python_methods += len(re.findall(r"^\s+def test_[A-Za-z0-9_]+\(", path.read_text(encoding="utf-8"), re.MULTILINE))
+    lua_source = (root / "tests/lua/run.lua").read_text(encoding="utf-8")
+    lua_cases = len(set(re.findall(r"^tests\.([A-Za-z0-9_]+)\s*=", lua_source, re.MULTILINE)))
+    return {
+        "pythonMethods": python_methods,
+        "luaCases": lua_cases,
+        "javascriptFiles": len(list((root / "ui").rglob("*.js"))),
+        "jsonFiles": len([
+            path for path in root.rglob("*.json")
+            if not any(part in {".git", "dist", "__pycache__"} for part in path.relative_to(root).parts)
+        ]),
+        "interactivePassed": 0,
+        "interactivePending": 55,
+    }
+
+
+def write_release_manifest(archive: Path, output: Path | None = None, root: Path = REPOSITORY_ROOT) -> Path:
+    report = build_report(archive, root)
+    manifest = {
+        "manifestVersion": 1,
+        "version": report["version"],
+        "tag": f"v{report['version']}",
+        "commit": report["commit"],
+        "buildTimestamp": get_commit_timestamp(root),
+        "filename": report["filename"],
+        "bytes": report["bytes"],
+        "entries": report["entries"],
+        "sha256": report["sha256"],
+        "targetBeamNG": TARGET_BEAMNG,
+        "generatorVersion": GENERATOR_VERSION,
+        "vehicleDNASchemaVersion": DNA_SCHEMA_VERSION,
+        "tests": test_counts(root),
+    }
+    output = output or archive.parent / "release-manifest.json"
+    output.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
+    return output
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -124,6 +181,7 @@ def main() -> int:
     args = parser.parse_args()
     archive, checksum = package(args.output_dir)
     report = build_report(archive)
+    manifest = write_release_manifest(archive)
     print(f"Version: {report['version']}")
     print(f"Commit: {report['commit']}")
     print(f"Filename: {report['filename']}")
@@ -131,6 +189,7 @@ def main() -> int:
     print(f"Bytes: {report['bytes']}")
     print(f"SHA-256: {report['sha256']}")
     print(f"Checksum: {checksum.name}")
+    print(f"Manifest: {manifest.name}")
     return 0
 
 

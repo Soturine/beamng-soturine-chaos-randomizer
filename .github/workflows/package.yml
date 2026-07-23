@@ -1,4 +1,4 @@
-name: Package
+name: Package and prerelease
 
 on:
   workflow_dispatch:
@@ -12,11 +12,13 @@ permissions:
 jobs:
   package:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
 
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -34,24 +36,84 @@ jobs:
       - name: Install Lua 5.1
         run: sudo apt-get update && sudo apt-get install --yes lua5.1
 
+      - name: Validate tag and VERSION
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: bash
+        run: |
+          expected="v$(tr -d '\r\n' < VERSION)"
+          if [[ "$GITHUB_REF_NAME" != "$expected" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match VERSION ($expected)" >&2
+            exit 1
+          fi
+          if [[ "$(git rev-list -n 1 "$GITHUB_REF_NAME")" != "$GITHUB_SHA" ]]; then
+            echo "Tag does not resolve to the workflow commit" >&2
+            exit 1
+          fi
+
       - name: Check Lua syntax
         run: find lua -type f -name '*.lua' -print0 | xargs -0 luac5.1 -p
 
       - name: Run automated tests
         run: python -m unittest discover -s tests -v
 
-      - name: Build deterministic mod package
+      - name: Build deterministic package, checksum, and manifest
         run: python tools/package_mod.py
 
-      - name: Validate mod package
+      - name: Validate package, checksum, manifest, and reproducibility
         run: python tools/validate_package.py
 
       - name: Upload package artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: soturine-chaos-randomizer-package
+          name: soturine-chaos-randomizer-${{ github.sha }}
           path: |
             dist/*.zip
             dist/*.sha256
+            dist/release-manifest.json
           if-no-files-found: error
           retention-days: 14
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+
+    steps:
+      - name: Check out tagged commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Download validated artifacts
+        uses: actions/download-artifact@70fc10c6e5e1ce46ad2ea6f2b72d43f7d47b13c3 # v8.0.0
+        with:
+          name: soturine-chaos-randomizer-${{ github.sha }}
+          path: dist
+
+      - name: Refuse to overwrite an existing release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists; refusing to overwrite it." >&2
+            exit 1
+          fi
+
+      - name: Create verified prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(tr -d '\r\n' < VERSION)"
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/soturine_chaos_randomizer_${version}.zip" \
+            "dist/soturine_chaos_randomizer_${version}.sha256" \
+            "dist/release-manifest.json" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Soturine's Chaos Randomizer ${version}" \
+            --notes-file "docs/RELEASE_NOTES_0.4.0-alpha.1.md" \
+            --verify-tag \
+            --prerelease \
+            --latest=false

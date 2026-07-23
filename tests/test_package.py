@@ -91,6 +91,25 @@ class PackageTests(unittest.TestCase):
                     if path.suffix.lower() in package_mod.TEXT_SUFFIXES or info.filename in package_mod.TEXT_FILENAMES:
                         self.assertNotIn(b"\r", value.read(info))
 
+    def test_release_manifest_matches_zip(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            archive, _ = package_mod.package(Path(temporary), ROOT)
+            package_mod.write_release_manifest(archive, root=ROOT)
+            manifest = validate_package.validate_release_manifest(archive)
+            self.assertEqual(manifest["tag"], f"v{package_mod.read_version(ROOT)}")
+            self.assertEqual(manifest["generatorVersion"], 4)
+            self.assertEqual(manifest["vehicleDNASchemaVersion"], 1)
+
+    def test_release_manifest_is_reproducible(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            first_dir = Path(temporary) / "first"
+            second_dir = Path(temporary) / "second"
+            first, _ = package_mod.package(first_dir, ROOT)
+            second, _ = package_mod.package(second_dir, ROOT)
+            first_manifest = package_mod.write_release_manifest(first, root=ROOT)
+            second_manifest = package_mod.write_release_manifest(second, root=ROOT)
+            self.assertEqual(first_manifest.read_bytes(), second_manifest.read_bytes())
+
 
 if __name__ == "__main__":
     unittest.main()
