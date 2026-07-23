@@ -2259,6 +2259,42 @@ tests.replay_generation_freezes_saved_base_from_different_model = function()
   equal(result.details.baseSelectionFrozen, true)
 end
 
+tests.replay_generation_current_lock_policy_is_explicit_and_records_deviation = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
+  truthy(harness.main.saveVehicleDNA("Replay Current Locks"))
+  local id = harness.main.requestState().garage.entries[1].id
+  truthy(harness.main.updateLockProfile({categories = {body = true}}))
+  harness.modelKey, harness.configPath = "fixture_old", "/vehicles/fixture_old/original.pc"
+  truthy(harness.main.replayVehicleDNAGeneration(id, "current"))
+  pipelineHarness.confirmReplacement(harness)
+  while harness.pendingParts do pipelineHarness.confirmParts(harness) end
+  if harness.pendingTuning then pipelineHarness.confirmTuning(harness) end
+  local result = harness.main.requestState().lastResult
+  equal(result.code, "dna_replay_partial")
+  local found = false
+  for _, deviation in ipairs(result.details.deviations or {}) do
+    if deviation.reason == "replay_current_lock_preserved" then found = true end
+  end
+  truthy(found)
+end
+
+tests.restore_snapshot_ignores_current_creative_locks = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
+  truthy(harness.main.saveVehicleDNA("Restore Ignores Locks"))
+  local id = harness.main.requestState().garage.entries[1].id
+  truthy(harness.main.updateLockProfile({
+    vehicle = true, configuration = true, categories = {body = true, tuning = true, paint = true},
+  }))
+  harness.modelKey, harness.configPath = "fixture_old", "/vehicles/fixture_old/original.pc"
+  truthy(harness.main.restoreVehicleDNA(id, "exact", false))
+  pipelineHarness.confirmReplacement(harness)
+  while harness.pendingParts do pipelineHarness.confirmParts(harness) end
+  if harness.pendingTuning then pipelineHarness.confirmTuning(harness) end
+  equal(harness.main.requestState().lastResult.code, "dna_restore_exact")
+end
+
 tests.random_config_replay_loads_saved_config_without_reselection = function()
   local harness = pipelineHarness.new()
   truthy(pipelineHarness.driveSuccess(harness, "randomConfig"))
@@ -2299,7 +2335,23 @@ end
 
 tests.lock_categories_use_slot_evidence_and_unknown_fallback = function()
   equal(vehicleDNALocks.classifySlot({id = "mainEngine", description = "Engine"}), "engine")
+  equal(vehicleDNALocks.classifySlot({id = "frontWheelTire", path = "/wheels/front/tire/"}), "tires")
   equal(vehicleDNALocks.classifySlot({id = "mystery", description = "Unmapped component"}), "other")
+end
+
+tests.lock_summary_reports_bounded_category_slot_and_field_counts = function()
+  local profile = vehicleDNALocks.normalize({
+    vehicle = true, categories = {engine = true, paint = true},
+    slots = {["/engine/"] = true}, tuning = {all = true},
+    paints = {fields = {[1] = {metallic = true}}},
+  })
+  local value = vehicleDNALocks.summary(profile)
+  equal(value.categories, 2)
+  equal(value.unlockedCategories, #vehicleDNALocks.CATEGORIES - 2)
+  equal(value.slots, 1)
+  equal(value.tuning, 1)
+  equal(value.paint, 1)
+  equal(value.locked, 6)
 end
 
 tests.slot_and_part_locks_resolve_without_silent_substitution = function()
@@ -2340,6 +2392,19 @@ tests.reroll_tuning_and_paint_preserve_individual_locks = function()
   equal(painted[1].metallic, 0.4)
 end
 
+tests.reroll_independent_substreams_survive_unrelated_category_locks = function()
+  local scan = assert(slotScanner.scan(fixtures.nestedTree, {}))
+  local policy = fullMutationPolicy(false)
+  local first = mutationEngine.plan(scan, nil, policy, rng.new("independent-locks"), {
+    independentSubstreams = true, categoryForSlot = vehicleDNALocks.classifySlot,
+  })
+  local second = mutationEngine.plan(scan, nil, policy, rng.new("independent-locks"), {
+    independentSubstreams = true, categoryForSlot = vehicleDNALocks.classifySlot,
+    isLocked = function(slot) return vehicleDNALocks.classifySlot(slot) == "accessories" end,
+  })
+  equal(first.children.engine.chosenPartName, second.children.engine.chosenPartName)
+end
+
 tests.mutation_seed_and_lineage_are_deterministic = function()
   local parent = sampleDNA({id = "dna-parent"})
   local first = assert(vehicleDNAMutations.deriveSeed(parent.generation.seed, parent.id, 2, "small"))
@@ -2358,6 +2423,23 @@ tests.mutation_strengths_are_bounded_direct_presets = function()
   equal(vehicleDNAMutations.settingsForStrength({}, "unknown"), nil)
 end
 
+tests.mutation_parent_is_immutable_children_are_unique_and_depth_is_bounded = function()
+  local parent = sampleDNA({id = "mutation-root", name = "Immutable Parent"})
+  local original = util.deepCopy(parent)
+  local library = assert(vehicleDNAStorage.add(vehicleDNAStorage.create(10), parent))
+  local child = util.deepCopy(parent)
+  child.id, child.name = "mutation-root", "Mutation Child"
+  child.lineage = assert(vehicleDNAMutations.lineage(parent, 1, "medium", "mutation"))
+  library, _, child.id = vehicleDNAStorage.add(library, child)
+  truthy(library)
+  truthy(child.id ~= parent.id)
+  truthy(util.deepEqual(vehicleDNAStorage.find(library, parent.id), original, 1e-8))
+  equal(vehicleDNAMutations.nextIndex(library, parent.id), 2)
+  local tooDeep = util.deepCopy(parent)
+  tooDeep.lineage = {rootId = parent.id, generation = vehicleDNAMutations.MAX_LINEAGE_DEPTH}
+  equal(vehicleDNAMutations.lineage(tooDeep, 2, "wild", "mutation"), nil)
+end
+
 tests.garage_metadata_filters_and_parent_delete_are_migratable = function()
   local library = vehicleDNAStorage.create(10)
   library = assert(vehicleDNAStorage.add(library, sampleDNA({id = "parent", name = "Parent"})))
@@ -2373,6 +2455,22 @@ tests.garage_metadata_filters_and_parent_delete_are_migratable = function()
   equal(results[1].rating, 5)
   library = assert(vehicleDNAStorage.remove(library, "parent"))
   truthy(vehicleDNAStorage.find(library, "child").lineage.parentMissing)
+end
+
+tests.garage_sort_and_pagination_are_bounded = function()
+  local library = vehicleDNAStorage.create(10)
+  for index, name in ipairs({"Zulu", "Alpha", "Mike"}) do
+    local entry = sampleDNA({id = "page-" .. index, name = name})
+    entry.updatedAt = index
+    library = assert(vehicleDNAStorage.add(library, entry))
+    library = assert(vehicleDNAStorage.setRating(library, entry.id, index))
+  end
+  local page, total = vehicleDNAStorage.query(library, {sort = "name", offset = 1, limit = 1})
+  equal(total, 3)
+  equal(#page, 1)
+  equal(page[1].name, "Mike")
+  local rated = vehicleDNAStorage.query(library, {sort = "rating", offset = 0, limit = 1})
+  equal(rated[1].rating, 3)
 end
 
 tests.vehicle_dna_compare_is_field_by_field_not_fingerprint_only = function()
@@ -2401,6 +2499,8 @@ tests.gallery_thumbnail_bounds_and_fallback_are_safe = function()
   local fallback = vehicleDNAGallery.fallback(sampleDNA())
   equal(fallback.kind, "fallback")
   equal(fallback.sourceKind, "unknown")
+  truthy(not vehicleDNAGallery.safeId("../../unsafe"):find(".", 1, true))
+  equal(vehicleDNAGallery.pngDimensions(fixturePNG(32, 18) .. string.rep("x", vehicleDNAGallery.MAX_BYTES)), nil)
 end
 
 local function fakeSHA(data)
@@ -2450,6 +2550,43 @@ tests.vdna_zip_rejects_traversal_duplicate_symlink_and_bomb_shapes = function()
   bomb = byteAt(bomb, central + 22, 0)
   bomb = byteAt(bomb, central + 23, 0)
   equal(vehicleDNAPackage.inspect(bomb), nil)
+end
+
+tests.vdna_manifest_rejects_missing_checksum_and_future_package_version = function()
+  local files, manifest = packageFixture(false)
+  local inspected = assert(vehicleDNAPackage.inspect(assert(vehicleDNAPackage.build(files))))
+  manifest.files[1].sha256 = string.rep("0", 64)
+  equal(vehicleDNAPackage.validateManifest(manifest, inspected, fakeSHA), false)
+  local _, cleanManifest = packageFixture(false)
+  cleanManifest.files[#cleanManifest.files + 1] = {name = "thumbnail.png", bytes = 0, sha256 = string.rep("0", 64)}
+  equal(vehicleDNAPackage.validateManifest(cleanManifest, inspected, fakeSHA), false)
+  local _, futureManifest = packageFixture(false)
+  futureManifest.packageVersion = vehicleDNAPackage.PACKAGE_VERSION + 1
+  equal(vehicleDNAPackage.validateManifest(futureManifest, inspected, fakeSHA), false)
+end
+
+tests.vdna_zip_truncation_and_local_offset_corruption_fail_closed = function()
+  local files = packageFixture(false)
+  local archive = assert(vehicleDNAPackage.build(files))
+  local ok, inspected = pcall(vehicleDNAPackage.inspect, archive:sub(1, #archive - 7))
+  truthy(ok)
+  equal(inspected, nil)
+  local central = assert(archive:find("PK\1\2", 1, true))
+  local corrupted = archive:sub(1, central + 41) .. string.char(255, 255, 255, 127) .. archive:sub(central + 46)
+  ok, inspected = pcall(vehicleDNAPackage.inspect, corrupted)
+  truthy(ok)
+  equal(inspected, nil)
+end
+
+tests.imported_origin_is_preserved_while_local_ids_stay_unique = function()
+  local library = vehicleDNAStorage.create(10)
+  local first = sampleDNA({id = "foreign-origin"})
+  first.lineage = {originId = first.id, importedAt = 10, importStrategy = "validated_json_object"}
+  local firstId, secondId
+  library, _, firstId = vehicleDNAStorage.add(library, first)
+  library, _, secondId = vehicleDNAStorage.add(library, first)
+  truthy(firstId ~= secondId)
+  equal(vehicleDNAStorage.find(library, secondId).lineage.originId, "foreign-origin")
 end
 
 tests.reroll_unlocked_creates_pending_dna_without_changing_locked_state = function()

@@ -120,9 +120,38 @@ class StaticValidationTests(unittest.TestCase):
 
     def test_vehicle_dna_navigation_is_compact(self) -> None:
         html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
-        for label in ("Randomize", "Garage", "Compatibility"):
-            self.assertIn(f">{label}<", html)
+        source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        for label in ("Randomize", "Locks", "Garage", "Compare", "Share"):
+            self.assertIn(f"label: '{label}'", source)
         self.assertIn("scr-nav", html)
+
+    def test_ui_bridge_has_a_fixed_public_method_allowlist(self) -> None:
+        source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        self.assertIn("if (!allowed[method]) return", source)
+        self.assertNotIn("callWithArgs(scope.", source)
+        self.assertNotIn("engineCall(scope.", source)
+        for method in (
+            "rerollUnlocked", "mutateVehicleDNA", "compareVehicleDNA", "exportVehicleDNAJson",
+            "exportVehicleDNAPackage", "importVehicleDNAPackage", "captureVehicleDNAThumbnail",
+        ):
+            self.assertIn(f"{method}: true", source)
+
+    def test_ui_exposes_accessible_responsive_operation_feedback(self) -> None:
+        html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
+        css = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.css").read_text(encoding="utf-8")
+        for fragment in ('aria-live="polite"', 'role="progressbar"', "Cancel and roll back", "scr-storage"):
+            self.assertIn(fragment, html)
+        for fragment in (":focus-visible", "@media (max-width:", "prefers-reduced-motion", "overflow-y: auto"):
+            self.assertIn(fragment, css)
+
+    def test_ui_sharing_and_thumbnail_paths_are_controlled(self) -> None:
+        source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
+        self.assertIn("/settings/soturineChaosRandomizer/vehicleDNA/thumbnails/", source)
+        self.assertIn("/^[A-Za-z0-9_-]{1,96}$/", source)
+        self.assertIn("scr-image-fallback", html)
+        self.assertIn("sharePreview", html)
+        self.assertIn("packageSha256", html)
 
     def test_vehicle_dna_save_is_explicit(self) -> None:
         html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
