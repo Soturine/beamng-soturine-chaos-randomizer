@@ -27,6 +27,7 @@ local vehicleDNACompatibility = require("ge/extensions/soturineChaosRandomizer/v
 local vehicleDNAFingerprint = require("ge/extensions/soturineChaosRandomizer/vehicleDNAFingerprint")
 local vehicleDNAImport = require("ge/extensions/soturineChaosRandomizer/vehicleDNAImport")
 local vehicleDNANormalizer = require("ge/extensions/soturineChaosRandomizer/vehicleDNANormalizer")
+local vehicleDNAPassBudget = require("ge/extensions/soturineChaosRandomizer/vehicleDNAPassBudget")
 local vehicleDNARestore = require("ge/extensions/soturineChaosRandomizer/vehicleDNARestore")
 local vehicleDNASchema = require("ge/extensions/soturineChaosRandomizer/vehicleDNASchema")
 local vehicleDNAStorage = require("ge/extensions/soturineChaosRandomizer/vehicleDNAStorage")
@@ -84,7 +85,7 @@ local function sampleDNA(options)
     favorite = false,
     tags = {},
     environment = {
-      beamNGVersion = "fixture", extensionVersion = "0.4.0-alpha.1",
+      beamNGVersion = "fixture", extensionVersion = "0.4.0-alpha.2",
       targetBeamNG = "0.38.6.0.19963", schemaVersion = 1, generatorVersion = 4,
     },
     generation = {
@@ -1863,7 +1864,7 @@ tests.dna_slot_resolution_rejects_ambiguous_fallback = function()
   equal(strategy, "slot_resolution_ambiguous")
 end
 
-tests.dna_preflight_is_unverified_without_target_tree = function()
+tests.dna_preflight_requires_target_inspection_without_target_tree = function()
   local entry = sampleDNA()
   local report = vehicleDNACompatibility.evaluate(entry, {
     modelsByKey = {fixture_model = {}},
@@ -1871,7 +1872,8 @@ tests.dna_preflight_is_unverified_without_target_tree = function()
     scan = nil, variables = {}, paints = {}, gameVersion = "fixture",
     extensionVersion = "0.4.0-alpha.1", generatorVersion = 4,
   }, "exact")
-  equal(report.status, "unverified")
+  equal(report.status, "target_inspection_required")
+  equal(report.registryStatus, "registry_exact")
 end
 
 tests.dna_compatible_preflight_reports_partial = function()
@@ -2059,6 +2061,208 @@ tests.restore_exact_failure_rolls_back_original_state = function()
   equal(state.lastResult.details.rollback, "completed")
 end
 
+tests.config_paths_are_normalized_across_supported_forms = function()
+  local expected = "/vehicles/fixture/base.pc"
+  for _, value in ipairs({
+    "vehicles/fixture/base", "/VEHICLES/FIXTURE/BASE.PC", "\\vehicles\\fixture\\base.pc",
+    "//vehicles///fixture//base.pc",
+  }) do equal(configVerification.normalizePath(value), expected) end
+end
+
+tests.config_resolution_is_model_scoped = function()
+  local config, strategy = configVerification.resolveRegistryConfig("model_b", nil, "shared", nil, {
+    {modelKey = "model_a", key = "shared", path = "/vehicles/model_a/shared.pc"},
+    {modelKey = "model_b", key = "shared", path = "/vehicles/model_b/shared.pc"},
+  })
+  equal(config.modelKey, "model_b")
+  equal(strategy, "model_scoped_key")
+end
+
+tests.dna_optional_missing_part_records_partial_deviation = function()
+  local scan = assert(slotScanner.scan(fixtures.nestedTree, {}))
+  local entry = sampleDNA({slots = {{path = "/engine/", slotId = "engine", partName = "not_installed"}}})
+  local report = vehicleDNACompatibility.evaluate(entry, {
+    modelsByKey = {fixture_model = {}}, configs = {{modelKey = "fixture_model", key = "base", path = entry.base.configPath}},
+    scan = scan, variables = {}, paints = {}, gameVersion = "fixture", extensionVersion = "0.4.0-alpha.2",
+    generatorVersion = 4, currentConfigPath = entry.base.configPath,
+  }, "compatible")
+  equal(report.status, "partial")
+  equal(report.deviations[1].reason, "optional_part_omitted")
+end
+
+tests.dna_optional_missing_slot_records_partial_deviation = function()
+  local scan = assert(slotScanner.scan(fixtures.nestedTree, {}))
+  local entry = sampleDNA({slots = {{path = "/gone/", slotId = "gone", partName = "part"}}})
+  local report = vehicleDNACompatibility.evaluate(entry, {
+    modelsByKey = {fixture_model = {}}, configs = {{modelKey = "fixture_model", key = "base", path = entry.base.configPath}},
+    scan = scan, variables = {}, paints = {}, gameVersion = "fixture", extensionVersion = "0.4.0-alpha.2",
+    generatorVersion = 4, currentConfigPath = entry.base.configPath,
+  }, "compatible")
+  equal(report.status, "partial")
+  equal(report.deviations[1].reason, "optional_slot_omitted")
+end
+
+tests.dna_slot_remap_records_deviation = function()
+  local entry = sampleDNA({slots = {{path = "/old/body/", slotId = "body", parentPart = "root", partName = "body_a"}}})
+  local scan = {slots = {{path = "/new/body/", id = "body", parentPart = "root", currentPart = "body_a", candidates = {"body_a"}}}}
+  local report = vehicleDNACompatibility.evaluate(entry, {
+    modelsByKey = {fixture_model = {}}, configs = {{modelKey = "fixture_model", key = "base", path = entry.base.configPath}},
+    scan = scan, variables = {}, paints = {}, gameVersion = "fixture", extensionVersion = "0.4.0-alpha.2",
+    generatorVersion = 4, currentConfigPath = entry.base.configPath,
+  }, "compatible")
+  equal(report.status, "partial")
+  equal(report.deviations[1].reason, "slot_remapped")
+end
+
+tests.dna_pass_budget_supports_deep_trees = function()
+  equal(vehicleDNAPassBudget.calculate(20, 1).passLimit, 24)
+  equal(vehicleDNAPassBudget.calculate(50, 1).passLimit, 54)
+  equal(vehicleDNAPassBudget.calculate(100, 1).passLimit, 104)
+  equal(vehicleDNAPassBudget.calculate(200, 1).passLimit, 128)
+end
+
+tests.dna_pass_budget_detects_no_progress = function()
+  local budget = vehicleDNAPassBudget.create(20, 20, 0, 120)
+  truthy(vehicleDNAPassBudget.observe(budget, "A", 2, 1))
+  local ok, reason = vehicleDNAPassBudget.observe(budget, "A", 2, 2)
+  equal(ok, false)
+  equal(reason, "dna_restore_no_progress")
+end
+
+tests.dna_pass_budget_detects_oscillation = function()
+  local budget = vehicleDNAPassBudget.create(20, 20, 0, 120)
+  truthy(vehicleDNAPassBudget.observe(budget, "A", 2, 1))
+  truthy(vehicleDNAPassBudget.observe(budget, "B", 2, 2))
+  local ok, reason = vehicleDNAPassBudget.observe(budget, "A", 2, 3)
+  equal(ok, false)
+  equal(reason, "dna_restore_repeated_state")
+end
+
+tests.dna_storage_metrics_expose_real_capacity = function()
+  local library = assert(vehicleDNAStorage.add(vehicleDNAStorage.create(3), sampleDNA()))
+  local value = assert(vehicleDNAStorage.metrics(library))
+  equal(value.entryCount, 1)
+  equal(value.entryLimit, 3)
+  equal(value.byteLimit, vehicleDNAStorage.MAX_TOTAL_BYTES)
+  truthy(value.canonicalBytes > 0 and value.largestEntryBytes > 0 and value.elementCount > 0)
+end
+
+tests.dna_storage_recovers_after_primary_write_failure = function()
+  local oldRead, oldWrite = rawget(_G, "jsonReadFile"), rawget(_G, "jsonWriteFile")
+  local stored = {[adapter.DNA_LIBRARY_PATH] = {kind = "old", revision = 7}}
+  _G.jsonReadFile = function(path) return util.deepCopy(stored[path]) end
+  _G.jsonWriteFile = function(path, value)
+    if path == adapter.DNA_LIBRARY_PATH and value.kind == "new" then return false end
+    stored[path] = util.deepCopy(value); return true
+  end
+  local ok, result = adapter.saveDNALibrary({kind = "new", revision = 8}, {kind = "old", revision = 7})
+  equal(ok, false)
+  equal(result.code, "dna_storage_recovered")
+  equal(result.context.cause, "dna_storage_primary_write_failed")
+  equal(stored[adapter.DNA_LIBRARY_PATH].kind, "old")
+  _G.jsonReadFile, _G.jsonWriteFile = oldRead, oldWrite
+end
+
+tests.dna_dependencies_skip_empty_optional_slots = function()
+  local harness = pipelineHarness.new({emptyOptional = true})
+  truthy(pipelineHarness.driveSuccess(harness, "randomConfig"))
+  truthy(harness.main.saveVehicleDNA("No Empty Dependency"))
+  local dependencies = harness.library.entries[1].dependencies
+  for _, item in ipairs(dependencies.parts or {}) do truthy(item.partName ~= "") end
+end
+
+tests.restore_exact_starts_from_different_model = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
+  truthy(harness.main.saveVehicleDNA("Cross Model Exact"))
+  local id = harness.main.requestState().garage.entries[1].id
+  harness.modelKey, harness.configPath = "fixture_old", "/vehicles/fixture_old/original.pc"
+  local preflightOk, report = harness.main.preflightVehicleDNA(id, "exact")
+  truthy(preflightOk)
+  equal(report.status, "target_inspection_required")
+  truthy(harness.main.restoreVehicleDNA(id, "exact", false))
+  equal(harness.pendingReplacement.modelKey, "fixture_new")
+  equal(harness.pendingReplacement.path, "/vehicles/fixture_new/base_version.pc")
+  pipelineHarness.confirmReplacement(harness)
+  while harness.pendingParts do pipelineHarness.confirmParts(harness) end
+  if harness.pendingTuning then pipelineHarness.confirmTuning(harness) end
+  equal(harness.main.requestState().lastResult.code, "dna_restore_exact")
+end
+
+tests.restore_compatible_starts_from_different_model = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
+  truthy(harness.main.saveVehicleDNA("Cross Model Compatible"))
+  local id = harness.main.requestState().garage.entries[1].id
+  harness.modelKey, harness.configPath = "fixture_old", "/vehicles/fixture_old/original.pc"
+  truthy(harness.main.restoreVehicleDNA(id, "compatible", true))
+  pipelineHarness.confirmReplacement(harness)
+  while harness.pendingParts do pipelineHarness.confirmParts(harness) end
+  if harness.pendingTuning then pipelineHarness.confirmTuning(harness) end
+  local code = harness.main.requestState().lastResult.code
+  truthy(code == "dna_restore_compatible" or code == "dna_restore_partial")
+end
+
+tests.partial_discovered_after_spawn_rolls_back_without_authorization = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
+  truthy(harness.main.saveVehicleDNA("Partial Authorization"))
+  local id = harness.main.requestState().garage.entries[1].id
+  harness.modelKey, harness.configPath = "fixture_old", "/vehicles/fixture_old/original.pc"
+  harness.options.targetMissingBodyB = true
+  truthy(harness.main.restoreVehicleDNA(id, "compatible", false))
+  pipelineHarness.confirmReplacement(harness)
+  truthy(harness.pendingReplacement ~= nil, "target partial must start rollback")
+  pipelineHarness.confirmReplacement(harness)
+  local result = harness.main.requestState().lastResult
+  equal(result.success, false)
+  equal(result.code, "dna_partial_authorization_required")
+  equal(result.details.rollback, "completed")
+end
+
+tests.replay_generation_freezes_saved_base_from_different_model = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
+  truthy(harness.main.saveVehicleDNA("Replay Frozen Base"))
+  local id = harness.main.requestState().garage.entries[1].id
+  harness.modelKey, harness.configPath = "fixture_old", "/vehicles/fixture_old/original.pc"
+  truthy(harness.main.replayVehicleDNAGeneration(id))
+  equal(harness.pendingReplacement.modelKey, "fixture_new")
+  equal(harness.pendingReplacement.path, "/vehicles/fixture_new/base_version.pc")
+  pipelineHarness.confirmReplacement(harness)
+  while harness.pendingParts do pipelineHarness.confirmParts(harness) end
+  if harness.pendingTuning then pipelineHarness.confirmTuning(harness) end
+  local result = harness.main.requestState().lastResult
+  truthy(result.code == "dna_replay_exact" or result.code == "dna_replay_close")
+  equal(result.details.baseSelectionFrozen, true)
+end
+
+tests.random_config_replay_loads_saved_config_without_reselection = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "randomConfig"))
+  truthy(harness.main.saveVehicleDNA("Random Config Replay"))
+  local id = harness.main.requestState().garage.entries[1].id
+  harness.modelKey, harness.configPath = "fixture_old", "/vehicles/fixture_old/original.pc"
+  truthy(harness.main.replayVehicleDNAGeneration(id))
+  equal(harness.pendingReplacement.path, "/vehicles/fixture_new/base_version.pc")
+  pipelineHarness.confirmReplacement(harness)
+  local result = harness.main.requestState().lastResult
+  truthy(result.code == "dna_replay_exact" or result.code == "dna_replay_close")
+  equal(result.details.baseSelectionFrozen, true)
+end
+
+tests.pure_seed_replay_remains_separate = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "randomConfig"))
+  truthy(harness.main.saveVehicleDNA("Pure Seed"))
+  local id = harness.main.requestState().garage.entries[1].id
+  harness.modelKey, harness.configPath = "fixture_old", "/vehicles/fixture_old/original.pc"
+  truthy(harness.main.pureSeedReplayVehicleDNA(id))
+  truthy(harness.pendingReplacement ~= nil)
+  pipelineHarness.confirmReplacement(harness)
+  equal(harness.main.requestState().lastResult.code, "random_config_loaded")
+end
+
 tests.all_lua_sources_compile = function()
   local paths = {
     "/lua/ge/extensions/soturineChaosRandomizer.lua",
@@ -2091,6 +2295,7 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/vehicleDNAFingerprint.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/vehicleDNAImport.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/vehicleDNANormalizer.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/vehicleDNAPassBudget.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/vehicleDNARestore.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/vehicleDNASchema.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/vehicleDNAStorage.lua",

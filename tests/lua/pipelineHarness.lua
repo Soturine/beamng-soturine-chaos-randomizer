@@ -71,6 +71,11 @@ local function new(options)
     pendingTuning = nil,
     original = nil,
   }
+  if options.emptyOptional then
+    harness.tree.children.optional = {
+      id = "optional", path = "/optional/", chosenPartName = "", suitablePartNames = {}, children = {},
+    }
+  end
 
   local capabilities = {
     randomConfig = true,
@@ -258,6 +263,14 @@ local function confirmReplacement(harness)
     harness.paints = util.deepCopy(pending.config.paints or {})
   else
     harness.tree = baseTree()
+    if harness.options.emptyOptional then
+      harness.tree.children.optional = {
+        id = "optional", path = "/optional/", chosenPartName = "", suitablePartNames = {}, children = {},
+      }
+    end
+    if harness.options.targetMissingBodyB then
+      harness.tree.children.body.suitablePartNames = {"body_a"}
+    end
     harness.tuning = {boost = 0.5}
   end
   harness.main.onVehicleSpawned(harness.vehicleId)
