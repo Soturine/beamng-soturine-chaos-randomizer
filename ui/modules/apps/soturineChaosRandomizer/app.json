@@ -1,0 +1,23 @@
+{
+  "domElement": "<soturine-chaos-randomizer></soturine-chaos-randomizer>",
+  "name": "Soturine's Chaos Randomizer",
+  "types": [
+    "ui.apps.categories.vehicle_control"
+  ],
+  "description": "Randomize complete configurations, compatible parts, tuning, and paint with deterministic seeds.",
+  "css": {
+    "right": "20px",
+    "top": "120px",
+    "width": "360px",
+    "height": "510px",
+    "min-width": "300px",
+    "min-height": "330px"
+  },
+  "author": "Soturine",
+  "version": "0.1.0-alpha.1",
+  "preserveAspectRatio": false,
+  "directive": "soturineChaosRandomizer",
+  "category": "Gameplay",
+  "isAuxiliary": false,
+  "interactive": "yes"
+}

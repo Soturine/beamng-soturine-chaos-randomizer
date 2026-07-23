@@ -30,6 +30,7 @@ local runtime = {
   history = historyModule.create(10),
   diagnostics = diagnosticsModule.create(adapter.logRecord),
   active = nil,
+  lastSeed = nil,
   lastResult = nil,
   progress = {label = "Ready", value = 0},
   recentModels = {},
@@ -47,10 +48,13 @@ local function pushRecent(list, value)
 end
 
 local function publicState()
+  local blacklisted = 0
+  for _ in pairs(runtime.index.blacklist) do blacklisted = blacklisted + 1 end
   local indexCounts = {
     models = #runtime.index.models,
     configurations = #runtime.index.allConfigs,
     duration = runtime.index.duration,
+    blacklisted = blacklisted,
   }
   return {
     extensionVersion = EXTENSION_VERSION,
@@ -61,7 +65,7 @@ local function publicState()
     token = runtime.state.token,
     progress = util.deepCopy(runtime.progress),
     settings = util.deepCopy(runtime.settings),
-    seed = runtime.active and runtime.active.seed or runtime.settings.manualSeed,
+    seed = runtime.active and runtime.active.seed or runtime.lastSeed or runtime.settings.manualSeed,
     lastResult = util.deepCopy(runtime.lastResult),
     index = indexCounts,
     canUndo = #runtime.history.entries > 0 and not runtime.state.busy,
@@ -167,6 +171,7 @@ local function beginOperation(kind)
     return false
   end
   local seed, generator = operationSeed()
+  runtime.lastSeed = seed
   local ok, token = operationState.begin(runtime.state, kind, vehicleId, WAIT_TIMEOUT)
   if not ok then return false end
   runtime.active = {
@@ -446,6 +451,7 @@ local function undo()
     afterReload = "undo",
     ignoreNextSwitch = true,
   }
+  runtime.lastSeed = entry.seed
   operationState.transition(runtime.state, "spawning", false)
   enterWaiting(runtime.active, "undo", "Restoring the previous vehicle", 0.35)
   local okReplace, replaceError = adapter.replaceVehicle(entry.modelKey, entry.config)

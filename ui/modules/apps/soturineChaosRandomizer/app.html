@@ -1,0 +1,144 @@
+<link type="text/css" rel="stylesheet" href="/ui/modules/apps/soturineChaosRandomizer/app.css">
+
+<section class="bngApp scr-app" aria-label="Soturine's Chaos Randomizer">
+  <header class="scr-header">
+    <span class="scr-kicker">SOTURINE'S</span>
+    <h1>CHAOS RANDOMIZER</h1>
+    <span class="scr-version">{{chaos.state.extensionVersion || 'alpha'}}</span>
+  </header>
+
+  <div class="scr-body">
+    <div class="scr-actions">
+      <button class="scr-button scr-button-wide" type="button"
+        title="Load one complete eligible vehicle configuration"
+        aria-label="Random Config: load a complete configuration"
+        ng-click="chaos.run('randomConfig')"
+        ng-disabled="chaos.state.busy || !chaos.state.capabilities.randomConfig">
+        RANDOM CONFIG
+      </button>
+      <div class="scr-action-row">
+        <button class="scr-button" type="button"
+          title="Mutate compatible parts, tuning, and paint on the current model"
+          aria-label="Scramble the current vehicle"
+          ng-click="chaos.run('scramble')"
+          ng-disabled="chaos.state.busy || !chaos.state.capabilities.scramble">
+          SCRAMBLE
+        </button>
+        <button class="scr-button scr-button-hot" type="button"
+          title="Load a random configuration, then scramble its parts, tuning, and paint"
+          aria-label="Run the full randomization pipeline"
+          ng-click="chaos.run('fullRandom')"
+          ng-disabled="chaos.state.busy || !chaos.state.capabilities.fullRandom">
+          FULL RANDOM
+        </button>
+      </div>
+    </div>
+
+    <div class="scr-chaos-control">
+      <label for="scr-chaos-slider">Chaos</label>
+      <input id="scr-chaos-slider" type="range" min="0" max="100" step="1"
+        ng-model="chaos.state.settings.chaos"
+        ng-change="chaos.scheduleSettings()"
+        ng-disabled="chaos.state.busy"
+        ng-attr-aria-valuenow="{{chaos.state.settings.chaos}}"
+        aria-valuemin="0" aria-valuemax="100">
+      <output for="scr-chaos-slider">{{chaos.state.settings.chaos}}%</output>
+    </div>
+
+    <div class="scr-checks">
+      <label title="Optional, non-core slots may be left empty">
+        <input type="checkbox" ng-model="chaos.state.settings.allowMissingParts"
+          ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy">
+        <span>Allow Missing Parts</span>
+      </label>
+      <label title="Best-effort metadata rules protect known critical slots">
+        <input type="checkbox" ng-model="chaos.state.settings.keepVehicleDrivable"
+          ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy">
+        <span>Keep Vehicle Drivable</span>
+      </label>
+    </div>
+
+    <div class="scr-progress" ng-if="chaos.state.busy" aria-live="polite">
+      <div class="scr-progress-label">
+        <span>{{chaos.state.progress.label}}</span>
+        <span>{{(chaos.state.progress.value * 100) | number:0}}%</span>
+      </div>
+      <div class="scr-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100"
+        ng-attr-aria-valuenow="{{(chaos.state.progress.value * 100) | number:0}}">
+        <span ng-style="{'width': ((chaos.state.progress.value || 0) * 100) + '%'}"></span>
+      </div>
+    </div>
+
+    <button class="scr-advanced-toggle" type="button" ng-click="chaos.toggleAdvanced()"
+      ng-attr-aria-expanded="{{chaos.advancedOpen}}" aria-controls="scr-advanced">
+      <span aria-hidden="true">{{chaos.advancedOpen ? '▾' : '▸'}}</span>
+      Advanced
+    </button>
+
+    <div id="scr-advanced" class="scr-advanced" ng-if="chaos.advancedOpen">
+      <label class="scr-field">
+        <span>Content</span>
+        <select ng-model="chaos.state.settings.contentFilter" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy">
+          <option value="everything">Everything</option>
+          <option value="official">Official only</option>
+          <option value="mods">Mods only</option>
+        </select>
+      </label>
+
+      <label class="scr-field">
+        <span>Fairness</span>
+        <select ng-model="chaos.state.settings.selectionFairness" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy">
+          <option value="vehicle">Equal per vehicle</option>
+          <option value="configuration">Equal per configuration</option>
+        </select>
+      </label>
+
+      <div class="scr-filter-grid">
+        <label><input type="checkbox" ng-model="chaos.state.settings.includeAutomation" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy"> Automation</label>
+        <label><input type="checkbox" ng-model="chaos.state.settings.includeTrailers" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy"> Trailers</label>
+        <label><input type="checkbox" ng-model="chaos.state.settings.includeProps" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy"> Props</label>
+      </div>
+
+      <label class="scr-field scr-seed-field">
+        <span>Manual seed</span>
+        <input type="text" maxlength="128" placeholder="Random each run"
+          ng-model="chaos.state.settings.manualSeed" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy">
+      </label>
+
+      <div class="scr-secondary-actions">
+        <button type="button" ng-click="chaos.run('undo')" ng-disabled="chaos.state.busy || !chaos.state.canUndo" title="Restore the most recent pre-randomization state">Undo</button>
+        <button type="button" ng-click="chaos.run('reindex')" ng-disabled="chaos.state.busy" title="Rebuild the installed vehicle and configuration index">Reindex Content</button>
+      </div>
+
+      <label class="scr-diagnostic">
+        <input type="checkbox" ng-model="chaos.state.settings.diagnosticLogging" ng-change="chaos.scheduleSettings()" ng-disabled="chaos.state.busy">
+        Diagnostic logging
+      </label>
+
+      <div class="scr-index">
+        {{chaos.state.index.models}} vehicles · {{chaos.state.index.configurations}} configurations · {{chaos.state.index.blacklisted || 0}} blacklisted
+      </div>
+
+      <div class="scr-history" ng-if="chaos.state.history.length">
+        <strong>Recent history</strong>
+        <ol>
+          <li ng-repeat="item in chaos.state.history | limitTo:4 track by $index">
+            <span>{{item.modelKey}}</span><code>{{item.seed}}</code>
+          </li>
+        </ol>
+      </div>
+    </div>
+
+    <footer class="scr-footer">
+      <div>
+        <span class="scr-footer-label">Seed</span>
+        <code>{{chaos.state.seed || '—'}}</code>
+        <button class="scr-copy" type="button" ng-click="chaos.copySeed()" ng-disabled="!chaos.state.seed" title="Copy the current seed">COPY</button>
+        <span class="scr-copy-status" aria-live="polite">{{chaos.copyStatus}}</span>
+      </div>
+      <p ng-class="{'scr-result-error': chaos.state.lastResult && !chaos.state.lastResult.success}">
+        {{chaos.state.lastResult.message || 'Ready for chaos.'}}
+      </p>
+    </footer>
+  </div>
+</section>
