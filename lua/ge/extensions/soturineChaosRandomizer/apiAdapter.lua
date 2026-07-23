@@ -1,5 +1,8 @@
 local util = require("ge/extensions/soturineChaosRandomizer/util")
 local capabilityModel = require("ge/extensions/soturineChaosRandomizer/capabilities")
+local configVerification = require("ge/extensions/soturineChaosRandomizer/configVerification")
+local paintVerification = require("ge/extensions/soturineChaosRandomizer/paintVerification")
+local validator = require("ge/extensions/soturineChaosRandomizer/validator")
 
 local M = {}
 
@@ -68,7 +71,8 @@ local function getCapabilities()
     vehicleRegistry = type(core_vehicles) == "table"
       and type(core_vehicles.getModelList) == "function"
       and type(core_vehicles.getConfigList) == "function",
-    vehicleReplace = type(core_vehicles) == "table" and type(core_vehicles.replaceVehicle) == "function",
+    vehicleReplace = type(core_vehicles) == "table" and type(core_vehicles.replaceVehicle) == "function"
+      and type(getObjectByID) == "function",
     partsRead = vehicleManager and configRead and hierarchicalRead,
     partsWrite = type(core_vehicle_partmgmt) == "table"
       and type(core_vehicle_partmgmt.setPartsTreeConfig) == "function",
@@ -180,20 +184,83 @@ local function getRegistryData()
   if type(result.models) ~= "table" or type(result.configs) ~= "table" then
     return false, errorValue("invalid_registry", "The vehicle registry returned an unexpected structure")
   end
-  return true, util.deepCopy(result)
+  result = util.deepCopy(result)
+  local modManager = type(core_modmanager) == "table" and core_modmanager
+    or type(extensions) == "table" and extensions.core_modmanager
+  if type(modManager) == "table" and type(modManager.getModFromPath) == "function" then
+    for _, config in pairs(result.configs) do
+      local label = type(config) == "table" and util.normalizeText(config.Source or config.source) or ""
+      local hasExplicitSource = type(config) == "table" and (
+        config.userSaved == true or config.player == true or config.modID ~= nil or config.modId ~= nil
+        or label == "custom" or label == "mod" or label == "beamng - official" or label == "official"
+      )
+      if type(config) == "table" and type(config.pcFilename) == "string" and not hasExplicitSource then
+        local owned, mod = pcall(modManager.getModFromPath, config.pcFilename)
+        if owned and type(mod) == "table" then
+          config.pathOwnership = {
+            kind = "mod",
+            modID = mod.modID,
+            modName = mod.modname,
+            sourceLabel = mod.modData and mod.modData.title or mod.modname,
+            strategy = "core_modmanager.getModFromPath",
+          }
+        end
+      end
+    end
+  end
+  return true, result
 end
 
-local function replaceVehicle(modelKey, config)
+local function vehicleObjectId(vehicle)
+  if type(vehicle) ~= "table" and type(vehicle) ~= "userdata" then return nil end
+  for _, methodName in ipairs({"getID", "getId"}) do
+    local readable, method = pcall(function() return vehicle[methodName] end)
+    if readable and type(method) == "function" then
+      local ok, value = pcall(method, vehicle)
+      if ok and type(value) == "number" and value >= 0 then return value, methodName .. "()" end
+    end
+  end
+  local readable, value = pcall(function() return vehicle.id or vehicle.ID end)
+  if not readable then return nil end
+  if type(value) == "number" and value >= 0 then return value, "id_field" end
+  return nil
+end
+
+local function replaceVehicle(modelKey, config, targetVehicleId)
   if type(core_vehicles) ~= "table" or type(core_vehicles.replaceVehicle) ~= "function" then
     return false, errorValue("unsupported_api", "Vehicle replacement is unavailable")
   end
   if type(modelKey) ~= "string" or modelKey == "" then
     return false, errorValue("invalid_model", "A valid vehicle model is required")
   end
+  local targetVehicle
+  if targetVehicleId ~= nil then
+    if type(targetVehicleId) ~= "number" or type(getObjectByID) ~= "function" then
+      return false, errorValue("vehicle_replace_target_unavailable", "The exact replacement target is unavailable", {
+        targetVehicleId = targetVehicleId,
+      })
+    end
+    local resolved, value = pcall(getObjectByID, targetVehicleId)
+    if not resolved or value == nil then
+      return false, errorValue("vehicle_replace_target_unavailable", "The exact replacement target no longer exists", {
+        targetVehicleId = targetVehicleId,
+      })
+    end
+    targetVehicle = value
+  end
   local ok, result = callContract("core_vehicles.replaceVehicle", "vehicle_replace_rejected", "object_required", function()
-    return core_vehicles.replaceVehicle(modelKey, {config = util.deepCopy(config)})
+    return core_vehicles.replaceVehicle(modelKey, {config = util.deepCopy(config)}, targetVehicle)
   end)
   if not ok then return false, result end
+  local vehicleId, strategy = vehicleObjectId(result.value)
+  if vehicleId == nil then
+    return false, errorValue("vehicle_replace_target_ambiguous", "BeamNG returned a vehicle without a usable target ID", {
+      contract = result.contract,
+    })
+  end
+  result.vehicleId = vehicleId
+  result.correlationStrategy = "returned_vehicle_object." .. strategy
+  result.requestedTargetVehicleId = targetVehicleId
   return true, result
 end
 
@@ -224,21 +291,44 @@ local function applyPaints(paints)
   if type(core_vehicle_partmgmt) ~= "table" or type(core_vehicle_partmgmt.setConfigPaints) ~= "function" then
     return false, errorValue("unsupported_api", "Paint application is unavailable")
   end
-  local expected = util.deepCopy(paints or {})
+  local expected, normalizationError = paintVerification.normalizePaints(paints or {})
+  if not expected then
+    return false, errorValue("paint_data_invalid", "Paint data could not be normalized", {reason = normalizationError})
+  end
+  local payload = util.deepCopy(paints or {})
   local ok, result = callContract("core_vehicle_partmgmt.setConfigPaints", "paint_apply_rejected", "nil_then_readback", function()
-    return core_vehicle_partmgmt.setConfigPaints(expected, false)
+    return core_vehicle_partmgmt.setConfigPaints(payload, false)
   end)
   if not ok then return false, result end
   local okConfig, config = getCurrentConfig()
   if not okConfig then
-    return false, errorValue("paint_apply_unconfirmed", "Paint write could not be confirmed", {cause = config})
+    result.confirmationRequired = true
+    result.verified = false
+    result.expected = expected
+    result.readbackReason = "immediate_readback_unavailable"
+    result.readbackError = config
+    return true, result
   end
-  if not util.deepEqual(config.paints or {}, expected, 1e-8) then
-    return false, errorValue("paint_apply_unconfirmed", "Paint write did not match the requested state")
+  local verified, reason = paintVerification.compare(expected, config.paints or {})
+  if not verified then
+    result.confirmationRequired = true
+    result.verified = false
+    result.expected = expected
+    result.readbackReason = reason
+    return true, result
   end
   result.confirmationRequired = false
   result.verified = true
+  result.expected = expected
+  result.readbackReason = reason
   return true, result
+end
+
+local function verifyPaints(expected)
+  local okConfig, config = getCurrentConfig()
+  if not okConfig then return false, "paint_readback_unavailable", config end
+  local matches, reason = paintVerification.compare(expected or {}, config.paints or {})
+  return matches, reason, util.deepCopy(config.paints or {})
 end
 
 local function flattenChosenParts(tree)
@@ -267,6 +357,11 @@ local function getVerificationState()
     vehicleId = vehicleId,
     modelKey = modelKey,
     configKey = config.partConfigFilename,
+    configIdentity = {
+      path = config.partConfigFilename,
+      key = configVerification.stableKey(config.partConfigFilename),
+      signature = configVerification.signature(config),
+    },
     parts = flattenChosenParts(config.partsTree or {}),
     tuning = util.deepCopy(config.vars or {}),
     paints = util.deepCopy(config.paints or {}),
@@ -294,6 +389,40 @@ local function getCurrentSlotSnapshot()
     local ioCtx = vehicleData.ioCtx
     local availableParts = jbeamIO.getAvailableParts(ioCtx) or {}
     local metadataByPath = {}
+    local candidateCache = {}
+
+    local function candidateSource(partName, partInfo, partData)
+      partInfo = type(partInfo) == "table" and partInfo or {}
+      partData = type(partData) == "table" and partData or {}
+      local modID = partInfo.modID or partData.modID
+      local modName = partInfo.modName or partData.modName
+      local sourceLabel = partInfo.Source or partInfo.source or partData.Source or partData.source
+      local sourceKind = "unknown"
+      if modID ~= nil or modName ~= nil then
+        sourceKind = "mod"
+        sourceLabel = sourceLabel or modName
+      elseif util.normalizeText(sourceLabel) == "beamng - official" or util.normalizeText(sourceLabel) == "official" then
+        sourceKind = "official"
+      end
+      local functional = validator.evidenceFromPart(partData)
+      return {
+        partName = partName,
+        sourceKind = sourceKind,
+        sourceLabel = sourceLabel or "Unknown",
+        modID = modID,
+        path = partInfo.filename or partInfo.sourceFile or partData.filename or partData.sourceFile,
+        roles = functional.roles,
+        evidence = functional.evidence,
+        heuristic = functional.heuristic,
+      }
+    end
+
+    local function metadataForCandidate(candidate)
+      if candidateCache[candidate] then return candidateCache[candidate] end
+      local candidatePart = jbeamIO.getPart(ioCtx, candidate) or {}
+      candidateCache[candidate] = candidateSource(candidate, availableParts[candidate], candidatePart)
+      return candidateCache[candidate]
+    end
 
     local function visit(parentNode)
       if type(parentNode) ~= "table" then return end
@@ -308,7 +437,15 @@ local function getCurrentSlotSnapshot()
           elseif type(definition.type) == "string" then
             allowTypes = {definition.type}
           end
-          local partInfo = availableParts[child.chosenPartName or ""] or {}
+          local candidateMetadata = {}
+          for _, candidate in ipairs(child.suitablePartNames or {}) do
+            if type(candidate) == "string" and candidate ~= "" then
+              candidateMetadata[candidate] = metadataForCandidate(candidate)
+            end
+          end
+          if child.chosenPartName and child.chosenPartName ~= "" and not candidateMetadata[child.chosenPartName] then
+            candidateMetadata[child.chosenPartName] = metadataForCandidate(child.chosenPartName)
+          end
           metadataByPath[child.path] = {
             coreSlot = definition.coreSlot == true,
             required = definition.required == true or definition.coreSlot == true,
@@ -317,24 +454,47 @@ local function getCurrentSlotSnapshot()
             allowTypes = allowTypes,
             denyTypes = util.copyArray(definition.denyTypes or {}),
             parentPart = parentNode.chosenPartName,
-            source = partInfo.modName or partInfo.modID,
+            candidateMetadata = candidateMetadata,
           }
           visit(child)
         end
       end
     end
     visit(tree)
+    local modelMetadata = {}
+    if type(core_vehicles) == "table" and type(core_vehicles.getModel) == "function" then
+      local modelRecord = core_vehicles.getModel(vehicleData.model or (vehicleData.vehicleObj and vehicleData.vehicleObj.JBeam))
+      local model = type(modelRecord) == "table" and (modelRecord.model or modelRecord) or {}
+      modelMetadata = {
+        type = model.type or model.Type or model.Category or model.category,
+        isAutomation = model.isAutomation,
+        isTrailer = model.isTrailer,
+        isProp = model.isProp,
+      }
+    end
     return {
       tree = util.deepCopy(tree),
       metadataByPath = metadataByPath,
       variables = util.deepCopy(vehicleData.vdata and vehicleData.vdata.variables or {}),
       currentTuning = util.deepCopy(vehicleData.config.vars or {}),
       paints = util.deepCopy(vehicleData.config.paints or {}),
+      modelMetadata = modelMetadata,
       ioContextAvailable = ioCtx ~= nil,
     }
   end)
   if not ok then return false, snapshot end
   return true, snapshot
+end
+
+local function prepareConfigExpectation(configRecord)
+  configRecord = type(configRecord) == "table" and configRecord or {}
+  local pathValue = configRecord.path or (configRecord.raw and configRecord.raw.pcFilename)
+  local loadedConfig
+  if type(pathValue) == "string" and type(jsonReadFile) == "function" then
+    local ok, value = pcall(jsonReadFile, pathValue)
+    if ok and type(value) == "table" then loadedConfig = value end
+  end
+  return configVerification.expectation(configRecord, loadedConfig)
 end
 
 local function getTuningSnapshot()
@@ -433,6 +593,8 @@ M.replaceVehicle = replaceVehicle
 M.applyPartsTree = applyPartsTree
 M.applyTuning = applyTuning
 M.applyPaints = applyPaints
+M.verifyPaints = verifyPaints
+M.prepareConfigExpectation = prepareConfigExpectation
 M.getCurrentSlotSnapshot = getCurrentSlotSnapshot
 M.getTuningSnapshot = getTuningSnapshot
 M.getPaints = getPaints
@@ -447,5 +609,6 @@ M.getGameVersion = getGameVersion
 M.getVerificationState = getVerificationState
 M.flattenChosenParts = flattenChosenParts
 M._callContract = callContract
+M._vehicleObjectId = vehicleObjectId
 
 return M

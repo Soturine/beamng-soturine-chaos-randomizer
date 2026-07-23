@@ -1,4 +1,6 @@
 local util = require("ge/extensions/soturineChaosRandomizer/util")
+local configVerification = require("ge/extensions/soturineChaosRandomizer/configVerification")
+local paintVerification = require("ge/extensions/soturineChaosRandomizer/paintVerification")
 
 local M = {}
 
@@ -20,6 +22,7 @@ local function createExpectation(options)
     vehicleId = options.vehicleId,
     modelKey = options.modelKey,
     configKey = options.configKey,
+    configIdentity = util.deepCopy(options.configIdentity),
     parts = util.deepCopy(options.parts or {}),
     tuning = util.deepCopy(options.tuning or {}),
     paints = options.paints and util.deepCopy(options.paints) or nil,
@@ -35,22 +38,27 @@ local function matches(expectation, event)
   return true
 end
 
-local function configKey(value)
-  if type(value) ~= "string" then return nil end
-  local normalized = value:gsub("\\", "/"):gsub("^/", "")
-  local name = normalized:match("([^/]+)%.pc$") or normalized:match("([^/]+)$")
-  return name
-end
+local function configKey(value) return configVerification.stableKey(value) end
 
 local function verify(expectation, state)
   state = type(state) == "table" and state or {}
   if expectation.modelKey and state.modelKey ~= expectation.modelKey then
     return false, "model_mismatch"
   end
-  if expectation.configKey then
-    local actualKey = configKey(state.configKey)
-    local expectedKey = configKey(expectation.configKey)
-    if not actualKey or actualKey ~= expectedKey then return false, "config_mismatch" end
+  local configDetails
+  if expectation.configIdentity then
+    local confirmed, reason, details = configVerification.verify(expectation.configIdentity, state)
+    configDetails = details
+    if not confirmed then return false, reason or "config_mismatch", details end
+  elseif expectation.configKey then
+    local expectedIdentity = configVerification.expectation({
+      modelKey = expectation.modelKey,
+      key = configKey(expectation.configKey),
+      path = expectation.configKey,
+    })
+    local confirmed, reason, details = configVerification.verify(expectedIdentity, state)
+    configDetails = details
+    if not confirmed then return false, reason or "config_mismatch", details end
   end
   for path, candidate in pairs(expectation.parts or {}) do
     if not state.parts or state.parts[path] ~= candidate then
@@ -63,10 +71,11 @@ local function verify(expectation, state)
       return false, "tuning_state_mismatch:" .. tostring(name)
     end
   end
-  if expectation.paints and not util.deepEqual(state.paints or {}, expectation.paints, 1e-8) then
-    return false, "paint_state_mismatch"
+  if expectation.paints then
+    local paintsMatch, paintReason = paintVerification.compare(expectation.paints, state.paints or {})
+    if not paintsMatch then return false, "paint_state_mismatch:" .. tostring(paintReason), configDetails end
   end
-  return true
+  return true, nil, configDetails
 end
 
 M.WAIT_REASONS = WAIT_REASONS

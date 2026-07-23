@@ -12,7 +12,7 @@ local function getTreeNode(tree, keys)
   return node
 end
 
-local function cleanCandidates(source, current, isBlacklisted, slot)
+local function cleanCandidates(source, current, isBlacklisted, slot, validateCandidate)
   local result = {}
   local seen = {}
   local rejected = {}
@@ -20,15 +20,30 @@ local function cleanCandidates(source, current, isBlacklisted, slot)
     if type(candidate) == "string" and candidate ~= "" and not seen[candidate]
     then
       seen[candidate] = true
-      if isBlacklisted and isBlacklisted(slot, candidate) then
-        rejected[#rejected + 1] = candidate
+      local blocked, blockedReason = false, nil
+      if isBlacklisted then blocked, blockedReason = isBlacklisted(slot, candidate) end
+      if blocked then
+        rejected[#rejected + 1] = {
+          candidate = candidate,
+          reason = blockedReason or "candidate_blacklisted",
+        }
       elseif candidate ~= current then
-        result[#result + 1] = candidate
+        local valid, reason = true, nil
+        if validateCandidate then valid, reason = validateCandidate(slot, candidate) end
+        if valid then
+          result[#result + 1] = candidate
+        else
+          rejected[#rejected + 1] = {candidate = candidate, reason = reason or "candidate_unproven"}
+        end
       end
     end
   end
   table.sort(result)
-  table.sort(rejected)
+  table.sort(rejected, function(a, b)
+    local left = type(a) == "table" and a.candidate or a
+    local right = type(b) == "table" and b.candidate or b
+    return tostring(left) < tostring(right)
+  end)
   return result, rejected
 end
 
@@ -68,8 +83,17 @@ local function plan(scan, eligiblePaths, policy, generator, options)
         reason = "deferred_due_to_ancestor_change",
       }
     elseif eligible and generator:boolean(mutationPolicy.mutationChance(policy, slot, passNumber)) then
-      local alternatives, rejected = cleanCandidates(slot.candidates, slot.currentPart, options.isBlacklisted, slot)
-      for _, candidate in ipairs(rejected) do
+      local alternatives, rejected = cleanCandidates(
+        slot.candidates,
+        slot.currentPart,
+        options.isBlacklisted,
+        slot,
+        function(currentSlot, candidate)
+          return validator.validateSelection(currentSlot, candidate, policy.protectCriticalParts)
+        end
+      )
+      for _, rejectedCandidate in ipairs(rejected) do
+        local candidate = type(rejectedCandidate) == "table" and rejectedCandidate.candidate or rejectedCandidate
         decisions[#decisions + 1] = {
           slotName = slot.id,
           slotPath = slot.path,
@@ -78,7 +102,7 @@ local function plan(scan, eligiblePaths, policy, generator, options)
           candidate = candidate,
           passNumber = passNumber,
           skipped = true,
-          reason = "candidate_blacklisted",
+          reason = type(rejectedCandidate) == "table" and rejectedCandidate.reason or "candidate_blacklisted",
         }
       end
       local canEmpty, emptyReason = validator.canEmpty(slot, policy.protectCriticalParts)
@@ -86,18 +110,19 @@ local function plan(scan, eligiblePaths, policy, generator, options)
       local selected
       local reason
 
-      local protected, protectionReason = validator.protectedSelection(slot, policy.protectCriticalParts)
-      if protected ~= nil then
-        selected = protected
-        reason = protectionReason
-      end
-
-      if selected == nil and chooseEmpty and slot.currentPart ~= "" then
+      if chooseEmpty and slot.currentPart ~= "" then
         selected = ""
         reason = "chaos_missing_part"
-      elseif selected == nil and #alternatives > 0 then
+      elseif #alternatives > 0 then
         selected = generator:choice(alternatives)
         reason = "compatible_alternative"
+      end
+
+      local protectionReason
+      if selected == nil and policy.protectCriticalParts then
+        local protected
+        protected, protectionReason = validator.protectedSelection(slot, true)
+        selected = protected
       end
 
       if selected ~= nil and selected ~= slot.currentPart then
@@ -111,7 +136,10 @@ local function plan(scan, eligiblePaths, policy, generator, options)
               slotPath = slot.path,
               previousPart = slot.currentPart,
               selectedPart = selected,
-              source = slot.source,
+              previousSource = util.deepCopy(slot.currentSource),
+              selectedSource = util.deepCopy(slot.candidateMetadata and slot.candidateMetadata[selected] or {
+                sourceKind = "unknown", sourceLabel = "Unknown",
+              }),
               wasRemoved = selected == "",
               passNumber = passNumber,
               reason = reason,

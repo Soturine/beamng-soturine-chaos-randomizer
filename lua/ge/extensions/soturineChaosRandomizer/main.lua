@@ -10,6 +10,7 @@ local mutationEngine = require("ge/extensions/soturineChaosRandomizer/mutationEn
 local mutationPolicy = require("ge/extensions/soturineChaosRandomizer/mutationPolicy")
 local operationState = require("ge/extensions/soturineChaosRandomizer/operationState")
 local paintRandomizer = require("ge/extensions/soturineChaosRandomizer/paintRandomizer")
+local paintVerification = require("ge/extensions/soturineChaosRandomizer/paintVerification")
 local rngModule = require("ge/extensions/soturineChaosRandomizer/rng")
 local settingsModule = require("ge/extensions/soturineChaosRandomizer/settings")
 local slotScanner = require("ge/extensions/soturineChaosRandomizer/slotScanner")
@@ -21,10 +22,11 @@ local vehicleSelector = require("ge/extensions/soturineChaosRandomizer/vehicleSe
 
 local M = {}
 
-M.dependencies = {"core_vehicle_manager", "core_vehicle_partmgmt", "core_vehicles"}
+M.dependencies = {"core_modmanager", "core_vehicle_manager", "core_vehicle_partmgmt", "core_vehicles"}
 
-local EXTENSION_VERSION = "0.2.0-alpha.1"
+local EXTENSION_VERSION = "0.3.0-alpha.1"
 local WAIT_TIMEOUT = 25
+local PAINT_CONFIRM_TIMEOUT = 2
 local RECENT_LIMIT = 4
 
 local runtime = {
@@ -43,6 +45,12 @@ local runtime = {
   recentModels = {},
   recentConfigs = {},
   capabilities = {},
+  performance = {
+    indexBuilds = 0,
+    indexCacheHits = 0,
+    lastIndexDuration = 0,
+    lastOperation = nil,
+  },
 }
 
 local startPaint
@@ -107,11 +115,14 @@ local function publicState()
       blacklists = blacklist,
       blacklisted = blacklist.total,
       lastBlocked = util.deepCopy(runtime.index.lastBlocked),
+      suspects = contentIndex.suspectCount(runtime.index),
+      lastSuspect = util.deepCopy(runtime.index.lastSuspect),
     },
     canUndo = #runtime.history.entries > 0 and not runtime.state.busy,
     history = historyModule.summaries(runtime.history),
     capabilities = util.deepCopy(runtime.capabilities),
     developerStress = publicStressState(),
+    performance = util.deepCopy(runtime.performance),
   }
 end
 
@@ -186,6 +197,19 @@ local function finishOperation(success, code, message, details, terminalState)
     message = message,
     details = details,
   }, true)
+  if active then
+    runtime.performance.lastOperation = {
+      kind = active.kind,
+      duration = math.max(0, adapter.clock() - active.startedAt),
+      reloadCount = active.reloadCount or 0,
+      slotScanDuration = active.slotScanDuration or 0,
+      mutationPlanningDuration = active.mutationPlanningDuration or 0,
+      slotCount = active.lastScanMetrics and active.lastScanMetrics.slotCount or 0,
+      candidateCount = active.lastScanMetrics and active.lastScanMetrics.candidateCount or 0,
+      treeDepth = active.lastScanMetrics and active.lastScanMetrics.maxDepth or 0,
+      success = success == true,
+    }
+  end
   runtime.active = nil
 
   if active and active.stressIteration and runtime.stress then
@@ -231,12 +255,17 @@ local function rebuildIndex()
   local ok, counts = contentIndex.build(runtime.index, registry.models, registry.configs, os.time(), adapter.clock() - started)
   if not ok then return false, adapter.errorValue("no_eligible_content", "No eligible vehicle configurations were discovered") end
   counts.sources = sourceCounts()
+  runtime.performance.indexBuilds = runtime.performance.indexBuilds + 1
+  runtime.performance.lastIndexDuration = counts.duration
   diagnosticsModule.write(runtime.diagnostics, "I", "content_index_built", counts, true)
   return true, counts
 end
 
 local function ensureIndex()
-  if runtime.index.valid then return true end
+  if runtime.index.valid then
+    runtime.performance.indexCacheHits = runtime.performance.indexCacheHits + 1
+    return true
+  end
   local transitioned = operationState.transition(runtime.state, "indexing", false)
   if not transitioned then return false, adapter.errorValue("state_error", "Could not enter indexing state") end
   setProgress("Indexing installed content", 0.08)
@@ -283,12 +312,16 @@ local function beginOperation(kind, context)
     warnings = {},
     destructiveStarted = false,
     historyCommitted = false,
-    ignoreNextSwitch = false,
     baseConfirmed = kind == "scramble",
     startedAt = adapter.clock(),
     phase = kind == "scramble" and "parts" or "selection",
     stressIteration = context.stressIteration,
     waitTimeout = timeout,
+    reloadCount = 0,
+    partPassesApplied = 0,
+    safetyBaseline = nil,
+    safetyResult = nil,
+    phaseTimings = {},
   }
   diagnosticsModule.write(runtime.diagnostics, "D", "operation_started", {
     kind = kind,
@@ -343,7 +376,6 @@ end
 local function enterWaiting(active, phase, afterReload, expected, label, value)
   active.phase = phase
   active.afterReload = afterReload
-  active.ignoreNextSwitch = phase == "spawn" or phase == "rollback" or phase == "undo"
   local target = (phase == "spawn" or phase == "rollback" or phase == "undo") and "waitingForVehicle" or "waitingForReload"
   local ok, transitionError = operationState.transition(runtime.state, target, active.waitTimeout or WAIT_TIMEOUT)
   if not ok then return false, adapter.errorValue("state_error", transitionError) end
@@ -365,6 +397,86 @@ local function enterWaiting(active, phase, afterReload, expected, label, value)
   return true
 end
 
+local function bindReplacementTarget(active, result, phase)
+  if type(result) ~= "table" or type(result.vehicleId) ~= "number" then
+    return false, adapter.errorValue("vehicle_replace_target_ambiguous", "The replacement target could not be correlated")
+  end
+  local expectedOriginalId
+  if phase == "rollback" or phase == "undo" then
+    expectedOriginalId = active.originalState and active.originalState.vehicleId
+    if expectedOriginalId ~= nil and result.vehicleId ~= expectedOriginalId then
+      return false, adapter.errorValue(phase .. "_target_mismatch", "The restore write targeted an unrelated vehicle", {
+        expectedVehicleId = expectedOriginalId,
+        returnedVehicleId = result.vehicleId,
+      })
+    end
+  end
+  active.expectedReplacementVehicleId = result.vehicleId
+  active.replaceRequestModel = active.wait and active.wait.modelKey
+  active.replaceRequestConfig = active.wait and (active.wait.configIdentity or active.wait.configKey)
+  active.replaceIssuedAt = adapter.clock()
+  active.replaceCorrelationStrategy = result.correlationStrategy
+  active.vehicleId = result.vehicleId
+  runtime.state.vehicleId = result.vehicleId
+  if active.wait then active.wait.vehicleId = result.vehicleId end
+  diagnosticsModule.write(runtime.diagnostics, "D", "replacement_target_bound", {
+    phase = phase,
+    requestedModel = active.replaceRequestModel,
+    requestedConfig = active.replaceRequestConfig,
+    requestedTargetId = active.replaceTargetVehicleId,
+    returnedTargetId = result.vehicleId,
+    correlationStrategy = result.correlationStrategy,
+  }, true)
+  return true
+end
+
+local function issueReplacement(active, modelKey, config, phase)
+  active.replaceRequestModel = modelKey
+  active.replaceRequestConfig = util.deepCopy(config)
+  active.replaceIssuedAt = adapter.clock()
+  active.replaceTargetVehicleId = active.vehicleId
+  active.replaceWriteInFlight = true
+  active.pendingReplacementSwitch = nil
+  local ok, result = adapter.replaceVehicle(modelKey, config, active.replaceTargetVehicleId)
+  active.replaceWriteInFlight = false
+  if not ok then return false, result end
+  local bound, bindError = bindReplacementTarget(active, result, phase)
+  if not bound then return false, bindError end
+  local pending = active.pendingReplacementSwitch
+  active.pendingReplacementSwitch = nil
+  if pending and pending.ambiguous then
+    return false, adapter.errorValue("vehicle_replace_event_ambiguous", "Multiple vehicle switches occurred before the replacement target was known", {
+      expectedVehicleId = active.expectedReplacementVehicleId,
+      events = pending.events,
+    })
+  end
+  if pending and pending.newId ~= active.expectedReplacementVehicleId then
+    return false, adapter.errorValue("vehicle_switched", "An unrelated vehicle switch occurred during replacement", {
+      expectedVehicleId = active.expectedReplacementVehicleId,
+      eventVehicleId = pending.newId,
+    })
+  end
+  if pending then
+    diagnosticsModule.write(runtime.diagnostics, "D", "replacement_switch_correlated", {
+      phase = phase,
+      oldId = pending.oldId,
+      eventId = pending.newId,
+      expectedReplacementId = active.expectedReplacementVehicleId,
+      correlationStrategy = active.replaceCorrelationStrategy,
+      queuedDuringWrite = true,
+    })
+  end
+  return true, result
+end
+
+local function isUnsafeCorrelationFailure(errorData)
+  local code = type(errorData) == "table" and errorData.code
+  return code == "vehicle_replace_target_ambiguous"
+    or code == "vehicle_replace_target_unavailable"
+    or code == "vehicle_replace_event_ambiguous"
+    or code == "vehicle_switched"
+end
+
 local function attributeFailure(active, failure)
   if not active then return end
   local target = failureAttribution.targetForPhase(failure.phase, active.baseConfirmed)
@@ -380,19 +492,27 @@ local function attributeFailure(active, failure)
     }, true)
   elseif target == "part" and active.currentBatch then
     local suspectBatch = #active.currentBatch > 1
+    local fingerprintValues = {}
+    for _, item in ipairs(active.currentBatch) do
+      fingerprintValues[#fingerprintValues + 1] = tostring(item.slotPath) .. "=" .. tostring(item.selectedPart)
+    end
+    table.sort(fingerprintValues)
+    local batchFingerprint = table.concat(fingerprintValues, "|")
     for _, decision in ipairs(active.currentBatch) do
       if decision.selectedPart and decision.selectedPart ~= "" then
-        local count, blocked, id = contentIndex.recordFailure(runtime.index, "part", {
+        local count, blocked, id, suspect = contentIndex.recordFailure(runtime.index, "part", {
           modelKey = active.modelKey or (active.selectedModel and active.selectedModel.key),
           slotPath = decision.slotPath,
           candidate = decision.selectedPart,
           suspectBatch = suspectBatch,
+          batchSize = #active.currentBatch,
+          batchFingerprint = batchFingerprint,
           seed = active.seed,
           timestamp = failure.timestamp,
         }, failure)
         diagnosticsModule.write(runtime.diagnostics, "W", "part_candidate_failure", {
           id = id, failureCount = count, blacklisted = blocked, suspectBatch = suspectBatch,
-          reason = failure.code,
+          reason = failure.code, suspect = suspect,
         }, true)
       end
     end
@@ -423,12 +543,13 @@ local function beginRollback(failure)
     })
     return
   end
-  local ok, rollbackError = adapter.replaceVehicle(active.originalState.modelKey, active.originalState.config)
+  local ok, rollbackResult = issueReplacement(active, active.originalState.modelKey, active.originalState.config, "rollback")
   if not ok then
     finishOperation(false, "rollback_failed", "Operation failed and rollback was rejected", {
       originalFailure = failure,
-      rollbackError = rollbackError,
+      rollbackError = rollbackResult,
     })
+    return
   end
 end
 
@@ -445,20 +566,78 @@ local function failActive(errorData, attemptRollback, phase, context)
   end
 end
 
+local function safetyContext(active, snapshot)
+  local model = active.selectedModel or snapshot and snapshot.modelMetadata or {}
+  return {
+    type = model.type or model.Type or model.Category or model.category,
+    isAutomation = model.isAutomation,
+    isTrailer = model.isTrailer,
+    isProp = model.isProp,
+  }
+end
+
+local function validateFinalVehicle(active)
+  setProgress("Validating final vehicle", 0.96)
+  local scanStarted = adapter.clock()
+  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot()
+  if not okSnapshot then return false, snapshot end
+  local scan, scanError = slotScanner.scan(snapshot.tree, snapshot.metadataByPath)
+  active.slotScanDuration = (active.slotScanDuration or 0) + math.max(0, adapter.clock() - scanStarted)
+  if not scan then return false, adapter.errorValue(scanError, "Could not scan the final parts tree") end
+  local graph = validator.buildGraph(scan, safetyContext(active, snapshot))
+  if not active.safetyBaseline then active.safetyBaseline = util.deepCopy(graph) end
+  local result = validator.validateGraph(graph, active.safetyBaseline, active.policy.protectCriticalParts)
+  active.safetyResult = result
+  diagnosticsModule.write(runtime.diagnostics, result.valid and "D" or "E", "safety_validation", {
+    phase = "validation",
+    profile = result.profile,
+    status = result.status,
+    failures = result.failures,
+    heuristicPaths = graph.heuristicPaths,
+  }, not result.valid)
+  if not result.valid then
+    return false, adapter.errorValue("safety_validation_failed", "Final vehicle safety evidence is invalid", {
+      profile = result.profile,
+      status = result.status,
+      failures = result.failures,
+    })
+  end
+  return true, result
+end
+
 local function completeChaos(active)
   operationState.transition(runtime.state, "validating", false)
   active.phase = "validation"
+  local safe, safetyOrError = validateFinalVehicle(active)
+  if not safe then failActive(safetyOrError, true, "validation"); return end
+  local completionMessage
+  if safetyOrError.status == "not_applicable" then
+    active.warnings[#active.warnings + 1] = "Prop safety validation is not applicable; this result does not claim a controllable vehicle."
+    completionMessage = "Chaos complete; prop control is not validated"
+  end
+  local removed = 0
+  for _, change in ipairs(active.changes) do if change.wasRemoved then removed = removed + 1 end end
   local details = {
     seed = active.seed,
     model = active.selectedModel and active.selectedModel.key or active.modelKey,
     configuration = active.selectedConfig and active.selectedConfig.key,
     mutationPasses = active.pass,
-    partChanges = #active.changes,
-    tuningChanges = #active.tuningChanges,
-    paintChanges = active.paintChanges,
+    baseConfiguration = active.selectedConfig and {
+      key = active.selectedConfig.key,
+      name = active.selectedConfig.name,
+      path = active.selectedConfig.path,
+      sourceKind = active.selectedConfig.sourceKind,
+      sourceLabel = active.selectedConfig.sourceLabel,
+    } or nil,
+    partsChanged = #active.changes,
+    partsRemoved = removed,
+    nestedPasses = active.partPassesApplied or 0,
+    tuningValues = util.deepCopy(active.tuningChanges),
+    paintLayers = active.paintChanges,
+    safety = util.deepCopy(safetyOrError),
     warnings = util.deepCopy(active.warnings),
   }
-  finishOperation(true, "completed", string.format(
+  finishOperation(true, "completed", completionMessage or string.format(
     "Chaos complete: %d parts, %d tuning values, %d paints",
     #active.changes, #active.tuningChanges, active.paintChanges
   ), details)
@@ -476,7 +655,7 @@ startPaint = function(active)
     if not ok then failActive(adapter.errorValue("state_error", transitionError), true, "paint"); return end
   end
   active.phase = "paint"
-  setProgress("Randomizing supported paints", 0.90)
+  setProgress("Applying paints", 0.90)
   local okPaints, paints = adapter.getPaints()
   if not okPaints then failActive(paints, true, "paint"); return end
   local result, changed = paintRandomizer.randomize(paints, active.policy, active.rng:fork("paint"))
@@ -485,8 +664,23 @@ startPaint = function(active)
   if changed > 0 then
     local okHistory, historyError = commitHistory(active)
     if not okHistory then failActive(historyError, false, "paint"); return end
-    local okApply, applyError = adapter.applyPaints(result)
-    if not okApply then failActive(applyError, true, "paint"); return end
+    local okApply, applyResult = adapter.applyPaints(result)
+    if not okApply then failActive(applyResult, true, "paint"); return end
+    if applyResult.confirmationRequired then
+      local transitioned, transitionError = operationState.transition(runtime.state, "waitingForReload", PAINT_CONFIRM_TIMEOUT)
+      if not transitioned then failActive(adapter.errorValue("state_error", transitionError), true, "paint"); return end
+      active.paintConfirmation = paintVerification.createDeferred(
+        applyResult.expected, adapter.clock(), PAINT_CONFIRM_TIMEOUT, 0.1, 12
+      )
+      active.phase = "paint"
+      diagnosticsModule.write(runtime.diagnostics, "D", "paint_confirmation_deferred", {
+        strategy = active.paintConfirmation.strategy,
+        reason = applyResult.readbackReason,
+        timeout = PAINT_CONFIRM_TIMEOUT,
+      })
+      setProgress("Confirming paint read-back", 0.93)
+      return
+    end
   end
   completeChaos(active)
 end
@@ -504,7 +698,7 @@ startTuning = function(active)
     if not ok then failActive(adapter.errorValue("state_error", transitionError), true, "tuning"); return end
   end
   active.phase = "tuning"
-  setProgress("Randomizing final tuning", 0.80)
+  setProgress("Applying tuning", 0.80)
   local okSnapshot, snapshot = adapter.getTuningSnapshot()
   if not okSnapshot then failActive(snapshot, true, "tuning"); return end
   local values, changes, groups = tuningRandomizer.randomize(
@@ -541,12 +735,19 @@ processMutationPass = function(active)
     if not ok then failActive(adapter.errorValue("state_error", transitionError), true, "parts"); return end
   end
   active.phase = "parts"
-  setProgress(string.format("Scanning compatible slots (pass %d)", active.pass), 0.30 + math.min(active.pass, 5) * 0.07)
+  setProgress(string.format("Scanning parts (pass %d)", active.pass), 0.30 + math.min(active.pass, 5) * 0.07)
+  local scanStarted = adapter.clock()
   local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot()
   if not okSnapshot then failActive(snapshot, active.destructiveStarted, "parts"); return end
   local scan, scanError = slotScanner.scan(snapshot.tree, snapshot.metadataByPath)
+  active.slotScanDuration = (active.slotScanDuration or 0) + math.max(0, adapter.clock() - scanStarted)
   if not scan then failActive(adapter.errorValue(scanError, "Could not scan the current parts tree"), active.destructiveStarted, "parts"); return end
-  local validProtection, protectionFailures = validator.validateProtectedScan(scan, active.policy.protectCriticalParts)
+  active.lastScanMetrics = util.deepCopy(scan.metrics)
+  local graph = validator.buildGraph(scan, safetyContext(active, snapshot))
+  if not active.safetyBaseline then active.safetyBaseline = util.deepCopy(graph) end
+  local safetyResult = validator.validateGraph(graph, active.safetyBaseline, active.policy.protectCriticalParts)
+  active.safetyResult = safetyResult
+  local validProtection, protectionFailures = safetyResult.valid, safetyResult.failures
   if not validProtection then
     failActive(adapter.errorValue("critical_state_invalid", "Critical or required parts are missing after reload", {
       failures = protectionFailures,
@@ -570,16 +771,19 @@ processMutationPass = function(active)
   active.deferredPaths = {}
   operationState.transition(runtime.state, "mutating", false)
   local modelKey = active.modelKey or (active.selectedModel and active.selectedModel.key)
+  local planningStarted = adapter.clock()
   local tree, decisions = mutationEngine.plan(scan, eligible, active.policy, active.rng:fork("parts:" .. active.pass), {
     passNumber = active.pass,
     isBlacklisted = function(slot, candidate)
-      return contentIndex.isBlacklisted(runtime.index, "part", {
+      local allowed, reason = contentIndex.isCandidateEligible(runtime.index, {
         modelKey = modelKey,
         slotPath = slot.path,
         candidate = candidate,
       })
+      return not allowed, reason
     end,
   })
+  active.mutationPlanningDuration = (active.mutationPlanningDuration or 0) + math.max(0, adapter.clock() - planningStarted)
   local actual = {}
   local ancestors = {}
   local deferred = 0
@@ -594,7 +798,7 @@ processMutationPass = function(active)
     elseif decision.deferred then
       deferred = deferred + 1
       active.deferredPaths[decision.slotPath] = true
-    elseif decision.reason == "candidate_blacklisted" then
+    elseif decision.reason == "candidate_blacklisted" or decision.reason == "candidate_suspect_suppressed" then
       rejected = rejected + 1
     elseif decision.protected then
       protected = protected + 1
@@ -609,6 +813,10 @@ processMutationPass = function(active)
     protectedSubstitutions = protected,
     actualChanges = #actual,
     reloadReason = #actual > 0 and "coherent_parts_batch" or "none",
+    scanMetrics = scan.metrics,
+    safetyProfile = graph.profile,
+    safetyStatus = safetyResult.status,
+    changes = actual,
   })
   if #actual == 0 then
     operationState.transition(runtime.state, "tuning", false)
@@ -619,16 +827,20 @@ processMutationPass = function(active)
   local expectedParts = {}
   for _, decision in ipairs(actual) do expectedParts[decision.slotPath] = decision.selectedPart end
   active.currentBatch = util.deepCopy(actual)
+  local applyingLabel = active.pass > 1
+    and string.format("Applying nested part pass %d", active.pass)
+    or "Applying part pass 1"
   local okWait, waitError = enterWaiting(active, "parts", "mutation", {
     vehicleId = active.vehicleId,
     modelKey = modelKey,
     parts = expectedParts,
-  }, "Applying compatible part changes", 0.48 + math.min(active.pass, 5) * 0.06)
+  }, applyingLabel, 0.48 + math.min(active.pass, 5) * 0.06)
   if not okWait then failActive(waitError, true, "parts"); return end
   local okHistory, historyError = commitHistory(active)
   if not okHistory then failActive(historyError, false, "parts"); return end
   local okApply, applyError = adapter.applyPartsTree(tree)
-  if not okApply then failActive(applyError, true, "parts") end
+  if not okApply then failActive(applyError, true, "parts"); return end
+  setProgress(string.format("Reloading after part pass %d", active.pass), 0.51 + math.min(active.pass, 5) * 0.06)
 end
 
 local function startSpawnOperation(kind, context)
@@ -646,17 +858,19 @@ local function startSpawnOperation(kind, context)
     if not ok then failActive(adapter.errorValue("state_error", transitionError), false, "selection"); return false end
   end
   active.phase = "selection"
-  setProgress("Selecting a compatible vehicle configuration", 0.15)
+  setProgress("Selecting vehicle", 0.15)
   local model, config, selectionError = chooseConfiguration(active)
   if not model then failActive(selectionError, false, "selection"); return false end
   active.selectedModel = model
   active.selectedConfig = config
   active.modelKey = model.key
+  active.configIdentity = adapter.prepareConfigExpectation(config)
   diagnosticsModule.write(runtime.diagnostics, "D", "configuration_selected", {
     model = model.key,
     configuration = config.key,
     source = config.sourceKind,
     sourceLabel = config.sourceLabel,
+    sourceStrategy = config.sourceStrategy,
     seed = active.seed,
     fairness = runtime.settings.selectionFairness,
   })
@@ -665,13 +879,17 @@ local function startSpawnOperation(kind, context)
   operationState.transition(runtime.state, "spawning", false)
   local okWait, waitError = enterWaiting(active, "spawn", kind, {
     modelKey = model.key,
-    configKey = config.path or config.key,
-  }, "Loading " .. tostring(config.name), 0.22)
+    configIdentity = active.configIdentity,
+  }, "Loading configuration: " .. tostring(config.name), 0.22)
   if not okWait then failActive(waitError, false, "spawn"); return false end
   local okHistory, historyError = commitHistory(active)
   if not okHistory then failActive(historyError, false, "spawn"); return false end
-  local okReplace, replaceError = adapter.replaceVehicle(model.key, config.path or config.key)
-  if not okReplace then failActive(replaceError, true, "spawn"); return false end
+  local okReplace, replaceResult = issueReplacement(active, model.key, config.path or config.key, "spawn")
+  if not okReplace then
+    local unsafeCorrelation = isUnsafeCorrelationFailure(replaceResult)
+    failActive(replaceResult, not unsafeCorrelation, unsafeCorrelation and "lifecycle" or "spawn")
+    return false
+  end
   return true
 end
 
@@ -715,6 +933,12 @@ local function startUndo()
     publishState()
     return false
   end
+  local okCurrent, currentId = adapter.getCurrentVehicleId()
+  if not okCurrent or currentId ~= entry.vehicleId then
+    setResult(false, "undo_context_mismatch", "Undo is only available for the vehicle context that created the history entry")
+    publishState()
+    return false
+  end
   if runtime.state.state ~= "idle" then operationState.reset(runtime.state) end
   local ok, token = operationState.begin(runtime.state, "undo", entry.vehicleId, WAIT_TIMEOUT)
   if not ok then return false end
@@ -724,8 +948,11 @@ local function startUndo()
     phase = "undo",
     seed = entry.seed,
     originalState = entry,
+    originalVehicleId = entry.vehicleId,
+    vehicleId = entry.vehicleId,
     destructiveStarted = true,
     startedAt = adapter.clock(),
+    reloadCount = 0,
   }
   runtime.lastSeed = entry.seed
   operationState.transition(runtime.state, "spawning", false)
@@ -737,8 +964,8 @@ local function startUndo()
     paints = entry.paints,
   }, "Restoring the previous vehicle", 0.35)
   if not okWait then failActive(waitError, false, "undo"); return false end
-  local okReplace, replaceError = adapter.replaceVehicle(entry.modelKey, entry.config)
-  if not okReplace then failActive(replaceError, false, "undo"); return false end
+  local okReplace, replaceResult = issueReplacement(runtime.active, entry.modelKey, entry.config, "undo")
+  if not okReplace then failActive(replaceResult, false, "undo"); return false end
   return true
 end
 
@@ -854,7 +1081,7 @@ local function onVehicleSpawned(vehicleId)
   end
   local okState, verificationState = adapter.getVerificationState()
   if not okState then failActive(verificationState, true, active.phase); return end
-  local verified, verificationReason = lifecycle.verify(active.wait, verificationState)
+  local verified, verificationReason, verificationDetails = lifecycle.verify(active.wait, verificationState)
   local elapsed = adapter.clock() - (active.wait.startedAt or adapter.clock())
   diagnosticsModule.write(runtime.diagnostics, verified and "D" or "E", "lifecycle_event_received", {
     eventReceived = "onVehicleSpawned",
@@ -862,6 +1089,8 @@ local function onVehicleSpawned(vehicleId)
     phase = active.wait.phase,
     stateVerified = verified,
     verificationReason = verificationReason,
+    verificationStrategy = verificationDetails and verificationDetails.strategy,
+    identityConfirmed = verificationDetails and verificationDetails.identityConfirmed,
     elapsed = elapsed,
   }, not verified)
   if not verified then
@@ -882,17 +1111,32 @@ local function onVehicleSpawned(vehicleId)
   active.wait = nil
   active.vehicleId = vehicleId
   runtime.state.vehicleId = vehicleId
-  active.ignoreNextSwitch = false
+  if completedPhase == "spawn" or completedPhase == "parts" or completedPhase == "tuning"
+    or completedPhase == "undo" or completedPhase == "rollback"
+  then
+    active.reloadCount = (active.reloadCount or 0) + 1
+  end
 
   if completedPhase == "spawn" then
     active.baseConfirmed = true
     pushRecent(runtime.recentModels, active.selectedModel.key)
     pushRecent(runtime.recentConfigs, configSelector.identifier(active.selectedConfig))
     if afterReload == "randomConfig" then
-      finishOperation(true, "random_config_loaded", "Loaded " .. tostring(active.selectedConfig.name), {
+      local message = "Loaded " .. tostring(active.selectedConfig.name)
+      local warnings = {}
+      if active.selectedModel.isProp then
+        message = message .. "; prop control is not validated"
+        warnings[#warnings + 1] = "The selected prop may not provide an active controllable vehicle."
+      end
+      finishOperation(true, "random_config_loaded", message, {
         seed = active.seed,
         model = active.selectedModel.key,
         configuration = active.selectedConfig.key,
+        configurationName = active.selectedConfig.name,
+        sourceKind = active.selectedConfig.sourceKind,
+        sourceLabel = active.selectedConfig.sourceLabel,
+        verificationStrategy = verificationDetails and verificationDetails.strategy,
+        warnings = warnings,
       })
     else
       operationState.transition(runtime.state, "scanning", false)
@@ -900,6 +1144,19 @@ local function onVehicleSpawned(vehicleId)
       processMutationPass(active)
     end
   elseif completedPhase == "parts" then
+    active.partPassesApplied = (active.partPassesApplied or 0) + 1
+    for _, decision in ipairs(active.currentBatch or {}) do
+      if decision.selectedPart and decision.selectedPart ~= "" then
+        local recorded, successDetails = contentIndex.recordSuccess(runtime.index, "part", {
+          modelKey = active.modelKey or (active.selectedModel and active.selectedModel.key),
+          slotPath = decision.slotPath,
+          candidate = decision.selectedPart,
+        }, os.time())
+        if recorded then
+          diagnosticsModule.write(runtime.diagnostics, "D", "part_candidate_success", successDetails)
+        end
+      end
+    end
     active.currentBatch = nil
     active.pass = active.pass + 1
     operationState.transition(runtime.state, "scanning", false)
@@ -947,21 +1204,61 @@ local function onVehicleSwitched(oldId, newId, player)
     cancelDeveloperStressInternal("vehicle_changed")
     return
   end
-  if runtime.stress and runtime.stress.active and runtime.state.busy and runtime.active
-    and not runtime.active.ignoreNextSwitch and newId ~= runtime.state.vehicleId
-  then
-    cancelDeveloperStressInternal("vehicle_changed")
-    return
-  end
   if not runtime.state.busy or not runtime.active then return end
-  if runtime.active.ignoreNextSwitch then
-    runtime.active.vehicleId = newId
-    runtime.state.vehicleId = newId
-    if runtime.active.wait then runtime.active.wait.vehicleId = newId end
-    runtime.active.ignoreNextSwitch = false
+  local active = runtime.active
+  local replacementWait = active.phase == "spawn" or active.phase == "rollback" or active.phase == "undo"
+  if replacementWait then
+    if active.replaceWriteInFlight then
+      if active.pendingReplacementSwitch then
+        active.pendingReplacementSwitch = {
+          ambiguous = true,
+          events = {
+            util.deepCopy(active.pendingReplacementSwitch),
+            {oldId = oldId, newId = newId},
+          },
+        }
+      else
+        active.pendingReplacementSwitch = {oldId = oldId, newId = newId}
+      end
+      diagnosticsModule.write(runtime.diagnostics, "D", "replacement_switch_queued", {
+        phase = active.phase,
+        oldId = oldId,
+        eventId = newId,
+        reason = "replace_write_in_flight",
+      })
+      return
+    end
+    if active.expectedReplacementVehicleId and newId == active.expectedReplacementVehicleId then
+      diagnosticsModule.write(runtime.diagnostics, "D", "replacement_switch_correlated", {
+        phase = active.phase,
+        oldId = oldId,
+        eventId = newId,
+        expectedReplacementId = active.expectedReplacementVehicleId,
+        correlationStrategy = active.replaceCorrelationStrategy,
+      })
+      return
+    end
+    diagnosticsModule.write(runtime.diagnostics, "W", "replacement_switch_rejected", {
+      phase = active.phase,
+      oldId = oldId,
+      eventId = newId,
+      expectedReplacementId = active.expectedReplacementVehicleId,
+      rejectionReason = active.expectedReplacementVehicleId and "unrelated_switch" or "ambiguous_target",
+    }, true)
+    if runtime.stress and runtime.stress.active then
+      cancelDeveloperStressInternal("vehicle_changed")
+    else
+      cancelOperation("vehicle_switched", "Operation cancelled because an unrelated vehicle switch occurred")
+    end
     return
   end
-  if newId ~= runtime.state.vehicleId then cancelOperation("vehicle_switched", "Operation cancelled because the active vehicle changed") end
+  if newId ~= runtime.state.vehicleId then
+    if runtime.stress and runtime.stress.active then
+      cancelDeveloperStressInternal("vehicle_changed")
+    else
+      cancelOperation("vehicle_switched", "Operation cancelled because the active vehicle changed")
+    end
+  end
 end
 
 local function onVehicleDestroyed(vehicleId)
@@ -975,8 +1272,17 @@ local function onVehicleDestroyed(vehicleId)
     cancelDeveloperStressInternal("vehicle_destroyed")
     return
   end
-  if runtime.state.busy and runtime.active and not runtime.active.ignoreNextSwitch and vehicleId == runtime.state.vehicleId then
-    cancelOperation("vehicle_destroyed", "Operation cancelled because the active vehicle disappeared")
+  if runtime.state.busy and runtime.active then
+    local active = runtime.active
+    local replacementWait = active.phase == "spawn" or active.phase == "rollback" or active.phase == "undo"
+    if replacementWait and active.expectedReplacementVehicleId ~= active.originalVehicleId
+      and vehicleId == active.originalVehicleId
+    then
+      return
+    end
+    if vehicleId == runtime.state.vehicleId or vehicleId == active.expectedReplacementVehicleId then
+      cancelOperation("vehicle_destroyed", "Operation cancelled because the active vehicle disappeared")
+    end
   end
 end
 
@@ -1082,6 +1388,39 @@ startStressIteration = function()
   publishState()
 end
 
+local function processPaintConfirmation()
+  local active = runtime.active
+  if not active or not active.paintConfirmation then return false end
+  local confirmation = active.paintConfirmation
+  local now = adapter.clock()
+  if paintVerification.shouldCheck(confirmation, now) then
+    paintVerification.recordAttempt(confirmation, now)
+    local verified, reason = adapter.verifyPaints(confirmation.expected)
+    diagnosticsModule.write(runtime.diagnostics, verified and "D" or "W", "paint_confirmation_attempt", {
+      strategy = confirmation.strategy,
+      attempt = confirmation.attempts,
+      verified = verified,
+      reason = reason,
+      elapsed = now - confirmation.startedAt,
+    })
+    if verified then
+      active.paintConfirmation = nil
+      completeChaos(active)
+      return true
+    end
+  end
+  if paintVerification.expired(confirmation, now) then
+    active.paintConfirmation = nil
+    failActive(adapter.errorValue("paint_apply_unconfirmed", "Paint write was not confirmed within the bounded read-back window", {
+      strategy = confirmation.strategy,
+      attempts = confirmation.attempts,
+      elapsed = now - confirmation.startedAt,
+    }), true, "paint")
+    return true
+  end
+  return true
+end
+
 local function onUpdate()
   if runtime.stress and runtime.stress.active
     and adapter.clock() - runtime.stress.startedAt >= runtime.stress.options.maxDuration
@@ -1089,6 +1428,7 @@ local function onUpdate()
     cancelDeveloperStressInternal("duration_limit")
     return
   end
+  if processPaintConfirmation() then return end
   if runtime.state.busy and operationState.isExpired(runtime.state) then
     local active = runtime.active
     local phase = active and active.wait and active.wait.phase or active and active.phase or "lifecycle"

@@ -22,7 +22,7 @@ local function scan(tree, metadataByPath)
   local slots = {}
   local byPath = {}
 
-  local function visit(node, depth, keys)
+  local function visit(node, depth, keys, parentPath)
     local childKeys = util.sortedKeys(node.children or {})
     for _, childKey in ipairs(childKeys) do
       local child = node.children[childKey]
@@ -45,17 +45,22 @@ local function scan(tree, metadataByPath)
           allowTypes = util.copyArray(metadata.allowTypes or {}),
           denyTypes = util.copyArray(metadata.denyTypes or {}),
           parentPart = metadata.parentPart,
-          source = metadata.source,
+          parentPath = parentPath,
+          candidateMetadata = util.deepCopy(metadata.candidateMetadata or {}),
         }
+        slot.currentSource = util.deepCopy(slot.candidateMetadata[slot.currentPart] or {
+          sourceKind = "unknown",
+          sourceLabel = "Unknown",
+        })
         slot.signature = slotSignature(slot)
         slots[#slots + 1] = slot
         byPath[slot.path] = slot
-        visit(child, depth + 1, childNodeKeys)
+        visit(child, depth + 1, childNodeKeys, slot.path)
       end
     end
   end
 
-  visit(tree, 1, {})
+  visit(tree, 1, {}, nil)
   table.sort(slots, function(a, b)
     if a.depth ~= b.depth then return a.depth < b.depth end
     if a.path ~= b.path then return a.path < b.path end
@@ -63,11 +68,22 @@ local function scan(tree, metadataByPath)
   end)
   local signatureParts = {}
   for _, slot in ipairs(slots) do signatureParts[#signatureParts + 1] = slot.signature end
+  local candidateCount = 0
+  local maxDepth = 0
+  for _, slot in ipairs(slots) do
+    candidateCount = candidateCount + #slot.candidates
+    maxDepth = math.max(maxDepth, slot.depth)
+  end
   return {
     tree = util.deepCopy(tree),
     slots = slots,
     byPath = byPath,
     signature = table.concat(signatureParts, "\n"),
+    metrics = {
+      slotCount = #slots,
+      candidateCount = candidateCount,
+      maxDepth = maxDepth,
+    },
   }
 end
 

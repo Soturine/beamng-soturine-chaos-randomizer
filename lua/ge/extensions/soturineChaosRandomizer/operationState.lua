@@ -7,7 +7,7 @@ local TERMINAL = {
 }
 
 local ALLOWED = {
-  idle = {indexing = true, selecting = true, scanning = true, rollingBack = true},
+  idle = {indexing = true, selecting = true, scanning = true, spawning = true, rollingBack = true},
   indexing = {selecting = true, scanning = true, failed = true, cancelled = true},
   selecting = {spawning = true, scanning = true, failed = true, cancelled = true},
   spawning = {waitingForVehicle = true, failed = true, rollingBack = true, cancelled = true},
@@ -16,7 +16,7 @@ local ALLOWED = {
   mutating = {waitingForReload = true, scanning = true, tuning = true, rollingBack = true, failed = true, cancelled = true},
   waitingForReload = {scanning = true, tuning = true, painting = true, validating = true, completed = true, rollingBack = true, failed = true, cancelled = true},
   tuning = {waitingForReload = true, painting = true, validating = true, completed = true, rollingBack = true, failed = true, cancelled = true},
-  painting = {validating = true, completed = true, rollingBack = true, failed = true, cancelled = true},
+  painting = {waitingForReload = true, validating = true, completed = true, rollingBack = true, failed = true, cancelled = true},
   validating = {completed = true, rollingBack = true, failed = true, cancelled = true},
   rollingBack = {waitingForVehicle = true, completed = true, failed = true, cancelled = true},
   completed = {idle = true},
