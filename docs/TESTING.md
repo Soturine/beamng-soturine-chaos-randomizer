@@ -233,6 +233,14 @@ The packaged inputs were built twice on Windows after the code, UI, asset, tests
 | Same-environment two-build equality | Passed; byte-identical consecutive builds |
 | ZIP/checksum validation | Passed |
 | Text line-ending normalization | Passed |
-| Final CI/Linux and downloaded-release comparison | Pending until the tagged workflow and release asset exist |
+| Final CI/Linux and downloaded-release comparison | Passed; byte-identical ZIP and matching checksum |
 
-The local facts above were recorded after the implementation/test/release-tooling commits. Documentation is outside the ZIP, so this documentation commit does not change its bytes. The final commit SHA, workflow run, and downloaded release-asset verification belong to the delivery report; no CI/download equality is claimed here before publication.
+Release commit `5327a45ff7d65c25625e2cb977dcbc1c738e38fc` passed branch CI run `30042383380` and tagged package/release run `30042477108`. The Actions ZIP and the redownloaded GitHub Release ZIP were both 112,125 bytes with the SHA-256 above. `tools/validate_package.py` passed against the downloaded ZIP beside its downloaded checksum and manifest; the manifest reports 36 Python methods, 222 Lua cases, one JavaScript file, two JSON files, zero interactive passes, and 55 interactive Pending cases.
+
+Published prerelease: `v0.4.0-alpha.1` at <https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases/tag/v0.4.0-alpha.1>. Assets verified on 2026-07-23:
+
+- `soturine_chaos_randomizer_0.4.0-alpha.1.zip` — 112,125 bytes;
+- `soturine_chaos_randomizer_0.4.0-alpha.1.sha256` — 110 bytes;
+- `release-manifest.json` — 626 bytes.
+
+This asset verification is not a BeamNG install/gameplay pass. Interactive row 28 remains Pending until the exact asset is installed and checked from a real 0.38 profile.
