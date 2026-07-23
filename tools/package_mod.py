@@ -39,8 +39,9 @@ def collect_files(root: Path = REPOSITORY_ROOT) -> list[tuple[Path, str]]:
 
     for filename in PACKAGE_FILES:
         path = root / filename
-        if path.is_file():
-            entries.append((path, filename))
+        if not path.is_file():
+            raise FileNotFoundError(f"Required package file is missing: {filename}")
+        entries.append((path, filename))
 
     entries.sort(key=lambda entry: entry[1])
     names = [name for _, name in entries]

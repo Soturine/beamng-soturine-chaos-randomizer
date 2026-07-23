@@ -18,6 +18,9 @@ except ImportError:  # Imported as tools.validate_package.
 
 
 REQUIRED_PATHS = {
+    "LICENSE",
+    "NOTICE",
+    "VERSION",
     "lua/ge/extensions/soturineChaosRandomizer.lua",
     "lua/ge/extensions/soturineChaosRandomizer/main.lua",
     "lua/ge/extensions/soturineChaosRandomizer/apiAdapter.lua",
@@ -27,7 +30,6 @@ REQUIRED_PATHS = {
     "ui/modules/apps/soturineChaosRandomizer/app.css",
     "ui/modules/apps/soturineChaosRandomizer/app.png",
     "settings/soturineChaosRandomizer/defaults.json",
-    "VERSION",
 }
 REQUIRED_ROOTS = {"lua", "ui", "settings"}
 FORBIDDEN_COMPONENTS = {
