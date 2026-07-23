@@ -1,6 +1,6 @@
 # Testing
 
-This document separates automated/runtime validation from interactive BeamNG gameplay testing. A passing Lua console suite does not imply that a UI App rendered correctly or that a vehicle survived an in-game mutation.
+Automated and installed-source evidence is kept separate from interactive BeamNG evidence. A green CI run does not prove UI rendering, physics readiness, or compatibility with a third-party mod.
 
 ## Test environment
 
@@ -8,156 +8,178 @@ This document separates automated/runtime validation from interactive BeamNG gam
 | --- | --- |
 | Date | 2026-07-23 |
 | Operating system | Windows 10 build 19045 |
-| BeamNG executable | 0.38.6.0.19963 |
-| BeamNG console runtime | Lua 5.1, BeamNG 0.38.6.0 |
-| Steam build | 23007233 |
-| Python | Local Python 3 |
-| Node.js | 24.11.1 |
-| Lua parser | `luaparse` 0.3.1 |
+| BeamNG executable | `0.38.6.0.19963` |
+| Steam build | `23007233` |
+| BeamNG console | shipped Lua 5.1 runtime |
+| Python | local Python 3; CI Python 3.12 |
+| Node.js | local 24.11.1; CI 24 |
+| Interactive 0.38 profile/world | unavailable |
 
-BeamNG 0.38 had not created a versioned 0.38 user profile in this environment, so no interactive world/UI session was launched. Pure Lua tests were executed with BeamNG's shipped console after staging only the test runner and Lua source beneath the game VFS. The test harness removes that temporary staging directory afterward.
+No 0.38 world/UI session was launched. All interactive rows below remain **Pending**.
 
-## Automated tests executed
-
-Command:
+## Automated commands
 
 ```powershell
 python -m unittest discover -s tests -v
-```
-
-Result: **12 Python `unittest` test methods passed**. One method runs **20 named Lua behavior tests against the actual project modules**.
-
-The Lua cases cover:
-
-- deterministic PRNG sequences and seed normalization;
-- integer/float ranges and weighted selection;
-- recent vehicle/config anti-repeat behavior;
-- Chaos policy boundaries and optional-empty probability;
-- immutable candidate copying;
-- required/core-slot empty filtering;
-- selection of a different compatible candidate;
-- detection of newly exposed nested paths;
-- tuning range clamping and step quantization;
-- default-centered and extreme-biased tuning;
-- legal operation transitions and deadline expiration;
-- stale token/callback rejection;
-- bounded circular history;
-- three-failure session blacklist threshold;
-- settings schema migration;
-- Mods-only discovery of a mod config pack on an official model.
-
-The Python cases cover:
-
-- invoking a Lua 5.1-compatible runtime or BeamNG's console;
-- deterministic package construction and byte-for-byte rebuild;
-- ZIP root/path safety, backslash rejection, and development-content rejection;
-- SHA-256 verification;
-- JSON parsing;
-- JavaScript syntax through `node --check`;
-- trailing whitespace;
-- unique UI directive IDs;
-- package-content machine-path checks;
-- version consistency;
-- enforcement of the BeamNG API adapter boundary.
-
-## Static validation executed
-
-- All 18 Lua files parsed successfully with `luaparse`.
-- The actual Lua modules compiled and ran in BeamNG's Lua 5.1 console.
-- `app.js` passed `node --check`.
-- Project JSON loaded successfully.
-- Both workflow YAML files parsed successfully with PyYAML.
-- `git diff --check` passed during each implementation/commit stage.
-- The test suite checked trailing whitespace, internal UI IDs, version values, local machine paths, and API-boundary patterns.
-
-CI repeats these checks on Ubuntu with Python 3.12, Node.js 20, and `lua5.1`; it also runs `luac5.1 -p` over every Lua source file.
-
-## Package validation executed
-
-Commands:
-
-```powershell
+node --check ui/modules/apps/soturineChaosRandomizer/app.js
 python tools/package_mod.py
 python tools/validate_package.py
 ```
 
-The validator checks that:
+CI additionally runs:
 
-- the versioned ZIP and SHA-256 file exist;
-- `lua/`, `ui/`, and `settings/` are ZIP roots, without a wrapper folder;
-- required extension and UI files exist;
-- JSON files parse;
-- paths are unique, case-safe, relative, and slash-normalized;
-- no symlinks or development-only paths are included;
-- packaged `VERSION` matches the artifact name;
-- the SHA-256 file matches;
-- rebuilding from unchanged inputs produces byte-identical ZIP bytes.
+```bash
+find lua -type f -name '*.lua' -print0 | xargs -0 luac5.1 -p
+```
 
-Final validated artifact:
+Current suite structure:
 
-- ZIP: `dist/soturine_chaos_randomizer_0.1.0-alpha.1.zip`
-- Entries: 27
-- Size: 1,131,701 bytes
-- SHA-256: `e9ad10e56b6252e6980942cc0964c70b2e9962a3db44784eb9fa9054877abe80`
+- **29 Python `unittest` methods**;
+- one Python method runs **85 named Lua behavior/syntax cases** against BeamNG's shipped Lua 5.1 console when no standalone Lua is available;
+- **19 repository/static methods**, including real `node --check`, JSON/YAML parsing, links, versions, API boundary, UI atomicity/host, icon limits, action pins, credentials, paths, and whitespace;
+- **9 package methods**, including two-build equality, SHA, root layout, normalized metadata, version, and machine-path checks;
+- **1 JavaScript file** syntax-checked;
+- **2 project JSON files** decoded;
+- **2 workflow YAML files** decoded.
 
-The matching `.sha256` file was generated and verified. Development documentation and tests are intentionally excluded, so subsequent documentation-only edits do not alter these package bytes.
+These counts must be rechecked in the final report from the final committed tree.
 
-## Interactive in-game matrix
+## Mandatory regression coverage
 
-None of the following cases was executed in a live BeamNG world/UI session. Every status is deliberately **Pending**.
+Named Lua cases cover:
+
+- adapter rejection of `false`, explicit normal-`nil` contracts, thrown details, phase codes, and unconfirmed writes;
+- stable hierarchy order, parent deferral, multiple ancestors, siblings, new-tree candidates, pass cap, and stale-candidate rejection;
+- required/core absence and non-empty critical replacement protection, current/default preference, migration, and reason codes;
+- per-type blacklist keys/counts/details, part filtering, phase attribution, config isolation, suspect batches, and reindex clearing;
+- phase-specific lifecycle expectations, stale/wrong events, post-event verification, and exact timeout reasons;
+- unknown/mod/user/official precedence plus exact Automation/trailer/prop classification;
+- independent tuning, explicit group substreams, per-member ranges/steps, missing-group behavior, and seed determinism;
+- bounded/cancellable/non-overlapping stress state, stop policy, phase summary, deterministic iteration seeds, and asynchronous scheduling state;
+- delayed first-write history commit, one entry across passes, Undo behavior, and successful-rollback cleanup;
+- granular capability derivation and optional-stage warnings;
+- deterministic PRNG, selection fairness, tuning distributions, state transitions, package-independent utility behavior, and compilation of every Lua source.
+
+Named Python UI cases cover `action_flushes_pending_settings`, immediate manual seed/filter use, destroy cancellation, and server-state non-resend. Package cases use the exact acceptance names for reproducibility, checksum, version, machine paths, root layout, and normalized metadata.
+
+## License-safe fixture catalog
+
+`tests/lua/fixtures/content.lua` contains only small original values and field shapes needed for regression. It includes no complete JBeam, brand, artwork, screenshot, or third-party asset.
+
+| Fixture | Why it exists |
+| --- | --- |
+| official vehicle + official config | exact official source baseline |
+| official vehicle + mod config pack | config source overrides official parent |
+| full mod vehicle + config | model/config mod identity |
+| nested part-pack accessory | compatible third-party candidate behavior |
+| wheel → tire hierarchy | descendant deferral after wheel/ancestor changes |
+| user-saved config | `Custom`/player source evidence |
+| arbitrary source label | unknown remains unknown |
+| missing Source + `modID` | mod identity without display label |
+| `slots2` required/core metadata | empty-selection protection |
+| legacy `slots` table | older metadata shape retained by 0.38 conversion |
+| engine/intake nested replacement | stale-tree regression |
+| electric energy/motor metadata | no combustion-only assumption |
+| three differential-like branches | no one/two-differential assumption |
+| malformed config record | safe normalization rejection |
+| malformed tuning variable | nonnumeric metadata rejection |
+| one and three paint layers | dynamic paint-count handling |
+| explicit synthetic tuning group | future proven-group architecture without claiming current content evidence |
+
+The conceptual field shapes came from installed `core/vehicles.lua`, `core/vehicle/partmgmt.lua`, `jbeam/io.lua`, `jbeam/slotSystem.lua`, and `jbeam/variables.lua` inspection.
+
+## Source-observed write hooks
+
+| Write | Installed-source finding | Live observation |
+| --- | --- | --- |
+| `replaceVehicle` | object return, then `onVehicleSpawned` | Pending |
+| `setPartsTreeConfig(..., true)` | normal `nil`; `vehicle:respawn` → `onVehicleSpawned` | Pending |
+| `setConfigVars(..., true)` | normal `nil`; `vehicle:respawn` → `onVehicleSpawned` | Pending |
+| `setConfigPaints(..., false)` | normal `nil`; live update, no respawn hook | Pending |
+
+Automated mocks prove routing/verification behavior. The table does not claim that hook timing was observed in a world.
+
+## Representative content matrix
+
+No third-party content was installed or redistributed. Fixture coverage is automated; every live result is Pending.
+
+| Content | Required live evidence | Status |
+| --- | --- | --- |
+| Official simple vehicle | Random Config, Chaos 0/100, no fatal log | Pending |
+| Official deep tree | parent deferral, bounded passes, Undo | Pending |
+| Official multiple paints | dynamic paint count/read-back | Pending |
+| Official broad tuning | range/step and tuning reload confirmation | Pending |
+| Config pack on official model | Mods-only includes; Official-only excludes; base model not blocked | Pending |
+| Full mod vehicle | discovery, source class, Random Config, Full Random, attribution | Pending |
+| Part pack | nested candidate after reload; candidate blacklist without config block | Pending |
+| Wheel pack | wheel compatibility; tire deferred; no stale tire candidate | Pending |
+| User config | `user`, Everything inclusion, filter behavior | Pending |
+| Unknown metadata | `unknown`, diagnostics count, no arbitrary mod promotion | Pending |
+
+For a real content result, record:
+
+```text
+content name and version
+license/source URL
+BeamNG full version
+randomizer commit/version
+operation and settings
+seed
+result
+beamng.log status
+screenshot reference, if captured
+```
+
+## Required interactive smoke procedure
+
+Use the exact final ZIP without extracting it and record the result of every row.
 
 | # | Case | Status |
 | ---: | --- | --- |
-| 1 | Official vehicle only | Pending |
-| 2 | Official configuration | Pending |
-| 3 | Config pack | Pending |
-| 4 | Full mod vehicle | Pending |
-| 5 | Mod part pack | Pending |
-| 6 | Mod wheel pack | Pending |
-| 7 | Unusual wheels | Pending |
-| 8 | Automation vehicle | Pending |
-| 9 | Trailer | Pending |
-| 10 | Prop | Pending |
-| 11 | Vehicle with few slots | Pending |
-| 12 | Vehicle with many nested slots | Pending |
-| 13 | Electric vehicle | Pending |
-| 14 | Drivetrain with several differentials | Pending |
-| 15 | Invalid configuration | Pending |
-| 16 | Mod disabled after indexing | Pending |
-| 17 | Random Config repeated 25 times | Pending |
-| 18 | Scramble repeated 25 times | Pending |
-| 19 | Full Random repeated 25 times | Pending |
-| 20 | Chaos 0 | Pending |
-| 21 | Chaos 25 | Pending |
-| 22 | Chaos 50 | Pending |
-| 23 | Chaos 75 | Pending |
-| 24 | Chaos 100 | Pending |
-| 25 | Allow Missing Parts off/on | Pending |
-| 26 | Keep Vehicle Drivable off/on | Pending |
-| 27 | Manual vehicle switch during operation | Pending |
-| 28 | Map switch during operation | Pending |
-| 29 | Repeated rapid button presses | Pending |
-| 30 | Undo after Scramble | Pending |
-| 31 | Undo after Full Random | Pending |
-| 32 | Same seed with unchanged content | Pending |
-| 33 | Content reindex | Pending |
-| 34 | UI scaling | Pending |
-| 35 | Packaged ZIP installed normally | Pending |
+| 1 | clean BeamNG 0.38 profile | Pending |
+| 2 | final ZIP appears in Mod Manager and enables | Pending |
+| 3 | enter Freeroam and add UI App | Pending |
+| 4 | layout, minimum size, resizing, overflow, keyboard focus | Pending |
+| 5 | Random Config on official simple vehicle | Pending |
+| 6 | Scramble at Chaos 0 | Pending |
+| 7 | Scramble at Chaos 100 | Pending |
+| 8 | Allow Missing Parts and Protect Critical Parts combinations | Pending |
+| 9 | Full Random | Pending |
+| 10 | Undo after Scramble and Full Random | Pending |
+| 11 | manual vehicle change cancellation | Pending |
+| 12 | map change cancellation | Pending |
+| 13 | Reindex clears session blacklists | Pending |
+| 14 | mod activation/deactivation cancellation and invalidation | Pending |
+| 15 | representative config pack | Pending |
+| 16 | representative full mod vehicle | Pending |
+| 17 | representative part pack | Pending |
+| 18 | representative wheel pack | Pending |
+| 19 | bounded developer stress and manual cancellation | Pending |
+| 20 | immediate click after Chaos change | Pending |
+| 21 | immediate click after manual seed change | Pending |
+| 22 | immediate click after content filter change | Pending |
+| 23 | controlled parts failure and rollback | Pending |
+| 24 | exact replace/parts/tuning hooks observed in log | Pending |
+| 25 | paint write confirmed without reload hook | Pending |
+| 26 | repeated operations release busy lock | Pending |
+| 27 | no fatal Lua/JavaScript errors in `beamng.log` | Pending |
+| 28 | installed artifact SHA matches recorded final CI artifact | Pending until final CI comparison |
 
-## Required interactive procedure
+Interactive cases passed: **0**. Interactive cases pending: **28**.
 
-For each applicable case:
+## Package result
 
-1. Use a clean versioned 0.38 user profile and retain `beamng.log`.
-2. Record the exact model, configuration, enabled mods, settings, and seed.
-3. Confirm the busy state clears on success, cancellation, timeout, and error.
-4. Check console errors before judging the visible result.
-5. Verify Undo restores model, configuration tree, tuning, and paints.
-6. Re-run deterministic cases after restarting with unchanged content.
-7. File failures with diagnostics and the smallest reproducible content set.
+The packaged inputs were built twice on Windows after the code, UI, asset, tests, package, and CI commits. Documentation is excluded from the ZIP, so the final documentation commit does not alter these bytes.
 
-Do not mark a row passed merely because the operation produced a vehicle. Compatibility, error-free reload, controls, Undo, UI state, and log output must all be checked.
+| Item | Result |
+| --- | --- |
+| Filename | `soturine_chaos_randomizer_0.2.0-alpha.1.zip` |
+| Bytes | `77,482` |
+| Entries | `32` |
+| Windows SHA-256 | `81872de4f9a623535ebcda9ccfc79f7b6b8013919ee6f9395e3185c0297b2361` |
+| Same-environment two-build equality | Passed |
+| ZIP/checksum validation | Passed |
+| Text line-ending normalization | Passed |
+| Final CI/Linux artifact comparison | Pending until the final pushed workflow completes |
 
-## Stress diagnostics
-
-No automatic stress command is included in this alpha. Repetition tests must be performed manually with delays between operations until a bounded developer diagnostic is implemented. This avoids an uncontrolled spawn/reload loop in a live game.
+The final commit SHA and CI comparison belong to the delivery report; no cross-platform byte-identity claim is made here before that comparison.

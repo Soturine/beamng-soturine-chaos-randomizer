@@ -27,12 +27,27 @@ Before an alpha release:
 
 ## 0.2.0-alpha — content hardening
 
-- validate representative config packs, full mod vehicles, part packs, and wheel packs;
-- improve unusual slot/source classification using evidence from current metadata;
-- add explicit correlated tuning groups only where metadata proves the relationship;
-- improve error attribution and user-visible blacklist details;
-- add safe, bounded developer stress diagnostics;
-- expand regression fixtures from real, license-safe metadata shapes.
+- **Pending interactive evidence:** validate representative config packs, full mod vehicles, part packs, and wheel packs. License-safe fixtures and the evidence template are implemented, but no live third-party content was available.
+- **Implemented:** classify user/mod/official/unknown sources and Automation/trailer/prop types only from explicit current metadata evidence.
+- **Partially implemented:** explicit correlated tuning-group architecture and tests exist, but installed 0.38.6 metadata exposes no proven correlation group. Current variables remain independent; no relationship was invented.
+- **Implemented:** phase-aware errors, separated session blacklists, conservative batch suspects, candidate filtering, and compact Advanced details.
+- **Implemented:** safe developer stress diagnostics with iteration/duration/operation limits, deterministic seeds, cancellation, no overlap, and aggregate results.
+- **Implemented:** license-safe synthetic registry/config/slots/tree/tuning/paint fixtures covering official, config-pack, full-mod, part-pack, wheel-pack, user, unknown, legacy, malformed, electric-style, and multi-differential shapes.
+
+Additional 0.2 remediation implemented:
+
+- explicit BeamNG write return contracts and phase/state confirmation;
+- ancestor-change descendant deferral and stale-candidate prevention;
+- honest **Protect Critical Parts** migration and conservative replacement policy;
+- atomic UI action/settings snapshots;
+- first-write history commit and consistent rollback cleanup;
+- granular capabilities and optional-stage warnings;
+- UI custom-element host sizing;
+- optimized selector icon and automated limits;
+- normalized deterministic ZIP/checksum validation;
+- official GitHub Actions pinned by commit SHA.
+
+The milestone remains a content-hardening alpha artifact until its interactive matrix has evidence.
 
 ## 0.3.0-alpha — safety and compatibility
 

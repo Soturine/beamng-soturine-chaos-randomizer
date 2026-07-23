@@ -1,223 +1,144 @@
 # Soturine's Chaos Randomizer
 
-[![Status: Alpha](https://img.shields.io/badge/status-alpha-f97316)](ROADMAP.md)
-[![BeamNG.drive 0.38.6](https://img.shields.io/badge/BeamNG.drive-0.38.6-555)](docs/COMPATIBILITY.md)
-[![CI](https://github.com/Soturine/beamng-soturine-chaos-randomizer/actions/workflows/ci.yml/badge.svg)](https://github.com/Soturine/beamng-soturine-chaos-randomizer/actions/workflows/ci.yml)
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+Soturine's Chaos Randomizer is a BeamNG.drive UI App and GE Lua extension for seeded, bounded randomization of complete vehicle configurations, compatible hierarchical parts, tuning values, and paint layers.
 
-A dynamic vehicle, configuration, compatible-parts, tuning, wheel, and paint randomizer for BeamNG.drive. It discovers installed content through BeamNG's mounted registry, follows the current hierarchical slot tree, and uses reproducible operation seeds.
+Current version: **0.2.0-alpha.1 — Content Hardening**
+Inspected target: **BeamNG.drive 0.38.6.0.19963** (Steam build 23007233)
 
-> **Alpha software:** the logic, package, and BeamNG Lua 5.1 runtime tests pass, but the interactive in-game matrix is still pending. Keep a normal copy of any configuration you care about and review [known limitations](#known-limitations) before use.
+This is a content-hardening alpha artifact, not a gameplay-validated stable release. The implementation and automated fixtures have been validated, but the interactive vehicle/mod matrix remains Pending until it is run in a BeamNG 0.38.6 world and UI session.
 
-## Screenshots
+## What it does
 
-Real in-game screenshots will be added after the interactive UI and gameplay test pass.
+- **Random Config** chooses an eligible mounted configuration with equal-per-vehicle or equal-per-configuration fairness.
+- **Scramble** mutates the current model through BeamNG-reported compatible slots, then independently runs available tuning and paint stages.
+- **Full Random** confirms a base configuration before running the Scramble pipeline.
+- **Undo** restores one complete pre-write state from bounded session history.
+- **Chaos** controls part probability, pass count, missing-part probability, tuning spread, and paint contrast.
+- **Manual seed** makes project-owned choices repeatable when the game version, content, settings, starting state, and session blacklist are unchanged.
 
-> Screenshot placeholder — compact main controls at the default app size.
->
-> Screenshot placeholder — expanded Advanced settings and operation progress.
+The randomizer never opens installed mod ZIPs, never forces a part that BeamNG did not report for the exact loaded slot, and never calls or reseeds global `math.random`.
 
-The original app-selector icon is included in the mod; no third-party artwork is bundled.
+## Content hardening behavior
 
-## Features
+### Safe hierarchy passes
 
-- **Random Config** chooses one complete eligible configuration without scrambling it.
-- **Scramble** keeps the current model and mutates compatible parts, newly exposed nested slots, final tuning variables, and supported paints.
-- **Full Random** loads a configuration and then runs the complete Scramble pipeline.
-- A single **Chaos** slider controls mutation coverage, nested passes, missing-part probability, tuning spread, extremes, and paint contrast.
-- **Allow Missing Parts** can empty optional slots, but never slots marked required or core by current metadata.
-- **Keep Vehicle Drivable** applies conservative, metadata-based protection to known critical concepts. It is best-effort, not a guarantee.
-- Vehicle-first and configuration-first fairness modes avoid overrepresenting vehicles with large configuration lists.
-- Recent selections are avoided when alternatives exist.
-- A local deterministic PRNG isolates the mod from BeamNG's global random state.
-- Bounded event-driven reloads, cancellation tokens, timeouts, session blacklisting, rollback, and a ten-entry Undo history keep failures contained.
-- No network calls, analytics, remote scripts, or CDN assets are used by the in-game mod.
+Slots are sorted by depth, path, and ID. When a parent changes, all of its descendants are recorded as `deferred_due_to_ancestor_change` without consuming descendant RNG. The batch reloads once, the real tree is scanned again, and only candidates from that new tree can be used in the next bounded pass. Sibling changes remain eligible in the same batch.
 
-## Controls
+### Protect Critical Parts
 
-### Random Config
+The former **Keep Vehicle Drivable** setting is migrated to the more accurate **Protect Critical Parts** name. It does not promise drivability.
 
-Selects from the installed BeamNG vehicle/configuration registry after applying content filters. Official configurations, mounted mod vehicles, mounted config packs, and safely indexed user configurations can participate. The selected configuration is loaded as-is.
+When enabled, it:
 
-### Scramble
+- never empties `required` or `coreSlot` slots;
+- preserves the current part for recognized energy, propulsion, transmission, driveline, steering, suspension, hub, wheel, and tire concepts;
+- restores an explicitly compatible `defaultPart` when a recognized critical slot is already empty;
+- blocks a non-empty replacement when metadata cannot prove that it is a safe functional substitute;
+- validates detectable required/critical state after a parts reload and rolls back on failure.
 
-Snapshots the active vehicle, scans its current `partsTree`, chooses only candidates BeamNG reports as compatible, and applies one batched mutation per pass. A reload can expose new child slots; those paths are handled in later bounded passes. Tuning and paint run only after the final part tree is available.
+Unknown optional slots remain mutable. The broader mechanical validator remains a `0.3.0-alpha` goal.
 
-### Full Random
+### Evidence-based source classes
 
-Runs Random Config, waits for the replacement vehicle, then runs Scramble. Progress is reported for indexing, selection, loading, scanning, mutation, tuning, paint, and validation.
+Source precedence is explicit:
 
-### Chaos
+1. confirmed user/custom metadata becomes `user`;
+2. `modID`/`modId` or the exact registry `Mod` marker becomes `mod`;
+3. explicit current official aliases become `official`;
+4. every other label remains `unknown`.
 
-`0` is conservative but not a strict no-op; `100` allows the widest mutation coverage, up to five slot passes, stronger tuning extremes, and the highest optional-empty probability. The default is `75`.
+`Everything` includes unknown content. `Official only` and `Mods only` exclude it. A mod configuration attached to an official model remains `mod` when its own metadata carries mod identity. Automation, trailer, and prop filtering uses exact current `Type` evidence instead of broad name matching.
 
-### Safety checkboxes
+### Phase-aware failures and blacklists
 
-- **Allow Missing Parts:** permits an empty choice only for optional, non-core slots. Missing doors, panels, wheels, exhausts, or powertrain pieces are possible when metadata allows it.
-- **Keep Vehicle Drivable:** protects core/required slots and uses slot descriptions/types to avoid removing clearly critical propulsion, energy, transmission, driveline, steering, suspension, hub, wheel, and tire concepts. Third-party metadata can be incomplete, so drivability cannot be guaranteed.
+Failures retain their phase (`index`, `selection`, `spawn`, `parts`, `tuning`, `paint`, `validation`, `rollback`, `undo`, or `lifecycle`) and operation context. Models, configurations, part candidates, and optional tuning entries have separate session namespaces.
 
-## Mod-content compatibility
+A confirmed base configuration is not penalized for a later parts/tuning/paint failure. Part keys include model, slot path, and candidate. Multi-candidate batch failures are recorded as suspects and do not immediately blacklist every candidate. Reindex and mod activation/deactivation clear all session failure state.
 
-The randomizer does not maintain a hard-coded vehicle, part, wheel, or accessory list. It uses BeamNG's mounted content registry and each loaded vehicle's compatible slot candidates.
+Advanced UI shows compact per-type counts and the latest blocked item; detailed records stay in `beamng.log` under `SoturineChaosRandomizer`.
 
-- Config packs inside normal mod ZIPs remain discoverable through the VFS registry; manual extraction is not required.
-- A mod configuration attached to an official vehicle remains eligible under **Mods only**.
-- Mod wheels and accessories can be selected when the active slot tree reports them as compatible.
-- Automation vehicles, trailers, and props are excluded by default and can be enabled independently.
-- Source ownership that cannot be determined safely is classified as `unknown`, not guessed.
+### Granular capabilities
 
-See [Compatibility](docs/COMPATIBILITY.md) for the current matrix.
+The adapter reports registry, replace, parts read/write, tuning read/write, paint read/write, settings persistence, UI events, and lifecycle-confirmation capabilities separately. Missing parts write disables Scramble. Missing optional tuning or paint support skips only that stage and exposes a visible warning.
 
 ## Installation
 
-### GitHub Release
+1. Build or obtain `soturine_chaos_randomizer_0.2.0-alpha.1.zip`.
+2. Copy the ZIP, without extracting it, into the active BeamNG user folder's `mods` directory.
+3. Enable it in Mod Manager.
+4. Enter Freeroam, open UI Apps, and add **Soturine's Chaos Randomizer**.
 
-No public GitHub Release is published for this alpha yet. When a validated release is available, download `soturine_chaos_randomizer_<version>.zip` from the repository's [Releases page](https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases) and copy it unchanged to the active BeamNG version's `mods` folder.
+The ZIP must expose `lua/`, `ui/`, and `settings/` at its root. GitHub source archives are not installable mod packages.
 
-Do not install GitHub's automatically generated **Source code** archive; it contains a wrapper directory and development files, so it is not a valid BeamNG mod package.
+## Controls
 
-### Manual packaged installation
+- **Allow Missing Parts:** permits bounded removal only for optional, non-protected slots.
+- **Protect Critical Parts:** applies the conservative behavior described above.
+- **Content:** Everything, Official only, or Mods only.
+- **Fairness:** equal per vehicle or equal per configuration.
+- **Automation / Trailers / Props:** opt-in exact-type filters.
+- **Diagnostic logging:** enables detailed structured pass/lifecycle records.
+- **Reindex Content:** rebuilds mounted registry data and clears all session blacklists.
 
-1. Build the distribution ZIP as described in [Package build](#package-build), or download a validated CI artifact.
-2. Locate the active user folder in **Launcher → Manage User Folder → Open in Explorer**.
-3. Copy `soturine_chaos_randomizer_0.1.0-alpha.1.zip` into `<active user folder>/mods/`.
-4. Keep the ZIP packed and enable it in Mod Manager.
-5. Enter Freeroam, open UI Apps editing, and add **Soturine's Chaos Randomizer**.
+UI actions send the currently displayed settings and action in one Lua call. A pending debounce cannot make a click use older Chaos, seed, filter, or checkbox values.
 
-The ZIP must contain `lua/`, `ui/`, and `settings/` at its root. It must not contain an enclosing `soturine_chaos_randomizer/` folder.
+## Developer stress diagnostic
 
-### Unpacked development installation
+The bounded diagnostic is intentionally absent from the normal panel. From the GE Lua console or another developer extension:
 
-Create this directory under the active versioned user folder:
-
-```text
-mods/unpacked/soturine_chaos_randomizer/
+```lua
+soturineChaosRandomizer.runDeveloperStress({
+  iterations = 10,
+  mode = "mixed",
+  maxDuration = 300,
+  operationTimeout = 25,
+  stopOnFailure = false,
+  seed = "content-hardening"
+})
 ```
 
-Copy or link the repository's `lua/`, `ui/`, and `settings/` directories into it. After edits, reload the UI or restart BeamNG as appropriate. Do not develop inside the game installation directory.
+Use `cancelDeveloperStress()` to stop it and `getDeveloperStressState()` for a compact summary. Iterations are capped at 50, one operation advances per state-machine/event cycle, normal actions cannot overlap, and map/vehicle/mod-state changes cancel the run. It never saves generated vehicle configurations.
 
-## Usage
-
-1. Enter a player vehicle in Freeroam.
-2. Add the app through **Esc → UI Apps → Edit Apps**.
-3. Set Chaos and the two visible safety options.
-4. Choose **Random Config**, **Scramble**, or **Full Random**.
-5. Wait for the progress indicator to finish before changing vehicles or maps.
-6. Expand **Advanced** for filters, fairness, a manual seed, Undo, reindexing, and diagnostics.
-
-A manual vehicle or map change cancels an active operation. Repeated button presses are ignored while the busy lock is held.
-
-## Advanced settings
-
-- **Content:** Everything, Official only, or Mods only.
-- **Fairness:** equal chance per eligible vehicle, or equal chance per eligible configuration.
-- **Content types:** optionally include Automation vehicles, trailers, and props.
-- **Manual seed:** any non-empty text is normalized into the displayed `XXXX-XXXX` seed. Leave empty for fresh session entropy.
-- **Undo:** restores the most recent complete pre-operation vehicle snapshot.
-- **Reindex Content:** rebuilds the mounted vehicle/configuration index and clears the session blacklist.
-- **Diagnostic logging:** enables structured mutation summaries in the BeamNG log under `SoturineChaosRandomizer`.
-
-Settings are validated, migrated by schema version, and stored in the BeamNG user settings VFS.
-
-## Seed reproducibility
-
-The displayed seed can be copied from the app. Reusing it reproduces choices only when all relevant inputs are unchanged: game version, installed/enabled content, content metadata, settings, selected starting vehicle for Scramble, and registry ordering after normalization. Physics outcomes and behavior from third-party scripts are outside the PRNG contract.
-
-The randomizer never calls or reseeds Lua's global `math.random`.
-
-## Known limitations
-
-- Interactive in-game testing on BeamNG 0.38.6 has not yet been completed; only source/API inspection, static checks, BeamNG's Lua 5.1 console, and package validation were available for this build.
-- The implementation uses internal 0.38 APIs behind an adapter. A future BeamNG release may require adapter updates.
-- Keep Vehicle Drivable depends on current slot metadata and conservative name/type hints; it cannot understand every custom powertrain or unusual third-party convention.
-- Correlated tuning groups are not inferred unless explicit, reliable metadata exists. Each numeric variable is currently sampled independently.
-- There is no dedicated skin/paint-design selector; a design can only change incidentally when BeamNG exposes it as a normal compatible part slot. Supported paint layers are randomized directly.
-- Session history is memory-only and is cleared when the extension/game session ends.
-- A configuration is blacklisted for the current session after three observed load failures. Reindexing clears that list.
-- There is no automatic stress-loop command, configuration export, tag, GitHub Release, or BeamNG Repository submission in this alpha.
-
-## Compatibility
-
-| Component | Status |
-| --- | --- |
-| BeamNG.drive 0.38.6 | API source inspected; Lua runtime tests pass; interactive tests pending |
-| Older BeamNG versions | Not supported or tested |
-| Newer BeamNG versions | Unknown until the adapter is revalidated |
-| Official vehicles/configs | Implemented; interactive tests pending |
-| Mounted mod vehicles/config packs | Dynamically indexed; interactive tests pending |
-| Compatible mod parts/wheels | Dynamically scanned; interactive tests pending |
-| Automation, trailers, props | Opt-in filters implemented; interactive tests pending |
-
-## Troubleshooting
-
-Start with [Troubleshooting](docs/TROUBLESHOOTING.md). The most useful first checks are:
-
-- verify the ZIP root layout;
-- confirm the mod is enabled and the app appears in UI Apps;
-- spawn a player vehicle before pressing an action;
-- reindex after enabling/disabling content;
-- temporarily use **Everything** and include the relevant content type;
-- enable diagnostic logging and inspect `beamng.log` for `SoturineChaosRandomizer`.
-
-## Development setup
-
-Requirements:
-
-- Python 3.10 or newer;
-- a Lua 5.1-compatible interpreter, or a local BeamNG console;
-- Node.js for JavaScript syntax checks;
-- BeamNG.drive 0.38.6 for current adapter inspection and interactive testing.
+## Build and validation
 
 ```powershell
-git clone https://github.com/Soturine/beamng-soturine-chaos-randomizer.git
-cd beamng-soturine-chaos-randomizer
 python -m unittest discover -s tests -v
 python tools/package_mod.py
 python tools/validate_package.py
+node --check ui/modules/apps/soturineChaosRandomizer/app.js
 ```
 
-The tests automatically use `lua5.1`, `lua`, or `luajit` when available. On the documented Windows environment they can use BeamNG's `console.x64.exe`; set `LUA` or `BEAMNG_CONSOLE` to override discovery.
+The package builder fixes entry order, timestamps, permissions, path separators, text line endings, compression settings, and checksum format. Its output includes version, current commit, filename, entry count, byte count, and SHA-256. The matching `.sha256` is generated from the final ZIP in the same directory.
 
-## Tests
-
-The automated suite covers PRNG determinism/ranges/weights, seed normalization, anti-repeat selection, Chaos boundaries, optional-empty behavior, immutable candidates, core-slot filtering, nested-slot discovery, tuning clamping/quantization/distributions, operation tokens/timeouts, circular history, blacklisting, settings migration, source filtering, JavaScript/JSON/static rules, and package paths/reproducibility.
-
-The full executed/pending record and the 35-case interactive matrix are in [Testing](docs/TESTING.md).
-
-## Package build
-
-```powershell
-python tools/package_mod.py
-python tools/validate_package.py
-```
-
-This creates:
+Expected files:
 
 ```text
-dist/soturine_chaos_randomizer_0.1.0-alpha.1.zip
-dist/soturine_chaos_randomizer_0.1.0-alpha.1.sha256
+dist/soturine_chaos_randomizer_0.2.0-alpha.1.zip
+dist/soturine_chaos_randomizer_0.2.0-alpha.1.sha256
 ```
 
-Archive entries are sorted, timestamps and permissions are normalized, and validation rebuilds the ZIP to verify byte-for-byte reproducibility.
+`dist/` is ignored by Git.
 
-## Contributing
+## Current validation status
 
-Read [Contributing](CONTRIBUTING.md), [Architecture](docs/ARCHITECTURE.md), and [Research](docs/RESEARCH.md) before changing engine integration. BeamNG API calls must remain in `apiAdapter.lua`, and third-party code/assets must not be copied without a compatible license and fulfilled obligations.
+- Installed 0.38.6 Lua/API/UI source: inspected.
+- Lua behavior suite: runs against the shipped BeamNG Lua 5.1 console.
+- Python/static/JS/JSON/package checks: automated.
+- Synthetic registry/config-pack/full-mod/part-pack/wheel-pack/user/unknown fixtures: automated.
+- Clean-profile ZIP install, UI rendering/resizing, gameplay operations, representative third-party mods, and bounded stress inside a world: **Pending**.
 
-## Project links
+See [Testing](docs/TESTING.md), [Compatibility](docs/COMPATIBILITY.md), and [Troubleshooting](docs/TROUBLESHOOTING.md).
 
-- [Roadmap](ROADMAP.md)
-- [Changelog](CHANGELOG.md)
-- [Testing](docs/TESTING.md)
-- [Compatibility](docs/COMPATIBILITY.md)
-- [Troubleshooting](docs/TROUBLESHOOTING.md)
-- [BeamNG Repository submission checklist](docs/BEAMNG_REPOSITORY_SUBMISSION.md)
-- [Security policy](SECURITY.md)
+## Known limitations
 
-## License and credits
+- No interactive gameplay result or third-party mod compatibility is claimed yet.
+- `onVehicleSpawned` is the installed 0.38.6 reload hook for replace, parts, and tuning writes; phase and post-event state verification distinguish them. Paint writes use immediate read-back because `respawn=false` emits no reload hook.
+- Tuning metadata exposes display category/subcategory but no proven correlation-group contract. The normalizer supports only an explicit `correlationGroup` plus `shared_normalized_sample`; current installed metadata therefore remains independently sampled.
+- Protection is metadata-based and cannot prove generic drivability.
+- Undo history is memory-only.
+- Paint-design/skin semantics are not specialized beyond ordinary compatible part slots.
+- Byte identity is proven for repeated builds in the same validated environment. Cross-platform identity is reported only after the local and final CI ZIP bytes are compared.
 
-Copyright 2026 Soturine.
+## License
 
-Licensed under the [Apache License 2.0](LICENSE). The implementation and icon are original project work. Historical mods were studied only for behavior after their licensing status was recorded in [Research](docs/RESEARCH.md); no third-party source or artwork is included.
-
-BeamNG.drive is a trademark of BeamNG GmbH. This community project is not affiliated with, endorsed by, or sponsored by BeamNG GmbH.
+Apache License 2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE). BeamNG.drive is a product of BeamNG GmbH; this project is independent and not endorsed by BeamNG GmbH.

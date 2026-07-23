@@ -39,8 +39,13 @@ Never write development files into the BeamNG installation's stock content direc
 - Copy registry/slot/config tables before filtering or mutation.
 - Use current hierarchical `partsTree` APIs; do not revive flat deprecated calls.
 - Keep reload loops bounded, event-driven, token-checked, and timeout-protected.
+- Treat each BeamNG write's return/event/read-back contract separately; `pcall` alone is not success.
+- Defer descendants after an ancestor change and never reuse candidates from the previous tree.
+- Keep source/type classification evidence-based; arbitrary labels remain unknown.
+- Add tuning correlations only for explicit proven group metadata.
 - Preserve exact seeds and concise diagnostics in bug reports.
 - Keep the default UI limited to the three primary actions, Chaos slider, and two visible safety options.
+- Keep developer stress bounded, cancellable, sequential, disabled by default, and outside the normal panel.
 - Do not add a visible control for an unimplemented feature.
 
 ## Code and commits

@@ -2,91 +2,66 @@
 
 ## Current target
 
-The first alpha targets **BeamNG.drive 0.38.6**. The exact inspected executable version is `0.38.6.0.19963`, Steam build `23007233`.
+Version `0.2.0-alpha.1` targets BeamNG.drive `0.38.6.0.19963`, Steam build `23007233`.
 
-This status means the adapter was written against the installed 0.38.6 Lua/UI source and the pure modules ran in its Lua 5.1 console. It does not mean the full interactive matrix has passed. See [Testing](TESTING.md).
-
-| BeamNG version | Status | Notes |
+| BeamNG version | Status | Evidence |
 | --- | --- | --- |
-| 0.38.6 | Alpha target | API inspected; syntax/runtime/package checks pass; live UI/gameplay pending |
-| 0.38.x other builds | Unknown | May work, but exact internal API compatibility is unverified |
-| 0.37 and older | Unsupported | Hierarchical API and UI assumptions are not backported |
-| Newer than 0.38.6 | Unknown | Revalidate `apiAdapter.lua` before claiming support |
+| 0.38.6 | Alpha target | installed source inspected; Lua console/static/package tests pass; gameplay/UI Pending |
+| Other 0.38 builds | Unknown | internal contracts may differ |
+| 0.37 and older | Unsupported | hierarchical API assumptions are not backported |
+| Newer versions | Unknown | re-audit `apiAdapter.lua` before claiming support |
 
-## Why an adapter is required
+Source compatibility is not interactive compatibility. No vehicle/mod row below should be read as Passed until [Testing](TESTING.md) contains reproducible live evidence.
 
-BeamNG's programming documentation notes that internal APIs can be incomplete or change. All direct calls to vehicle registry, current vehicle data, `jbeam/io`, hierarchical part management, spawn/replace, paints, tuning, VFS JSON, logging, and UI hooks are isolated in `apiAdapter.lua`.
+## Content classes
 
-The current implementation intentionally uses:
-
-- `core_vehicles.getModelList(true)` and `getConfigList(true)`;
-- `core_vehicles.replaceVehicle(...)`;
-- `core_vehicle_manager.getPlayerVehicleData()`;
-- `core_vehicle_partmgmt.getConfig()`;
-- `core_vehicle_partmgmt.setPartsTreeConfig(...)`;
-- `core_vehicle_partmgmt.setConfigVars(...)` and `setConfigPaints(...)`;
-- `jbeam/io` parts, slot definitions, and current compatible candidates;
-- the installed `/ui/modules/apps/**/app.json` AngularJS app registry.
-
-The obsolete flat `setPartsConfig` path is not used.
-
-## Content compatibility
-
-| Content | Discovery behavior | Current confidence |
+| Content | Discovery and hardening | Interactive status |
 | --- | --- | --- |
-| Official models/configs | Mounted registry; `BeamNG - Official` source | Implemented, live tests pending |
-| Full mod vehicles | Mounted registry; mod ID/title when available | Implemented, representative tests pending |
-| Config packs | Registry configuration source, including packs on official models | Automated fixture passes, live tests pending |
-| User-saved configs | Registry `Custom` source when BeamNG exposes them | Implemented, live tests pending |
-| Mod parts/accessories | Current `suitablePartNames` per loaded slot | Implemented, representative tests pending |
-| Mod wheels/tires | Same compatibility candidates as other slots | Implemented, unusual wheel tests pending |
-| Automation vehicles | Classified by registry metadata/key hints; opt-in | Live tests pending |
-| Trailers | Classified by registry type metadata; opt-in | Live tests pending |
-| Props | Classified by registry type metadata; opt-in | Live tests pending |
-| Multi-vehicle configurations | Registry may expose them, but behavior is not validated | Treat as unknown |
+| Official vehicles/configs | mounted registry; exact official source marker | Pending |
+| Config packs on official models | configuration `modID` keeps source `mod`; base-model blacklist remains separate | Pending |
+| Full mod vehicles | mounted registry; mod identity when provided | Pending |
+| Part packs | exact loaded-slot candidates; per-model/path/candidate blacklist | Pending |
+| Wheel/tire packs | same hierarchy rules; ancestor wheel change defers tire | Pending |
+| User-saved configs | exact `Custom`/user/player evidence | Pending |
+| Unknown metadata | included by Everything; excluded by Official-only/Mods-only | Pending |
+| Automation / trailer / prop | exact explicit metadata or exact current `Type` | Pending |
+| Multi-vehicle configs | registry may expose them; behavior not validated | Unknown |
 
-Mounted ZIP content is discovered through BeamNG's registry/VFS. The randomizer does not enumerate or manually extract mod ZIP files.
+Synthetic license-safe fixtures cover all of these metadata/tree shapes without redistributing JBeam, artwork, brands, or third-party content.
 
-The index is invalidated by the current 0.38 mod activation/deactivation hooks. If content changes outside those hooks, use **Reindex Content** before the next action.
+## Required APIs and graceful degradation
+
+| Capability | Needed by |
+| --- | --- |
+| registry + replace + lifecycle confirmation | Random Config |
+| parts read + parts write + lifecycle confirmation | Scramble essential stage |
+| tuning read + tuning write + lifecycle confirmation | optional tuning stage |
+| paint read + paint write | optional paint stage |
+| replace + lifecycle confirmation | Undo/rollback |
+| settings persistence | persistent UI settings; operations can still use current-session snapshots |
+
+If tuning or paint is unavailable, compatible-parts mutation can continue with a visible capability warning. Missing parts write disables Scramble and Full Random. Missing registry/replace disables Random Config.
 
 ## Source classification
 
-The index preserves BeamNG's source metadata and normalizes it to:
+`official`, `mod`, and `user` require current evidence. Arbitrary non-empty `Source` labels remain `unknown`. A mod configuration on an official model is classified from its own metadata, so `modID` keeps it in Mods-only results. A model with incomplete ownership metadata is never promoted to official merely because its configuration or key looks familiar.
 
-- `official` for the current official label;
-- `user` for current `Custom`/saved metadata;
-- `mod` when a mod ID or mounted mod source/title is present;
-- `unknown` when ownership cannot be established safely.
+## Safety boundary
 
-`Everything` includes unknown entries. `Official only` and `Mods only` require a matching source class. A mod configuration on an official vehicle is filtered by the configuration's source, so it remains available in Mods-only mode.
+`Protect Critical Parts` prevents detectable required/core removal and conservatively retains current/default critical concepts. It is not a drivability guarantee. BeamNG remains the final loader/compatibility authority, and a third-party candidate advertised as suitable can still fail during reload.
 
-## Slot and part behavior
+## Determinism boundary
 
-- The loaded vehicle's hierarchical `partsTree` is the source of truth.
-- Candidate lists are copied before filtering; BeamNG-returned tables are not mutated in place.
-- Only candidates already reported compatible for that exact slot are selected.
-- Required/core metadata blocks empty choices.
-- A parent change can expose new child paths; only new or changed slot signatures are considered in later bounded passes.
-- BeamNG still performs final JBeam compatibility/loading. A bad third-party part can fail even when advertised as compatible.
+Equal seeds reproduce project choices only when all inputs match:
 
-## Tuning and paint behavior
+- BeamNG build;
+- randomizer version;
+- enabled content and metadata;
+- settings and starting vehicle/configuration;
+- session blacklist/suspect state.
 
-Numeric variables require finite `min`/`max` metadata. Results are clamped and quantized when a positive step exists. Hidden, malformed, or nonnumeric variables are ignored. Variables are independent in this alpha; no speculative front/rear or drivetrain correlations are imposed.
+External mod scripts, physics timing, and changed mounted content are outside this guarantee.
 
-Paint count is discovered dynamically from the current configuration. Existing paint table shapes are copied and only supported paint entries are updated. Skin/paint-design slot selection is not implemented.
+## Reporting results
 
-## UI compatibility
-
-BeamNG 0.38.6 still discovers UI Apps through `/ui/modules/apps` and AngularJS `beamng.apps`. The app uses local HTML/CSS/JavaScript only. Common scaling and controller behavior remain part of the pending interactive matrix.
-
-## Reporting a compatibility result
-
-Include:
-
-- BeamNG full version/build;
-- randomizer commit/version;
-- operation, settings, and displayed seed;
-- vehicle/configuration and relevant mod links/versions;
-- whether the problem occurs without other mods;
-- `beamng.log` lines tagged `SoturineChaosRandomizer`;
-- whether Reindex Content and a clean profile change the result.
+Include BeamNG build, randomizer commit/version, content name/version/source/license, operation, settings, seed, result, and tagged log excerpts. Do not attach paid/private content. State whether Reindex and a clean profile change the result.

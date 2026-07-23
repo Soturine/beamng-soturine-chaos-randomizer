@@ -1,103 +1,119 @@
 # Troubleshooting
 
-## The app does not appear in UI Apps
+## The app does not appear
 
-1. Confirm the mod is enabled in Mod Manager.
-2. Open the ZIP and verify `lua/`, `ui/`, and `settings/` are at the root.
-3. Ensure the UI manifest is exactly `ui/modules/apps/soturineChaosRandomizer/app.json`.
-4. Do not install GitHub's source archive or a ZIP containing an enclosing project folder.
-5. Reload the UI, clear cache through the BeamNG launcher if appropriate, and restart the game.
-6. Search `beamng.log` for `invalid app data`, `soturineChaosRandomizer`, or JavaScript errors.
+1. Install the versioned mod ZIP, not a GitHub source archive.
+2. Confirm `lua/`, `ui/`, and `settings/` are at the ZIP root.
+3. Enable the mod, reload UI, and add **Soturine's Chaos Randomizer** from UI Apps.
+4. Check `beamng.log` for `SoturineChaosRandomizer`, invalid app data, or JavaScript errors.
+5. Validate a local build with `python tools/validate_package.py`.
 
-Use `python tools/validate_package.py` on a locally built archive before installing it.
+## One or more actions are disabled
 
-## Buttons remain disabled
+Open Advanced and read **Capability notes**.
 
-- Wait for the extension state to load; the app requests it twice during startup.
-- Spawn or enter a player vehicle.
-- If only some buttons remain disabled, the adapter did not find a required 0.38 API. Confirm the exact game version against [Compatibility](COMPATIBILITY.md).
-- Check `beamng.log` for an extension load error.
+- Random Config needs registry, replace, and lifecycle confirmation.
+- Scramble needs hierarchical parts read/write and lifecycle confirmation.
+- Full Random needs both sets.
+- Missing tuning or paint APIs do not disable parts; those optional stages are skipped with a warning.
 
-The UI intentionally disables every action while another operation is busy.
+After a BeamNG update, an internal API may have changed. Do not continue destructive testing until `apiAdapter.lua` is re-audited.
 
-## “No vehicles match the current content filters”
+## No content matches the filter
 
-- Switch **Content** to **Everything**.
-- Enable Automation, trailers, or props if that is the content you expect.
-- Press **Reindex Content** after enabling/disabling mods.
-- Confirm the vehicle has at least one configuration in BeamNG's normal selector.
-- A repeatedly failing configuration can be session-blacklisted after three failures; reindexing clears that list.
+- `Everything` includes official, mod, user, and unknown sources.
+- `Official only` and `Mods only` intentionally exclude unknown metadata.
+- Exact Automation, trailer, and prop types are opt-in.
+- Press **Reindex Content** after content changes.
+- Advanced shows the unknown-source count and separate blacklist counts.
 
-## Random Config or Full Random times out
+An arbitrary source title is no longer guessed to be a mod. A pack needs `modID`/`modId` or the exact current mod marker to appear in Mods-only.
 
-Large/complex vehicles can take longer, but every wait is deliberately bounded. After a timeout:
+## A write was rejected immediately
 
-1. Let BeamNG finish any outstanding load.
-2. Check whether automatic rollback restored the previous vehicle.
-3. Enable diagnostic logging and reproduce once.
-4. Reindex content.
-5. Test the selected configuration directly in BeamNG's vehicle selector.
-6. Disable conflicting mods and retry in a clean profile.
+Phase-specific codes include:
 
-Do not repeatedly press actions during a stalled vehicle load.
+- `vehicle_replace_rejected`;
+- `parts_apply_rejected`;
+- `tuning_apply_rejected`;
+- `paint_apply_rejected`.
+
+These mean the synchronous call returned an explicit rejection, no required vehicle object, or threw. The randomizer does not wait 25 seconds after a known rejection. Diagnostic context retains the thrown detail when available.
+
+## A reload event arrived but the operation failed
+
+`post_event_state_unconfirmed` means `onVehicleSpawned` arrived but the current model/config/parts/tuning did not match the active phase's request. A spawn hook alone is not success. The operation rolls back when a destructive write had begun.
+
+Check the `lifecycle_event_received` record for expected event, phase, verification reason, and elapsed time.
+
+## An operation timed out
+
+The code identifies the exact wait: vehicle replace, parts reload, tuning reload, rollback, or Undo. After a timeout:
+
+1. let the game finish any outstanding load;
+2. inspect whether rollback completed;
+3. enable diagnostics and reproduce once;
+4. test the selected configuration/part directly in normal BeamNG tools;
+5. Reindex;
+6. retry in a clean profile with the smallest mod set.
+
+Do not rapidly start more operations while the game is still loading.
+
+## A part candidate is blacklisted
+
+Advanced shows the last blocked ID, reason, failure count, and seed. Part IDs include model, slot path, and candidate; they do not share the configuration namespace.
+
+A multi-candidate batch is initially recorded only as suspect because the extension cannot prove which member caused the failure. Reindex clears all session model/config/part/tuning failures, suspects, and blacklists.
 
 ## Scramble changes little or nothing
 
 - Increase Chaos.
-- Confirm the vehicle exposes alternative compatible parts.
-- Enable **Allow Missing Parts** if optional removals are desired.
-- Disable **Keep Vehicle Drivable** only if you accept non-running or incomplete results.
-- A vehicle with few slots or one candidate per slot can legitimately produce no part changes.
+- Confirm the current slots expose alternatives.
+- Protected critical concepts retain current/default parts.
+- Blacklisted candidates are filtered.
+- A parent change defers descendants until the next pass.
+- Optional tuning/paint stages may be unavailable; read Capability notes.
+
+A safe zero-change result is valid and does not create an Undo entry unless another stage actually writes.
 
 ## The result does not drive
 
-Chaos intentionally permits mechanically poor combinations. Enable **Keep Vehicle Drivable** for conservative protection, but understand that it is metadata-based and cannot guarantee compatibility for every custom drivetrain.
+**Protect Critical Parts is not a drivability guarantee.** It prevents detectable required/core absence and blocks unproven critical substitutions, but it cannot understand every mechanical relationship or third-party script.
 
-Use **Undo** immediately to restore the most recent pre-operation snapshot. If Undo is unavailable after a restart, load a saved configuration through BeamNG's normal vehicle tools; history is session-only.
+Use Undo immediately. If history is unavailable after restart, use BeamNG's normal saved/default configuration tools; history is session-only.
 
-## The same seed gives a different result
+## Undo is unavailable after an early failure
 
-Verify all of these are unchanged:
+This is intentional when failure happened before the first destructive write. The original snapshot is not committed to history until immediately before that write. A failed scan/selection therefore creates no no-op Undo entry.
 
-- BeamNG version/build;
-- enabled mods and their versions/load metadata;
-- randomizer version;
-- all Advanced settings;
-- starting model/configuration for Scramble;
-- content index and blacklist state.
+If a write began, the entry is retained unless automatic rollback succeeds. Successful rollback removes the redundant entry; failed rollback preserves evidence.
 
-The seed governs random choices, not external scripts, physics timing, or changes in installed content.
+## Immediate click used the wrong setting
+
+Version `0.2.0-alpha.1` sends the displayed action and complete settings snapshot in one Lua call. If the result reports a different manual seed/filter/Chaos value, collect the UI state and JavaScript log because that is a regression. The pending settings timer is cancelled on action and app destroy.
+
+## Developer stress stopped
+
+Expected stop reasons include manual cancellation, iteration limit, duration limit, stop-on-failure, map change, vehicle change, and mod-state change. Stress never overlaps a normal action. Inspect `getDeveloperStressState()` and tagged logs for aggregate counts/failure seeds.
+
+The diagnostic is developer-only; do not expose it as an unattended gameplay loop.
 
 ## Settings do not persist
 
-The extension reads packaged defaults from:
+Packaged defaults are read from:
 
 ```text
 /settings/soturineChaosRandomizer/defaults.json
 ```
 
-It writes validated user settings through BeamNG's VFS to:
+Validated user settings are written through BeamNG VFS to:
 
 ```text
 /settings/soturineChaosRandomizer/settings.json
 ```
 
-Check user-folder permissions and JSON/log errors. To reset, close BeamNG and remove only that user settings file from the active versioned user folder; do not delete the packaged defaults.
-
-## Diagnostics
-
-Enable **Advanced → Diagnostic logging**, reproduce one bounded operation, then inspect `beamng.log` for the tag:
-
-```text
-SoturineChaosRandomizer
-```
-
-Normal logging records lifecycle, index counts, and final summaries. Diagnostic mode adds per-pass counts without dumping full JBeam/configuration data or local paths.
-
-## After a BeamNG update
-
-If the app loads but actions report `unsupported_api`, stop using destructive actions and open a compatibility issue. The internal adapter must be compared against the new installed source before support is claimed.
+If persistence is unavailable, Advanced shows a capability warning. The settings snapshot can still apply for the current action/session.
 
 ## Useful issue report
 
-Provide the details listed in [Compatibility](COMPATIBILITY.md), the smallest reproducible mod set, and relevant log excerpts. Do not upload paid/private mod files or personal paths. Security-sensitive reports should follow [Security](../SECURITY.md).
+Provide BeamNG full build, randomizer version/commit, content name/version/source/license, operation, visible settings, displayed seed, smallest mod set, relevant tagged logs, and whether Reindex/clean profile changes the result. Do not upload paid/private content or personal paths. Follow [Security](../SECURITY.md) for sensitive reports.

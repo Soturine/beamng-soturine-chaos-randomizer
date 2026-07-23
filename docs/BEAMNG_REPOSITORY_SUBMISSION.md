@@ -7,14 +7,14 @@ This is a preparation checklist, not evidence of submission or approval. No Beam
 - **Title:** Soturine's Chaos Randomizer
 - **Short name:** Chaos Randomizer
 - **Author:** Soturine
-- **Version candidate:** `0.1.0-alpha.1`
+- **Version candidate:** `0.2.0-alpha.1`
 - **Tagline:** Dynamic seeded vehicle, configuration, compatible-parts, tuning, wheel, and paint randomization.
 - **Category:** UI Apps / Gameplay (choose the closest current Repository category at submission time)
 - **License:** Apache License 2.0
 
 Suggested description:
 
-> Choose a complete installed configuration, scramble the current vehicle through BeamNG-reported compatible slots, or run the complete pipeline. A single Chaos slider controls bounded part, tuning, missing-part, and paint behavior. Includes deterministic seeds, content filters, rollback, and Undo. Keep Vehicle Drivable is a best-effort metadata safeguard, not a guarantee for every mod.
+> Choose a complete installed configuration, scramble the current vehicle through BeamNG-reported compatible slots, or run the complete pipeline. A single Chaos slider controls bounded part, tuning, missing-part, and paint behavior. Includes deterministic seeds, content filters, phase-aware diagnostics, rollback, and Undo. Protect Critical Parts is a conservative metadata safeguard, not a drivability guarantee.
 
 ## Blocking work before submission
 
@@ -25,7 +25,7 @@ Suggested description:
 - Capture representative original screenshots with no private/paid content.
 - Confirm the supported BeamNG version immediately before upload.
 - Review current Repository rules, allowed categories/tags, image dimensions, file-size limits, and moderation requirements.
-- Decide explicitly whether `0.1.0-alpha.1` is ready to tag/release; do not infer that decision from the `VERSION` file alone.
+- Decide explicitly whether `0.2.0-alpha.1` is ready to tag/release; do not infer that decision from the `VERSION` file alone.
 
 ## Package checklist
 
