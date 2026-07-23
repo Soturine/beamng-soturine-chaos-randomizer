@@ -741,6 +741,20 @@ local function thumbnailPath(id)
   return DNA_THUMBNAIL_DIRECTORY .. safe .. ".png"
 end
 
+local function readDNAThumbnail(id)
+  local virtualPath = thumbnailPath(id)
+  if not virtualPath then return false, errorValue("thumbnail_path_invalid", "Thumbnail ID is invalid") end
+  return readControlledBinary(virtualPath, 262144)
+end
+
+local function writeDNAThumbnail(id, data)
+  local virtualPath = thumbnailPath(id)
+  if not virtualPath or type(data) ~= "string" or #data > 262144 then
+    return false, errorValue("thumbnail_write_invalid", "Thumbnail data is invalid")
+  end
+  return writeControlledBinary(virtualPath, DNA_THUMBNAIL_DIRECTORY, data)
+end
+
 local function captureDNAThumbnail(id, callback)
   local virtualPath = thumbnailPath(id)
   if not virtualPath or type(callback) ~= "function" or type(extensions) ~= "table" or type(extensions.load) ~= "function" then
@@ -868,6 +882,8 @@ M.sha256 = sha256
 M.exportDNAFile = exportDNAFile
 M.exportDNAPackage = exportDNAPackage
 M.importDNAPackage = importDNAPackage
+M.readDNAThumbnail = readDNAThumbnail
+M.writeDNAThumbnail = writeDNAThumbnail
 M.captureDNAThumbnail = captureDNAThumbnail
 M.removeDNAThumbnail = removeDNAThumbnail
 M.logRecord = logRecord

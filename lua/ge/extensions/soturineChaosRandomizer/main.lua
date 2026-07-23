@@ -218,9 +218,13 @@ local function publicState()
       } or nil,
       selectedId = runtime.dna.selectedId,
       preflight = util.deepCopy(runtime.dna.preflight),
-      exportText = runtime.dna.exportText,
+      exportReady = runtime.dna.exportText ~= nil,
       details = util.deepCopy(runtime.dna.details),
-      comparison = util.deepCopy(runtime.dna.comparison),
+      comparison = runtime.dna.comparison and {
+        leftId = runtime.dna.comparison.leftId, rightId = runtime.dna.comparison.rightId,
+        equal = runtime.dna.comparison.equal, differenceCount = #(runtime.dna.comparison.differences or {}),
+        truncated = runtime.dna.comparison.truncated == true,
+      } or nil,
       sharePreview = util.deepCopy(runtime.dna.sharePreview),
       importPreview = runtime.dna.importPreview and util.deepCopy(runtime.dna.importPreview.public) or nil,
       thumbnailPending = runtime.dna.thumbnailPending,
@@ -1521,6 +1525,26 @@ local function currentLockScan()
   return scan
 end
 
+local function lockCurrentParts()
+  initialize()
+  if runtime.state.busy then return false end
+  local scan, scanError = currentLockScan()
+  if not scan then setResult(false, scanError.code, scanError.message); publishState(); return false end
+  local profile = vehicleDNALocks.normalize(runtime.settings.lockProfile)
+  local count = 0
+  for _, slot in ipairs(scan.slots or {}) do
+    if count >= vehicleDNALocks.MAX_SLOT_LOCKS then break end
+    if type(slot.currentPart) == "string" and slot.currentPart ~= "" then
+      profile.parts[slot.path] = {
+        path = slot.path, slotId = slot.id, parentPath = slot.parentPath,
+        parentPart = slot.parentPart, partName = slot.currentPart,
+      }
+      count = count + 1
+    end
+  end
+  return persistLockProfile(profile, "current_parts_locked", string.format("Locked %d current parts", count))
+end
+
 local function lockSlot(path, locked)
   initialize()
   if runtime.state.busy then return false end
@@ -1834,9 +1858,19 @@ end
 local function importVehicleDNA(value)
   initialize()
   if runtime.state.busy then return false end
-  local entry, importError = vehicleDNAImport.sanitize(value)
+  local imported = value
+  if type(value) == "table" and value.format == "SoturineVehicleDNAShare" then
+    if tonumber(value.shareVersion) ~= 1 or type(value.vehicleDNA) ~= "table" then
+      setResult(false, "dna_share_envelope_invalid", "Vehicle DNA share envelope was rejected"); publishState(); return false
+    end
+    imported = value.vehicleDNA
+  end
+  local entry, importError = vehicleDNAImport.sanitize(imported)
   if not entry then setResult(false, importError, "Vehicle DNA import was rejected"); publishState(); return false end
-  entry.lineage = util.shallowMerge(entry.lineage or {}, {importedAt = os.time(), importStrategy = "validated_json_object"})
+  local originId = entry.id
+  entry.lineage = util.shallowMerge(entry.lineage or {}, {
+    originId = originId, importedAt = os.time(), importStrategy = "validated_json_object",
+  })
   local updated, addError, id = vehicleDNAStorage.add(runtime.dna.library, entry)
   if not updated then setResult(false, addError, "Vehicle DNA import could not be stored"); publishState(); return false end
   runtime.dna.selectedId = id
@@ -1850,6 +1884,7 @@ local function exportVehicleDNA(id, writeFile)
   local ok, encoded = adapter.encodeJSON(entry, true)
   if not ok then setResult(false, encoded.code, encoded.message); publishState(); return false end
   runtime.dna.exportText = encoded
+  adapter.emit("SoturineChaosRandomizerDNAExport", {text = encoded, format = "legacy-json", bytes = #encoded})
   runtime.dna.selectedId = id
   local details = {copyReady = true, bytes = #encoded}
   if writeFile == true and runtime.capabilities.dnaExportFile then
@@ -1884,6 +1919,9 @@ local function exportVehicleDNAJson(id, writeFile)
     id = id, format = ".vdna.json", bytes = #encoded, sha256 = details.sha256,
     dependencies = util.deepCopy(entry.dependencies or {}), privacy = "No mod bytes, scripts, absolute paths, or personal data are included.",
   }
+  adapter.emit("SoturineChaosRandomizerDNAExport", {
+    text = encoded, format = ".vdna.json", bytes = #encoded, sha256 = details.sha256,
+  })
   setResult(true, "dna_json_export_ready", "Vehicle DNA JSON share is ready", details)
   publishState()
   return true
@@ -1918,8 +1956,19 @@ local function exportVehicleDNAPackage(id)
     ["compatibility.json"] = compatibilityJSON,
     ["README.txt"] = readme,
   }
+  if entry.thumbnail and entry.thumbnail.kind == "managed" and type(adapter.readDNAThumbnail) == "function" then
+    local thumbnailOk, thumbnailData = adapter.readDNAThumbnail(id)
+    if thumbnailOk and vehicleDNAGallery.pngDimensions(thumbnailData) then
+      payloads["thumbnail.png"] = thumbnailData
+    elseif not thumbnailOk then
+      diagnosticsModule.write(runtime.diagnostics, "W", "package_thumbnail_omitted", thumbnailData, true)
+    end
+  end
   local manifestFiles = {}
-  for _, name in ipairs({"vehicle.vdna.json", "compatibility.json", "README.txt"}) do
+  local packageNames = {"vehicle.vdna.json", "compatibility.json"}
+  if payloads["thumbnail.png"] then packageNames[#packageNames + 1] = "thumbnail.png" end
+  packageNames[#packageNames + 1] = "README.txt"
+  for _, name in ipairs(packageNames) do
     local digest = packageSHA(payloads[name])
     if not digest then setResult(false, "checksum_unavailable", "SHA-256 is required for Vehicle DNA packages"); publishState(); return false end
     manifestFiles[#manifestFiles + 1] = {name = name, bytes = #payloads[name], sha256 = digest}
@@ -1940,12 +1989,13 @@ local function exportVehicleDNAPackage(id)
   runtime.performance.exportMs = math.max(0, (adapter.clock() - started) * 1000)
   runtime.dna.sharePreview = {
     id = id, format = ".vdna.zip", bytes = #packageData, sha256 = digest,
-    entries = 4, dependencies = util.deepCopy(entry.dependencies or {}),
-    thumbnailIncluded = false,
-    privacy = "Metadata only. Managed thumbnails are omitted until separately validated for package export.",
+    entries = #packageNames + 1, dependencies = util.deepCopy(entry.dependencies or {}),
+    thumbnailIncluded = payloads["thumbnail.png"] ~= nil,
+    privacy = payloads["thumbnail.png"] and "Metadata plus the explicitly captured managed vehicle image; no mod assets or scripts."
+      or "Metadata only; no mod assets, scripts, absolute paths, or personal data.",
   }
   setResult(true, "vdna_package_exported", "Vehicle DNA package exported to the controlled share folder", {
-    file = writeResult, bytes = #packageData, sha256 = digest, entries = 4,
+    file = writeResult, bytes = #packageData, sha256 = digest, entries = #packageNames + 1,
   })
   publishState()
   return true
@@ -1972,14 +2022,24 @@ local function importVehicleDNAPackage(reference)
   end
   local entry, importError = vehicleDNAImport.sanitize(envelope.vehicleDNA)
   if not entry then setResult(false, importError, "Packaged Vehicle DNA failed schema validation"); publishState(); return false end
+  if tonumber(manifest.schemaVersion) ~= tonumber(entry.schemaVersion)
+    or tostring(manifest.generatorVersion or "") ~= tostring(entry.generatorVersion or "")
+  then setResult(false, "vdna_package_schema_mismatch", "Package manifest schema does not match Vehicle DNA payload"); publishState(); return false end
   local originId = entry.id
   entry.lineage = util.shallowMerge(entry.lineage or {}, {
     originId = originId, importedAt = os.time(), importStrategy = "validated_vdna_package",
   })
   local validEntry, entryError = vehicleDNASchema.validateEntry(entry)
   if not validEntry then setResult(false, entryError, "Imported lineage metadata is invalid"); publishState(); return false end
+  local thumbnailData, thumbnailDimensions = inspected.entries["thumbnail.png"], nil
+  if thumbnailData then
+    thumbnailDimensions = vehicleDNAGallery.pngDimensions(thumbnailData)
+    if not thumbnailDimensions then setResult(false, "thumbnail_png_invalid", "Packaged thumbnail was rejected"); publishState(); return false end
+  end
   runtime.dna.importPreview = {
     entry = entry,
+    thumbnailData = thumbnailData,
+    thumbnailDimensions = thumbnailDimensions,
     public = {
       originId = originId, summary = vehicleDNAStorage.summary(entry),
       dependencies = util.deepCopy(entry.dependencies or {}), packageBytes = #packageData,
@@ -1997,9 +2057,20 @@ local function confirmVehicleDNAPackageImport()
   if runtime.state.busy or not runtime.dna.importPreview then return false end
   local updated, addError, id = vehicleDNAStorage.add(runtime.dna.library, runtime.dna.importPreview.entry)
   if not updated then setResult(false, addError, "Vehicle DNA package could not be stored"); publishState(); return false end
+  local wroteThumbnail = false
+  if runtime.dna.importPreview.thumbnailData then
+    local writeOk, writeError = adapter.writeDNAThumbnail(id, runtime.dna.importPreview.thumbnailData)
+    if not writeOk then setResult(false, writeError.code, writeError.message); publishState(); return false end
+    wroteThumbnail = true
+    local metadata = vehicleDNAGallery.managedMetadata(id, runtime.dna.importPreview.thumbnailDimensions)
+    updated, addError = vehicleDNAStorage.setThumbnail(updated, id, metadata)
+    if not updated then adapter.removeDNAThumbnail(id); setResult(false, addError, "Imported thumbnail metadata failed validation"); publishState(); return false end
+  end
   runtime.dna.selectedId = id
   runtime.dna.importPreview = nil
-  return persistDNALibrary(updated, "vdna_package_imported", "Vehicle DNA package imported with a unique local ID")
+  local persisted = persistDNALibrary(updated, "vdna_package_imported", "Vehicle DNA package imported with a unique local ID")
+  if not persisted and wroteThumbnail then adapter.removeDNAThumbnail(id) end
+  return persisted
 end
 
 local function captureVehicleDNAThumbnail(id)
@@ -2007,6 +2078,15 @@ local function captureVehicleDNAThumbnail(id)
   if runtime.state.busy or runtime.dna.thumbnailPending then return false end
   local entry = vehicleDNAStorage.find(runtime.dna.library, id)
   if not entry then setResult(false, "dna_not_found", "Vehicle DNA entry was not found"); publishState(); return false end
+  if not (entry.thumbnail and entry.thumbnail.kind == "managed") then
+    local managedCount = 0
+    for _, candidate in ipairs(runtime.dna.library.entries or {}) do
+      if candidate.thumbnail and candidate.thumbnail.kind == "managed" then managedCount = managedCount + 1 end
+    end
+    if managedCount >= vehicleDNAGallery.MAX_MANAGED_THUMBNAILS then
+      setResult(false, "thumbnail_count_limit", "Managed thumbnail limit reached"); publishState(); return false
+    end
+  end
   local okModel, modelKey = adapter.getCurrentModelKey()
   if not okModel or modelKey ~= (entry.final and entry.final.modelKey) then
     setResult(false, "thumbnail_model_mismatch", "Load this Vehicle DNA model before explicitly capturing its thumbnail"); publishState(); return false
@@ -3005,6 +3085,7 @@ M.lockCategory = lockCategory
 M.lockSlot = lockSlot
 M.unlockSlot = unlockSlot
 M.lockPart = lockPart
+M.lockCurrentParts = lockCurrentParts
 M.lockTuning = lockTuning
 M.lockPaint = lockPaint
 M.applyLockPreset = applyLockPreset

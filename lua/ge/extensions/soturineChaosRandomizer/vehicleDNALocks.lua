@@ -220,15 +220,21 @@ end
 local function summary(profile)
   profile = normalize(profile)
   local count = (profile.vehicle and 1 or 0) + (profile.configuration and 1 or 0)
-  for _ in pairs(profile.categories) do count = count + 1 end
-  for _ in pairs(profile.slots) do count = count + 1 end
-  for _ in pairs(profile.parts) do count = count + 1 end
-  for _ in pairs(profile.tuning.variables) do count = count + 1 end
+  local categories, slots, parts, tuning, paint = 0, 0, 0, 0, 0
+  for _ in pairs(profile.categories) do categories = categories + 1; count = count + 1 end
+  for _ in pairs(profile.slots) do slots = slots + 1; count = count + 1 end
+  for _ in pairs(profile.parts) do parts = parts + 1; count = count + 1 end
+  for _ in pairs(profile.tuning.variables) do tuning = tuning + 1; count = count + 1 end
   if profile.tuning.all then count = count + 1 end
   if profile.paints.all then count = count + 1 end
-  for _ in pairs(profile.paints.layers) do count = count + 1 end
-  for _, fields in pairs(profile.paints.fields) do for _ in pairs(fields) do count = count + 1 end end
-  return {locked = count, vehicle = profile.vehicle, configuration = profile.configuration}
+  for _ in pairs(profile.paints.layers) do paint = paint + 1; count = count + 1 end
+  for _, fields in pairs(profile.paints.fields) do for _ in pairs(fields) do paint = paint + 1; count = count + 1 end end
+  return {
+    locked = count, vehicle = profile.vehicle, configuration = profile.configuration,
+    categories = categories, unlockedCategories = #M.CATEGORIES - categories,
+    slots = slots, parts = parts, tuning = tuning + (profile.tuning.all and 1 or 0),
+    paint = paint + (profile.paints.all and 1 or 0),
+  }
 end
 
 local function preset(profile, name)

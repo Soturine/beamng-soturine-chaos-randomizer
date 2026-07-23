@@ -49,6 +49,8 @@ local function compare(left, right)
   local result = {
     leftId = left.id,
     rightId = right.id,
+    left = {id = left.id, name = left.name},
+    right = {id = right.id, name = right.name},
     equal = true,
     truncated = false,
     counts = {changed = 0, added = 0, removed = 0, unavailable = 0, remapped = 0, clamped = 0},

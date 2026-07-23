@@ -159,17 +159,18 @@ local function inspect(data)
   then return nil, "vdna_package_directory_invalid" end
   local records, seen, cursor, total = {}, {}, centralOffset + 1, 0
   for _ = 1, entryCount do
+    if cursor < 1 or cursor + 45 > eocd - 1 then return nil, "vdna_package_central_truncated" end
     if u32(data, cursor) ~= 33639248 then return nil, "vdna_package_central_invalid" end
-    local madeBy, flag, method = u16(data, cursor + 4), u16(data, cursor + 8), u16(data, cursor + 10)
+    local flag, method = u16(data, cursor + 8), u16(data, cursor + 10)
     local crc, compressed, uncompressed = u32(data, cursor + 16), u32(data, cursor + 20), u32(data, cursor + 24)
     local nameLength, extraLength, itemComment = u16(data, cursor + 28), u16(data, cursor + 30), u16(data, cursor + 32)
     local diskStart, external, localOffset = u16(data, cursor + 34), u32(data, cursor + 38), u32(data, cursor + 42)
     local name = data:sub(cursor + 46, cursor + 45 + nameLength)
-    local platform = math.floor(madeBy / 256)
     local mode = math.floor(external / 65536)
     local fileType = math.floor(mode / 4096) % 16
-    if not safeName(name) or seen[name] or diskStart ~= 0 or flag % 2 == 1 or method ~= 0
-      or (platform == 3 and fileType == 10)
+    if cursor + 45 + nameLength + extraLength + itemComment > eocd - 1
+      or not safeName(name) or seen[name] or diskStart ~= 0 or flag ~= 0 or method ~= 0
+      or fileType == 10
       or compressed ~= uncompressed or uncompressed > M.MAX_ENTRY_BYTES
       or (compressed > 0 and uncompressed / compressed > M.MAX_COMPRESSION_RATIO)
     then return nil, "vdna_package_entry_unsafe" end
@@ -185,9 +186,16 @@ local function inspect(data)
   if cursor ~= eocd then return nil, "vdna_package_central_size_mismatch" end
   if not seen["manifest.json"] or not seen["vehicle.vdna.json"] then return nil, "vdna_package_required_entry_missing" end
 
+  table.sort(records, function(left, right) return left.localOffset < right.localOffset end)
   local entries = {}
+  local expectedLocalOffset = 0
   for _, record in ipairs(records) do
     local offset = record.localOffset + 1
+    if record.localOffset ~= expectedLocalOffset or record.localOffset >= centralOffset
+      or offset < 1 or offset + 29 > centralOffset
+    then
+      return nil, "vdna_package_local_bounds_invalid"
+    end
     if u32(data, offset) ~= 67324752 then return nil, "vdna_package_local_invalid" end
     local flag, method = u16(data, offset + 6), u16(data, offset + 8)
     local crc, compressed, uncompressed = u32(data, offset + 14), u32(data, offset + 18), u32(data, offset + 22)
@@ -196,7 +204,8 @@ local function inspect(data)
     local dataStart = offset + 30 + nameLength + extraLength
     local dataEnd = dataStart + compressed - 1
     if name ~= record.name or flag ~= 0 or method ~= 0 or crc ~= record.crc
-      or compressed ~= record.compressedBytes or uncompressed ~= record.bytes or dataEnd >= centralOffset + 1
+      or compressed ~= record.compressedBytes or uncompressed ~= record.bytes
+      or dataStart > centralOffset + 1 or dataEnd >= centralOffset + 1
     then return nil, "vdna_package_local_mismatch" end
     local content = data:sub(dataStart, dataEnd)
     if #content ~= record.bytes or crc32(content) ~= record.crc then return nil, "vdna_package_checksum_mismatch" end
@@ -205,7 +214,9 @@ local function inspect(data)
       if not dimensions then return nil, reason end
     end
     entries[name] = content
+    expectedLocalOffset = dataEnd
   end
+  if expectedLocalOffset ~= centralOffset then return nil, "vdna_package_local_size_mismatch" end
   return {entries = entries, records = records, archiveBytes = #data, uncompressedBytes = total}
 end
 
@@ -216,11 +227,12 @@ local function validateManifest(manifest, inspected, sha256)
   then return false, "vdna_package_manifest_invalid" end
   local seen = {}
   for _, file in ipairs(manifest.files) do
+    local content = type(file) == "table" and inspected.entries[file.name] or nil
     if type(file) ~= "table" or not safeName(file.name) or file.name == "manifest.json" or seen[file.name]
-      or tonumber(file.bytes) ~= #(inspected.entries[file.name] or "")
+      or type(content) ~= "string" or tonumber(file.bytes) ~= #content
       or type(file.sha256) ~= "string" or not file.sha256:match("^[0-9a-fA-F]+$") or #file.sha256 ~= 64
     then return false, "vdna_package_manifest_file_invalid" end
-    local actual = sha256(inspected.entries[file.name])
+    local actual = sha256(content)
     if type(actual) ~= "string" or actual:lower() ~= file.sha256:lower() then return false, "vdna_package_manifest_checksum_mismatch" end
     seen[file.name] = true
   end
