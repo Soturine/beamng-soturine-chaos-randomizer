@@ -25,6 +25,8 @@ plan_seconds median=0.000 range=0.000..0.001
 
 The console timer has millisecond resolution, so a reported `0.000` means below that resolution rather than no work. These are synthetic metadata shapes on one machine, not universal pass/fail promises. Re-run after material changes and report the environment; do not compare machines as if the values were deterministic.
 
+The final 0.5 candidate rerun reported `index_seconds=0.034`, `scan_seconds=0.002`, and `plan_seconds=0.000` for the same 500/5,000/120/2,400 shape. It remains diagnostic evidence, not a timing gate.
+
 ## Budgets and bounds
 
 - Registry normalization is linear in registered models/configs and is cached across normal operations; Reindex/mod-state changes invalidate it.

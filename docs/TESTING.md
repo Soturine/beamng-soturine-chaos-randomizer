@@ -271,7 +271,18 @@ Interactive cases passed: **0**. Interactive cases pending: **100**.
 
 ## 0.5.0-alpha.1 automated candidate
 
-The committed candidate has 39 Python methods and 264 named Lua cases green against the shipped Lua 5.1 console path, plus Node syntax, JSON/YAML, static trust-boundary, and package checks. Release ZIP bytes, entry count, SHA-256, CI run, tag, and downloaded-asset validation are recorded only after the exact release candidate is built and published. Interactive status remains 0 Passed / 100 Pending.
+Candidate commit `d842181eded0f352493010c98d5fc4ac694cb03d` has 39 Python methods and 264 named Lua cases green against the shipped Lua 5.1 console path, plus Node syntax, JSON/YAML, static trust-boundary, and package checks. The package was built twice and independently rebuilt by validation with identical bytes.
+
+| Item | Candidate result |
+| --- | --- |
+| Filename | `soturine_chaos_randomizer_0.5.0-alpha.1.zip` |
+| Bytes | `147,578` |
+| Entries | `48` |
+| SHA-256 | `1b6a0b15e58f07a3fe8d6c480f2145b5a4b18aefc6755a5ac9b7eff3d645e140` |
+| Same-environment reproducibility | Passed; byte-identical consecutive and validator rebuilds |
+| Manifest inventory | 39 Python methods; 264 Lua cases; 1 JavaScript; 2 JSON; 0 interactive Passed; 100 interactive Pending |
+
+The ZIP excludes documentation, so this documentation-only record does not change package bytes. Final CI run, tag, release URL, manifest commit, and downloaded-asset validation are recorded only after publication. Interactive status remains 0 Passed / 100 Pending.
 
 ## 0.4.0-alpha.2 package and release result
 
