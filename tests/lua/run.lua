@@ -22,6 +22,14 @@ local tuning = require("ge/extensions/soturineChaosRandomizer/tuningRandomizer")
 local util = require("ge/extensions/soturineChaosRandomizer/util")
 local validator = require("ge/extensions/soturineChaosRandomizer/validator")
 local vehicleSelector = require("ge/extensions/soturineChaosRandomizer/vehicleSelector")
+local vehicleDNA = require("ge/extensions/soturineChaosRandomizer/vehicleDNA")
+local vehicleDNACompatibility = require("ge/extensions/soturineChaosRandomizer/vehicleDNACompatibility")
+local vehicleDNAFingerprint = require("ge/extensions/soturineChaosRandomizer/vehicleDNAFingerprint")
+local vehicleDNAImport = require("ge/extensions/soturineChaosRandomizer/vehicleDNAImport")
+local vehicleDNANormalizer = require("ge/extensions/soturineChaosRandomizer/vehicleDNANormalizer")
+local vehicleDNARestore = require("ge/extensions/soturineChaosRandomizer/vehicleDNARestore")
+local vehicleDNASchema = require("ge/extensions/soturineChaosRandomizer/vehicleDNASchema")
+local vehicleDNAStorage = require("ge/extensions/soturineChaosRandomizer/vehicleDNAStorage")
 local fixtures = require("tests/lua/fixtures/content")
 local pipelineHarness = require("tests/lua/pipelineHarness")
 
@@ -62,6 +70,59 @@ local function scriptedGenerator(booleanValues, floatUnits)
   }
 end
 
+local function sampleDNA(options)
+  options = options or {}
+  local entry = {
+    format = "SoturineVehicleDNA",
+    kind = "soturineVehicleDNA",
+    schemaVersion = 1,
+    generatorVersion = 4,
+    id = options.id or "dna-fixture",
+    name = options.name or "Fixture DNA",
+    createdAt = 1,
+    updatedAt = 1,
+    favorite = false,
+    tags = {},
+    environment = {
+      beamNGVersion = "fixture", extensionVersion = "0.4.0-alpha.1",
+      targetBeamNG = "0.38.6.0.19963", schemaVersion = 1, generatorVersion = 4,
+    },
+    generation = {
+      generatorVersion = 4,
+      operation = options.operation or "fullRandom",
+      seed = "SCR4-1234-5678",
+      settings = {chaos = 100},
+      selectionContext = {},
+      startingStateFingerprint = "scrfp1-fixture",
+    },
+    operation = options.operation or "fullRandom",
+    seed = {display = "SCR4-1234-5678", legacy = false},
+    base = {modelKey = options.modelKey or "fixture_model", configKey = "base", configPath = "/vehicles/fixture_model/base.pc"},
+    final = {
+      modelKey = options.modelKey or "fixture_model",
+      slots = util.deepCopy(options.slots or {}),
+      tuning = util.deepCopy(options.tuning or {}),
+      paints = util.deepCopy(options.paints or {}),
+    },
+    safety = {}, warnings = {}, metrics = {}, dependencies = {}, fingerprints = {}, validation = {status = "captured"}, lineage = {},
+  }
+  entry.fingerprints.settings = vehicleDNAFingerprint.fingerprint(entry.generation.settings)
+  entry.fingerprints.environment = vehicleDNAFingerprint.fingerprint(entry.environment)
+  entry.fingerprints.base = vehicleDNAFingerprint.fingerprint(entry.base)
+  entry.fingerprints.final = vehicleDNAFingerprint.fingerprint(entry.final)
+  entry.fingerprints.dependencies = vehicleDNAFingerprint.fingerprint(entry.dependencies)
+  return entry
+end
+
+local function refreshDNAFingerprints(entry)
+  entry.fingerprints.settings = vehicleDNAFingerprint.fingerprint(entry.generation.settings)
+  entry.fingerprints.environment = vehicleDNAFingerprint.fingerprint(entry.environment)
+  entry.fingerprints.base = vehicleDNAFingerprint.fingerprint(entry.base)
+  entry.fingerprints.final = vehicleDNAFingerprint.fingerprint(entry.final)
+  entry.fingerprints.dependencies = vehicleDNAFingerprint.fingerprint(entry.dependencies or {})
+  return entry
+end
+
 tests.deterministic_prng = function()
   local left = rng.new("test-seed")
   local right = rng.new("test-seed")
@@ -72,8 +133,9 @@ end
 
 tests.seed_normalization = function()
   equal(rng.normalizeSeed("  test-seed  "), rng.normalizeSeed("test-seed"))
-  truthy(rng.normalizeSeed("test-seed"):match("^%x%x%x%x%-%x%x%x%x$") ~= nil)
+  truthy(rng.normalizeSeed("test-seed"):match("^SCR4%-%x%x%x%x%-%x%x%x%x$") ~= nil)
   equal(rng.new("8F31-A902").seed, rng.new("8f31a902").seed)
+  equal(rng.new("8F31-A902").seed, rng.new("SCR4-8F31-A902").seed)
 end
 
 tests.number_ranges = function()
@@ -273,7 +335,7 @@ tests.settings_migration = function()
     fairMode = false,
     historyLimit = 0,
   })
-  equal(migrated.schemaVersion, 2)
+  equal(migrated.schemaVersion, 3)
   equal(migrated.chaos, 100)
   equal(migrated.allowMissingParts, false)
   equal(migrated.selectionFairness, "configuration")
@@ -486,7 +548,7 @@ end
 
 tests.legacy_keep_vehicle_drivable_setting_migrates = function()
   local value = settings.validate({schemaVersion = 1, keepVehicleDrivable = true})
-  equal(value.schemaVersion, 2)
+  equal(value.schemaVersion, 3)
   equal(value.protectCriticalParts, true)
   equal(value.keepVehicleDrivable, nil)
 end
@@ -1595,6 +1657,408 @@ tests.index_cache_is_reused = function()
   truthy(performance.indexCacheHits >= 1)
 end
 
+tests.dna_schema_accepts_valid_v1 = function()
+  local valid, reason = vehicleDNASchema.validateEntry(sampleDNA())
+  equal(valid, true, tostring(reason))
+end
+
+tests.dna_schema_rejects_future_version = function()
+  local entry = sampleDNA()
+  entry.schemaVersion = 99
+  local valid, reason = vehicleDNASchema.validateEntry(entry)
+  equal(valid, false)
+  equal(reason, "dna_future_schema_read_only")
+end
+
+tests.dna_schema_rejects_duplicate_slot_paths = function()
+  local slot = {path = "/body/", slotId = "body", partName = "body_a"}
+  local entry = sampleDNA({slots = {slot, util.deepCopy(slot)}})
+  local valid, reason = vehicleDNASchema.validateEntry(entry)
+  equal(valid, false)
+  equal(reason, "dna_slot_duplicate_path")
+end
+
+tests.dna_schema_migration_is_idempotent = function()
+  local entry = sampleDNA()
+  local first, firstError = vehicleDNASchema.migrateEntry(entry)
+  truthy(first, tostring(firstError))
+  local second, secondError = vehicleDNASchema.migrateEntry(first)
+  truthy(second, tostring(secondError))
+  truthy(util.deepEqual(first, second))
+end
+
+tests.dna_schema_rejects_missing_required_format = function()
+  local entry = sampleDNA()
+  entry.format = nil
+  local valid, reason = vehicleDNASchema.validateEntry(entry)
+  equal(valid, false)
+  equal(reason, "dna_format_invalid")
+end
+
+tests.dna_normalizer_uses_final_slot_shape_only = function()
+  local scan = assert(slotScanner.scan(fixtures.nestedTree, {}))
+  local slots = vehicleDNANormalizer.normalizeSlots(scan)
+  equal(#slots, #scan.slots)
+  truthy(slots[1].path ~= nil)
+  equal(slots[1].candidates, nil)
+  equal(slots[1].raw, nil)
+end
+
+tests.dna_normalizer_sorts_tuning_and_filters_malformed = function()
+  local values = vehicleDNANormalizer.normalizeTuning(fixtures.variables, {independentB = 0.2, malformed = "bad", independentA = 5})
+  equal(#values, 2)
+  equal(values[1].name, "independentA")
+  equal(values[2].name, "independentB")
+end
+
+tests.dna_fingerprint_sorts_object_keys = function()
+  local left = assert(vehicleDNAFingerprint.fingerprint({b = 2, a = 1}))
+  local right = assert(vehicleDNAFingerprint.fingerprint({a = 1, b = 2}))
+  equal(left, right)
+end
+
+tests.dna_fingerprint_preserves_array_order = function()
+  local left = assert(vehicleDNAFingerprint.fingerprint({"a", "b"}))
+  local right = assert(vehicleDNAFingerprint.fingerprint({"b", "a"}))
+  truthy(left ~= right)
+end
+
+tests.dna_fingerprint_rejects_cycles = function()
+  local value = {}
+  value.self = value
+  local result, reason = vehicleDNAFingerprint.fingerprint(value)
+  equal(result, nil)
+  truthy(reason:find("canonical_cycle", 1, true) ~= nil)
+end
+
+tests.dna_fingerprint_rejects_nonfinite_numbers = function()
+  local result, reason = vehicleDNAFingerprint.fingerprint({value = 0 / 0})
+  equal(result, nil)
+  truthy(reason:find("canonical_non_finite_number", 1, true) ~= nil)
+end
+
+tests.dna_fingerprint_enforces_depth_limit = function()
+  local rootValue = {}
+  local current = rootValue
+  for _ = 1, 10 do current.child = {}; current = current.child end
+  local result, reason = vehicleDNAFingerprint.fingerprint(rootValue, {maxDepth = 4})
+  equal(result, nil)
+  truthy(reason:find("canonical_depth_limit", 1, true) ~= nil)
+end
+
+tests.dna_fingerprint_detects_final_state_changes = function()
+  local entry = sampleDNA({
+    slots = {{path = "/body/", slotId = "body", partName = "body_a"}},
+    tuning = {{name = "boost", value = 0.5}},
+    paints = {{roughness = 0.5}},
+  })
+  local original = entry.fingerprints.final
+  entry.final.slots[1].partName = "body_b"
+  truthy(vehicleDNAFingerprint.fingerprint(entry.final) ~= original)
+  refreshDNAFingerprints(entry)
+  original = entry.fingerprints.final
+  entry.final.tuning[1].value = 0.6
+  truthy(vehicleDNAFingerprint.fingerprint(entry.final) ~= original)
+  refreshDNAFingerprints(entry)
+  original = entry.fingerprints.final
+  entry.final.paints[1].roughness = 0.6
+  truthy(vehicleDNAFingerprint.fingerprint(entry.final) ~= original)
+end
+
+tests.dna_storage_add_rename_delete_roundtrip = function()
+  local library = vehicleDNAStorage.create(3)
+  local added, addError, id = vehicleDNAStorage.add(library, sampleDNA())
+  truthy(added, tostring(addError))
+  equal(#added.entries, 1)
+  local renamed = assert(vehicleDNAStorage.rename(added, id, "Renamed DNA"))
+  equal(vehicleDNAStorage.find(renamed, id).name, "Renamed DNA")
+  local removed = assert(vehicleDNAStorage.remove(renamed, id))
+  equal(#removed.entries, 0)
+end
+
+tests.dna_storage_favorite_roundtrip = function()
+  local library = vehicleDNAStorage.create(3)
+  library = assert(vehicleDNAStorage.add(library, sampleDNA()))
+  library = assert(vehicleDNAStorage.setFavorite(library, library.entries[1].id, true))
+  equal(library.entries[1].favorite, true)
+  local summaries = vehicleDNAStorage.summaries(library, 0, 8)
+  equal(summaries[1].favorite, true)
+end
+
+tests.dna_adapter_preserves_last_known_good_before_write = function()
+  local oldRead, oldWrite = rawget(_G, "jsonReadFile"), rawget(_G, "jsonWriteFile")
+  local written = {}
+  _G.jsonReadFile = function(path) return util.deepCopy(written[path]) end
+  _G.jsonWriteFile = function(path, value)
+    written[path] = util.deepCopy(value)
+    return true
+  end
+  local previous = {kind = "previous"}
+  local nextValue = {kind = "next"}
+  local ok = adapter.saveDNALibrary(nextValue, previous)
+  equal(ok, true)
+  truthy(util.deepEqual(written[adapter.DNA_BACKUP_PATH], previous))
+  truthy(util.deepEqual(written[adapter.DNA_LIBRARY_PATH], nextValue))
+  _G.jsonReadFile, _G.jsonWriteFile = oldRead, oldWrite
+end
+
+tests.dna_adapter_loads_last_known_good_explicitly = function()
+  local oldRead = rawget(_G, "jsonReadFile")
+  _G.jsonReadFile = function(path)
+    if path == adapter.DNA_BACKUP_PATH then return {kind = "backup"} end
+    return nil
+  end
+  local ok, value = adapter.loadDNALibraryBackup()
+  equal(ok, true)
+  equal(value.kind, "backup")
+  _G.jsonReadFile = oldRead
+end
+
+tests.dna_storage_limit_is_bounded = function()
+  local library = vehicleDNAStorage.create(1)
+  library = assert(vehicleDNAStorage.add(library, sampleDNA({id = "one"})))
+  local rejected, reason = vehicleDNAStorage.add(library, sampleDNA({id = "two"}))
+  equal(rejected, nil)
+  equal(reason, "dna_library_entry_limit")
+end
+
+tests.dna_storage_rejects_corrupt_entry = function()
+  local library = vehicleDNAStorage.create(3)
+  library.entries = {{kind = "bad"}}
+  local result = vehicleDNAStorage.normalizeLibrary(library)
+  equal(result, nil)
+end
+
+tests.dna_import_discards_unknown_top_level_fields = function()
+  local entry = sampleDNA()
+  entry.untrustedFutureField = "discard me"
+  local imported = assert(vehicleDNAImport.sanitize(entry))
+  equal(imported.untrustedFutureField, nil)
+end
+
+tests.dna_import_rejects_executable_values = function()
+  local entry = sampleDNA()
+  entry.extensions = {callback = function() end}
+  local imported, reason = vehicleDNAImport.sanitize(entry)
+  equal(imported, nil)
+  truthy(reason:find("canonical_unsupported_type", 1, true) ~= nil)
+end
+
+tests.dna_slot_resolution_uses_exact_path_parent_first = function()
+  local scan = assert(slotScanner.scan(fixtures.nestedTree, {}))
+  local current, strategy = vehicleDNACompatibility.resolveSlot({
+    path = "/engine/intake/", slotId = "intake", parentPart = nil, partName = "intake_a",
+  }, scan, "fixture")
+  equal(current.path, "/engine/intake/")
+  equal(strategy, "exact_path_slot_parent")
+end
+
+tests.dna_slot_resolution_rejects_ambiguous_fallback = function()
+  local scan = {slots = {
+    {path = "/left/wheel/", id = "wheel", parentPart = "hub"},
+    {path = "/right/wheel/", id = "wheel", parentPart = "hub"},
+  }}
+  local current, strategy = vehicleDNACompatibility.resolveSlot({path = "/old/wheel/", slotId = "wheel", parentPart = "hub"}, scan, "fixture")
+  equal(current, nil)
+  equal(strategy, "slot_resolution_ambiguous")
+end
+
+tests.dna_preflight_is_unverified_without_target_tree = function()
+  local entry = sampleDNA()
+  local report = vehicleDNACompatibility.evaluate(entry, {
+    modelsByKey = {fixture_model = {}},
+    configs = {{modelKey = "fixture_model", key = "base", path = "/vehicles/fixture_model/base.pc"}},
+    scan = nil, variables = {}, paints = {}, gameVersion = "fixture",
+    extensionVersion = "0.4.0-alpha.1", generatorVersion = 4,
+  }, "exact")
+  equal(report.status, "unverified")
+end
+
+tests.dna_compatible_preflight_reports_partial = function()
+  local scan = assert(slotScanner.scan(fixtures.nestedTree, {}))
+  local entry = sampleDNA({slots = {{path = "/missing/", slotId = "missing", partName = "part"}}})
+  local report = vehicleDNACompatibility.evaluate(entry, {
+    modelsByKey = {fixture_model = {}}, configs = {{modelKey = "fixture_model", key = "base", path = entry.base.configPath}},
+    scan = scan, variables = {}, paints = {}, gameVersion = "fixture",
+    extensionVersion = "0.4.0-alpha.1", generatorVersion = 4,
+    currentConfigPath = entry.base.configPath,
+  }, "compatible")
+  equal(report.status, "partial")
+  truthy(report.missing > 0)
+end
+
+tests.dna_compatible_restore_blocks_missing_required_slot = function()
+  local scan = assert(slotScanner.scan(fixtures.nestedTree, {}))
+  local entry = sampleDNA({slots = {{path = "/missing/", slotId = "missing", partName = "part", required = true}}})
+  local report = vehicleDNACompatibility.evaluate(entry, {
+    modelsByKey = {fixture_model = {}}, configs = {{modelKey = "fixture_model", key = "base", path = entry.base.configPath}},
+    scan = scan, variables = {}, paints = {}, gameVersion = "fixture",
+    extensionVersion = "0.4.0-alpha.1", generatorVersion = 4, currentConfigPath = entry.base.configPath,
+  }, "compatible")
+  equal(report.status, "incompatible")
+  truthy(report.blocking > 0)
+  local tree = vehicleDNARestore.planPartsPass(entry, scan, "compatible")
+  equal(tree, nil)
+end
+
+tests.dna_restore_parent_first_defers_descendant = function()
+  local scan = assert(slotScanner.scan(fixtures.nestedTree, {}))
+  local entry = sampleDNA({slots = {
+    {path = "/engine/", slotId = "engine", partName = "engine_b"},
+    {path = "/engine/intake/", slotId = "intake", partName = "intake_stale"},
+  }})
+  local tree, batch = vehicleDNARestore.planPartsPass(entry, scan, "exact")
+  truthy(tree ~= nil)
+  equal(#batch, 1)
+  equal(batch[1].slotPath, "/engine/")
+end
+
+tests.dna_restore_exact_rejects_missing_part = function()
+  local scan = assert(slotScanner.scan(fixtures.nestedTree, {}))
+  local entry = sampleDNA({slots = {{path = "/engine/", slotId = "engine", partName = "missing_engine"}}})
+  local tree, _, issues = vehicleDNARestore.planPartsPass(entry, scan, "exact")
+  equal(tree, nil)
+  equal(issues[1].reason, "part_missing")
+end
+
+tests.dna_restore_compatible_clamps_tuning = function()
+  local entry = sampleDNA({tuning = {{name = "boost", value = 2}}})
+  local values, issues = vehicleDNARestore.tuningValues(entry, {boost = {min = 0, max = 1}}, "compatible")
+  equal(values.boost, 1)
+  equal(issues[1].reason, "tuning_clamped")
+end
+
+tests.dna_restore_exact_does_not_clamp_tuning = function()
+  local entry = sampleDNA({tuning = {{name = "boost", value = 2}}})
+  local values, issues = vehicleDNARestore.tuningValues(entry, {boost = {min = 0, max = 1}}, "exact")
+  equal(values.boost, nil)
+  equal(issues[1].reason, "tuning_out_of_range")
+end
+
+tests.dna_creation_records_generator_and_schema_versions = function()
+  local scan = assert(slotScanner.scan(fixtures.nestedTree, {}))
+  local entry, reason = vehicleDNA.create({
+    capture = {modelKey = "fixture_model", selectedConfiguration = "/vehicles/fixture_model/base.pc", tuning = {}, paints = {}},
+    snapshot = {variables = {}}, scan = scan, seed = "SCR4-1234-5678", operation = "scramble",
+    gameVersion = "fixture", extensionVersion = "0.4.0-alpha.1", settings = {}, timestamp = 1,
+  })
+  truthy(entry, tostring(reason))
+  equal(entry.schemaVersion, 1)
+  equal(entry.generation.generatorVersion, 4)
+end
+
+tests.settings_schema_two_migrates_to_three = function()
+  local value = settings.validate({schemaVersion = 2, dnaLimit = 25, autoSaveDNA = true})
+  equal(value.schemaVersion, 3)
+  equal(value.dnaLibraryLimit, 25)
+  equal(value.autoSaveDNA, false)
+end
+
+tests.manual_seed_legacy_and_v4_keep_same_generator_sequence = function()
+  local legacy = rng.new("1234-5678")
+  local current = rng.new("SCR4-1234-5678")
+  for _ = 1, 20 do equal(legacy:nextUInt(), current:nextUInt()) end
+end
+
+tests.dna_capabilities_are_granular = function()
+  local derived = capabilities.derive({dnaRead = true, dnaWrite = true, dnaExportFile = false, dnaBackup = true})
+  equal(derived.dnaList, true)
+  equal(derived.dnaDelete, true)
+  equal(derived.dnaExportFile, false)
+  equal(derived.dnaBackup, true)
+end
+
+tests.completed_operation_exposes_pending_dna = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
+  local state = harness.main.requestState()
+  equal(state.garage.pendingSave, true)
+  equal(state.garage.pending.modelKey, "fixture_new")
+end
+
+tests.explicit_save_persists_dna_with_readback = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "randomConfig"))
+  truthy(harness.main.saveVehicleDNA("Saved Fixture"))
+  local state = harness.main.requestState()
+  equal(state.garage.total, 1)
+  equal(state.garage.entries[1].name, "Saved Fixture")
+  equal(state.garage.pendingSave, false)
+end
+
+tests.dna_preflight_performs_no_destructive_write = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
+  truthy(harness.main.saveVehicleDNA("Preflight Fixture"))
+  local id = harness.main.requestState().garage.entries[1].id
+  local before = #harness.calls
+  local ok = harness.main.preflightVehicleDNA(id, "exact")
+  truthy(ok)
+  for index = before + 1, #harness.calls do
+    truthy(harness.calls[index] ~= "replace" and harness.calls[index] ~= "parts"
+      and harness.calls[index] ~= "tuning" and harness.calls[index] ~= "paint")
+  end
+end
+
+tests.restore_compatible_reports_clamped_deviation_and_verifies_readback = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
+  truthy(harness.main.saveVehicleDNA("Compatible Fixture"))
+  local id = harness.main.requestState().garage.entries[1].id
+  harness.tuningMinimum = -1
+  harness.tuningMaximum = -1
+  truthy(harness.main.restoreVehicleDNA(id, "compatible", true))
+  pipelineHarness.confirmReplacement(harness)
+  while harness.pendingParts do pipelineHarness.confirmParts(harness) end
+  if harness.pendingTuning then pipelineHarness.confirmTuning(harness) end
+  local state = harness.main.requestState()
+  equal(state.lastResult.code, "dna_restore_partial")
+  equal(state.lastResult.details.verified, true)
+  truthy(#state.lastResult.details.deviations > 0)
+end
+
+tests.failed_operation_does_not_expose_pending_dna = function()
+  local harness = pipelineHarness.new({partsFailure = true})
+  truthy(harness.main.runAction("fullRandom", {chaos = 100, protectCriticalParts = true, manualSeed = "failure"}))
+  pipelineHarness.confirmReplacement(harness)
+  truthy(harness.pendingReplacement ~= nil)
+  pipelineHarness.confirmReplacement(harness)
+  equal(harness.main.requestState().garage.pendingSave, false)
+end
+
+tests.restore_exact_uses_one_transaction_and_strict_readback = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
+  truthy(harness.main.saveVehicleDNA("Exact Fixture"))
+  local id = harness.main.requestState().garage.entries[1].id
+  local preflightOk, report = harness.main.preflightVehicleDNA(id, "exact")
+  truthy(preflightOk)
+  equal(report.status, "exact")
+  truthy(harness.main.restoreVehicleDNA(id, "exact", false))
+  pipelineHarness.confirmReplacement(harness)
+  while harness.pendingParts do pipelineHarness.confirmParts(harness) end
+  if harness.pendingTuning then pipelineHarness.confirmTuning(harness) end
+  local state = harness.main.requestState()
+  equal(state.lastResult.code, "dna_restore_exact")
+  equal(state.lastResult.details.exact, true)
+  equal(state.lastResult.details.verified, true)
+end
+
+tests.restore_exact_failure_rolls_back_original_state = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
+  truthy(harness.main.saveVehicleDNA("Rollback Fixture"))
+  local id = harness.main.requestState().garage.entries[1].id
+  harness.options.partsFailure = true
+  truthy(harness.main.restoreVehicleDNA(id, "exact", false))
+  pipelineHarness.confirmReplacement(harness)
+  truthy(harness.pendingReplacement ~= nil, "parts rejection should start rollback")
+  pipelineHarness.confirmReplacement(harness)
+  local state = harness.main.requestState()
+  equal(state.lastResult.success, false)
+  equal(state.lastResult.details.rollback, "completed")
+end
+
 tests.all_lua_sources_compile = function()
   local paths = {
     "/lua/ge/extensions/soturineChaosRandomizer.lua",
@@ -1622,6 +2086,14 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/util.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/validator.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/vehicleSelector.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/vehicleDNA.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/vehicleDNACompatibility.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/vehicleDNAFingerprint.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/vehicleDNAImport.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/vehicleDNANormalizer.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/vehicleDNARestore.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/vehicleDNASchema.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/vehicleDNAStorage.lua",
   }
   for _, path in ipairs(paths) do
     local chunk, err = loadfile(root .. path)

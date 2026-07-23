@@ -93,12 +93,12 @@ class StaticValidationTests(unittest.TestCase):
         source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
         run_body = source[source.index("scope.chaos.run = function"):source.index("scope.chaos.toggleAdvanced")]
         self.assertLess(run_body.index("cancelSettingsTimer()"), run_body.index("angular.copy"))
-        self.assertIn("soturineChaosRandomizer.runAction", run_body)
+        self.assertIn("callWithArgs('runAction', [action, settings])", run_body)
 
     def test_manual_seed_clicked_immediately_is_used(self) -> None:
         source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
         self.assertIn("angular.copy(scope.chaos.state.settings || {})", source)
-        self.assertIn("serializedSettings", source)
+        self.assertIn("callWithArgs('runAction', [action, settings])", source)
         self.assertIn("manualSeed", source)
 
     def test_filter_clicked_immediately_is_used(self) -> None:
@@ -117,6 +117,42 @@ class StaticValidationTests(unittest.TestCase):
         apply_state = source[source.index("function applyState"):source.index("function persistSettings")]
         self.assertNotIn("updateSettings", apply_state)
         self.assertNotIn("scheduleSettings", apply_state)
+
+    def test_vehicle_dna_navigation_is_compact(self) -> None:
+        html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
+        for label in ("Randomize", "Garage", "Compatibility"):
+            self.assertIn(f">{label}<", html)
+        self.assertIn("scr-nav", html)
+
+    def test_vehicle_dna_save_is_explicit(self) -> None:
+        html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
+        source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        self.assertIn("Save Vehicle DNA", html)
+        self.assertIn("scope.chaos.saveDNA", source)
+        self.assertNotIn("autoSaveDNA: true", source)
+
+    def test_vehicle_dna_import_is_parsed_before_bridge_serialization(self) -> None:
+        source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        body = source[source.index("scope.chaos.importDNA"):source.index("scope.chaos.dnaPage")]
+        self.assertLess(body.index("JSON.parse(text)"), body.index("callWithArgs('importVehicleDNA', [parsed])"))
+        self.assertNotIn("engineLua(text", body)
+        self.assertNotIn("serializeToLua(text)", body)
+        self.assertIn("text.length > 131072", body)
+
+    def test_vehicle_dna_destructive_actions_confirm(self) -> None:
+        source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        delete_body = source[source.index("scope.chaos.deleteDNA"):source.index("scope.chaos.exportDNA")]
+        restore_body = source[source.index("scope.chaos.restoreDNA"):source.index("scope.chaos.replayDNA")]
+        self.assertIn("window.confirm", delete_body)
+        self.assertIn("window.confirm", restore_body)
+        self.assertIn("preflightVehicleDNA", restore_body)
+        self.assertIn("setVehicleDNAFavorite", source)
+
+    def test_vehicle_dna_pagination_is_bounded(self) -> None:
+        html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
+        source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        self.assertIn("garage.pageCount", html)
+        self.assertIn("setVehicleDNAPage", source)
 
     def test_ui_host_fills_container(self) -> None:
         css = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.css").read_text(encoding="utf-8")

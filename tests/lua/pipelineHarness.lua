@@ -60,6 +60,8 @@ local function new(options)
     tree = baseTree(),
     metadata = partMetadata(),
     tuning = {boost = 0.5},
+    tuningMinimum = 0,
+    tuningMaximum = 1,
     paints = {{baseColor = {0.2, 0.3, 0.4, 1}, metallic = 0.2, roughness = 0.5, clearcoat = 0.8, clearcoatRoughness = 0}},
     calls = {},
     emitted = {},
@@ -80,6 +82,13 @@ local function new(options)
     scrambleTuning = options.tuningUnavailable ~= true,
     scramblePaint = options.paintUnavailable ~= true,
     warnings = {},
+    dnaRead = true,
+    dnaWrite = true,
+    dnaList = true,
+    dnaDelete = true,
+    dnaImportText = true,
+    dnaExportFile = true,
+    dnaBackup = true,
   }
   if options.tuningUnavailable then capabilities.warnings[#capabilities.warnings + 1] = "Tuning unavailable." end
   if options.paintUnavailable then capabilities.warnings[#capabilities.warnings + 1] = "Paint unavailable." end
@@ -91,6 +100,12 @@ local function new(options)
   function adapter.getCapabilities() return util.deepCopy(capabilities) end
   function adapter.loadSettings() return true, {} end
   function adapter.saveSettings() return true end
+  function adapter.loadDNALibrary() return true, util.deepCopy(harness.library), harness.library and "primary" or "missing" end
+  function adapter.loadDNALibraryBackup() return true, util.deepCopy(harness.backupLibrary) end
+  function adapter.saveDNALibrary(value, previous) harness.backupLibrary = util.deepCopy(previous); harness.library = util.deepCopy(value); return true, {verified = true} end
+  function adapter.encodeJSON() return true, "{\"kind\":\"soturineVehicleDNA\"}" end
+  function adapter.exportDNAFile() return true, {path = "/settings/fixture/export.json"} end
+  adapter.DNA_LIBRARY_PATH = "/settings/fixture/library.json"
   function adapter.getGameVersion() return "fixture" end
   function adapter.entropy() return "fixture-entropy" end
   function adapter.emit(name, payload)
@@ -118,6 +133,7 @@ local function new(options)
   end
   function adapter.getCurrentVehicleId() return true, harness.vehicleId end
   function adapter.getCurrentModelKey() return true, harness.modelKey end
+  function adapter.getCurrentConfig() return true, {partConfigFilename = harness.configPath} end
   function adapter.captureCurrentState(kind, seed)
     harness.calls[#harness.calls + 1] = "capture"
     local snapshot = {
@@ -137,7 +153,7 @@ local function new(options)
       operationType = kind,
       timestamp = 1,
     }
-    harness.original = util.deepCopy(snapshot)
+    if harness.original == nil then harness.original = util.deepCopy(snapshot) end
     return true, snapshot
   end
   function adapter.prepareConfigExpectation(record)
@@ -158,7 +174,7 @@ local function new(options)
       vehicleId = targetId,
       modelKey = modelKey,
       config = util.deepCopy(config),
-      path = restoring and harness.original.selectedConfiguration or config,
+      path = restoring and config.partConfigFilename or config,
     }
     if options.synchronousSwitchId and not restoring then
       harness.main.onVehicleSwitched(harness.vehicleId, options.synchronousSwitchId, 0)
@@ -182,6 +198,9 @@ local function new(options)
       tree = util.deepCopy(harness.tree),
       metadataByPath = util.deepCopy(harness.metadata),
       modelMetadata = {Type = options.modelType or "Car"},
+      variables = {boost = {min = harness.tuningMinimum, max = harness.tuningMaximum, default = 0.5, step = 0.1}},
+      currentTuning = util.deepCopy(harness.tuning),
+      paints = util.deepCopy(harness.paints),
     }
   end
   function adapter.applyPartsTree(tree)
@@ -192,7 +211,7 @@ local function new(options)
   end
   function adapter.getTuningSnapshot()
     return true, {
-      variables = {boost = {min = 0, max = 1, default = 0.5, step = 0.1}},
+      variables = {boost = {min = harness.tuningMinimum, max = harness.tuningMaximum, default = 0.5, step = 0.1}},
       values = util.deepCopy(harness.tuning),
     }
   end
@@ -234,9 +253,9 @@ local function confirmReplacement(harness)
   harness.modelKey = pending.modelKey
   harness.configPath = pending.path
   if pending.restoring then
-    harness.tree = util.deepCopy(harness.original.partsTree)
-    harness.tuning = util.deepCopy(harness.original.tuning)
-    harness.paints = util.deepCopy(harness.original.paints)
+    harness.tree = util.deepCopy(pending.config.partsTree or {})
+    harness.tuning = util.deepCopy(pending.config.vars or {})
+    harness.paints = util.deepCopy(pending.config.paints or {})
   else
     harness.tree = baseTree()
     harness.tuning = {boost = 0.5}
