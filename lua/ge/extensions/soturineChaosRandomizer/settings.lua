@@ -3,7 +3,7 @@ local util = require("ge/extensions/soturineChaosRandomizer/util")
 local M = {}
 
 local DEFAULTS = {
-  schemaVersion = 2,
+  schemaVersion = 3,
   chaos = 75,
   allowMissingParts = true,
   protectCriticalParts = false,
@@ -15,10 +15,14 @@ local DEFAULTS = {
   historyLimit = 10,
   diagnosticLogging = false,
   manualSeed = "",
+  dnaLibraryLimit = 100,
+  autoSaveDNA = false,
+  defaultRestoreMode = "exact",
 }
 
 local FILTERS = {everything = true, official = true, mods = true}
 local FAIRNESS = {vehicle = true, configuration = true}
+local RESTORE_MODES = {exact = true, compatible = true}
 
 local function boolOrDefault(value, fallback)
   if type(value) == "boolean" then return value end
@@ -42,10 +46,15 @@ local function migrate(raw)
     raw.protectCriticalParts = raw.keepVehicleDrivable
   end
 
-  raw.schemaVersion = 2
+  if version < 3 then
+    if raw.dnaLimit ~= nil and raw.dnaLibraryLimit == nil then raw.dnaLibraryLimit = raw.dnaLimit end
+  end
+
+  raw.schemaVersion = 3
   raw.allowEmptyParts = nil
   raw.fairMode = nil
   raw.keepVehicleDrivable = nil
+  raw.dnaLimit = nil
   return raw
 end
 
@@ -60,10 +69,13 @@ local function validate(raw)
   result.includeTrailers = boolOrDefault(raw.includeTrailers, result.includeTrailers)
   result.includeProps = boolOrDefault(raw.includeProps, result.includeProps)
   result.diagnosticLogging = boolOrDefault(raw.diagnosticLogging, result.diagnosticLogging)
+  result.autoSaveDNA = false
 
   if FILTERS[raw.contentFilter] then result.contentFilter = raw.contentFilter end
   if FAIRNESS[raw.selectionFairness] then result.selectionFairness = raw.selectionFairness end
   result.historyLimit = math.floor(util.clamp(raw.historyLimit or result.historyLimit, 1, 50))
+  result.dnaLibraryLimit = math.floor(util.clamp(raw.dnaLibraryLimit or result.dnaLibraryLimit, 1, 100))
+  if RESTORE_MODES[raw.defaultRestoreMode] then result.defaultRestoreMode = raw.defaultRestoreMode end
   if type(raw.manualSeed) == "string" then
     result.manualSeed = string.sub(raw.manualSeed:gsub("^%s+", ""):gsub("%s+$", ""), 1, 128)
   end

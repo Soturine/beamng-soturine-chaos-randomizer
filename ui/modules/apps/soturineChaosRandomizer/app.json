@@ -14,7 +14,7 @@
     "min-height": "330px"
   },
   "author": "Soturine",
-  "version": "0.3.0-alpha.1",
+  "version": "0.4.0-alpha.1",
   "preserveAspectRatio": false,
   "directive": "soturineChaosRandomizer",
   "category": "Gameplay",

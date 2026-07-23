@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "chaos": 75,
   "allowMissingParts": true,
   "protectCriticalParts": false,
@@ -10,5 +10,8 @@
   "selectionFairness": "vehicle",
   "historyLimit": 10,
   "diagnosticLogging": false,
-  "manualSeed": ""
+  "manualSeed": "",
+  "dnaLibraryLimit": 100,
+  "autoSaveDNA": false,
+  "defaultRestoreMode": "exact"
 }

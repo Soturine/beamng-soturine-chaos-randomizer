@@ -9,6 +9,9 @@ local M = {}
 local LOG_TAG = "SoturineChaosRandomizer"
 local SETTINGS_PATH = "/settings/soturineChaosRandomizer/settings.json"
 local DEFAULTS_PATH = "/settings/soturineChaosRandomizer/defaults.json"
+local DNA_LIBRARY_PATH = "/settings/soturineChaosRandomizer/vehicleDNA/library.json"
+local DNA_BACKUP_PATH = "/settings/soturineChaosRandomizer/vehicleDNA/library.last-known-good.json"
+local DNA_EXPORT_PATH = "/settings/soturineChaosRandomizer/vehicleDNA/export.json"
 
 local jbeamIO
 local okJbeam, loadedJbeam = pcall(require, "jbeam/io")
@@ -67,6 +70,8 @@ local function getCapabilities()
   local hierarchicalRead = type(jbeamIO) == "table"
     and type(jbeamIO.getPart) == "function"
     and type(jbeamIO.getAvailableParts) == "function"
+  local jsonRead = type(jsonReadFile) == "function"
+  local jsonWrite = type(jsonWriteFile) == "function"
   local raw = {
     vehicleRegistry = type(core_vehicles) == "table"
       and type(core_vehicles.getModelList) == "function"
@@ -82,7 +87,13 @@ local function getCapabilities()
     paintRead = configRead,
     paintWrite = type(core_vehicle_partmgmt) == "table"
       and type(core_vehicle_partmgmt.setConfigPaints) == "function",
-    settingsPersistence = type(jsonReadFile) == "function" and type(jsonWriteFile) == "function",
+    settingsRead = jsonRead,
+    settingsWrite = jsonWrite,
+    settingsPersistence = jsonRead and jsonWrite,
+    dnaRead = jsonRead,
+    dnaWrite = jsonRead and jsonWrite,
+    dnaExportFile = jsonWrite,
+    dnaBackup = jsonRead and jsonWrite,
     uiEvents = type(guihooks) == "table" and type(guihooks.trigger) == "function",
     lifecycleConfirmation = type(extensions) == "table" and type(extensions.hook) == "function",
   }
@@ -543,11 +554,76 @@ end
 local function saveSettings(settings)
   if type(jsonWriteFile) ~= "function" then return false, errorValue("unsupported_api", "JSON settings persistence is unavailable") end
   local ok, result = safeCall("jsonWriteFile settings", function()
-    return jsonWriteFile(SETTINGS_PATH, util.deepCopy(settings), true)
+    return jsonWriteFile(SETTINGS_PATH, util.deepCopy(settings), true, nil, true)
   end)
   if not ok then return false, result end
   if result == false then return false, errorValue("settings_write_failed", "BeamNG could not save Chaos Randomizer settings") end
   return true
+end
+
+local function loadDNALibrary()
+  if type(jsonReadFile) ~= "function" then
+    return false, errorValue("dna_storage_unavailable", "Vehicle DNA JSON storage is unavailable")
+  end
+  local ok, result = safeCall("jsonReadFile Vehicle DNA library", function()
+    local primary = jsonReadFile(DNA_LIBRARY_PATH)
+    if type(primary) == "table" then return {value = primary, source = "primary"} end
+    local backup = jsonReadFile(DNA_BACKUP_PATH)
+    if type(backup) == "table" then return {value = backup, source = "last_known_good"} end
+    return {value = nil, source = "missing"}
+  end)
+  if not ok then return false, result end
+  return true, util.deepCopy(result.value), result.source
+end
+
+local function loadDNALibraryBackup()
+  if type(jsonReadFile) ~= "function" then
+    return false, errorValue("dna_storage_unavailable", "Vehicle DNA JSON storage is unavailable")
+  end
+  local ok, result = safeCall("jsonReadFile Vehicle DNA last-known-good", function()
+    return jsonReadFile(DNA_BACKUP_PATH)
+  end)
+  if not ok then return false, result end
+  return true, type(result) == "table" and util.deepCopy(result) or nil
+end
+
+local function saveDNALibrary(library, lastKnownGood)
+  if type(jsonReadFile) ~= "function" or type(jsonWriteFile) ~= "function" then
+    return false, errorValue("dna_storage_unavailable", "Vehicle DNA JSON storage is unavailable")
+  end
+  if type(library) ~= "table" then return false, errorValue("dna_library_invalid", "Vehicle DNA library data is invalid") end
+  if type(lastKnownGood) == "table" then
+    local backupOk = jsonWriteFile(DNA_BACKUP_PATH, util.deepCopy(lastKnownGood), true, nil, true)
+    if backupOk == false then
+      return false, errorValue("dna_backup_failed", "The previous Vehicle DNA library could not be backed up")
+    end
+  end
+  local written = jsonWriteFile(DNA_LIBRARY_PATH, util.deepCopy(library), true, nil, true)
+  if written == false then return false, errorValue("dna_storage_write_failed", "Vehicle DNA library write failed") end
+  local readback = jsonReadFile(DNA_LIBRARY_PATH)
+  if type(readback) ~= "table" or not util.deepEqual(readback, library, 1e-10) then
+    return false, errorValue("dna_storage_readback_failed", "Vehicle DNA library read-back did not match the requested data")
+  end
+  return true, {path = DNA_LIBRARY_PATH, backupPath = DNA_BACKUP_PATH, verified = true}
+end
+
+local function encodeJSON(value, pretty)
+  local encoder = pretty and jsonEncodePretty or jsonEncode
+  if type(encoder) ~= "function" then return false, errorValue("dna_export_unavailable", "JSON encoding is unavailable") end
+  local ok, encoded = safeCall("Vehicle DNA JSON encode", function() return encoder(util.deepCopy(value)) end)
+  if not ok then return false, encoded end
+  if type(encoded) ~= "string" then return false, errorValue("dna_export_failed", "Vehicle DNA JSON encoding failed") end
+  return true, encoded
+end
+
+local function exportDNAFile(entry)
+  if type(jsonWriteFile) ~= "function" then return false, errorValue("dna_export_unavailable", "Vehicle DNA file export is unavailable") end
+  local ok, result = safeCall("jsonWriteFile Vehicle DNA export", function()
+    return jsonWriteFile(DNA_EXPORT_PATH, util.deepCopy(entry), true, nil, true)
+  end)
+  if not ok then return false, result end
+  if result == false then return false, errorValue("dna_export_failed", "Vehicle DNA file export failed") end
+  return true, {path = DNA_EXPORT_PATH}
 end
 
 local function logRecord(level, event, details)
@@ -602,6 +678,11 @@ M.emit = emit
 M.notify = notify
 M.loadSettings = loadSettings
 M.saveSettings = saveSettings
+M.loadDNALibrary = loadDNALibrary
+M.loadDNALibraryBackup = loadDNALibraryBackup
+M.saveDNALibrary = saveDNALibrary
+M.encodeJSON = encodeJSON
+M.exportDNAFile = exportDNAFile
 M.logRecord = logRecord
 M.clock = clock
 M.entropy = entropy
@@ -610,5 +691,8 @@ M.getVerificationState = getVerificationState
 M.flattenChosenParts = flattenChosenParts
 M._callContract = callContract
 M._vehicleObjectId = vehicleObjectId
+M.DNA_LIBRARY_PATH = DNA_LIBRARY_PATH
+M.DNA_BACKUP_PATH = DNA_BACKUP_PATH
+M.DNA_EXPORT_PATH = DNA_EXPORT_PATH
 
 return M

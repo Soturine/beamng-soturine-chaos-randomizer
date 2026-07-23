@@ -23,7 +23,7 @@ local function parseSeed(value)
   end
 
   local text = tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
-  local compactHex = text:gsub("%-", "")
+  local compactHex = text:gsub("^[Ss][Cc][Rr]4%-", ""):gsub("%-", "")
   if compactHex:match("^%x%x%x%x%x%x%x%x$") then
     local seed = tonumber(compactHex, 16) % MODULUS
     return seed == 0 and 1 or seed
@@ -36,7 +36,7 @@ end
 
 local function formatSeed(seed)
   local compact = string.format("%08X", parseSeed(seed))
-  return string.sub(compact, 1, 4) .. "-" .. string.sub(compact, 5, 8)
+  return "SCR4-" .. string.sub(compact, 1, 4) .. "-" .. string.sub(compact, 5, 8)
 end
 
 local Generator = {}
@@ -105,7 +105,7 @@ function Generator:shuffle(items)
 end
 
 function Generator:fork(label)
-  return M.new(self.seed .. ":" .. tostring(label or ""))
+  return M.new(self.legacySeed .. ":" .. tostring(label or ""))
 end
 
 local function new(seed)
@@ -114,6 +114,7 @@ local function new(seed)
     state = numeric,
     numericSeed = numeric,
     seed = formatSeed(numeric),
+    legacySeed = string.sub(string.format("%08X", numeric), 1, 4) .. "-" .. string.sub(string.format("%08X", numeric), 5, 8),
   }, Generator)
 end
 

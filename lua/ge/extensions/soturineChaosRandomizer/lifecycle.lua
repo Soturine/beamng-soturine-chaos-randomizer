@@ -10,6 +10,9 @@ local WAIT_REASONS = {
   tuning = "waitingForTuningReload",
   rollback = "waitingForRollbackReplace",
   undo = "waitingForUndoReplace",
+  dna_base_spawn = "waitingForDNABaseSpawn",
+  dna_parts = "waitingForDNAPartsReload",
+  dna_tuning = "waitingForDNATuningReload",
 }
 
 local function createExpectation(options)
