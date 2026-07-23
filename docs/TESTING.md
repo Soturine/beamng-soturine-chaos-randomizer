@@ -269,11 +269,11 @@ Use the exact final ZIP without extracting it and record the result of every row
 
 Interactive cases passed: **0**. Interactive cases pending: **100**.
 
-## 0.5.0-alpha.1 automated candidate
+## 0.5.0-alpha.1 package and release result
 
-Candidate commit `d842181eded0f352493010c98d5fc4ac694cb03d` has 39 Python methods and 264 named Lua cases green against the shipped Lua 5.1 console path, plus Node syntax, JSON/YAML, static trust-boundary, and package checks. The package was built twice and independently rebuilt by validation with identical bytes.
+Release commit `82da6b69ce794baa5ab8a11aefbcafe06a645d68` has 39 Python methods and 264 named Lua cases green against the shipped Lua 5.1 console path, plus Node syntax, JSON/YAML, static trust-boundary, and package checks. The package was built twice and independently rebuilt by validation with identical bytes.
 
-| Item | Candidate result |
+| Item | Result |
 | --- | --- |
 | Filename | `soturine_chaos_randomizer_0.5.0-alpha.1.zip` |
 | Bytes | `147,578` |
@@ -282,7 +282,15 @@ Candidate commit `d842181eded0f352493010c98d5fc4ac694cb03d` has 39 Python method
 | Same-environment reproducibility | Passed; byte-identical consecutive and validator rebuilds |
 | Manifest inventory | 39 Python methods; 264 Lua cases; 1 JavaScript; 2 JSON; 0 interactive Passed; 100 interactive Pending |
 
-The ZIP excludes documentation, so this documentation-only record does not change package bytes. Final CI run, tag, release URL, manifest commit, and downloaded-asset validation are recorded only after publication. Interactive status remains 0 Passed / 100 Pending.
+Release commit `82da6b69ce794baa5ab8a11aefbcafe06a645d68` passed branch CI run `30051570087` and tagged package/release run `30051606656`. GitHub published prerelease `v0.5.0-alpha.1`; all three assets were redownloaded to a fresh temporary directory and the ZIP passed `tools/validate_package.py --no-reproducibility-check`. The local package, CI build, GitHub digest metadata, downloaded checksum, downloaded manifest, and downloaded ZIP all agree on SHA-256 `1b6a0b15e58f07a3fe8d6c480f2145b5a4b18aefc6755a5ac9b7eff3d645e140`.
+
+Published prerelease: <https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases/tag/v0.5.0-alpha.1>. Assets verified on 2026-07-23:
+
+- `soturine_chaos_randomizer_0.5.0-alpha.1.zip` - 147,578 bytes, 48 entries;
+- `soturine_chaos_randomizer_0.5.0-alpha.1.sha256` - 110 bytes;
+- `release-manifest.json` - 627 bytes, manifest commit `82da6b69ce794baa5ab8a11aefbcafe06a645d68`.
+
+The ZIP excludes documentation, so this post-release record does not change package bytes or move the verified tag. This proves packaging and transfer integrity, not live BeamNG behavior. Interactive status remains **0 Passed / 100 Pending**.
 
 ## 0.4.0-alpha.2 package and release result
 
