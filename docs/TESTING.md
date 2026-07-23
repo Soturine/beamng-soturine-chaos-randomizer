@@ -205,6 +205,6 @@ The packaged inputs were built twice on Windows after the code, UI, asset, tests
 | Same-environment two-build equality | Passed; byte-identical consecutive builds |
 | ZIP/checksum validation | Passed |
 | Text line-ending normalization | Passed |
-| Final CI/Linux artifact comparison | Pending final CI artifact |
+| Final CI/Linux artifact comparison | Passed; byte-identical ZIP and matching checksum |
 
-The final commit SHA, bytes, entries, hash, workflow run, and CI comparison belong to the delivery report and will be recorded only from the final artifact.
+The final commit SHA and workflow run ID belong to the delivery report; the artifact facts above are recorded from the locally validated ZIP and its downloaded CI/Linux counterpart.
