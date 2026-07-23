@@ -17,6 +17,12 @@ local function stableKey(value)
   return normalized:match("([^/]+)%.pc$")
 end
 
+local function scopedKey(modelKey, value)
+  local key = stableKey(value) or (type(value) == "string" and value:lower():gsub("%.pc$", "") or nil)
+  if type(modelKey) ~= "string" or modelKey == "" or type(key) ~= "string" or key == "" then return nil end
+  return modelKey:lower() .. "::" .. key
+end
+
 local function collectPartNames(config)
   local result = {}
   local seen = {}
@@ -101,7 +107,9 @@ local function verify(expected, state)
   end
 
   local actualKey = actualIdentity.key or stableKey(actualPath or state.configKey)
-  if expected.registryIdentity and expected.key and actualKey == tostring(expected.key):lower():gsub("%.pc$", "") then
+  local expectedScoped = scopedKey(expected.modelKey, expected.key)
+  local actualScoped = scopedKey(state.modelKey, actualKey)
+  if expected.registryIdentity and expectedScoped and actualScoped == expectedScoped then
     return true, nil, {strategy = "registry_identity", identityConfirmed = true}
   end
 
@@ -120,11 +128,41 @@ local function verify(expected, state)
   }
 end
 
+local function resolveRegistryConfig(modelKey, pathValue, keyValue, signatureValue, configs)
+  if type(modelKey) ~= "string" or modelKey == "" then return nil, "model_missing" end
+  local expectedPath = normalizePath(pathValue)
+  local expectedScoped = scopedKey(modelKey, keyValue or pathValue)
+  for _, config in ipairs(configs or {}) do
+    if config.modelKey == modelKey and expectedPath and normalizePath(config.path or (config.raw and config.raw.pcFilename)) == expectedPath then
+      return config, "normalized_path"
+    end
+  end
+  for _, config in ipairs(configs or {}) do
+    if config.modelKey == modelKey and expectedScoped and scopedKey(modelKey, config.key or config.path) == expectedScoped then
+      return config, "model_scoped_key"
+    end
+  end
+  if type(signatureValue) == "table" then
+    local match
+    for _, config in ipairs(configs or {}) do
+      local candidateSignature = config.stateSignature or config.signature
+      if config.modelKey == modelKey and candidateSignature and signatureMatches(signatureValue, candidateSignature) then
+        if match then return nil, "signature_ambiguous" end
+        match = config
+      end
+    end
+    if match then return match, "state_signature" end
+  end
+  return nil, "config_identity_unverified"
+end
+
 M.normalizePath = normalizePath
 M.stableKey = stableKey
+M.scopedKey = scopedKey
 M.signature = signature
 M.signatureMatches = signatureMatches
 M.expectation = expectation
 M.verify = verify
+M.resolveRegistryConfig = resolveRegistryConfig
 
 return M

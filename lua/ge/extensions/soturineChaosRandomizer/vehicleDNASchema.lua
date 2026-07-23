@@ -9,8 +9,16 @@ M.MAX_SLOTS = 2048
 M.MAX_TUNING = 2048
 M.MAX_PAINTS = 32
 M.MAX_TAGS = 20
+M.MAX_DEPENDENCIES = 512
+M.MAX_WARNINGS = 128
+M.MAX_DEVIATIONS = 512
+M.MAX_LINEAGE_ELEMENTS = 64
+M.MAX_EXTENSION_ELEMENTS = 256
 M.MAX_NAME_LENGTH = 80
 M.MAX_ENTRY_BYTES = 131072
+
+local OPERATIONS = {randomConfig = true, scramble = true, fullRandom = true}
+local SOURCE_KINDS = {official = true, mod = true, user = true, unknown = true}
 
 local function stringValue(value, maximum)
   return type(value) == "string" and #value > 0 and #value <= (maximum or 512)
@@ -24,6 +32,17 @@ local function arrayWithin(value, maximum)
   return true
 end
 
+local function boundedMetadata(value, maximum, path)
+  if value == nil then return true end
+  if type(value) ~= "table" then return false, path .. "_invalid" end
+  local canonical, reason, metrics = fingerprint.canonicalize(value, {
+    maxDepth = 16, maxElements = maximum, maxStringLength = 2048, maxPathLength = 512,
+  })
+  if not canonical then return false, reason end
+  if not metrics or metrics.elements > maximum then return false, path .. "_limit" end
+  return true
+end
+
 local function validateEntry(entry, options)
   options = options or {}
   if type(entry) ~= "table" then return false, "dna_entry_not_table" end
@@ -34,15 +53,34 @@ local function validateEntry(entry, options)
   if entry.kind ~= "soturineVehicleDNA" then return false, "dna_kind_invalid" end
   if not stringValue(entry.id, 128) then return false, "dna_id_invalid" end
   if not stringValue(entry.name, M.MAX_NAME_LENGTH) then return false, "dna_name_invalid" end
+  if entry.description ~= nil and type(entry.description) ~= "string" then return false, "dna_description_invalid" end
+  if entry.favorite ~= nil and type(entry.favorite) ~= "boolean" then return false, "dna_favorite_invalid" end
+  local createdAt, updatedAt = tonumber(entry.createdAt), tonumber(entry.updatedAt)
+  if not util.isFinite(createdAt) or not util.isFinite(updatedAt) or createdAt < 0 or updatedAt < createdAt then
+    return false, "dna_timestamp_invalid"
+  end
   if type(entry.environment) ~= "table" or type(entry.generation) ~= "table" then return false, "dna_context_missing" end
   if tonumber(entry.generatorVersion) ~= M.GENERATOR_VERSION then return false, "dna_generator_version_invalid" end
   if tonumber(entry.generation.generatorVersion) ~= M.GENERATOR_VERSION then return false, "dna_generator_version_invalid" end
   if type(entry.base) ~= "table" or not stringValue(entry.base.modelKey, 256) then return false, "dna_base_invalid" end
-  if type(entry.final) ~= "table" then return false, "dna_final_missing" end
+  if type(entry.final) ~= "table" or not stringValue(entry.final.modelKey, 256) then return false, "dna_final_missing" end
+  if entry.base.modelKey ~= entry.final.modelKey then return false, "dna_model_identity_mismatch" end
+  local operation = entry.generation.operation
+  if not OPERATIONS[operation] or entry.operation ~= operation then return false, "dna_operation_invalid" end
+  if not stringValue(entry.generation.seed, 256) or type(entry.seed) ~= "table"
+    or entry.seed.display ~= entry.generation.seed or type(entry.seed.legacy) ~= "boolean"
+  then return false, "dna_seed_invalid" end
   if not arrayWithin(entry.final.slots, M.MAX_SLOTS) then return false, "dna_slots_limit" end
   if not arrayWithin(entry.final.tuning, M.MAX_TUNING) then return false, "dna_tuning_limit" end
   if not arrayWithin(entry.final.paints, M.MAX_PAINTS) then return false, "dna_paints_limit" end
   if entry.tags ~= nil and not arrayWithin(entry.tags, M.MAX_TAGS) then return false, "dna_tags_limit" end
+  local seenTags = {}
+  for _, tag in ipairs(entry.tags or {}) do
+    if not stringValue(tag, 64) then return false, "dna_tag_invalid" end
+    local normalized = tag:lower()
+    if seenTags[normalized] then return false, "dna_tag_duplicate" end
+    seenTags[normalized] = true
+  end
   if type(entry.fingerprints) ~= "table" then return false, "dna_fingerprints_missing" end
 
   local seenPaths = {}
@@ -51,6 +89,11 @@ local function validateEntry(entry, options)
       or type(slot.partName) ~= "string"
     then return false, "dna_slot_invalid" end
     if seenPaths[slot.path] then return false, "dna_slot_duplicate_path" end
+    if slot.parentPath ~= nil and type(slot.parentPath) ~= "string" then return false, "dna_slot_parent_invalid" end
+    if slot.parentPart ~= nil and type(slot.parentPart) ~= "string" then return false, "dna_slot_parent_invalid" end
+    if slot.defaultPart ~= nil and type(slot.defaultPart) ~= "string" then return false, "dna_slot_default_invalid" end
+    if slot.sourceKind ~= nil and not SOURCE_KINDS[slot.sourceKind] then return false, "dna_source_kind_invalid" end
+    if slot.resolutionStrategy ~= nil and not stringValue(slot.resolutionStrategy, 128) then return false, "dna_resolution_strategy_invalid" end
     seenPaths[slot.path] = true
   end
   local seenTuning = {}
@@ -59,11 +102,27 @@ local function validateEntry(entry, options)
       or not util.isFinite(tonumber(variable.value))
     then return false, "dna_tuning_invalid" end
     if seenTuning[variable.name] then return false, "dna_tuning_duplicate" end
+    local minimum, maximum = tonumber(variable.minimum), tonumber(variable.maximum)
+    if variable.minimum ~= nil and not util.isFinite(minimum) then return false, "dna_tuning_metadata_invalid" end
+    if variable.maximum ~= nil and not util.isFinite(maximum) then return false, "dna_tuning_metadata_invalid" end
+    if minimum and maximum and minimum > maximum then return false, "dna_tuning_metadata_invalid" end
     seenTuning[variable.name] = true
   end
   for _, paint in ipairs(entry.final.paints) do
     if type(paint) ~= "table" then return false, "dna_paint_invalid" end
   end
+
+  if entry.base.sourceKind ~= nil and not SOURCE_KINDS[entry.base.sourceKind] then return false, "dna_source_kind_invalid" end
+  for _, key in ipairs({"parts", "wheelTire", "mods", "official", "user", "unknown"}) do
+    local list = entry.dependencies and entry.dependencies[key]
+    if list ~= nil and not arrayWithin(list, M.MAX_DEPENDENCIES) then return false, "dna_dependencies_limit" end
+  end
+  if entry.warnings ~= nil and not arrayWithin(entry.warnings, M.MAX_WARNINGS) then return false, "dna_warnings_limit" end
+  if entry.deviations ~= nil and not arrayWithin(entry.deviations, M.MAX_DEVIATIONS) then return false, "dna_deviations_limit" end
+  local metadataValid, metadataReason = boundedMetadata(entry.lineage or {}, M.MAX_LINEAGE_ELEMENTS, "dna_lineage")
+  if not metadataValid then return false, metadataReason end
+  metadataValid, metadataReason = boundedMetadata(entry.extensions or {}, M.MAX_EXTENSION_ELEMENTS, "dna_extensions")
+  if not metadataValid then return false, metadataReason end
 
   for key, value in pairs({
     settings = entry.generation.settings,

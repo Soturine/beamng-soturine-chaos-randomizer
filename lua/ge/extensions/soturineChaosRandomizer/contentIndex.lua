@@ -1,4 +1,5 @@
 local util = require("ge/extensions/soturineChaosRandomizer/util")
+local configVerification = require("ge/extensions/soturineChaosRandomizer/configVerification")
 
 local M = {}
 
@@ -92,7 +93,8 @@ local function normalizeConfig(raw, modelsByKey)
     modelKey = modelKey,
     key = key,
     name = raw.Name or raw.Configuration or raw.name or key,
-    path = raw.pcFilename or raw.path or key,
+    path = configVerification.normalizePath(raw.pcFilename or raw.path or key),
+    scopedKey = configVerification.scopedKey(modelKey, key),
     sourceKind = kind,
     sourceLabel = source,
     sourceStrategy = sourceStrategy(raw),

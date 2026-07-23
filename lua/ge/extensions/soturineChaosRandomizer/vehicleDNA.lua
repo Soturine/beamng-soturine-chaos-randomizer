@@ -2,6 +2,7 @@ local util = require("ge/extensions/soturineChaosRandomizer/util")
 local schema = require("ge/extensions/soturineChaosRandomizer/vehicleDNASchema")
 local normalizer = require("ge/extensions/soturineChaosRandomizer/vehicleDNANormalizer")
 local fingerprint = require("ge/extensions/soturineChaosRandomizer/vehicleDNAFingerprint")
+local configVerification = require("ge/extensions/soturineChaosRandomizer/configVerification")
 
 local M = {}
 
@@ -26,9 +27,9 @@ local function create(options)
     modelKey = tostring(base.modelKey or capture.modelKey or ""),
     configKey = base.configKey,
     configName = base.configName,
-    configPath = base.configPath or capture.selectedConfiguration,
+    configPath = configVerification.normalizePath(base.configPath or capture.selectedConfiguration),
     registryIdentity = base.registryIdentity == true,
-    sourceKind = base.sourceKind,
+    sourceKind = base.sourceKind or "unknown",
     sourceLabel = base.sourceLabel,
     sourceStrategy = base.sourceStrategy,
     modID = base.modID,
@@ -38,7 +39,7 @@ local function create(options)
   local startingFingerprint = fingerprint.fingerprint(options.startingState or {})
   local finalPayload = {
     modelKey = tostring(capture.modelKey or ""),
-    configIdentity = capture.selectedConfiguration,
+    configIdentity = configVerification.normalizePath(capture.selectedConfiguration),
     slots = slots,
     tuning = tuning,
     paints = paints,
