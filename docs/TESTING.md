@@ -199,12 +199,12 @@ The packaged inputs were built twice on Windows after the code, UI, asset, tests
 | Item | Result |
 | --- | --- |
 | Filename | `soturine_chaos_randomizer_0.3.0-alpha.1.zip` |
-| Bytes | Pending final build |
-| Entries | Pending final build |
-| Windows SHA-256 | Pending final build |
-| Same-environment two-build equality | Pending final build |
-| ZIP/checksum validation | Pending final build |
-| Text line-ending normalization | Pending final build |
+| Bytes | `89,411` |
+| Entries | `34` |
+| Windows SHA-256 | `2193862883c8c1b247b7c135dbfd49b4d3b2b560ba79e8c01d6cd829c39c8e7b` |
+| Same-environment two-build equality | Passed; byte-identical consecutive builds |
+| ZIP/checksum validation | Passed |
+| Text line-ending normalization | Passed |
 | Final CI/Linux artifact comparison | Pending final CI artifact |
 
 The final commit SHA, bytes, entries, hash, workflow run, and CI comparison belong to the delivery report and will be recorded only from the final artifact.
