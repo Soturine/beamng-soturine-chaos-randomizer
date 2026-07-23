@@ -21,7 +21,7 @@ local function fromSettings(settings)
     tuningSpread = 0.05 + 0.95 * chaos,
     paintContrast = 0.10 + 0.90 * chaos,
     allowMissingParts = allowMissing,
-    keepVehicleDrivable = settings.keepVehicleDrivable == true,
+    protectCriticalParts = settings.protectCriticalParts == true,
   }
 end
 

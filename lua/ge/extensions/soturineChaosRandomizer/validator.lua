@@ -22,24 +22,62 @@ local function isCritical(slot)
   return false
 end
 
-local function canEmpty(slot, keepVehicleDrivable)
+local function canEmpty(slot, protectCriticalParts)
   if slot.coreSlot or slot.required or slot.depth == 0 then return false, "required_or_core" end
-  if keepVehicleDrivable then
+  if protectCriticalParts then
     local critical, term = isCritical(slot)
     if critical then return false, "drivability:" .. term end
   end
   return true
 end
 
-local function validateSelection(slot, candidate, keepVehicleDrivable)
-  if candidate == "" then return canEmpty(slot, keepVehicleDrivable) end
+local function validateSelection(slot, candidate, protectCriticalParts)
+  if candidate == "" then return canEmpty(slot, protectCriticalParts) end
   if type(candidate) ~= "string" then return false, "invalid_candidate" end
   if not util.arrayContains(slot.candidates, candidate) then return false, "incompatible_candidate" end
+  if protectCriticalParts then
+    local critical, term = isCritical(slot)
+    if critical and candidate ~= slot.currentPart and candidate ~= slot.defaultPart then
+      return false, "critical_candidate_unproven:" .. tostring(term)
+    end
+  end
   return true
+end
+
+local function protectedSelection(slot, protectCriticalParts)
+  if not protectCriticalParts then return nil end
+  local critical, term = isCritical(slot)
+  if not critical then return nil end
+  if type(slot.currentPart) == "string" and slot.currentPart ~= "" then
+    return slot.currentPart, "critical_current_preserved:" .. tostring(term)
+  end
+  if type(slot.defaultPart) == "string" and slot.defaultPart ~= ""
+    and util.arrayContains(slot.candidates, slot.defaultPart)
+  then
+    return slot.defaultPart, "critical_default_restored:" .. tostring(term)
+  end
+  return slot.currentPart or "", "critical_safe_replacement_unproven:" .. tostring(term)
+end
+
+local function validateProtectedScan(scan, protectCriticalParts)
+  local failures = {}
+  for _, slot in ipairs(type(scan) == "table" and scan.slots or {}) do
+    if (slot.required or slot.coreSlot) and (slot.currentPart == nil or slot.currentPart == "") then
+      failures[#failures + 1] = {slotPath = slot.path, reason = "required_or_core_missing"}
+    elseif protectCriticalParts then
+      local critical, term = isCritical(slot)
+      if critical and (slot.currentPart == nil or slot.currentPart == "") then
+        failures[#failures + 1] = {slotPath = slot.path, reason = "critical_missing:" .. tostring(term)}
+      end
+    end
+  end
+  return #failures == 0, failures
 end
 
 M.isCritical = isCritical
 M.canEmpty = canEmpty
 M.validateSelection = validateSelection
+M.protectedSelection = protectedSelection
+M.validateProtectedScan = validateProtectedScan
 
 return M

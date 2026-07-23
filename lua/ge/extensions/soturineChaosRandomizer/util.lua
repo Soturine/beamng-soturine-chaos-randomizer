@@ -75,6 +75,30 @@ local function normalizeText(value)
   return tostring(value):lower():gsub("^%s+", ""):gsub("%s+$", "")
 end
 
+local function deepEqual(left, right, epsilon, seen)
+  if type(left) ~= type(right) then return false end
+  if type(left) == "number" and epsilon then
+    return math.abs(left - right) <= epsilon
+  end
+  if type(left) ~= "table" then return left == right end
+  seen = seen or {}
+  if seen[left] == right then return true end
+  seen[left] = right
+  for key, value in pairs(left) do
+    if not deepEqual(value, right[key], epsilon, seen) then return false end
+  end
+  for key in pairs(right) do
+    if left[key] == nil then return false end
+  end
+  return true
+end
+
+local function arrayToSet(values)
+  local result = {}
+  for _, value in ipairs(values or {}) do result[value] = true end
+  return result
+end
+
 M.clamp = clamp
 M.isFinite = isFinite
 M.deepCopy = deepCopy
@@ -84,5 +108,7 @@ M.arrayContains = arrayContains
 M.shallowMerge = shallowMerge
 M.roundToStep = roundToStep
 M.normalizeText = normalizeText
+M.deepEqual = deepEqual
+M.arrayToSet = arrayToSet
 
 return M

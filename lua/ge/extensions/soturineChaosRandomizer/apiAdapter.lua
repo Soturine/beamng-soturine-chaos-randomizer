@@ -1,4 +1,5 @@
 local util = require("ge/extensions/soturineChaosRandomizer/util")
+local capabilityModel = require("ge/extensions/soturineChaosRandomizer/capabilities")
 
 local M = {}
 
@@ -26,26 +27,62 @@ local function safeCall(name, callback)
   return true, value, extra
 end
 
+local function callContract(name, failureCode, contract, callback)
+  local ok, value, extra = pcall(callback)
+  if not ok then
+    return false, errorValue(failureCode, "BeamNG API call failed: " .. name, {
+      detail = tostring(value),
+      thrown = true,
+      contract = contract,
+    })
+  end
+  if value == false then
+    return false, errorValue(failureCode, "BeamNG rejected the write: " .. name, {
+      result = false,
+      contract = contract,
+    })
+  end
+  if contract == "object_required" and value == nil then
+    return false, errorValue(failureCode, "BeamNG did not return the required vehicle object: " .. name, {
+      result = "nil",
+      contract = contract,
+    })
+  end
+  return true, {
+    value = value,
+    extra = extra,
+    confirmationRequired = contract == "nil_then_event",
+    contract = contract,
+  }
+end
+
 local function getCapabilities()
-  local capabilities = {
-    vehicleManager = type(core_vehicle_manager) == "table" and type(core_vehicle_manager.getPlayerVehicleData) == "function",
-    partManagement = type(core_vehicle_partmgmt) == "table"
-      and type(core_vehicle_partmgmt.getConfig) == "function"
-      and type(core_vehicle_partmgmt.setPartsTreeConfig) == "function",
+  local vehicleManager = type(core_vehicle_manager) == "table"
+    and type(core_vehicle_manager.getPlayerVehicleData) == "function"
+  local configRead = type(core_vehicle_partmgmt) == "table"
+    and type(core_vehicle_partmgmt.getConfig) == "function"
+  local hierarchicalRead = type(jbeamIO) == "table"
+    and type(jbeamIO.getPart) == "function"
+    and type(jbeamIO.getAvailableParts) == "function"
+  local raw = {
     vehicleRegistry = type(core_vehicles) == "table"
       and type(core_vehicles.getModelList) == "function"
-      and type(core_vehicles.getConfigList) == "function"
-      and type(core_vehicles.replaceVehicle) == "function",
-    hierarchicalSlots = type(jbeamIO) == "table"
-      and type(jbeamIO.getPart) == "function"
-      and type(jbeamIO.getAvailableParts) == "function",
+      and type(core_vehicles.getConfigList) == "function",
+    vehicleReplace = type(core_vehicles) == "table" and type(core_vehicles.replaceVehicle) == "function",
+    partsRead = vehicleManager and configRead and hierarchicalRead,
+    partsWrite = type(core_vehicle_partmgmt) == "table"
+      and type(core_vehicle_partmgmt.setPartsTreeConfig) == "function",
+    tuningRead = vehicleManager and configRead,
+    tuningWrite = type(core_vehicle_partmgmt) == "table"
+      and type(core_vehicle_partmgmt.setConfigVars) == "function",
+    paintRead = configRead,
+    paintWrite = type(core_vehicle_partmgmt) == "table"
+      and type(core_vehicle_partmgmt.setConfigPaints) == "function",
+    settingsPersistence = type(jsonReadFile) == "function" and type(jsonWriteFile) == "function",
     uiEvents = type(guihooks) == "table" and type(guihooks.trigger) == "function",
-    persistence = type(jsonReadFile) == "function" and type(jsonWriteFile) == "function",
+    lifecycleConfirmation = type(extensions) == "table" and type(extensions.hook) == "function",
   }
-  capabilities.scramble = capabilities.vehicleManager and capabilities.partManagement and capabilities.hierarchicalSlots
-  capabilities.randomConfig = capabilities.vehicleRegistry
-  capabilities.fullRandom = capabilities.scramble and capabilities.randomConfig
-  return capabilities
+  return capabilityModel.derive(raw)
 end
 
 local function getCurrentVehicleId()
@@ -153,11 +190,11 @@ local function replaceVehicle(modelKey, config)
   if type(modelKey) ~= "string" or modelKey == "" then
     return false, errorValue("invalid_model", "A valid vehicle model is required")
   end
-  local ok, vehicle = safeCall("core_vehicles.replaceVehicle", function()
+  local ok, result = callContract("core_vehicles.replaceVehicle", "vehicle_replace_rejected", "object_required", function()
     return core_vehicles.replaceVehicle(modelKey, {config = util.deepCopy(config)})
   end)
-  if not ok then return false, vehicle end
-  return true, vehicle
+  if not ok then return false, result end
+  return true, result
 end
 
 local function applyPartsTree(tree)
@@ -165,33 +202,75 @@ local function applyPartsTree(tree)
     return false, errorValue("unsupported_api", "Hierarchical part configuration is unavailable")
   end
   if type(tree) ~= "table" then return false, errorValue("invalid_parts_tree", "A valid parts tree is required") end
-  local ok, result = safeCall("core_vehicle_partmgmt.setPartsTreeConfig", function()
+  local ok, result = callContract("core_vehicle_partmgmt.setPartsTreeConfig", "parts_apply_rejected", "nil_then_event", function()
     return core_vehicle_partmgmt.setPartsTreeConfig(util.deepCopy(tree), true)
   end)
   if not ok then return false, result end
-  return true
+  return true, result
 end
 
 local function applyTuning(values)
   if type(core_vehicle_partmgmt) ~= "table" or type(core_vehicle_partmgmt.setConfigVars) ~= "function" then
     return false, errorValue("unsupported_api", "Tuning application is unavailable")
   end
-  local ok, result = safeCall("core_vehicle_partmgmt.setConfigVars", function()
+  local ok, result = callContract("core_vehicle_partmgmt.setConfigVars", "tuning_apply_rejected", "nil_then_event", function()
     return core_vehicle_partmgmt.setConfigVars(util.deepCopy(values or {}), true)
   end)
   if not ok then return false, result end
-  return true
+  return true, result
 end
 
 local function applyPaints(paints)
   if type(core_vehicle_partmgmt) ~= "table" or type(core_vehicle_partmgmt.setConfigPaints) ~= "function" then
     return false, errorValue("unsupported_api", "Paint application is unavailable")
   end
-  local ok, result = safeCall("core_vehicle_partmgmt.setConfigPaints", function()
-    return core_vehicle_partmgmt.setConfigPaints(util.deepCopy(paints or {}), false)
+  local expected = util.deepCopy(paints or {})
+  local ok, result = callContract("core_vehicle_partmgmt.setConfigPaints", "paint_apply_rejected", "nil_then_readback", function()
+    return core_vehicle_partmgmt.setConfigPaints(expected, false)
   end)
   if not ok then return false, result end
-  return true
+  local okConfig, config = getCurrentConfig()
+  if not okConfig then
+    return false, errorValue("paint_apply_unconfirmed", "Paint write could not be confirmed", {cause = config})
+  end
+  if not util.deepEqual(config.paints or {}, expected, 1e-8) then
+    return false, errorValue("paint_apply_unconfirmed", "Paint write did not match the requested state")
+  end
+  result.confirmationRequired = false
+  result.verified = true
+  return true, result
+end
+
+local function flattenChosenParts(tree)
+  local result = {}
+  local function visit(node)
+    for _, key in ipairs(util.sortedKeys(type(node) == "table" and node.children or {})) do
+      local child = node.children[key]
+      if type(child) == "table" then
+        result[child.path or tostring(key)] = child.chosenPartName or ""
+        visit(child)
+      end
+    end
+  end
+  visit(tree)
+  return result
+end
+
+local function getVerificationState()
+  local okId, vehicleId = getCurrentVehicleId()
+  if not okId then return false, vehicleId end
+  local okModel, modelKey = getCurrentModelKey()
+  if not okModel then return false, modelKey end
+  local okConfig, config = getCurrentConfig()
+  if not okConfig then return false, config end
+  return true, {
+    vehicleId = vehicleId,
+    modelKey = modelKey,
+    configKey = config.partConfigFilename,
+    parts = flattenChosenParts(config.partsTree or {}),
+    tuning = util.deepCopy(config.vars or {}),
+    paints = util.deepCopy(config.paints or {}),
+  }
 end
 
 local function getSlotDefinition(parentPart, slotId)
@@ -365,5 +444,8 @@ M.logRecord = logRecord
 M.clock = clock
 M.entropy = entropy
 M.getGameVersion = getGameVersion
+M.getVerificationState = getVerificationState
+M.flattenChosenParts = flattenChosenParts
+M._callContract = callContract
 
 return M

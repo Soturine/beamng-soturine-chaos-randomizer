@@ -8,6 +8,7 @@ local function slotSignature(slot)
   return table.concat({
     tostring(slot.path or ""),
     tostring(slot.id or ""),
+    tostring(slot.currentPart or ""),
     slot.coreSlot and "1" or "0",
     slot.required and "1" or "0",
     tostring(slot.defaultPart or ""),
@@ -55,7 +56,11 @@ local function scan(tree, metadataByPath)
   end
 
   visit(tree, 1, {})
-  table.sort(slots, function(a, b) return a.path < b.path end)
+  table.sort(slots, function(a, b)
+    if a.depth ~= b.depth then return a.depth < b.depth end
+    if a.path ~= b.path then return a.path < b.path end
+    return tostring(a.id) < tostring(b.id)
+  end)
   local signatureParts = {}
   for _, slot in ipairs(slots) do signatureParts[#signatureParts + 1] = slot.signature end
   return {
@@ -79,8 +84,18 @@ local function changedPaths(previousScan, currentScan)
   return result
 end
 
+local function eligiblePaths(previousScan, currentScan, deferredPaths, mutatedPaths)
+  local result = changedPaths(previousScan, currentScan)
+  for path in pairs(deferredPaths or {}) do
+    if currentScan.byPath[path] then result[path] = true end
+  end
+  for path in pairs(mutatedPaths or {}) do result[path] = nil end
+  return result
+end
+
 M.scan = scan
 M.slotSignature = slotSignature
 M.changedPaths = changedPaths
+M.eligiblePaths = eligiblePaths
 
 return M

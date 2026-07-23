@@ -16,17 +16,19 @@ local function valuesSorted(source, keyFunction)
   return result
 end
 
-local function sourceKind(item)
-  local label = util.normalizeText(item.Source or item.source or item.sourceLabel)
-  if label == "beamng - official" or label == "official" then return "official" end
-  if label == "custom" or item.userSaved == true or item.player == true then return "user" end
-  if item.modID or item.modId or label == "mod" then return "mod" end
-  if label ~= "" and label ~= "unknown" then return "mod" end
-  return "unknown"
-end
+local OFFICIAL_SOURCE_ALIASES = {
+  ["beamng - official"] = true,
+  official = true,
+}
 
-local function truthyText(value, term)
-  return util.normalizeText(value):find(term, 1, true) ~= nil
+local function sourceKind(item)
+  item = type(item) == "table" and item or {}
+  local label = util.normalizeText(item.Source or item.source or item.sourceLabel)
+  if item.userSaved == true or item.player == true or label == "custom" then return "user" end
+  if item.modID ~= nil or item.modId ~= nil then return "mod" end
+  if OFFICIAL_SOURCE_ALIASES[label] then return "official" end
+  if label == "mod" then return "mod" end
+  return "unknown"
 end
 
 local function normalizeModel(raw)
@@ -35,7 +37,6 @@ local function normalizeModel(raw)
   local itemType = raw.Type or raw.type or raw.Category or raw.category or "Unknown"
   local source = raw.Source or raw.source or "Unknown"
   local normalizedType = util.normalizeText(itemType)
-  local normalizedKey = util.normalizeText(key)
 
   return {
     key = key,
@@ -44,9 +45,9 @@ local function normalizeModel(raw)
     type = itemType,
     sourceKind = sourceKind(raw),
     sourceLabel = source,
-    isAutomation = raw.isAutomation == true or truthyText(itemType, "automation") or normalizedKey:find("automation", 1, true) == 1,
-    isTrailer = raw.isTrailer == true or normalizedType:find("trailer", 1, true) ~= nil,
-    isProp = raw.isProp == true or normalizedType == "prop" or normalizedType == "props" or normalizedType:find("prop", 1, true) ~= nil,
+    isAutomation = raw.isAutomation == true or normalizedType == "automation",
+    isTrailer = raw.isTrailer == true or normalizedType == "trailer",
+    isProp = raw.isProp == true or normalizedType == "prop" or normalizedType == "props",
     defaultConfig = raw.default_pc or raw.defaultConfig,
     configs = {},
     raw = util.deepCopy(raw),
@@ -60,9 +61,8 @@ local function normalizeConfig(raw, modelsByKey)
   local model = modelsByKey[modelKey]
   if not model then return nil end
 
-  local source = raw.Source or raw.source or model.sourceLabel or "Unknown"
+  local source = raw.Source or raw.source or raw.sourceLabel or "Unknown"
   local kind = sourceKind(raw)
-  if kind == "unknown" then kind = model.sourceKind end
   return {
     modelKey = modelKey,
     key = key,
@@ -86,7 +86,9 @@ local function create()
     modelsByKey = {},
     allConfigs = {},
     failures = {},
-    blacklist = {},
+    blacklists = {model = {}, config = {}, part = {}, tuning = {}},
+    suspects = {part = {}},
+    lastBlocked = nil,
     failureThreshold = 3,
   }
 end
@@ -138,6 +140,26 @@ local function contentAllowed(kind, filter)
   return true
 end
 
+local function identifier(kind, context)
+  context = type(context) == "table" and context or {key = context}
+  if kind == "model" then return "model:" .. tostring(context.modelKey or context.key or "") end
+  if kind == "config" then
+    return "config:" .. tostring(context.modelKey or "") .. "/" .. tostring(context.configKey or context.key or "")
+  end
+  if kind == "part" then
+    return "part:" .. tostring(context.modelKey or "") .. ":" .. tostring(context.slotPath or "") .. ":" .. tostring(context.candidate or context.key or "")
+  end
+  if kind == "tuning" then
+    return "tuning:" .. tostring(context.modelKey or "") .. ":" .. tostring(context.tuningVariable or context.key or "")
+  end
+  return tostring(kind) .. ":" .. tostring(context.key or "")
+end
+
+local function isBlacklisted(index, kind, context)
+  local bucket = index.blacklists and index.blacklists[kind]
+  return type(bucket) == "table" and bucket[identifier(kind, context)] ~= nil
+end
+
 local function eligibleModels(index, settings)
   settings = settings or {}
   local result = {}
@@ -146,13 +168,14 @@ local function eligibleModels(index, settings)
       and (settings.includeAutomation or not model.isAutomation)
       and (settings.includeTrailers or not model.isTrailer)
       and (settings.includeProps or not model.isProp)
-      and not index.blacklist["model:" .. model.key]
+      and not isBlacklisted(index, "model", {modelKey = model.key})
     then
       local copy = util.deepCopy(model)
       copy.configs = {}
       for _, config in ipairs(model.configs) do
-        local id = "config:" .. config.modelKey .. "/" .. config.key
-        if config.valid and contentAllowed(config.sourceKind, settings.contentFilter) and not index.blacklist[id] then
+        if config.valid and contentAllowed(config.sourceKind, settings.contentFilter)
+          and not isBlacklisted(index, "config", {modelKey = config.modelKey, configKey = config.key})
+        then
           copy.configs[#copy.configs + 1] = util.deepCopy(config)
         end
       end
@@ -174,16 +197,43 @@ local function eligibleConfigs(index, settings)
   return result
 end
 
-local function recordFailure(index, kind, key)
-  local id = tostring(kind) .. ":" .. tostring(key)
+local function recordFailure(index, kind, context, failure)
+  context = type(context) == "table" and context or {key = context}
+  local id = identifier(kind, context)
   index.failures[id] = (index.failures[id] or 0) + 1
-  if index.failures[id] >= index.failureThreshold then index.blacklist[id] = true end
-  return index.failures[id], index.blacklist[id] == true
+  local threshold = tonumber(context.threshold) or index.failureThreshold
+  if context.suspectBatch == true and kind == "part" then
+    index.suspects.part[id] = (index.suspects.part[id] or 0) + 1
+  elseif index.failures[id] >= threshold then
+    index.blacklists[kind][id] = {
+      id = id,
+      type = kind,
+      reason = failure and (failure.code or failure.reason) or context.reason or "failure_threshold",
+      failureCount = index.failures[id],
+      seed = failure and failure.seed or context.seed,
+      timestamp = failure and failure.timestamp or context.timestamp,
+    }
+    index.lastBlocked = util.deepCopy(index.blacklists[kind][id])
+  end
+  return index.failures[id], isBlacklisted(index, kind, context), id
 end
 
 local function clearFailures(index)
   index.failures = {}
-  index.blacklist = {}
+  index.blacklists = {model = {}, config = {}, part = {}, tuning = {}}
+  index.suspects = {part = {}}
+  index.lastBlocked = nil
+end
+
+local function blacklistCounts(index)
+  local result = {model = 0, config = 0, part = 0, tuning = 0, total = 0}
+  for kind, bucket in pairs(index.blacklists or {}) do
+    for _ in pairs(bucket) do
+      result[kind] = (result[kind] or 0) + 1
+      result.total = result.total + 1
+    end
+  end
+  return result
 end
 
 M.create = create
@@ -192,8 +242,12 @@ M.eligibleModels = eligibleModels
 M.eligibleConfigs = eligibleConfigs
 M.recordFailure = recordFailure
 M.clearFailures = clearFailures
+M.identifier = identifier
+M.isBlacklisted = isBlacklisted
+M.blacklistCounts = blacklistCounts
 M.normalizeModel = normalizeModel
 M.normalizeConfig = normalizeConfig
 M.sourceKind = sourceKind
+M.officialSourceAliases = OFFICIAL_SOURCE_ALIASES
 
 return M

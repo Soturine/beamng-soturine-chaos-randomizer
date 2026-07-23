@@ -1,8 +1,8 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "chaos": 75,
   "allowMissingParts": true,
-  "keepVehicleDrivable": false,
+  "protectCriticalParts": false,
   "contentFilter": "everything",
   "includeAutomation": false,
   "includeTrailers": false,

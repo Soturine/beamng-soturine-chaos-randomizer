@@ -3,10 +3,10 @@ local util = require("ge/extensions/soturineChaosRandomizer/util")
 local M = {}
 
 local DEFAULTS = {
-  schemaVersion = 1,
+  schemaVersion = 2,
   chaos = 75,
   allowMissingParts = true,
-  keepVehicleDrivable = false,
+  protectCriticalParts = false,
   contentFilter = "everything",
   includeAutomation = false,
   includeTrailers = false,
@@ -38,9 +38,14 @@ local function migrate(raw)
     end
   end
 
-  raw.schemaVersion = 1
+  if version < 2 and raw.protectCriticalParts == nil and raw.keepVehicleDrivable ~= nil then
+    raw.protectCriticalParts = raw.keepVehicleDrivable
+  end
+
+  raw.schemaVersion = 2
   raw.allowEmptyParts = nil
   raw.fairMode = nil
+  raw.keepVehicleDrivable = nil
   return raw
 end
 
@@ -50,7 +55,7 @@ local function validate(raw)
 
   result.chaos = math.floor(util.clamp(raw.chaos or result.chaos, 0, 100) + 0.5)
   result.allowMissingParts = boolOrDefault(raw.allowMissingParts, result.allowMissingParts)
-  result.keepVehicleDrivable = boolOrDefault(raw.keepVehicleDrivable, result.keepVehicleDrivable)
+  result.protectCriticalParts = boolOrDefault(raw.protectCriticalParts, result.protectCriticalParts)
   result.includeAutomation = boolOrDefault(raw.includeAutomation, result.includeAutomation)
   result.includeTrailers = boolOrDefault(raw.includeTrailers, result.includeTrailers)
   result.includeProps = boolOrDefault(raw.includeProps, result.includeProps)
