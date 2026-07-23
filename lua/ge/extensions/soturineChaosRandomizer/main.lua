@@ -26,6 +26,11 @@ local vehicleDNAImport = require("ge/extensions/soturineChaosRandomizer/vehicleD
 local vehicleDNAFingerprint = require("ge/extensions/soturineChaosRandomizer/vehicleDNAFingerprint")
 local vehicleDNANormalizer = require("ge/extensions/soturineChaosRandomizer/vehicleDNANormalizer")
 local vehicleDNAPassBudget = require("ge/extensions/soturineChaosRandomizer/vehicleDNAPassBudget")
+local vehicleDNALocks = require("ge/extensions/soturineChaosRandomizer/vehicleDNALocks")
+local vehicleDNAMutations = require("ge/extensions/soturineChaosRandomizer/vehicleDNAMutations")
+local vehicleDNACompare = require("ge/extensions/soturineChaosRandomizer/vehicleDNACompare")
+local vehicleDNAGallery = require("ge/extensions/soturineChaosRandomizer/vehicleDNAGallery")
+local vehicleDNAPackage = require("ge/extensions/soturineChaosRandomizer/vehicleDNAPackage")
 local vehicleDNARestore = require("ge/extensions/soturineChaosRandomizer/vehicleDNARestore")
 local vehicleDNASchema = require("ge/extensions/soturineChaosRandomizer/vehicleDNASchema")
 local vehicleDNAStorage = require("ge/extensions/soturineChaosRandomizer/vehicleDNAStorage")
@@ -62,6 +67,12 @@ local runtime = {
     indexCacheHits = 0,
     lastIndexDuration = 0,
     lastOperation = nil,
+    garageLoadMs = 0,
+    compatibilityMs = 0,
+    thumbnailLoadMs = 0,
+    compareMs = 0,
+    exportMs = 0,
+    importMs = 0,
   },
   dna = {
     library = vehicleDNAStorage.create(100),
@@ -73,6 +84,12 @@ local runtime = {
     selectedId = nil,
     page = 0,
     pageSize = 8,
+    query = {search = "", filter = "all", sort = "updated", model = "", tag = "", collection = ""},
+    details = nil,
+    comparison = nil,
+    sharePreview = nil,
+    importPreview = nil,
+    thumbnailPending = nil,
   },
 }
 
@@ -134,9 +151,16 @@ end
 local function publicState()
   local blacklist = contentIndex.blacklistCounts(runtime.index)
   local storageMetrics = vehicleDNAStorage.metrics(runtime.dna.library) or {}
-  local garageEntries, garageTotal = vehicleDNAStorage.summaries(
-    runtime.dna.library, runtime.dna.page * runtime.dna.pageSize, runtime.dna.pageSize
-  )
+  local garageStarted = adapter.clock()
+  local query = util.deepCopy(runtime.dna.query)
+  query.offset, query.limit = runtime.dna.page * runtime.dna.pageSize, runtime.dna.pageSize
+  local garageEntries, garageTotal = vehicleDNAStorage.query(runtime.dna.library, query)
+  runtime.performance.garageLoadMs = math.max(0, (adapter.clock() - garageStarted) * 1000)
+  runtime.performance.storageBytes = storageMetrics.canonicalBytes or 0
+  runtime.performance.storageElements = storageMetrics.elementCount or 0
+  local publicSettings = util.deepCopy(runtime.settings)
+  publicSettings.lockProfile = nil
+  local lockProfile = vehicleDNALocks.normalize(runtime.settings.lockProfile)
   return {
     extensionVersion = EXTENSION_VERSION,
     gameVersion = adapter.getGameVersion(),
@@ -146,7 +170,7 @@ local function publicState()
     waitReason = runtime.active and runtime.active.wait and runtime.active.wait.reason or nil,
     token = runtime.state.token,
     progress = util.deepCopy(runtime.progress),
-    settings = util.deepCopy(runtime.settings),
+    settings = publicSettings,
     seed = runtime.active and runtime.active.seed or runtime.lastSeed or runtime.settings.manualSeed,
     lastResult = util.deepCopy(runtime.lastResult),
     lastFailure = util.deepCopy(runtime.lastFailure),
@@ -166,6 +190,14 @@ local function publicState()
     capabilities = util.deepCopy(runtime.capabilities),
     developerStress = publicStressState(),
     performance = util.deepCopy(runtime.performance),
+    locks = {
+      summary = vehicleDNALocks.summary(lockProfile),
+      vehicle = lockProfile.vehicle,
+      configuration = lockProfile.configuration,
+      categories = util.deepCopy(lockProfile.categories),
+      tuningAll = lockProfile.tuning.all,
+      paintAll = lockProfile.paints.all,
+    },
     garage = {
       loaded = runtime.dna.loaded,
       loadStatus = runtime.dna.loadStatus,
@@ -176,6 +208,7 @@ local function publicState()
       pageCount = math.max(1, math.ceil(garageTotal / runtime.dna.pageSize)),
       limit = runtime.dna.library.limit,
       storage = storageMetrics,
+      query = util.deepCopy(runtime.dna.query),
       pendingSave = runtime.dna.pending ~= nil,
       pending = runtime.dna.pending and {
         id = runtime.dna.pending.id,
@@ -186,6 +219,11 @@ local function publicState()
       selectedId = runtime.dna.selectedId,
       preflight = util.deepCopy(runtime.dna.preflight),
       exportText = runtime.dna.exportText,
+      details = util.deepCopy(runtime.dna.details),
+      comparison = util.deepCopy(runtime.dna.comparison),
+      sharePreview = util.deepCopy(runtime.dna.sharePreview),
+      importPreview = runtime.dna.importPreview and util.deepCopy(runtime.dna.importPreview.public) or nil,
+      thumbnailPending = runtime.dna.thumbnailPending,
       schemaVersion = vehicleDNASchema.SCHEMA_VERSION,
       generatorVersion = vehicleDNASchema.GENERATOR_VERSION,
       storagePath = adapter.DNA_LIBRARY_PATH,
@@ -429,6 +467,23 @@ local function beginOperation(kind, context)
   return true, runtime.active
 end
 
+local function applyCreativeContext(active, context)
+  context = type(context) == "table" and context or {}
+  if context.seed then
+    active.seed = rngModule.normalizeSeed(context.seed)
+    active.rng = rngModule.new(active.seed)
+    runtime.lastSeed = active.seed
+  end
+  if context.creativeOperation then
+    active.creativeOperation = context.creativeOperation
+    active.captureOperation = context.captureOperation or active.kind
+    active.lockProfileSnapshot = vehicleDNALocks.normalize(context.lockProfile or runtime.settings.lockProfile)
+    active.pendingLineage = util.deepCopy(context.lineage or {})
+    if context.settings then active.policy = mutationPolicy.fromSettings(context.settings) end
+  end
+  return active
+end
+
 local function captureOriginal(active)
   local ok, snapshot = adapter.captureCurrentState(active.kind, active.seed)
   if not ok then return false, snapshot end
@@ -451,6 +506,15 @@ end
 
 local function chooseConfiguration(active)
   local models = contentIndex.eligibleModels(runtime.index, runtime.settings)
+  local vehicleLocked = false
+  if active.lockProfileSnapshot and active.lockProfileSnapshot.vehicle then
+    local okCurrent, currentModel = adapter.getCurrentModelKey()
+    if not okCurrent then return nil, nil, currentModel end
+    local sameModel = {}
+    for _, model in ipairs(models) do if model.key == currentModel then sameModel[#sameModel + 1] = model end end
+    models = sameModel
+    vehicleLocked = true
+  end
   if #models == 0 then return nil, nil, adapter.errorValue("no_eligible_vehicles", "No vehicles match the current content filters") end
   local manualSeed = type(runtime.settings.manualSeed) == "string" and runtime.settings.manualSeed ~= ""
   local recentModels = manualSeed and {} or runtime.recentModels
@@ -461,6 +525,7 @@ local function chooseConfiguration(active)
     manualSeed = manualSeed,
     recentPolicy = manualSeed and "ignored_for_manual_seed" or "bounded_session_recent",
     eligibleModels = #models,
+    vehicleLock = vehicleLocked,
   }
   if runtime.settings.selectionFairness == "configuration" then
     local configs = contentIndex.eligibleConfigs(runtime.index, runtime.settings)
@@ -799,7 +864,7 @@ local function capturePendingDNA(active, details)
     result = details,
     settings = runtime.settings,
     seed = active.seed,
-    operation = active.kind,
+    operation = active.captureOperation or active.kind,
     gameVersion = adapter.getGameVersion(),
     extensionVersion = EXTENSION_VERSION,
     base = selected and {
@@ -824,6 +889,8 @@ local function capturePendingDNA(active, details)
     dependencies = dependencies,
     safety = active.safetyResult,
     warnings = active.warnings,
+    lineage = active.pendingLineage,
+    lockProfile = active.lockProfileSnapshot,
     metrics = {
       reloadCount = active.reloadCount or 0,
       partPasses = active.partPassesApplied or 0,
@@ -833,6 +900,15 @@ local function capturePendingDNA(active, details)
     },
   })
   if not entry then return false, adapter.errorValue("dna_capture_invalid", "Vehicle DNA schema validation failed", {reason = createError}) end
+  if active.creativeOperation and (not entry.lineage or not entry.lineage.rootId) then
+    entry.lineage = util.shallowMerge(entry.lineage or {}, {
+      rootId = entry.id,
+      generation = tonumber(entry.lineage and entry.lineage.generation) or 0,
+      createdFrom = active.creativeOperation,
+    })
+    local valid, reason = vehicleDNASchema.validateEntry(entry)
+    if not valid then return false, adapter.errorValue("dna_capture_invalid", "Creative Vehicle DNA lineage is invalid", {reason = reason}) end
+  end
   runtime.dna.pending = entry
   diagnosticsModule.write(runtime.diagnostics, "I", "dna_capture_ready", {
     id = entry.id, modelKey = entry.final.modelKey, schemaVersion = entry.schemaVersion,
@@ -921,7 +997,11 @@ local function completeChaos(active)
     details.warnings[#details.warnings + 1] = "Vehicle DNA capture was unavailable: " .. tostring(dnaOrError.message or dnaOrError.code)
     diagnosticsModule.write(runtime.diagnostics, "W", "dna_capture_failed", dnaOrError, true)
   end
-  finishOperation(true, "completed", completionMessage or string.format(
+  local completionCode = active.creativeOperation == "reroll_unlocked" and "reroll_unlocked_completed"
+    or active.creativeOperation == "mutation" and "dna_mutation_completed" or "completed"
+  local creativeMessage = active.creativeOperation == "reroll_unlocked" and "Reroll Unlocked complete"
+    or active.creativeOperation == "mutation" and "Vehicle DNA mutation complete" or nil
+  finishOperation(true, completionCode, creativeMessage or completionMessage or string.format(
     "Chaos complete: %d parts, %d tuning values, %d paints",
     #active.changes, #active.tuningChanges, active.paintChanges
   ), details)
@@ -942,7 +1022,12 @@ startPaint = function(active)
   setProgress("Applying paints", 0.90)
   local okPaints, paints = adapter.getPaints()
   if not okPaints then failActive(paints, true, "paint"); return end
-  local result, changed = paintRandomizer.randomize(paints, active.policy, active.rng:fork("paint"))
+  local result, changed = paintRandomizer.randomize(paints, active.policy, active.rng:fork("paint"), {
+    independentSubstreams = active.creativeOperation ~= nil,
+    isFieldLocked = active.lockProfileSnapshot and function(layer, field)
+      return vehicleDNALocks.isPaintLocked(active.lockProfileSnapshot, layer, field)
+    end or nil,
+  })
   active.paintChanges = changed
   diagnosticsModule.write(runtime.diagnostics, "D", "paint_randomized", {changes = changed})
   if changed > 0 then
@@ -986,7 +1071,11 @@ startTuning = function(active)
   local okSnapshot, snapshot = adapter.getTuningSnapshot()
   if not okSnapshot then failActive(snapshot, true, "tuning"); return end
   local values, changes, groups = tuningRandomizer.randomize(
-    snapshot.variables, snapshot.values, active.policy, active.rng:fork("tuning")
+    snapshot.variables, snapshot.values, active.policy, active.rng:fork("tuning"), {
+      isLocked = active.lockProfileSnapshot and function(name)
+        return vehicleDNALocks.isTuningLocked(active.lockProfileSnapshot, name)
+      end or nil,
+    }
   )
   active.tuningChanges = changes
   diagnosticsModule.write(runtime.diagnostics, "D", "tuning_randomized", {
@@ -1056,7 +1145,8 @@ processMutationPass = function(active)
   operationState.transition(runtime.state, "mutating", false)
   local modelKey = active.modelKey or (active.selectedModel and active.selectedModel.key)
   local planningStarted = adapter.clock()
-  local tree, decisions = mutationEngine.plan(scan, eligible, active.policy, active.rng:fork("parts:" .. active.pass), {
+  local partsGenerator = active.creativeOperation and active.rng:fork("parts") or active.rng:fork("parts:" .. active.pass)
+  local tree, decisions = mutationEngine.plan(scan, eligible, active.policy, partsGenerator, {
     passNumber = active.pass,
     isBlacklisted = function(slot, candidate)
       local allowed, reason = contentIndex.isCandidateEligible(runtime.index, {
@@ -1066,6 +1156,11 @@ processMutationPass = function(active)
       })
       return not allowed, reason
     end,
+    independentSubstreams = active.creativeOperation ~= nil,
+    categoryForSlot = vehicleDNALocks.classifySlot,
+    isLocked = active.lockProfileSnapshot and function(slot)
+      return vehicleDNALocks.isSlotLocked(active.lockProfileSnapshot, slot)
+    end or nil,
   })
   active.mutationPlanningDuration = (active.mutationPlanningDuration or 0) + math.max(0, adapter.clock() - planningStarted)
   local actual = {}
@@ -1086,6 +1181,15 @@ processMutationPass = function(active)
       rejected = rejected + 1
     elseif decision.protected then
       protected = protected + 1
+    end
+    if decision.locked and active.replayGeneration and active.replayLockPolicy == "current" then
+      addDNADeviation(active, {
+        phase = "generation",
+        reason = "replay_current_lock_preserved",
+        savedPath = decision.slotPath,
+        expected = "generated_part_decision",
+        actual = decision.previousPart,
+      })
     end
   end
   diagnosticsModule.write(runtime.diagnostics, "D", "mutation_pass", {
@@ -1134,7 +1238,7 @@ local function startSpawnOperation(kind, context)
     publishState()
     return false
   end
-  local active = activeOrError
+  local active = applyCreativeContext(activeOrError, context)
   local okIndex, indexError = ensureIndex()
   if not okIndex then failActive(indexError, false, "index"); return false end
   if runtime.state.state ~= "selecting" then
@@ -1184,7 +1288,7 @@ local function startScramble(context)
     publishState()
     return false
   end
-  local active = activeOrError
+  local active = applyCreativeContext(activeOrError, context)
   if not runtime.capabilities.scramble then
     failActive(adapter.errorValue("missing_parts_write", "This BeamNG build cannot read and write hierarchical parts"), false, "parts")
     return false
@@ -1276,7 +1380,9 @@ end
 
 local function applySettingsSnapshot(snapshot)
   if type(snapshot) ~= "table" then return true end
-  runtime.settings = settingsModule.validate(snapshot)
+  local candidate = util.deepCopy(snapshot)
+  if candidate.lockProfile == nil then candidate.lockProfile = runtime.settings.lockProfile end
+  runtime.settings = settingsModule.validate(candidate)
   runtime.settings.dnaLibraryLimit = math.max(runtime.settings.dnaLibraryLimit, #(runtime.dna.library.entries or {}))
   runtime.dna.library.limit = runtime.settings.dnaLibraryLimit
   historyModule.setLimit(runtime.history, runtime.settings.historyLimit)
@@ -1326,6 +1432,39 @@ local function runAction(action, settingsSnapshot)
   return runActionInternal(action, {})
 end
 
+local function rerollUnlocked(options)
+  initialize()
+  if runtime.state.busy or (runtime.stress and runtime.stress.active) then return false end
+  options = type(options) == "table" and options or {}
+  local profile = vehicleDNALocks.normalize(runtime.settings.lockProfile)
+  local lineage, seed
+  local parent = options.parentDNAId and vehicleDNAStorage.find(runtime.dna.library, options.parentDNAId) or nil
+  if parent then
+    local index = math.max(1, math.floor(tonumber(options.mutationIndex) or vehicleDNAMutations.nextIndex(runtime.dna.library, parent.id)))
+    seed = rngModule.new(table.concat({parent.generation.seed, parent.id, "reroll_unlocked", index}, ":")).seed
+    lineage = {
+      parentId = parent.id,
+      rootId = parent.lineage and parent.lineage.rootId or parent.id,
+      generation = math.min(vehicleDNAMutations.MAX_LINEAGE_DEPTH, math.floor(tonumber(parent.lineage and parent.lineage.generation) or 0) + 1),
+      mutationIndex = index,
+      createdFrom = "reroll_unlocked",
+      parentSeed = parent.generation.seed,
+    }
+  else
+    seed = options.seed and rngModule.normalizeSeed(options.seed) or nil
+    lineage = {generation = 0, createdFrom = "reroll_unlocked"}
+  end
+  local context = {
+    creativeOperation = "reroll_unlocked",
+    captureOperation = profile.configuration and "scramble" or "fullRandom",
+    lockProfile = profile,
+    lineage = lineage,
+    seed = seed,
+  }
+  if profile.configuration then return startScramble(context) end
+  return startSpawnOperation("fullRandom", context)
+end
+
 local function updateSettings(patch)
   initialize()
   if runtime.state.busy or (runtime.stress and runtime.stress.active) then return false end
@@ -1338,6 +1477,157 @@ local function updateSettings(patch)
   if not ok then setResult(false, saveError.code, saveError.message, {settingsAppliedForSession = true}) end
   publishState()
   return ok
+end
+
+local function persistLockProfile(profile, code, message)
+  if runtime.state.busy then return false end
+  runtime.settings.lockProfile = vehicleDNALocks.normalize(profile)
+  local ok, saveError = adapter.saveSettings(runtime.settings)
+  if ok then setResult(true, code or "lock_profile_updated", message or "Lock profile updated", {
+    summary = vehicleDNALocks.summary(runtime.settings.lockProfile),
+  }) else setResult(false, saveError.code, saveError.message, {settingsAppliedForSession = true}) end
+  publishState()
+  return ok
+end
+
+local function updateLockProfile(patch)
+  initialize()
+  return persistLockProfile(vehicleDNALocks.applyPatch(runtime.settings.lockProfile, patch))
+end
+
+local function lockVehicle(locked)
+  return updateLockProfile({vehicle = locked ~= false})
+end
+
+local function lockConfiguration(locked)
+  return updateLockProfile({configuration = locked ~= false})
+end
+
+local function lockCategory(category, locked)
+  initialize()
+  local allowed = false
+  for _, value in ipairs(vehicleDNALocks.CATEGORIES) do if value == category then allowed = true; break end end
+  if not allowed then setResult(false, "lock_category_invalid", "Unknown lock category"); publishState(); return false end
+  local profile = vehicleDNALocks.normalize(runtime.settings.lockProfile)
+  profile.categories[category] = locked ~= false and true or nil
+  return persistLockProfile(profile, "lock_category_updated", "Category lock updated")
+end
+
+local function currentLockScan()
+  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot()
+  if not okSnapshot then return nil, snapshot end
+  local scan, reason = slotScanner.scan(snapshot.tree, snapshot.metadataByPath)
+  if not scan then return nil, adapter.errorValue(reason, "Current slot tree is unavailable for locks") end
+  return scan
+end
+
+local function lockSlot(path, locked)
+  initialize()
+  if runtime.state.busy then return false end
+  local profile = vehicleDNALocks.normalize(runtime.settings.lockProfile)
+  if locked == false then profile.slots[path] = nil
+  else
+    local scan, scanError = currentLockScan()
+    if not scan then setResult(false, scanError.code, scanError.message); publishState(); return false end
+    local slot = scan.byPath[path]
+    if not slot then setResult(false, "lock_slot_unresolved", "The slot path is not present in the current tree"); publishState(); return false end
+    profile.slots[path] = {
+      path = path, slotId = slot.id, parentPath = slot.parentPath,
+      parentPart = slot.parentPart, partName = slot.currentPart ~= "" and slot.currentPart or nil,
+    }
+  end
+  return persistLockProfile(profile, "lock_slot_updated", "Slot lock updated")
+end
+
+local function unlockSlot(path) return lockSlot(path, false) end
+
+local function lockPart(path, locked)
+  initialize()
+  if runtime.state.busy then return false end
+  local profile = vehicleDNALocks.normalize(runtime.settings.lockProfile)
+  if locked == false then profile.parts[path] = nil
+  else
+    local scan, scanError = currentLockScan()
+    if not scan then setResult(false, scanError.code, scanError.message); publishState(); return false end
+    local slot = scan.byPath[path]
+    if not slot or type(slot.currentPart) ~= "string" or slot.currentPart == "" then
+      setResult(false, "lock_part_unresolved", "No current part can be locked at this slot"); publishState(); return false
+    end
+    profile.parts[path] = {
+      path = path, slotId = slot.id, parentPath = slot.parentPath,
+      parentPart = slot.parentPart, partName = slot.currentPart,
+    }
+  end
+  return persistLockProfile(profile, "lock_part_updated", "Part lock updated")
+end
+
+local function lockTuning(name, locked, normalizedValue)
+  initialize()
+  local profile = vehicleDNALocks.normalize(runtime.settings.lockProfile)
+  if name == "*" then profile.tuning.all = locked ~= false
+  elseif type(name) == "string" and name ~= "" and #name <= 256 then
+    profile.tuning.variables[name] = locked ~= false and true or nil
+    local normalized = tonumber(normalizedValue)
+    if locked ~= false and util.isFinite(normalized) then profile.tuning.normalized[name] = util.clamp(normalized, 0, 1)
+    else profile.tuning.normalized[name] = nil end
+  else setResult(false, "lock_tuning_invalid", "Tuning lock name is invalid"); publishState(); return false end
+  return persistLockProfile(profile, "lock_tuning_updated", "Tuning lock updated")
+end
+
+local function lockPaint(layer, field, locked)
+  initialize()
+  local profile = vehicleDNALocks.normalize(runtime.settings.lockProfile)
+  if layer == "*" then profile.paints.all = locked ~= false
+  else
+    layer = math.floor(tonumber(layer) or -1)
+    if layer < 1 or layer > vehicleDNALocks.MAX_PAINT_LAYERS then
+      setResult(false, "lock_paint_invalid", "Paint layer is invalid"); publishState(); return false
+    end
+    if field == "*" then profile.paints.layers[layer] = locked ~= false and true or nil
+    elseif type(field) == "string" then
+      local allowedFields = {
+        baseColor = true, metallic = true, roughness = true,
+        clearcoat = true, clearcoatRoughness = true,
+      }
+      if not allowedFields[field] then
+        setResult(false, "lock_paint_invalid", "Paint field is invalid"); publishState(); return false
+      end
+      profile.paints.fields[layer] = profile.paints.fields[layer] or {}
+      profile.paints.fields[layer][field] = locked ~= false and true or nil
+    else setResult(false, "lock_paint_invalid", "Paint field is invalid"); publishState(); return false end
+  end
+  return persistLockProfile(profile, "lock_paint_updated", "Paint lock updated")
+end
+
+local function applyLockPreset(name)
+  initialize()
+  local profile, reason = vehicleDNALocks.applyPreset(runtime.settings.lockProfile, name)
+  if not profile then setResult(false, reason, "Lock preset is invalid"); publishState(); return false end
+  return persistLockProfile(profile, "lock_preset_applied", "Lock preset applied: " .. tostring(name))
+end
+
+local function getVehicleDNALocks(id)
+  initialize()
+  local profile = runtime.settings.lockProfile
+  if id ~= nil and id ~= "" then
+    local entry = vehicleDNAStorage.find(runtime.dna.library, id)
+    if not entry then setResult(false, "dna_not_found", "Vehicle DNA entry was not found"); publishState(); return false end
+    profile = entry.lockProfile or vehicleDNALocks.empty()
+  end
+  local result = {id = id, profile = vehicleDNALocks.normalize(profile), summary = vehicleDNALocks.summary(profile)}
+  local scan = currentLockScan()
+  if scan then
+    result.resolution = vehicleDNALocks.resolve(profile, scan)
+    result.slots = {}
+    for _, slot in ipairs(scan.slots or {}) do
+      result.slots[#result.slots + 1] = {
+        path = slot.path, slotId = slot.id, partName = slot.currentPart,
+        category = vehicleDNALocks.classifySlot(slot), locked = vehicleDNALocks.isSlotLocked(profile, slot),
+      }
+    end
+  end
+  adapter.emit("SoturineChaosRandomizerLocks", result)
+  return result
 end
 
 local function requestState()
@@ -1409,10 +1699,16 @@ end
 local function deleteVehicleDNA(id)
   initialize()
   if runtime.state.busy then return false end
+  local entry = vehicleDNAStorage.find(runtime.dna.library, id)
   local updated, err = vehicleDNAStorage.remove(runtime.dna.library, id)
   if not updated then setResult(false, err, "Vehicle DNA entry was not found"); publishState(); return false end
   if runtime.dna.selectedId == id then runtime.dna.selectedId = nil end
-  return persistDNALibrary(updated, "dna_deleted", "Vehicle DNA deleted")
+  local persisted = persistDNALibrary(updated, "dna_deleted", "Vehicle DNA deleted")
+  if persisted and entry and entry.thumbnail and entry.thumbnail.kind == "managed" then
+    local removed, removeError = adapter.removeDNAThumbnail(id)
+    if not removed then diagnosticsModule.write(runtime.diagnostics, "W", "thumbnail_cleanup_failed", removeError, true) end
+  end
+  return persisted
 end
 
 local function renameVehicleDNA(id, name)
@@ -1429,6 +1725,110 @@ local function setVehicleDNAFavorite(id, favorite)
   local updated, err = vehicleDNAStorage.setFavorite(runtime.dna.library, id, favorite)
   if not updated then setResult(false, err, "Vehicle DNA favorite could not be updated"); publishState(); return false end
   return persistDNALibrary(updated, "dna_favorite_updated", "Vehicle DNA favorite updated")
+end
+
+local function persistMetadata(updated, err, code, message)
+  if not updated then setResult(false, err, message .. " failed"); publishState(); return false end
+  return persistDNALibrary(updated, code, message)
+end
+
+local function setVehicleDNAPinned(id, pinned)
+  initialize(); if runtime.state.busy then return false end
+  local updated, err = vehicleDNAStorage.setPinned(runtime.dna.library, id, pinned)
+  return persistMetadata(updated, err, "dna_pinned_updated", "Vehicle DNA pin updated")
+end
+
+local function setVehicleDNARating(id, rating)
+  initialize(); if runtime.state.busy then return false end
+  local updated, err = vehicleDNAStorage.setRating(runtime.dna.library, id, rating)
+  return persistMetadata(updated, err, "dna_rating_updated", "Vehicle DNA rating updated")
+end
+
+local function setVehicleDNATags(id, tags)
+  initialize(); if runtime.state.busy then return false end
+  local updated, err = vehicleDNAStorage.setTags(runtime.dna.library, id, tags)
+  return persistMetadata(updated, err, "dna_tags_updated", "Vehicle DNA tags updated")
+end
+
+local function setVehicleDNACollection(id, collection)
+  initialize(); if runtime.state.busy then return false end
+  local updated, err = vehicleDNAStorage.setCollection(runtime.dna.library, id, collection)
+  return persistMetadata(updated, err, "dna_collection_updated", "Vehicle DNA collection updated")
+end
+
+local function setVehicleDNANotes(id, notes)
+  initialize(); if runtime.state.busy then return false end
+  local updated, err = vehicleDNAStorage.setNotes(runtime.dna.library, id, notes)
+  return persistMetadata(updated, err, "dna_notes_updated", "Vehicle DNA notes updated")
+end
+
+local function duplicateVehicleDNA(id)
+  initialize(); if runtime.state.busy then return false end
+  local updated, err, newId = vehicleDNAStorage.duplicate(runtime.dna.library, id)
+  if not updated then setResult(false, err, "Vehicle DNA duplication failed"); publishState(); return false end
+  runtime.dna.selectedId = newId
+  return persistDNALibrary(updated, "dna_duplicated", "Vehicle DNA duplicated")
+end
+
+local function setVehicleDNAQuery(query)
+  initialize()
+  query = type(query) == "table" and query or {}
+  local filter = {all = true, favorites = true, pinned = true, recent = true, exact = true, partial = true, missing = true}
+  local sort = {updated = true, created = true, name = true, rating = true}
+  runtime.dna.query = {
+    search = type(query.search) == "string" and query.search:sub(1, 128) or "",
+    filter = filter[query.filter] and query.filter or "all",
+    sort = sort[query.sort] and query.sort or "updated",
+    model = type(query.model) == "string" and query.model:sub(1, 256) or "",
+    tag = type(query.tag) == "string" and query.tag:sub(1, 64) or "",
+    collection = type(query.collection) == "string" and query.collection:sub(1, 80) or "",
+  }
+  runtime.dna.page = 0
+  publishState()
+  return true
+end
+
+local function getVehicleDNADetails(id)
+  initialize()
+  local entry = vehicleDNAStorage.find(runtime.dna.library, id)
+  if not entry then setResult(false, "dna_not_found", "Vehicle DNA entry was not found"); publishState(); return false end
+  local children = {}
+  for _, child in ipairs(runtime.dna.library.entries or {}) do
+    if child.lineage and child.lineage.parentId == id then children[#children + 1] = vehicleDNAStorage.summary(child) end
+  end
+  local parent = entry.lineage and entry.lineage.parentId and vehicleDNAStorage.find(runtime.dna.library, entry.lineage.parentId) or nil
+  local details = {
+    entry = entry,
+    parent = parent and vehicleDNAStorage.summary(parent) or nil,
+    children = children,
+    summary = vehicleDNAStorage.summary(entry),
+  }
+  runtime.dna.selectedId = id
+  runtime.dna.details = {
+    id = id, summary = details.summary, parent = details.parent,
+    childCount = #children, slotCount = #(entry.final and entry.final.slots or {}),
+    tuningCount = #(entry.final and entry.final.tuning or {}), paintCount = #(entry.final and entry.final.paints or {}),
+  }
+  adapter.emit("SoturineChaosRandomizerDNADetails", details)
+  publishState()
+  return details
+end
+
+local function compareVehicleDNA(leftId, rightId)
+  initialize()
+  local left, right = vehicleDNAStorage.find(runtime.dna.library, leftId), vehicleDNAStorage.find(runtime.dna.library, rightId)
+  if not left or not right then setResult(false, "dna_not_found", "Both Vehicle DNA entries are required for comparison"); publishState(); return false end
+  local started = adapter.clock()
+  local comparison, reason = vehicleDNACompare.compare(left, right)
+  runtime.performance.compareMs = math.max(0, (adapter.clock() - started) * 1000)
+  if not comparison then setResult(false, reason, "Vehicle DNA comparison failed"); publishState(); return false end
+  runtime.dna.comparison = comparison
+  adapter.emit("SoturineChaosRandomizerDNAComparison", comparison)
+  setResult(true, "dna_comparison_ready", comparison.equal and "Vehicle DNA entries are equal" or "Vehicle DNA differences ready", {
+    leftId = leftId, rightId = rightId, differenceCount = #comparison.differences,
+  })
+  publishState()
+  return comparison
 end
 
 local function importVehicleDNA(value)
@@ -1460,6 +1860,192 @@ local function exportVehicleDNA(id, writeFile)
   setResult(true, "dna_export_ready", writeFile and "Vehicle DNA export ready" or "Vehicle DNA JSON ready to copy", details)
   publishState()
   return true
+end
+
+local function exportVehicleDNAJson(id, writeFile)
+  initialize()
+  local started = adapter.clock()
+  local entry = vehicleDNAStorage.find(runtime.dna.library, id)
+  if not entry then setResult(false, "dna_not_found", "Vehicle DNA entry was not found"); publishState(); return false end
+  local envelope = vehicleDNAPackage.envelope(entry)
+  local ok, encoded = adapter.encodeJSON(envelope, true)
+  if not ok then setResult(false, encoded.code, encoded.message); publishState(); return false end
+  runtime.dna.exportText = encoded
+  runtime.dna.selectedId = id
+  local checksumOk, checksum = adapter.sha256(encoded)
+  local details = {copyReady = true, bytes = #encoded, format = ".vdna.json", sha256 = checksumOk and checksum or nil}
+  if writeFile == true then
+    local fileOk, fileResult = adapter.exportDNAFile(envelope)
+    if not fileOk then setResult(false, fileResult.code, fileResult.message, details); publishState(); return false end
+    details.file = fileResult
+  end
+  runtime.performance.exportMs = math.max(0, (adapter.clock() - started) * 1000)
+  runtime.dna.sharePreview = {
+    id = id, format = ".vdna.json", bytes = #encoded, sha256 = details.sha256,
+    dependencies = util.deepCopy(entry.dependencies or {}), privacy = "No mod bytes, scripts, absolute paths, or personal data are included.",
+  }
+  setResult(true, "dna_json_export_ready", "Vehicle DNA JSON share is ready", details)
+  publishState()
+  return true
+end
+
+local function packageSHA(value)
+  local ok, digest = adapter.sha256(value)
+  return ok and digest or nil
+end
+
+local function exportVehicleDNAPackage(id)
+  initialize()
+  if not runtime.capabilities.dnaPackageWrite then
+    setResult(false, "vdna_package_export_unavailable", "This BeamNG environment cannot write validated Vehicle DNA packages"); publishState(); return false
+  end
+  local started = adapter.clock()
+  local entry = vehicleDNAStorage.find(runtime.dna.library, id)
+  if not entry then setResult(false, "dna_not_found", "Vehicle DNA entry was not found"); publishState(); return false end
+  local okVehicle, vehicleJSON = adapter.encodeJSON(vehicleDNAPackage.envelope(entry), true)
+  if not okVehicle then setResult(false, vehicleJSON.code, vehicleJSON.message); publishState(); return false end
+  local compatibility = runtime.dna.selectedId == id and runtime.dna.preflight or {
+    status = "not_evaluated", note = "Run compatibility inspection on the receiving installation.",
+  }
+  local okCompatibility, compatibilityJSON = adapter.encodeJSON(compatibility, true)
+  if not okCompatibility then setResult(false, compatibilityJSON.code, compatibilityJSON.message); publishState(); return false end
+  local readme = table.concat({
+    "Soturine Vehicle DNA package", "", "Contains metadata only; no mods, JBeam, textures, scripts, or other third-party assets.",
+    "Import through Soturine's Chaos Randomizer and inspect dependencies before restoring.", "",
+  }, "\n")
+  local payloads = {
+    ["vehicle.vdna.json"] = vehicleJSON,
+    ["compatibility.json"] = compatibilityJSON,
+    ["README.txt"] = readme,
+  }
+  local manifestFiles = {}
+  for _, name in ipairs({"vehicle.vdna.json", "compatibility.json", "README.txt"}) do
+    local digest = packageSHA(payloads[name])
+    if not digest then setResult(false, "checksum_unavailable", "SHA-256 is required for Vehicle DNA packages"); publishState(); return false end
+    manifestFiles[#manifestFiles + 1] = {name = name, bytes = #payloads[name], sha256 = digest}
+  end
+  local manifest = {
+    format = "SoturineVehicleDNAPackage", packageVersion = vehicleDNAPackage.PACKAGE_VERSION,
+    schemaVersion = entry.schemaVersion, generatorVersion = entry.generatorVersion,
+    originId = entry.id, files = manifestFiles,
+  }
+  local okManifest, manifestJSON = adapter.encodeJSON(manifest, true)
+  if not okManifest then setResult(false, manifestJSON.code, manifestJSON.message); publishState(); return false end
+  payloads["manifest.json"] = manifestJSON
+  local packageData, packageError = vehicleDNAPackage.build(payloads)
+  if not packageData then setResult(false, packageError, "Vehicle DNA package validation failed before write"); publishState(); return false end
+  local writeOk, writeResult = adapter.exportDNAPackage(packageData)
+  if not writeOk then setResult(false, writeResult.code, writeResult.message); publishState(); return false end
+  local digest = packageSHA(packageData)
+  runtime.performance.exportMs = math.max(0, (adapter.clock() - started) * 1000)
+  runtime.dna.sharePreview = {
+    id = id, format = ".vdna.zip", bytes = #packageData, sha256 = digest,
+    entries = 4, dependencies = util.deepCopy(entry.dependencies or {}),
+    thumbnailIncluded = false,
+    privacy = "Metadata only. Managed thumbnails are omitted until separately validated for package export.",
+  }
+  setResult(true, "vdna_package_exported", "Vehicle DNA package exported to the controlled share folder", {
+    file = writeResult, bytes = #packageData, sha256 = digest, entries = 4,
+  })
+  publishState()
+  return true
+end
+
+local function importVehicleDNAPackage(reference)
+  initialize()
+  if runtime.state.busy then return false end
+  if reference ~= nil and reference ~= "" and reference ~= "inbox" then
+    setResult(false, "vdna_package_reference_invalid", "Only the fixed Vehicle DNA inbox is accepted"); publishState(); return false
+  end
+  local started = adapter.clock()
+  local readOk, packageData = adapter.importDNAPackage()
+  if not readOk then setResult(false, packageData.code, packageData.message); publishState(); return false end
+  local inspected, inspectError = vehicleDNAPackage.inspect(packageData)
+  if not inspected then setResult(false, inspectError, "Vehicle DNA package was rejected"); publishState(); return false end
+  local manifestOk, manifest = adapter.decodeJSON(inspected.entries["manifest.json"])
+  if not manifestOk then setResult(false, manifest.code, manifest.message); publishState(); return false end
+  local validManifest, manifestError = vehicleDNAPackage.validateManifest(manifest, inspected, packageSHA)
+  if not validManifest then setResult(false, manifestError, "Vehicle DNA package manifest was rejected"); publishState(); return false end
+  local vehicleOk, envelope = adapter.decodeJSON(inspected.entries["vehicle.vdna.json"])
+  if not vehicleOk or envelope.format ~= "SoturineVehicleDNAShare" or tonumber(envelope.shareVersion) ~= 1 then
+    setResult(false, "vdna_package_vehicle_invalid", "Vehicle DNA package payload was rejected"); publishState(); return false
+  end
+  local entry, importError = vehicleDNAImport.sanitize(envelope.vehicleDNA)
+  if not entry then setResult(false, importError, "Packaged Vehicle DNA failed schema validation"); publishState(); return false end
+  local originId = entry.id
+  entry.lineage = util.shallowMerge(entry.lineage or {}, {
+    originId = originId, importedAt = os.time(), importStrategy = "validated_vdna_package",
+  })
+  local validEntry, entryError = vehicleDNASchema.validateEntry(entry)
+  if not validEntry then setResult(false, entryError, "Imported lineage metadata is invalid"); publishState(); return false end
+  runtime.dna.importPreview = {
+    entry = entry,
+    public = {
+      originId = originId, summary = vehicleDNAStorage.summary(entry),
+      dependencies = util.deepCopy(entry.dependencies or {}), packageBytes = #packageData,
+      packageSha256 = packageSHA(packageData), thumbnailPresent = inspected.entries["thumbnail.png"] ~= nil,
+    },
+  }
+  runtime.performance.importMs = math.max(0, (adapter.clock() - started) * 1000)
+  setResult(true, "vdna_package_preview_ready", "Vehicle DNA package is valid; confirm import after reviewing dependencies", runtime.dna.importPreview.public)
+  publishState()
+  return true
+end
+
+local function confirmVehicleDNAPackageImport()
+  initialize()
+  if runtime.state.busy or not runtime.dna.importPreview then return false end
+  local updated, addError, id = vehicleDNAStorage.add(runtime.dna.library, runtime.dna.importPreview.entry)
+  if not updated then setResult(false, addError, "Vehicle DNA package could not be stored"); publishState(); return false end
+  runtime.dna.selectedId = id
+  runtime.dna.importPreview = nil
+  return persistDNALibrary(updated, "vdna_package_imported", "Vehicle DNA package imported with a unique local ID")
+end
+
+local function captureVehicleDNAThumbnail(id)
+  initialize()
+  if runtime.state.busy or runtime.dna.thumbnailPending then return false end
+  local entry = vehicleDNAStorage.find(runtime.dna.library, id)
+  if not entry then setResult(false, "dna_not_found", "Vehicle DNA entry was not found"); publishState(); return false end
+  local okModel, modelKey = adapter.getCurrentModelKey()
+  if not okModel or modelKey ~= (entry.final and entry.final.modelKey) then
+    setResult(false, "thumbnail_model_mismatch", "Load this Vehicle DNA model before explicitly capturing its thumbnail"); publishState(); return false
+  end
+  local started = adapter.clock()
+  runtime.dna.thumbnailPending = id
+  local captureOk, captureResult = adapter.captureDNAThumbnail(id, function(success, result)
+    runtime.dna.thumbnailPending = nil
+    runtime.performance.thumbnailLoadMs = math.max(0, (adapter.clock() - started) * 1000)
+    if not success or runtime.state.busy then
+      adapter.removeDNAThumbnail(id)
+      setResult(false, success and "thumbnail_operation_conflict" or result.code, success and "Thumbnail capture overlapped another operation" or result.message)
+      publishState(); return
+    end
+    local dimensions, reason = vehicleDNAGallery.pngDimensions(result.data)
+    if not dimensions then adapter.removeDNAThumbnail(id); setResult(false, reason, "Captured thumbnail was rejected"); publishState(); return end
+    local metadata = vehicleDNAGallery.managedMetadata(id, dimensions)
+    local updated, updateError = vehicleDNAStorage.setThumbnail(runtime.dna.library, id, metadata)
+    if not updated then adapter.removeDNAThumbnail(id); setResult(false, updateError, "Thumbnail metadata could not be stored"); publishState(); return end
+    persistDNALibrary(updated, "thumbnail_captured", "Vehicle DNA thumbnail captured")
+  end)
+  if not captureOk then runtime.dna.thumbnailPending = nil; setResult(false, captureResult.code, captureResult.message); publishState(); return false end
+  setResult(true, "thumbnail_capture_started", "Capturing a bounded Vehicle DNA thumbnail", captureResult)
+  publishState()
+  return true
+end
+
+local function removeVehicleDNAThumbnail(id)
+  initialize()
+  if runtime.state.busy then return false end
+  local entry = vehicleDNAStorage.find(runtime.dna.library, id)
+  if not entry then setResult(false, "dna_not_found", "Vehicle DNA entry was not found"); publishState(); return false end
+  if entry.thumbnail and entry.thumbnail.kind == "managed" then
+    local removeOk, removeError = adapter.removeDNAThumbnail(id)
+    if not removeOk then setResult(false, removeError.code, removeError.message); publishState(); return false end
+  end
+  local updated, updateError = vehicleDNAStorage.setThumbnail(runtime.dna.library, id, nil)
+  if not updated then setResult(false, updateError, "Thumbnail metadata could not be removed"); publishState(); return false end
+  return persistDNALibrary(updated, "thumbnail_removed", "Vehicle DNA thumbnail removed; safe fallback restored")
 end
 
 local function dnaEnvironment(entry)
@@ -1569,8 +2155,9 @@ local function pureSeedReplayVehicleDNA(id)
   return started
 end
 
-local function startVehicleDNABaseOperation(entry, registryReport, purpose, confirmPartial)
+local function startVehicleDNABaseOperation(entry, registryReport, purpose, confirmPartial, creativeContext)
   local kind = purpose == "replay" and "dnaReplayGeneration"
+    or purpose == "mutation" and "dnaMutation"
     or (purpose == "restore_exact" and "dnaRestoreExact" or "dnaRestoreCompatible")
   local okBegin, activeOrError = beginOperation(kind, {operationTimeout = DNA_RESTORE_TIMEOUT})
   if not okBegin then setResult(false, activeOrError.code, activeOrError.message); publishState(); return false end
@@ -1583,6 +2170,20 @@ local function startVehicleDNABaseOperation(entry, registryReport, purpose, conf
   active.replayGeneration = purpose == "replay"
   active.confirmPartial = confirmPartial == true
   active.policy = mutationPolicy.fromSettings(entry.generation and entry.generation.settings or runtime.settings)
+  if purpose == "replay" then
+    creativeContext = type(creativeContext) == "table" and creativeContext or {}
+    active.replayLockPolicy = creativeContext.lockPolicy or "original"
+    active.lockProfileSnapshot = vehicleDNALocks.normalize(creativeContext.lockProfile)
+  elseif purpose == "mutation" then
+    creativeContext = type(creativeContext) == "table" and creativeContext or {}
+    active.creativeOperation = "mutation"
+    active.captureOperation = entry.generation.operation
+    active.seed = creativeContext.seed
+    active.rng = rngModule.new(active.seed)
+    active.policy = mutationPolicy.fromSettings(creativeContext.settings)
+    active.lockProfileSnapshot = vehicleDNALocks.normalize(creativeContext.lockProfile)
+    active.pendingLineage = util.deepCopy(creativeContext.lineage)
+  end
   active.dnaReport = registryReport
   active.dnaDeviations = {}
   active.dnaDeviationKeys = {}
@@ -1625,7 +2226,7 @@ local function startVehicleDNABaseOperation(entry, registryReport, purpose, conf
   return true
 end
 
-local function replayVehicleDNAGeneration(id)
+local function replayVehicleDNAGeneration(id, lockPolicy)
   initialize()
   if runtime.state.busy then return false end
   local entry = vehicleDNAStorage.find(runtime.dna.library, id)
@@ -1644,11 +2245,40 @@ local function replayVehicleDNAGeneration(id)
   local preflightOk, report = preflightVehicleDNA(id, "compatible")
   if not preflightOk or not report or report.registryStatus == "registry_incompatible" then return false end
   runtime.dna.selectedId = id
-  return startVehicleDNABaseOperation(entry, report, "replay", true)
+  lockPolicy = lockPolicy == "current" and "current" or "original"
+  local lockProfile = lockPolicy == "current" and runtime.settings.lockProfile or entry.lockProfile
+  return startVehicleDNABaseOperation(entry, report, "replay", true, {lockPolicy = lockPolicy, lockProfile = lockProfile})
 end
 
 local function replayVehicleDNA(id)
-  return replayVehicleDNAGeneration(id)
+  return replayVehicleDNAGeneration(id, "original")
+end
+
+local function mutateVehicleDNA(id, strength, options)
+  initialize()
+  if runtime.state.busy then return false end
+  local entry = vehicleDNAStorage.find(runtime.dna.library, id)
+  if not entry then setResult(false, "dna_not_found", "Vehicle DNA entry was not found"); publishState(); return false end
+  if not vehicleDNAMutations.validateStrength(strength) then
+    setResult(false, "mutation_strength_invalid", "Mutation strength must be small, medium, or wild"); publishState(); return false
+  end
+  options = type(options) == "table" and options or {}
+  local index = math.max(1, math.floor(tonumber(options.mutationIndex) or vehicleDNAMutations.nextIndex(runtime.dna.library, id)))
+  local seed, seedError = vehicleDNAMutations.deriveSeed(entry.generation.seed, entry.id, index, strength)
+  if not seed then setResult(false, seedError, "Mutation seed could not be derived"); publishState(); return false end
+  local lineage, lineageError = vehicleDNAMutations.lineage(entry, index, strength, "mutation")
+  if not lineage then setResult(false, lineageError, "Mutation lineage limit reached"); publishState(); return false end
+  lineage.mutationSeed = seed
+  local mutationSettings = vehicleDNAMutations.settingsForStrength(entry.generation.settings, strength)
+  local preflightOk, report = preflightVehicleDNA(id, "compatible")
+  if not preflightOk or not report or report.registryStatus == "registry_incompatible" then return false end
+  runtime.dna.selectedId = id
+  return startVehicleDNABaseOperation(entry, report, "mutation", true, {
+    seed = seed,
+    settings = mutationSettings,
+    lockProfile = runtime.settings.lockProfile,
+    lineage = lineage,
+  })
 end
 
 local function restoreVehicleDNA(id, mode, confirmPartial)
@@ -1697,6 +2327,15 @@ runDNATargetPreflight = function(active)
     return
   end
   active.dnaTargetStatus = report.status
+  if active.creativeOperation == "mutation" then
+    active.pass = 1
+    active.previousScan = nil
+    active.deferredPaths = {}
+    active.mutatedPaths = {}
+    operationState.transition(runtime.state, "scanning", false)
+    processMutationPass(active)
+    return
+  end
   if active.replayGeneration then
     if active.dnaEntry.generation.operation == "randomConfig" then
       local transitioned, transitionError = operationState.transition(runtime.state, "validating", false)
@@ -2358,6 +2997,18 @@ M.fullRandom = function(settingsSnapshot) return runAction("fullRandom", setting
 M.undo = function() return runAction("undo") end
 M.reindex = function() return runAction("reindex") end
 M.updateSettings = updateSettings
+M.updateLockProfile = updateLockProfile
+M.getVehicleDNALocks = getVehicleDNALocks
+M.lockVehicle = lockVehicle
+M.lockConfiguration = lockConfiguration
+M.lockCategory = lockCategory
+M.lockSlot = lockSlot
+M.unlockSlot = unlockSlot
+M.lockPart = lockPart
+M.lockTuning = lockTuning
+M.lockPaint = lockPaint
+M.applyLockPreset = applyLockPreset
+M.rerollUnlocked = rerollUnlocked
 M.requestState = requestState
 M.runDeveloperStress = runDeveloperStress
 M.cancelDeveloperStress = cancelDeveloperStress
@@ -2368,12 +3019,28 @@ M.setVehicleDNAPage = setVehicleDNAPage
 M.deleteVehicleDNA = deleteVehicleDNA
 M.renameVehicleDNA = renameVehicleDNA
 M.setVehicleDNAFavorite = setVehicleDNAFavorite
+M.setVehicleDNAPinned = setVehicleDNAPinned
+M.setVehicleDNARating = setVehicleDNARating
+M.setVehicleDNATags = setVehicleDNATags
+M.setVehicleDNACollection = setVehicleDNACollection
+M.setVehicleDNANotes = setVehicleDNANotes
+M.duplicateVehicleDNA = duplicateVehicleDNA
+M.setVehicleDNAQuery = setVehicleDNAQuery
+M.getVehicleDNADetails = getVehicleDNADetails
+M.compareVehicleDNA = compareVehicleDNA
 M.importVehicleDNA = importVehicleDNA
 M.exportVehicleDNA = exportVehicleDNA
+M.exportVehicleDNAJson = exportVehicleDNAJson
+M.exportVehicleDNAPackage = exportVehicleDNAPackage
+M.importVehicleDNAPackage = importVehicleDNAPackage
+M.confirmVehicleDNAPackageImport = confirmVehicleDNAPackageImport
+M.captureVehicleDNAThumbnail = captureVehicleDNAThumbnail
+M.removeVehicleDNAThumbnail = removeVehicleDNAThumbnail
 M.preflightVehicleDNA = preflightVehicleDNA
 M.replayVehicleDNA = replayVehicleDNA
 M.replayVehicleDNAGeneration = replayVehicleDNAGeneration
 M.pureSeedReplayVehicleDNA = pureSeedReplayVehicleDNA
+M.mutateVehicleDNA = mutateVehicleDNA
 M.restoreVehicleDNA = restoreVehicleDNA
 M.onExtensionLoaded = onExtensionLoaded
 M.onVehicleSpawned = onVehicleSpawned
