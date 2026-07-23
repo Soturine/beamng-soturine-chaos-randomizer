@@ -38,7 +38,7 @@ On 2026-07-23, every workflow SHA was resolved again through the official `actio
 Current suite structure after the Vehicle DNA implementation:
 
 - **36 Python `unittest` methods**;
-- one Python method runs **229 named Lua behavior/syntax/pipeline/performance cases** against BeamNG's shipped Lua 5.1 console when no standalone Lua is available;
+- one Python method runs **240 named Lua behavior/syntax/pipeline/performance cases** against BeamNG's shipped Lua 5.1 console when no standalone Lua is available;
 - **24 repository/static methods**, including real `node --check`, JSON/YAML parsing, links, versions, API boundary, UI atomicity/host/DNA boundary, icon limits, action pins, credentials, paths, and whitespace;
 - **11 package methods**, including two-build equality, SHA, root layout, normalized metadata, version, manifest consistency, and machine-path checks;
 - **1 JavaScript file** syntax-checked;
@@ -225,7 +225,23 @@ Use the exact final ZIP without extracting it and record the result of every row
 
 Interactive cases passed: **0**. Interactive cases pending: **60**.
 
-## Package result
+## 0.4.0-alpha.2 package candidate
+
+The release tree was built twice consecutively on Windows and the byte count and SHA-256 matched. `tools/validate_package.py` then rebuilt independently for its reproducibility check and validated structure, content, root layout, version, checksum, line endings, icon limits, manifest, and absence of machine paths.
+
+| Item | Result |
+| --- | --- |
+| Filename | `soturine_chaos_randomizer_0.4.0-alpha.2.zip` |
+| Bytes | `118,685` |
+| Entries | `43` |
+| Windows SHA-256 | `6ed58c5801609558383c6c3bffdcd026dea1bff27fd1ca5347fc43be6e1fc9d8` |
+| Same-environment two-build equality | Passed; byte-identical consecutive builds |
+| ZIP/checksum/manifest validation | Passed |
+| Manifest test inventory | 36 Python methods; 240 Lua cases; 1 JavaScript; 2 JSON; 0 interactive Passed; 60 interactive Pending |
+
+These bytes are the candidate payload. The release manifest is rebuilt once from the final release commit so its commit field points to the tag. Published-asset download/hash validation is recorded only after GitHub serves the attached assets.
+
+## Historical 0.4.0-alpha.1 package result
 
 The packaged inputs were built twice on Windows after the code, UI, asset, tests, package, and CI commits. Documentation is excluded from the ZIP, so the final documentation commit does not alter these bytes.
 
