@@ -175,6 +175,15 @@ soturine-chaos-randomizer {
   opacity: 0.43;
 }
 
+.scr-app button:focus-visible,
+.scr-app input:focus-visible,
+.scr-app select:focus-visible,
+.scr-app textarea:focus-visible,
+.scr-app summary:focus-visible {
+  outline: 2px solid #75bfff;
+  outline-offset: 2px;
+}
+
 .scr-chaos-control {
   display: grid;
   grid-template-columns: 49px minmax(80px, 1fr) 42px;
@@ -197,6 +206,30 @@ soturine-chaos-randomizer {
 .scr-chaos-control input[type="range"] {
   width: 100%;
   accent-color: var(--scr-orange);
+}
+
+.scr-seed-control {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  margin: 11px 0;
+}
+
+.scr-seed-control label { font-size: 11px; font-weight: 700; }
+.scr-seed-control button {
+  min-height: 29px;
+  padding: 4px 9px;
+  color: #fff;
+  background: #3a3e44;
+  border: 1px solid var(--scr-line);
+  border-radius: 3px;
+  cursor: pointer;
+}
+.scr-seed-control small {
+  grid-column: 2 / -1;
+  color: #aeb2b6;
+  font-size: 9px;
 }
 
 .scr-checks {
@@ -326,6 +359,7 @@ soturine-chaos-randomizer {
 
 .scr-save-dna button,
 .scr-dna-actions button,
+.scr-card-actions button,
 .scr-pager button,
 .scr-transfer button,
 .scr-report-actions button {
@@ -337,6 +371,16 @@ soturine-chaos-randomizer {
   font-size: 9px;
   cursor: pointer;
 }
+
+.scr-storage {
+  display: grid;
+  gap: 4px;
+  margin: -2px 0 10px;
+  color: #c6c9cc;
+  font-size: 9px;
+}
+.scr-storage > div { height: 5px; overflow: hidden; background: rgba(255,255,255,.11); border-radius: 99px; }
+.scr-storage i { display: block; height: 100%; max-width: 100%; background: var(--scr-orange); }
 
 .scr-section-heading {
   display: flex;
@@ -376,6 +420,27 @@ soturine-chaos-randomizer {
 .scr-dna-list li.is-selected {
   border-color: var(--scr-orange);
 }
+
+.scr-card-head { display: flex; align-items: flex-start; gap: 7px; }
+.scr-favorite {
+  flex: 0 0 30px;
+  min-height: 30px;
+  color: #ffc37f;
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  font-size: 18px;
+  cursor: pointer;
+}
+.scr-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.scr-badges span { padding: 2px 5px; color: #cdd0d3; background: rgba(255,255,255,.08); border-radius: 99px; font-size: 8px; }
+.scr-card-actions { display: grid; grid-template-columns: 1fr 1.15fr 30px; gap: 5px; margin-top: 7px; }
+.scr-card-actions > button { min-height: 32px; }
+.scr-card-actions .is-primary { background: var(--scr-orange); font-weight: 700; }
+.scr-card-actions details { position: relative; }
+.scr-card-actions summary { display: grid; min-height: 32px; place-items: center; border: 1px solid var(--scr-line); border-radius: 3px; cursor: pointer; list-style: none; }
+.scr-card-actions details > div { position: absolute; right: 0; z-index: 4; display: grid; width: 145px; padding: 5px; background: #17191d; border: 1px solid var(--scr-line); border-radius: 4px; box-shadow: 0 8px 18px rgba(0,0,0,.45); }
+.scr-card-actions details button { min-height: 29px; text-align: left; }
 
 .scr-dna-select {
   display: grid;
@@ -469,6 +534,7 @@ soturine-chaos-randomizer {
   gap: 5px;
   margin-top: 8px;
 }
+.scr-partial-opt { display: flex; align-items: center; gap: 7px; margin-top: 8px; font-size: 9px; }
 .scr-report-actions button:disabled { cursor: not-allowed; opacity: 0.45; }
 .scr-empty { color: #bfc2c5; font-size: 10px; }
 
@@ -620,4 +686,10 @@ soturine-chaos-randomizer {
   .scr-action-row { grid-template-columns: 1fr; }
   .scr-filter-grid { grid-template-columns: 1fr 1fr; }
   .scr-version { display: none; }
+  .scr-card-actions { grid-template-columns: 1fr 30px; }
+  .scr-card-actions > button:first-child { grid-column: 1 / -1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scr-app *, .scr-app *::before, .scr-app *::after { transition-duration: .01ms !important; animation-duration: .01ms !important; }
 }

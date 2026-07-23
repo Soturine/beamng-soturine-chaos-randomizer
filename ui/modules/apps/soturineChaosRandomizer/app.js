@@ -15,6 +15,7 @@
           advancedOpen: false,
           copyStatus: '',
           transferStatus: '',
+          allowPartial: false,
           importText: '',
           dnaName: '',
           state: {
@@ -23,7 +24,7 @@
             progress: {label: 'Loading extension', value: 0},
             capabilities: {},
             index: {models: 0, configurations: 0, blacklists: {}, sources: {}},
-            garage: {entries: [], total: 0, page: 0, pageCount: 1, pendingSave: false},
+            garage: {entries: [], total: 0, page: 0, pageCount: 1, pendingSave: false, storage: {}},
             history: [],
             settings: {
               schemaVersion: 3,
@@ -59,6 +60,8 @@
             exportVehicleDNA: true,
             preflightVehicleDNA: true,
             replayVehicleDNA: true,
+            replayVehicleDNAGeneration: true,
+            pureSeedReplayVehicleDNA: true,
             restoreVehicleDNA: true,
             setVehicleDNAPage: true
           }
@@ -160,10 +163,17 @@
           var message = mode === 'compatible'
             ? 'Apply this compatible restore? Every omission and clamp shown in the preflight will be recorded.'
             : 'Apply this exact Vehicle DNA snapshot? Any divergence will trigger rollback.'
-          if (window.confirm(message)) callWithArgs('restoreVehicleDNA', [id, mode, mode === 'compatible' && report.status === 'partial'])
+          if (window.confirm(message)) callWithArgs('restoreVehicleDNA', [id, mode, mode === 'compatible' && scope.chaos.allowPartial === true])
         }
 
-        scope.chaos.replayDNA = function (dna) { if (dna && !scope.chaos.state.busy) callWithArgs('replayVehicleDNA', [dna.id]) }
+        scope.chaos.replayDNA = function (dna) { if (dna && !scope.chaos.state.busy) callWithArgs('replayVehicleDNAGeneration', [dna.id]) }
+
+        scope.chaos.pureSeedReplayDNA = function (dna) {
+          if (!dna || scope.chaos.state.busy) return
+          if (window.confirm('Pure Seed Replay reselects the model and configuration and may differ when content or algorithms changed. Continue?')) {
+            callWithArgs('pureSeedReplayVehicleDNA', [dna.id])
+          }
+        }
 
         scope.chaos.renameDNA = function (dna) {
           if (!dna || scope.chaos.state.busy) return
