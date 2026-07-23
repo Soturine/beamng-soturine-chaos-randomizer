@@ -7,6 +7,8 @@ import shutil
 import subprocess
 import unittest
 
+from tools import validate_package
+
 
 ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_ROOTS = (ROOT / "lua", ROOT / "ui", ROOT / "settings")
@@ -67,7 +69,7 @@ class StaticValidationTests(unittest.TestCase):
                 self.assertIsNone(unstable.search(path.read_text(encoding="utf-8")))
 
     def test_package_content_has_no_machine_paths(self) -> None:
-        pattern = re.compile(r"(?:[A-Za-z]:\\|/Users/|/home/)")
+        pattern = re.compile(r"(?:[A-Za-z]:\\|/" + r"Users/|/" + r"home/)")
         for root in PACKAGE_ROOTS:
             for path in sorted(root.rglob("*")):
                 if path.is_file() and path.suffix.lower() != ".png":
@@ -86,6 +88,85 @@ class StaticValidationTests(unittest.TestCase):
         directives = [manifest["directive"] for manifest in manifests]
         self.assertEqual(len(directives), len(set(directives)))
         self.assertIn("soturineChaosRandomizer", directives)
+
+    def test_action_flushes_pending_settings(self) -> None:
+        source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        run_body = source[source.index("scope.chaos.run = function"):source.index("scope.chaos.toggleAdvanced")]
+        self.assertLess(run_body.index("cancelSettingsTimer()"), run_body.index("angular.copy"))
+        self.assertIn("soturineChaosRandomizer.runAction", run_body)
+
+    def test_manual_seed_clicked_immediately_is_used(self) -> None:
+        source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        self.assertIn("angular.copy(scope.chaos.state.settings || {})", source)
+        self.assertIn("serializedSettings", source)
+        self.assertIn("manualSeed", source)
+
+    def test_filter_clicked_immediately_is_used(self) -> None:
+        html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
+        source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        self.assertIn("settings.contentFilter", html)
+        self.assertIn("angular.copy(scope.chaos.state.settings || {})", source)
+
+    def test_destroy_cancels_pending_timer(self) -> None:
+        source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        destroy = source[source.index("scope.$on('$destroy'"):]
+        self.assertIn("cancelSettingsTimer()", destroy)
+
+    def test_server_state_update_does_not_resend_settings(self) -> None:
+        source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        apply_state = source[source.index("function applyState"):source.index("function persistSettings")]
+        self.assertNotIn("updateSettings", apply_state)
+        self.assertNotIn("scheduleSettings", apply_state)
+
+    def test_ui_host_fills_container(self) -> None:
+        css = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.css").read_text(encoding="utf-8")
+        host = css[css.index("soturine-chaos-randomizer {"):css.index("}", css.index("soturine-chaos-randomizer {"))]
+        for declaration in ("display: block", "width: 100%", "height: 100%", "min-width: 0", "min-height: 0"):
+            self.assertIn(declaration, host)
+
+    def test_app_icon_limits(self) -> None:
+        width, height, size = validate_package.validate_icon(
+            ROOT / "ui/modules/apps/soturineChaosRandomizer/app.png"
+        )
+        self.assertEqual((width, height), (500, 240))
+        self.assertLess(size, 100_000)
+
+    def test_workflow_yaml_parses(self) -> None:
+        try:
+            import yaml
+        except ImportError:
+            self.fail("PyYAML is required so workflow parsing cannot be silently skipped")
+        for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+            with self.subTest(path=path.name):
+                self.assertIsInstance(yaml.safe_load(path.read_text(encoding="utf-8")), dict)
+
+    def test_workflow_actions_are_sha_pinned(self) -> None:
+        uses = re.compile(r"^\s*uses:\s*([^\s#]+)", re.MULTILINE)
+        for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
+            for action in uses.findall(path.read_text(encoding="utf-8")):
+                with self.subTest(path=path.name, action=action):
+                    self.assertRegex(action, r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}$")
+
+    def test_repository_has_no_machine_paths(self) -> None:
+        pattern = re.compile(r"(?:[A-Za-z]:\\(?:Users|home)\\|/" + r"Users/|/" + r"home/)")
+        ignored = {".git", "dist", "__pycache__"}
+        for path in sorted(ROOT.rglob("*")):
+            if not path.is_file() or path.suffix.lower() in {".png", ".zip"}:
+                continue
+            if any(part in ignored for part in path.parts):
+                continue
+            with self.subTest(path=path.relative_to(ROOT)):
+                self.assertIsNone(pattern.search(path.read_text(encoding="utf-8", errors="ignore")))
+
+    def test_no_obvious_credentials(self) -> None:
+        pattern = re.compile(r"(?:ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-[A-Za-z0-9]{20,})")
+        ignored = {".git", "dist", "__pycache__"}
+        for path in sorted(ROOT.rglob("*")):
+            if not path.is_file() or path.suffix.lower() in {".png", ".zip"}:
+                continue
+            if any(part in ignored for part in path.parts):
+                continue
+            self.assertIsNone(pattern.search(path.read_text(encoding="utf-8", errors="ignore")), path)
 
 
 if __name__ == "__main__":

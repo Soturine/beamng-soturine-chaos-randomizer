@@ -45,8 +45,7 @@ class LuaLogicTests(unittest.TestCase):
             self.assertEqual(stage.parent.resolve(), game_root.resolve())
             try:
                 shutil.copytree(ROOT / "lua", stage / "lua")
-                (stage / "tests" / "lua").mkdir(parents=True)
-                shutil.copy2(RUNNER, stage / "tests" / "lua" / "run.lua")
+                shutil.copytree(ROOT / "tests" / "lua", stage / "tests" / "lua")
                 environment = os.environ.copy()
                 environment["SCR_TEST_VFS_ROOT"] = "/" + stage.name
                 result = subprocess.run(
