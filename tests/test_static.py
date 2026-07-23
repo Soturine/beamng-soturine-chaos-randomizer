@@ -41,6 +41,19 @@ class StaticValidationTests(unittest.TestCase):
                 for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
                     self.assertIsNone(re.search(r"[ \t]+$", line), f"trailing whitespace on line {number}")
 
+    def test_internal_markdown_links_resolve(self) -> None:
+        link_pattern = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
+        for document in sorted(ROOT.rglob("*.md")):
+            if any(part in {".git", "dist"} for part in document.parts):
+                continue
+            for target in link_pattern.findall(document.read_text(encoding="utf-8")):
+                target = target.strip().split(" ", 1)[0].strip("<>")
+                if not target or target.startswith(("#", "http://", "https://", "mailto:")):
+                    continue
+                relative = target.split("#", 1)[0]
+                with self.subTest(document=document.relative_to(ROOT), target=target):
+                    self.assertTrue((document.parent / relative).resolve().exists())
+
     def test_beamng_api_boundary(self) -> None:
         unstable = re.compile(r"\b(?:core_[a-zA-Z_]+|guihooks|jsonReadFile|jsonWriteFile|getPlayerVehicle|\bbe:)")
         allowed = {
