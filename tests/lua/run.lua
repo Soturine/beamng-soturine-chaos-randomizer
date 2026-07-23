@@ -1,4 +1,4 @@
-local root = os.getenv("SCR_TEST_VFS_ROOT") or "."
+local root = rawget(_G, "SCR_TEST_ROOT") or os.getenv("SCR_TEST_VFS_ROOT") or "."
 package.path = root .. "/?.lua;" .. root .. "/lua/?.lua;" .. root .. "/lua/?/init.lua;" .. package.path
 
 local configSelector = require("ge/extensions/soturineChaosRandomizer/configSelector")
@@ -403,7 +403,7 @@ tests.deferred_descendant_uses_new_tree_candidates = function()
   local second = assert(slotScanner.scan(reloaded, {}))
   local secondEligible = slotScanner.eligiblePaths(first, second, {["/engine/intake/"] = true}, {["/engine/"] = true})
   equal(secondEligible["/engine/"], nil, "a changed ancestor must not be selected again")
-  truthy(secondEligible["/engine/intake/"]], "the deferred descendant must use the fresh tree")
+  truthy(secondEligible["/engine/intake/"], "the deferred descendant must use the fresh tree")
   local result = mutationEngine.plan(second, secondEligible, fullMutationPolicy(false), scriptedGenerator({true}))
   equal(result.children.engine.children.intake.chosenPartName, "intake_new_b")
 end
@@ -878,4 +878,4 @@ if #failures > 0 then
   error(table.concat(failures, "\n"))
 end
 
-print("SCR_TESTS_OK " .. tostring(#names))
+print("SCR_TESTS_" .. "OK " .. tostring(#names))

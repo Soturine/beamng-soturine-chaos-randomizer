@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import unittest
@@ -46,12 +48,17 @@ class LuaLogicTests(unittest.TestCase):
             try:
                 shutil.copytree(ROOT / "lua", stage / "lua")
                 shutil.copytree(ROOT / "tests" / "lua", stage / "tests" / "lua")
-                environment = os.environ.copy()
-                environment["SCR_TEST_VFS_ROOT"] = "/" + stage.name
+                bootstrap = stage / "run_tests.lua"
+                virtual_root = "/" + stage.name
+                bootstrap.write_text(
+                    "SCR_TEST_ROOT = " + json.dumps(virtual_root) + "\n"
+                    + "dofile(" + json.dumps(virtual_root + "/tests/lua/run.lua") + ")\n",
+                    encoding="utf-8",
+                    newline="\n",
+                )
                 result = subprocess.run(
-                    [str(console), "file", str(stage / "tests" / "lua" / "run.lua")],
+                    [str(console), "file", str(bootstrap)],
                     cwd=game_root,
-                    env=environment,
                     text=True,
                     capture_output=True,
                     check=False,
@@ -62,7 +69,7 @@ class LuaLogicTests(unittest.TestCase):
                     shutil.rmtree(stage)
 
         output = result.stdout + result.stderr
-        self.assertIn("SCR_TESTS_OK", output, msg=output)
+        self.assertRegex(output, re.compile(r"^SCR_TESTS_OK \d+\s*$", re.MULTILINE), msg=output)
 
 
 if __name__ == "__main__":
