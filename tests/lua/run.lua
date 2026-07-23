@@ -2589,6 +2589,17 @@ tests.imported_origin_is_preserved_while_local_ids_stay_unique = function()
   equal(vehicleDNAStorage.find(library, secondId).lineage.originId, "foreign-origin")
 end
 
+tests.vdna_json_envelope_roundtrips_through_public_import = function()
+  local harness = pipelineHarness.new()
+  local entry = sampleDNA({id = "json-origin", name = "JSON Envelope"})
+  truthy(harness.main.importVehicleDNA(vehicleDNAPackage.envelope(entry)))
+  truthy(harness.main.importVehicleDNA(vehicleDNAPackage.envelope(entry)))
+  local first, second = harness.library.entries[1], harness.library.entries[2]
+  equal(first.lineage.originId, "json-origin")
+  equal(second.lineage.originId, "json-origin")
+  truthy(first.id ~= second.id)
+end
+
 tests.reroll_unlocked_creates_pending_dna_without_changing_locked_state = function()
   local harness = pipelineHarness.new()
   truthy(harness.main.updateLockProfile({

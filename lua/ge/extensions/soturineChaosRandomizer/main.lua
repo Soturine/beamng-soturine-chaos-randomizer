@@ -2020,6 +2020,10 @@ local function importVehicleDNAPackage(reference)
   if not vehicleOk or envelope.format ~= "SoturineVehicleDNAShare" or tonumber(envelope.shareVersion) ~= 1 then
     setResult(false, "vdna_package_vehicle_invalid", "Vehicle DNA package payload was rejected"); publishState(); return false
   end
+  local compatibilityOk, compatibilityPreview = adapter.decodeJSON(inspected.entries["compatibility.json"] or "")
+  if not compatibilityOk then
+    setResult(false, "vdna_package_compatibility_invalid", "Vehicle DNA compatibility preview was rejected"); publishState(); return false
+  end
   local entry, importError = vehicleDNAImport.sanitize(envelope.vehicleDNA)
   if not entry then setResult(false, importError, "Packaged Vehicle DNA failed schema validation"); publishState(); return false end
   if tonumber(manifest.schemaVersion) ~= tonumber(entry.schemaVersion)
@@ -2044,6 +2048,12 @@ local function importVehicleDNAPackage(reference)
       originId = originId, summary = vehicleDNAStorage.summary(entry),
       dependencies = util.deepCopy(entry.dependencies or {}), packageBytes = #packageData,
       packageSha256 = packageSHA(packageData), thumbnailPresent = inspected.entries["thumbnail.png"] ~= nil,
+      compatibility = {
+        status = type(compatibilityPreview.status) == "string" and compatibilityPreview.status:sub(1, 64) or "not_evaluated",
+        registryStatus = type(compatibilityPreview.registryStatus) == "string" and compatibilityPreview.registryStatus:sub(1, 64) or nil,
+        missing = math.max(0, math.floor(tonumber(compatibilityPreview.missing) or 0)),
+        changed = math.max(0, math.floor(tonumber(compatibilityPreview.changed) or 0)),
+      },
     },
   }
   runtime.performance.importMs = math.max(0, (adapter.clock() - started) * 1000)
@@ -2189,11 +2199,13 @@ end
 local function preflightVehicleDNA(id, mode)
   initialize()
   if runtime.state.busy then return false end
+  local started = adapter.clock()
   local entry = vehicleDNAStorage.find(runtime.dna.library, id)
   if not entry then setResult(false, "dna_not_found", "Vehicle DNA entry was not found"); publishState(); return false end
   local environment, environmentError = dnaEnvironment(entry)
   if not environment then setResult(false, environmentError.code, environmentError.message); publishState(); return false end
   local report = vehicleDNACompatibility.evaluate(entry, environment, mode)
+  runtime.performance.compatibilityMs = math.max(0, (adapter.clock() - started) * 1000)
   runtime.dna.preflight = report
   runtime.dna.selectedId = id
   local reasonCode = report.status == "target_inspection_required" and "dna_target_inspection_required"

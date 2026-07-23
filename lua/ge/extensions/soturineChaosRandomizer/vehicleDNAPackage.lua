@@ -98,7 +98,9 @@ end
 local function build(files)
   if type(files) ~= "table" then return nil, "vdna_package_files_invalid" end
   local names = sortedNames(files)
-  if #names < 2 or #names > M.MAX_ENTRIES or not files["manifest.json"] or not files["vehicle.vdna.json"] then
+  if #names < 4 or #names > M.MAX_ENTRIES or not files["manifest.json"] or not files["vehicle.vdna.json"]
+    or not files["compatibility.json"] or not files["README.txt"]
+  then
     return nil, "vdna_package_entries_invalid"
   end
   local localChunks, centralChunks, offset, total = {}, {}, 0, 0
@@ -184,7 +186,9 @@ local function inspect(data)
     cursor = cursor + 46 + nameLength + extraLength + itemComment
   end
   if cursor ~= eocd then return nil, "vdna_package_central_size_mismatch" end
-  if not seen["manifest.json"] or not seen["vehicle.vdna.json"] then return nil, "vdna_package_required_entry_missing" end
+  if not seen["manifest.json"] or not seen["vehicle.vdna.json"]
+    or not seen["compatibility.json"] or not seen["README.txt"]
+  then return nil, "vdna_package_required_entry_missing" end
 
   table.sort(records, function(left, right) return left.localOffset < right.localOffset end)
   local entries = {}
