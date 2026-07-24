@@ -276,6 +276,26 @@ The final local tree has 40 Python methods and 388 named Lua cases green, includ
 
 Alpha.2 interactive status is **0 Passed / 0 Failed / 50 Pending**. Use [the alpha.2 plan](INTERACTIVE_TEST_PLAN_0.5.0-alpha.2.md); do not reuse alpha.1 screenshots as a pass. Package/publication details are recorded only after the exact tagged assets have been downloaded again and validated.
 
+## 0.5.0-alpha.2 package and release result
+
+Release commit `0905e009e02361cf70c80e73be4754f241823460` passed branch CI run `30064878581` and tagged package/release run `30064916437`. GitHub published the immutable annotated tag `v0.5.0-alpha.2` as a prerelease. The tag dereferences to the release commit; historical `v0.5.0-alpha.1` still dereferences to `82da6b69ce794baa5ab8a11aefbcafe06a645d68`.
+
+| Item | Verified result |
+| --- | --- |
+| Filename | `soturine_chaos_randomizer_0.5.0-alpha.2.zip` |
+| Bytes | `163,789` |
+| Entries | `53` |
+| SHA-256 | `cc42263a84fb63e11440d079b1e7f8c60db03b1be5ece5ec217286bbf4ec1cb7` |
+| Checksum asset | 110 bytes; SHA-256 `9c675055eef0be7c4a763d3de4dd358286ed88a2d96cac8c19064bd49031b7a4` |
+| Manifest asset | 654 bytes; SHA-256 `d92b3e1b13e6edf46ee94a14e4dc7b667a5dd267556bedb81e36e67666e391af` |
+| Manifest inventory | 40 Python methods; 388 Lua cases; 1 JavaScript; 2 JSON; 0 Passed / 0 Failed / 50 Pending interactive |
+| Schema/generator | Vehicle DNA schema 1; generator 5 |
+| Reproducibility | local consecutive/rebuild checks and CI build passed |
+
+All three release assets were downloaded to a fresh temporary directory. The workflow artifact was downloaded separately. Release, workflow, and local ZIP/checksum/manifest files were byte-identical. The downloaded checksum matched the ZIP; the downloaded manifest named the release commit; and the downloaded ZIP passed `tools/validate_package.py --no-reproducibility-check` with the 250×120, 34,952-byte icon. This proves package and transfer integrity, not live BeamNG behavior.
+
+Published prerelease: <https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases/tag/v0.5.0-alpha.2>.
+
 ## 0.5.0-alpha.1 package and release result
 
 Release commit `82da6b69ce794baa5ab8a11aefbcafe06a645d68` has 39 Python methods and 264 named Lua cases green against the shipped Lua 5.1 console path, plus Node syntax, JSON/YAML, static trust-boundary, and package checks. The package was built twice and independently rebuilt by validation with identical bytes.
