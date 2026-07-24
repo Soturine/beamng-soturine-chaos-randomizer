@@ -76,6 +76,69 @@ No installed mod ZIP or content ZIP was opened manually. No screenshot,
 thumbnail, mod asset, JBeam, texture, sound, or third-party file was copied into
 the repository or fixtures.
 
+## 0.5.0-alpha.2 lifecycle and metadata re-audit
+
+The lifecycle hotfix re-audit was performed from clean repository commit
+`ba584da4d7055f26167c4770caf2efe4b6f9245b` before code changes. The installed
+executable remains `0.38.6.0.19963`, Steam build `23007233`, and integrity
+buildbot `19963`. No installed mod or content ZIP was opened.
+
+The following installed-source behavior is authoritative for the alpha.2
+implementation:
+
+- `core/vehicles.lua` may reuse the selected object or spawn a new one during
+  `replaceVehicle`. A synchronous returned object ID is evidence that the call
+  was accepted, not proof that it is the final player-controlled vehicle.
+  Multi-vehicle configurations can create auxiliary objects and can produce
+  several spawn/switch observations before the player target settles.
+- `lua/ge/main.lua` emits `onVehicleSpawned`, `onVehicleSwitched`, and
+  `onVehicleDestroyed`. No public `onVehicleLoadFailed` contract was found.
+  Load failure is therefore detected conservatively from player-vehicle
+  identity, model/config/tree readback, destruction, and a bounded timeout;
+  alpha.2 does not invent or rely on an unverified failure callback.
+- `core/vehicle/partmgmt.lua` applies both part-tree and tuning writes through a
+  vehicle respawn and provides no useful synchronous completion value. A write
+  may consequently change object identity. Completion requires repeated
+  player-target observations and state readback after callbacks.
+- `core/trailerRespawn.lua` tracks trailers separately and explicitly ignores
+  Prop objects. The main target is selected from player `0` plus expected
+  model/config evidence; a newest spawned entity is never assumed to be the
+  operation target.
+- The lifecycle observation ladder is: callback candidates, current player-0
+  vehicle ID, model/config readback, complete part-tree readback, then stable
+  agreement over multiple frames and scans. Candidate/event history and retry
+  budgets are bounded. Expected reload transitions are classified separately
+  from genuine external player switches.
+- Transiently incomplete trees are possible while the vehicle is rebuilding.
+  Missing critical or required slots become persistent errors only after
+  repeated coherent scans of the same settled target; one intermediate scan is
+  insufficient evidence.
+- `renderViews.takeScreenshot` and the career inventory's
+  `util_screenshotCreator.frameVehicle` remain the audited thumbnail path.
+  Alpha.2 must compare the exact current final DNA state immediately before
+  capture, not merely the model key.
+- VFS source still confirms the controlled-path operations used by this
+  project. Binary `io.open` remains isolated behind the adapter and receives
+  only project-constructed paths.
+- `core/modmanager.lua` reads repository-rich metadata from
+  `/mod_info/<id>/info.json`; the file is added by BeamNG's repository process.
+  A locally distributed ZIP without that repository metadata can legitimately
+  show “Description unavailable” in Mod Manager. Alpha.2 will not fabricate
+  resource IDs, user IDs, repository tags, or ownership provenance.
+- `core_vehicles` and available-parts/JBeam inspection expose provenance only
+  when the installed game can prove it. Unknown dependency ownership remains
+  `unknown`, and imports recompute compatibility against the local registry
+  instead of trusting exporter claims.
+
+Official UI App documentation was rechecked for `app.js`, `app.json`, and
+`app.png` packaging. The recommended icon footprint is approximately
+`250 x 120`; screen layout, collapsed/compact behavior, controller navigation,
+and mod-vehicle behavior still require an interactive session.
+
+Alpha.2 interactive results at implementation start: `0` passed, `0` failed;
+all new lifecycle and mod-vehicle rows are pending until exercised in a real
+BeamNG 0.38.6 world. Source inspection and mocks do not upgrade those rows.
+
 ## 0.5.0-alpha.1 sharing and gallery audit
 
 The installed executable and Steam build remained unchanged. New optional boundaries were accepted only after source inspection:
