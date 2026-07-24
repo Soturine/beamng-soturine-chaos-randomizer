@@ -26,6 +26,7 @@ local function create(options)
     rollbacks = 0,
     quarantine = {},
     quarantineOrder = {},
+    suspects = {},
     currentBatch = nil,
   }
 end
@@ -63,10 +64,28 @@ local function quarantine(state, context, reason)
     slotPath = context.slotPath,
     candidate = context.candidate,
     reason = reason or "part_candidate_quarantined",
+    confidence = context.confidence or "confirmed",
+    scope = context.scope or "session",
+    failureType = context.failureType or "candidate",
   }
   state.quarantine[key] = entry
   state.quarantineOrder[#state.quarantineOrder + 1] = key
   return true, entry
+end
+
+local function recordSuspectFailure(state, context, reason)
+  context = type(context) == "table" and context or {}
+  local pass = tonumber(context.pass) or 1
+  state.passRetries[pass] = (state.passRetries[pass] or 0) + 1
+  state.operationRetries = state.operationRetries + 1
+  state.suspects[#state.suspects + 1] = {
+    modelKey = context.modelKey, configKey = context.configKey,
+    batchSize = tonumber(context.batchSize) or 0, reason = reason,
+    confidence = "suspect", scope = "session", failureType = "batch",
+  }
+  if state.passRetries[pass] > state.limits.retriesPerPass then return false, "part_pass_retry_budget_exhausted" end
+  if state.operationRetries > state.limits.operationRetries then return false, "part_operation_retry_budget_exhausted" end
+  return true, "part_batch_suspect_requires_isolation"
 end
 
 local function recordFailure(state, context, reason)
@@ -111,6 +130,7 @@ local function metrics(state)
     partRetries = state.operationRetries,
     batchRollbacks = state.rollbacks,
     quarantinedCandidates = #state.quarantineOrder,
+    suspectBatches = #state.suspects,
   }
 end
 
@@ -121,6 +141,7 @@ M.beginBatch = beginBatch
 M.isQuarantined = isQuarantined
 M.quarantine = quarantine
 M.recordFailure = recordFailure
+M.recordSuspectFailure = recordSuspectFailure
 M.beginRollback = beginRollback
 M.finishRollback = finishRollback
 M.filterCandidates = filterCandidates
