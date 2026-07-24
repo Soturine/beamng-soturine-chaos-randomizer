@@ -2,11 +2,13 @@
 
 ## Current target
 
-Version `0.5.0-alpha.2` targets the currently installed BeamNG.drive `0.38.6.0.19963`, Steam build `23007233`.
+Version `0.6.0` targets the currently installed BeamNG.drive
+`0.38.6.0.19963`, Steam build `23007233`. It remains Experimental, pre-1.0,
+and best-effort with mods even without a prerelease suffix.
 
 | BeamNG version | Status | Evidence |
 | --- | --- | --- |
-| 0.38.6 | Alpha target | installed source inspected; Lua console/static/package tests pass; gameplay/UI Pending |
+| 0.38.6 | Experimental target | installed source inspected; Lua console/static/package tests pass; gameplay/UI Pending |
 | Other 0.38 builds | Unknown | internal contracts may differ |
 | 0.37 and older | Unsupported | hierarchical API assumptions are not backported |
 | Newer versions | Unknown | re-audit `apiAdapter.lua` before claiming support |
@@ -48,8 +50,19 @@ Synthetic license-safe fixtures cover all of these metadata/tree shapes without 
 | DNA read/write | persistent Garage save/list/delete/import; randomization remains available without it |
 | DNA file export | optional fixed-path export only; JSON copy remains available without it |
 | DNA backup | controlled last-known-good recovery; no transactional atomicity claim |
+| camera/player direction + world raycast | Spawn preview and destination placement; missing heading evidence fails explicitly |
+| vehicle enumeration/spawn/delete/read-back | Spawn Director and managed registry; one concurrent load |
+| `map.findClosestRoad` + `map.getPath` | map-dependent Destination/Route NavGraph capability |
+| vehicle-Lua queue and audited `ai.*` calls | capability-gated AI modes and controls |
 
 If tuning or paint is unavailable, compatible-parts mutation can continue with a visible capability warning. Missing parts write disables Scramble and Full Random. Missing registry/spawn/replace disables Random Car. Random Car and Full Random can create a target when player 0 has no active vehicle; Scramble still requires an active model.
+
+Spawn/AI capabilities are independent of core randomization. A missing NavGraph
+disables Destination/Route without pretending that the visual GPS line is a
+route. Chase/Follow require real vehicle targets. Recorded/Scripted playback
+stays disabled with a reason because the audited build exposes no bounded
+portable transfer contract for this mod. No fallback uses BeamNGpy or an
+external process.
 
 ## Source classification
 
@@ -76,7 +89,7 @@ External mod scripts, physics timing, and changed mounted content are outside th
 Vehicle DNA separates two different contracts:
 
 - Restore Exact applies a saved snapshot without RNG/recent/blacklist fallback and reports exact only after full slot/tuning/paint/topology read-back.
-- Replay Generation freezes the saved base and reruns a supported matching generator's parts/tuning/paint stages. New alpha.2 work uses generator 5; generator-4 snapshots remain restorable, but old seeds are never silently replayed as generator 5. Pure Seed Replay is explicitly separate and can reselect the base.
+- Replay Generation freezes the saved base and reruns a supported matching generator's parts/tuning/paint stages. New 0.6.0 work uses generator 6; generator-4/5 snapshots remain restorable, but old seeds are never silently replayed as generator 6. Pure Seed Replay is explicitly separate and can reselect the base.
 
 Restore Compatible never chooses a random substitute. It reports missing/ambiguous slots, absent parts/dependencies, clamps, paint-layer omissions, and environment differences before the user can confirm a partial application. A cross-model registry preflight reports `target_inspection_required`; after the saved base loads, target inspection decides Exact, Compatible, or rollback.
 
@@ -86,4 +99,6 @@ Include BeamNG build, randomizer commit/version, content name/version/source/lic
 
 See [Compatibility Matrix](COMPATIBILITY_MATRIX.md) for per-class automated and interactive evidence.
 
-Alpha.1 maintainer observations are retained separately and do not promote any alpha.2 row. The current alpha.2 interactive matrix is **0 Passed / 0 Failed / 50 Pending**.
+Earlier maintainer observations are retained separately and do not promote any
+0.6.0 row. The current 0.6.0 interactive matrix is **0 Passed / 0 Failed / 60
+Pending**.

@@ -1,13 +1,17 @@
 # Vehicle DNA Schema v1
 
-The canonical format is `SoturineVehicleDNA`, the internal kind is `soturineVehicleDNA`, and `schemaVersion` remains `1`. New alpha.2 entries record generator version `5` at both the top level and in `generation`; generator-4 schema-v1 entries remain valid snapshots. Future schema versions are rejected as read-only/unsupported rather than partially interpreted.
+The canonical format is `SoturineVehicleDNA`, the internal kind is
+`soturineVehicleDNA`, and `schemaVersion` remains `1`. New 0.6.0 entries record
+generator version `6` at both the top level and in `generation`; generator-4/5
+schema-v1 entries remain valid snapshots. Future schema versions are rejected
+as read-only/unsupported rather than partially interpreted.
 
 ```json
 {
   "format": "SoturineVehicleDNA",
   "kind": "soturineVehicleDNA",
   "schemaVersion": 1,
-  "generatorVersion": 5,
+  "generatorVersion": 6,
   "id": "dna-...",
   "name": "Vehicle DNA",
   "description": "",
@@ -22,15 +26,15 @@ The canonical format is `SoturineVehicleDNA`, the internal kind is `soturineVehi
   "tags": [],
   "environment": {
     "beamNGVersion": "0.38.6.0",
-    "extensionVersion": "0.5.0-alpha.2",
+    "extensionVersion": "0.6.0",
     "targetBeamNG": "0.38.6.0.19963",
     "schemaVersion": 1,
-    "generatorVersion": 5
+    "generatorVersion": 6
   },
   "generation": {
-    "generatorVersion": 5,
+    "generatorVersion": 6,
     "operation": "fullRandom",
-    "seed": "SCR5-XXXX-XXXX",
+    "seed": "SCR6-XXXX-XXXX",
     "settings": {},
     "selectionContext": {},
     "recentPolicy": "ignored_for_manual_seed",
@@ -39,7 +43,7 @@ The canonical format is `SoturineVehicleDNA`, the internal kind is `soturineVehi
     "startingStateFingerprint": "scrfp1-..."
   },
   "operation": "fullRandom",
-  "seed": {"display": "SCR5-XXXX-XXXX", "legacy": false},
+  "seed": {"display": "SCR6-XXXX-XXXX", "legacy": false},
   "base": {
     "modelKey": "model",
     "configKey": "config",
@@ -118,7 +122,7 @@ The canonical format is `SoturineVehicleDNA`, the internal kind is `soturineVehi
     "generation": 1,
     "mutationIndex": 1,
     "mutationStrength": "small",
-    "mutationSeed": "SCR5-XXXX-XXXX"
+    "mutationSeed": "SCR6-XXXX-XXXX"
   },
   "lockProfile": {
     "kind": "soturineVehicleDNALockProfile",
@@ -138,6 +142,18 @@ The canonical format is `SoturineVehicleDNA`, the internal kind is `soturineVehi
 }
 ```
 
-The example uses `null` only to explain optional JSON fields; Lua omits non-applicable keys in generated entries. The 0.5 metadata, lineage, lock, and thumbnail fields are optional, so Vehicle DNA remains schema 1 and alpha.1/alpha.2 entries stay valid. Generator-4 seeds retain their old version and are never reinterpreted as generator 5; snapshot restore does not require RNG replay. Imported managed thumbnail metadata is stripped and replaced by fallback; only locally validated capture/package bytes may create it. Exporter compatibility may be retained inside bounded `extensions` metadata, while the receiver always recomputes `localCompatibility`. `final.slots` is the project-owned normalized slot array, never a raw `getConfig()` table. Paints contain only supported fields. Dependencies contain identities/labels, not third-party bytes. Unknown imported top-level fields are discarded, with `extensions` reserved for bounded JSON-only future data.
+The example uses `null` only to explain optional JSON fields; Lua omits
+non-applicable keys in generated entries. The 0.5 metadata, lineage, lock, and
+thumbnail fields remain optional, so Vehicle DNA stays schema 1 and earlier
+entries remain valid. Generator-4/5 seeds retain their recorded version and are
+never reinterpreted as generator 6; snapshot restore does not require RNG
+replay. Imported managed thumbnail metadata is stripped and replaced by
+fallback; only locally validated capture/package bytes may create it. Exporter
+compatibility may be retained inside bounded `extensions` metadata, while the
+receiver always recomputes `localCompatibility`. `final.slots` is the
+project-owned normalized slot array, never a raw `getConfig()` table. Paints
+contain only supported fields. Dependencies contain identities/labels, not
+third-party bytes. Unknown imported top-level fields are discarded, with
+`extensions` reserved for bounded JSON-only future data.
 
 Strict equality is field-based. `fingerprints.final` is used for change detection and diagnostics but never substitutes for model, configuration, slot, tuning, and paint read-back.

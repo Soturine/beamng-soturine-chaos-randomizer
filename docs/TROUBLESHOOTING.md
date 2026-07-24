@@ -190,6 +190,59 @@ Pasted import accepts one JSON object up to 131,072 characters and then applies 
 
 Copy JSON is independent of file export. Optional file export always writes the adapter-controlled `/settings/soturineChaosRandomizer/vehicleDNA/export.json`; DNA names and IDs never become paths.
 
+## Operation waits while the game is paused
+
+A phase that genuinely needs Vehicle Lua or physics progression shows **Waiting
+for the simulation to resume so the vehicle can finish loading**. This is not a
+timeout and the mod never changes pause state itself. Cancel, Copy diagnostics,
+and operation details must remain available. If progress occurs only after
+pausing rather than after resuming, copy diagnostics and report
+`pause_dependent_progress_detected`; do not use pause toggling as a workaround
+to certify the result.
+
+## Operation appears stalled or remains Busy
+
+Open operation details and record phase, operation/phase/target generations,
+target/tree status, clocks, pending counts, and stale callback count. A warning
+does not trigger early rollback while the phase is legitimately waiting for
+simulation. Use Copy diagnostics, then Cancel and roll back. If Cancel or Copy
+is unavailable, treat that as a 0.6.0 lifecycle regression.
+
+## A recovered or previous vehicle changed unexpectedly
+
+Stop further randomization and capture diagnostics. The recovery state must be
+`recoveryOnly`; the old mutation plan/current batch/tuning/paint/timers must be
+absent. Look for `stale_callback_ignored` and
+`recovery_target_received_stale_mutation`. The original snapshot is not
+automatically completed-good, and a readable recovery snapshot must not resume
+the failed Scramble.
+
+## A Lineup competitor remains Partial
+
+Inspect coverage, lifecycle acceptance, pending counts, DNA, metadata
+uncertainty, and potentially-undrivable status. Ready requires final validation,
+Busy false, DNA present, and zero pending writes/timers/callbacks. Partial,
+metadata-uncertain, and potentially-undrivable acceptance are separate creation
+choices. Storage checkpoint failure stops generation; restore storage access
+and use Retry slot.
+
+## Spawn preview or managed target failed
+
+`ground_not_found`, `slope_too_high`, `position_blocked`, and
+`outside_supported_area` are safety rejections. Player, road, or destination
+headings fail explicitly when their evidence is missing; they do not fall back
+to camera. An unverified target is failed/DNS, never Ready. For an ID-changing
+mod, record the returned ID, callback candidates, final ID, target generation,
+and read-back reason.
+
+## AI mode is unavailable or no route exists
+
+Destination/Route require the current map's NavGraph APIs and a reachable path.
+NavGraph is not the visual GPS line. Move the destination or add route points
+when `navgraph_route_unreachable` is reported. Chase/Follow need a distinct real
+vehicle target. Recorded/Scripted playback is intentionally unavailable in the
+audited build contract. Include the capability reason in reports.
+
 ## Useful issue report
 
 Provide BeamNG full build, randomizer version/commit, content name/version/source/license, operation, visible settings, displayed seed, smallest mod set, relevant tagged logs, and whether Reindex/clean profile changes the result. Do not upload paid/private content or personal paths. Follow [Security](../SECURITY.md) for sensitive reports.

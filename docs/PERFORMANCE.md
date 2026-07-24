@@ -46,6 +46,20 @@ The final 0.5 candidate rerun reported `index_seconds=0.034`, `scan_seconds=0.00
 - Managed images are capped at 100, 500x281, and 256 KiB each. Share archives are capped at 512 KiB, five entries, 256 KiB per entry, and 512 KiB total stored/uncompressed content.
 - Vehicle DNA restore applies only the shallowest changed slot depth per pass. Its budget is derived from saved/current tree depth plus safety margin, clamped to 12–128 passes, with a 120-second deadline and explicit no-progress/repeated-state guards. It performs no synchronous retry loop or per-frame tree scan.
 - Only one primary library and one last-known-good copy are retained. No per-entry backup directory can grow without bound.
+- Full Coverage ledgers are operation/target-bound and closed at terminal or
+  recovery; they do not accumulate across operations.
+- Chaos Lineup is capped at 16 competitors, checkpoints incrementally, and
+  invokes only one central Full Random operation at a time. The UI renders at
+  most eight competitor cards per page.
+- Spawn Director is capped at 16 planned positions and exactly one concurrent
+  load. Target acceptance needs two stable matching read-backs; callback
+  candidates are capped at eight per pending spawn.
+- Managed vehicles and AI entries are capped at 32 by the orchestrator. AI
+  observation polls at most every 0.2 real seconds; route editor points are
+  capped at 16 and calculated NavGraph nodes at the central 512-node bound.
+- Progress watchdog thresholds use actual phase/target/tree/write events, not
+  every frame. Lifecycle diagnostics stay bounded, and copied diagnostic JSON
+  drops oldest records until it is at most 256 KiB.
 
 ## Runtime metrics
 

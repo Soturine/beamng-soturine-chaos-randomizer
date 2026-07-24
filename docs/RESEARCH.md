@@ -139,6 +139,59 @@ Alpha.2 interactive results at implementation start: `0` passed, `0` failed;
 all new lifecycle and mod-vehicle rows are pending until exercised in a real
 BeamNG 0.38.6 world. Source inspection and mocks do not upgrade those rows.
 
+## 0.6.0 pause, spawn, NavGraph, and AI re-audit
+
+The installed executable remains `0.38.6.0.19963` and Steam build `23007233`.
+This audit used installed paths relative to the BeamNG root and did not open or
+copy third-party mod archives.
+
+Pause/time evidence:
+
+- GE Lua exposes `simTimeAuthority.getPause()` as the current boolean pause
+  state and `simTimeAuthority.getReal()` as a time-scale query. The extension
+  only reads these values and never changes pause state.
+- `onUpdate(dtReal, dtSim, dtRaw)` provides separate frame deltas. The 0.6
+  abstraction retains real delta, simulation delta/time, raw delta, and frame
+  count rather than treating a zero simulation delta as a stopped update loop.
+- The installed environment exposes the high-precision `os.clockhp()` used by
+  GE Lua timing code. The adapter prefers it as the single monotonic deadline
+  source and falls back to `os.clock` only when absent. No deadline mixes this
+  value with accumulated simulation time.
+
+Spawn/vehicle evidence:
+
+- `lua/ge/ge_utils.lua` and `lua/ge/spawn.lua` use
+  `getPlayerVehicle(0):getDirectionVector()` for player heading.
+- `core_vehicles.spawnNewVehicle(model, options)` returns a vehicle object; GE
+  vehicle objects expose `getID`, `getPosition`, `getVelocity`, and `delete` in
+  installed call sites. `getAllVehicles()` is used by GE Lua to enumerate
+  current vehicles.
+- `lua/ge/map.lua` exports `map.findClosestRoad`; its node table from
+  `map.getMap().nodes` provides positions for an evidence-backed road heading.
+  World placement and destination preview use `Engine.castRay` only behind
+  capability checks.
+
+NavGraph/AI evidence:
+
+- `lua/ge/map.lua` exports `map.findClosestRoad` and `map.getPath`. These return
+  road-node/path data; they are not the visual GPS line.
+- `lua/vehicle/ai.lua` exports `ai.setSpeed`, `ai.setSpeedMode`,
+  `ai.setAggression`, `ai.driveInLane`, `ai.setAvoidCars`,
+  `ai.driveUsingPath`, `ai.setTargetObjectID`, `ai.setMode`,
+  `ai.startRecording`, and `ai.stopRecording`. These functions run in Vehicle
+  Lua, so GE Lua sends fixed, validated commands through the vehicle queue.
+- Installed comments/validation support speed modes `set` and `limit` for this
+  UI contract and aggression in the 0.3–1 range. Path driving accepts a bounded
+  path/waypoint list plus lane, avoidance, speed, aggression, and lap options.
+- Chase/Follow uses a real target object ID; Traffic uses the installed traffic
+  mode. No bounded portable contract was identified for taking a recording and
+  transferring it back into this GE-Lua multi-vehicle director. Recorded and
+  Scripted playback therefore remain disabled with explicit reasons.
+
+Installed-source evidence confirms names/call contexts, not live vehicle
+behavior. Destination reachability, AI driving, spawn raycasts, ID-changing
+mods, pause lifecycle, and recording UI remain 0.6.0 interactive Pending.
+
 ## 0.5.0-alpha.1 sharing and gallery audit
 
 The installed executable and Steam build remained unchanged. New optional boundaries were accepted only after source inspection:

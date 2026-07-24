@@ -92,6 +92,38 @@ Thrown exceptions retain their detail. Phase-specific codes include `vehicle_rep
 
 ## Operation and lifecycle model
 
+Version 0.6.0 adds an explicit authoritative lifecycle above the legacy engine
+transition names. Phases cover capture, selection, spawn issue, target identity,
+simulation-resume wait, tree stabilization, parts plan/write/reload/verify and
+isolation, tuning plan/write/reload/verify, paint write/verify, final validation,
+cancel, operation rollback, previous/completed-good/official recovery, and
+terminal completed/partial/cancelled/failed. `busy` is derived from the current
+non-terminal phase.
+
+Every operation owns `operationId`, `operationToken`, `operationGeneration`,
+`phaseGeneration`, and `targetGeneration`. Any timer/callback/continuation or
+mutation write validates that context plus its expected vehicle ID/model/config
+immediately before acting. Cancel, recovery, phase replacement, and new targets
+invalidate the relevant generation. Stale work is ignored and counted.
+
+The transaction keeps independent values for `operationOriginalSnapshot`,
+`operationCandidateBase`, `operationMutationPlan`, `operationCurrentTarget`,
+`operationRecoveryTarget`, `lastReadableSnapshot`, and
+`lastCompletedGoodSnapshot`. Recovery deletes the old mutation plan and pending
+parts/tuning/paint work, closes ledgers, creates a recovery-only target, and can
+never transition back into Scramble. Completed-good is committed only after
+successful final validation and Busy release; an original, base spawn,
+unaccepted Partial, or recovery-in-progress is not automatically good.
+
+`timeSource.lua` exposes real monotonic time, simulation time, both deltas, raw
+delta, frame counter, pause state, and slow-motion ratio. Real deadlines and
+polls share the monotonic source. A phase that requires Vehicle-Lua/physics
+progress enters `waiting_for_simulation_resume` without a false timeout or
+automatic pause change. `progressWatchdog.lua` counts only phase, target, tree,
+and confirmed-write evidence. The update scheduler always continues pause
+observation, timeout/watchdog, Spawn/AI housekeeping, UI publication, and
+recovery bookkeeping while target tracking is active.
+
 The state machine keeps generic engine states (`spawning`, `waitingForVehicle`, `mutating`, `waitingForReload`, and so on), while each active wait carries a specific reason:
 
 ```text
@@ -189,7 +221,13 @@ Only an unconfirmed base spawn can penalize its configuration. A parts failure a
 
 Part-batch recovery adds session-only quarantine keyed by model/configuration/slot/candidate. It keeps a pre-batch snapshot, permits at most two retries per slot, eight per pass, four localized rollbacks, twelve operation retries, and 128 quarantined candidates. A verified localized rollback continues with an alternative; rollback failure enters total transaction rollback.
 
-Vehicle-load recovery first tries the previous full snapshot, then the session last-known-good configuration, then a safe official configuration. Three consecutive failures open an official-only circuit breaker. Locks do not constrain recovery. Every terminal path clears the tracker, token, timers, busy state, and transient recovery/creative fields.
+Vehicle-load recovery first tries the previous full snapshot, then the session
+`lastCompletedGoodSnapshot`, then ranked safe official configurations. The
+separate `lastReadableSnapshot` is diagnostic evidence and is not automatically
+a recovery candidate. Three consecutive failures open an official-only circuit
+breaker. Locks do not constrain recovery. Every terminal path clears the
+tracker, timers, pending writes, and transient recovery/creative fields and
+releases derived Busy state.
 
 ## Full Random transaction
 
@@ -238,6 +276,15 @@ Limits: default 10, maximum 50 iterations, maximum 300 seconds, per-operation ti
 
 ## UI boundary
 
+Production modules are kept separate from the UI bridge and central mutation
+algorithm: `lineupManager`/`lineupSchema`/`lineupStorage` own inert sequential
+collections; `spawnDirector` plus `spawnApiAdapter` own placements/read-back;
+`managedVehicleRegistry` owns multi-target generations; and `aiAdapter`,
+`aiDirector`, `routePlanner`, and `destinationMarker` own capability-gated
+in-game driving. Lineup invokes the existing Full Random orchestrator rather
+than duplicating parts/tuning/paint logic. Spawn and AI accept only Ready
+managed generations.
+
 The UI has fixed Randomize, Locks, Garage, Compare, and Share destinations and calls only allowlisted public extension methods. Random Car is presentation for the unchanged `randomConfig` enum. Collapsed/compact/standard/expanded modes affect layout only; contextual creative buttons are absent when no DNA is selected. An action click cancels the pending settings timer and sends `runAction(action, currentSettings)` as one serialized Lua call. Lua validates/applies the snapshot before beginning the operation. Pasted DNA is length-checked and parsed with `JSON.parse` before `serializeToLua`; raw import text never becomes Lua source or a method name. Exact/Compatible buttons run preflight first, and Garage compatibility owns the separate destructive confirmation. Server state events assign scope state without scheduling another settings write. Destroy cancels both settings and search timers.
 
 Periodic public state contains paginated summaries, bounded reports, metrics, and lock counts—not full DNA, export text, thumbnail bytes, or full details. Explicit details, comparison, lock resolution, and JSON export use dedicated one-off events.
@@ -246,7 +293,12 @@ The custom-element host is explicitly block-sized to 100% width/height because t
 
 ## Determinism and packaging
 
-Random choices use operation, pass, variable, group, retry, and creative substreams. Maps are sorted before choices. Generator 5 uses `SCR5-...` seeds because the alpha.2 selection/retry/creative decisions can change output. Schema 1 generator-4 snapshots remain restorable and their seeds keep their version; they are never reinterpreted as generator 5. Results require identical game/content/settings/starting state/quarantine inputs.
+Random choices use operation, pass, variable, group, retry, competitor, spawn,
+AI, and creative substreams. Maps are sorted before choices. Generator 6 uses
+`SCR6-...` seeds because 0.6.0 coverage/Lineup decisions change output. Schema 1
+generator-4/5 snapshots remain restorable and retain their version; they are
+never reinterpreted as generator 6. Results require identical
+game/content/settings/starting state/quarantine inputs.
 
 The ZIP builder normalizes member order, timestamps, Unix regular-file mode, path separators, packaged text line endings, compression level, and checksum format. It never adds a wrapper directory or development files. A deterministic external release manifest binds VERSION/tag/commit/source-date, filename/bytes/entries/SHA, BeamNG target, schema/generator versions, and real automated/interactive counts. Repeated same-environment builds must be byte-identical; cross-platform identity requires comparing the real archives.
 
