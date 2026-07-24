@@ -134,7 +134,13 @@ def test_counts(root: Path = REPOSITORY_ROOT) -> dict[str, int]:
     for path in (root / "tests").glob("test_*.py"):
         python_methods += len(re.findall(r"^\s+def test_[A-Za-z0-9_]+\(", path.read_text(encoding="utf-8"), re.MULTILINE))
     lua_source = (root / "tests/lua/run.lua").read_text(encoding="utf-8")
-    lua_cases = len(set(re.findall(r"^tests\.([A-Za-z0-9_]+)\s*=", lua_source, re.MULTILINE)))
+    direct_lua_cases = len(set(re.findall(r"^tests\.([A-Za-z0-9_]+)\s*=", lua_source, re.MULTILINE)))
+    required_lua_cases = len(re.findall(
+        r'^\s+\{"[^"]+",\s*tests\.[A-Za-z0-9_]+\},?$',
+        lua_source,
+        re.MULTILINE,
+    ))
+    lua_cases = direct_lua_cases + required_lua_cases
     return {
         "pythonMethods": python_methods,
         "luaCases": lua_cases,
@@ -144,7 +150,8 @@ def test_counts(root: Path = REPOSITORY_ROOT) -> dict[str, int]:
             if not any(part in {".git", "dist", "__pycache__"} for part in path.relative_to(root).parts)
         ]),
         "interactivePassed": 0,
-        "interactivePending": 100,
+        "interactiveFailed": 0,
+        "interactivePending": 50,
     }
 
 

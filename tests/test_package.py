@@ -99,6 +99,11 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(manifest["tag"], f"v{package_mod.read_version(ROOT)}")
             self.assertEqual(manifest["generatorVersion"], 5)
             self.assertEqual(manifest["vehicleDNASchemaVersion"], 1)
+            self.assertEqual(manifest["tests"]["pythonMethods"], 40)
+            self.assertEqual(manifest["tests"]["luaCases"], 388)
+            self.assertEqual(manifest["tests"]["interactivePassed"], 0)
+            self.assertEqual(manifest["tests"]["interactiveFailed"], 0)
+            self.assertEqual(manifest["tests"]["interactivePending"], 50)
 
     def test_release_manifest_is_reproducible(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

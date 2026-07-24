@@ -578,6 +578,13 @@ local function chooseConfiguration(active)
     models = sameModel
     vehicleLocked = true
   end
+  if active.excludeModelKey and not vehicleLocked and #models > 1 then
+    local alternatives = {}
+    for _, model in ipairs(models) do
+      if model.key ~= active.excludeModelKey then alternatives[#alternatives + 1] = model end
+    end
+    if #alternatives > 0 then models = alternatives end
+  end
   if #models == 0 then return nil, nil, adapter.errorValue("no_eligible_vehicles", "No vehicles match the current content filters") end
   local manualSeed = type(runtime.settings.manualSeed) == "string" and runtime.settings.manualSeed ~= ""
   local recentModels = manualSeed and {} or runtime.recentModels
@@ -2432,12 +2439,14 @@ local function currentThumbnailState(entry)
   if not scan then return nil, adapter.errorValue(scanError, "Thumbnail state scan failed") end
   local observed = {
     modelKey = capture.modelKey,
+    configIdentity = configVerification.normalizePath(capture.selectedConfiguration),
     slots = vehicleDNANormalizer.normalizeSlots(scan),
     tuning = vehicleDNANormalizer.normalizeTuning(snapshot.variables, capture.tuning or snapshot.currentTuning),
     paints = vehicleDNANormalizer.normalizePaints(capture.paints or snapshot.paints),
   }
   local expected = {
     modelKey = entry.final.modelKey,
+    configIdentity = configVerification.normalizePath(entry.final.configIdentity or (entry.base and entry.base.configPath)),
     slots = util.deepCopy(entry.final.slots or {}),
     tuning = util.deepCopy(entry.final.tuning or {}),
     paints = util.deepCopy(entry.final.paints or {}),
@@ -2993,7 +3002,9 @@ local function continueCreativeFromParent(active, capture, scan)
   active.modelKey = active.dnaEntry.final.modelKey
   if active.allowModelChange then
     operationState.transition(runtime.state, "selecting", false)
+    active.excludeModelKey = active.dnaEntry.final.modelKey
     local model, config, selectionError = chooseConfiguration(active)
+    active.excludeModelKey = nil
     if not model then failActive(selectionError, true, "creative_selection"); return end
     active.selectedModel = model
     active.selectedConfig = config
