@@ -12,7 +12,7 @@
 
 Open Advanced and read **Capability notes**.
 
-- Random Config needs registry, replace, and lifecycle confirmation.
+- Random Car needs registry, spawn/replace, and lifecycle confirmation. Its internal operation remains `randomConfig`.
 - Scramble needs hierarchical parts read/write and lifecycle confirmation.
 - Full Random needs both sets.
 - Missing tuning or paint APIs do not disable parts; those optional stages are skipped with a warning.
@@ -38,7 +38,7 @@ Phase-specific codes include:
 - `tuning_apply_rejected`;
 - `paint_apply_rejected`.
 
-These mean the synchronous call returned an explicit rejection, no required vehicle object, or threw. The randomizer does not wait 25 seconds after a known rejection. Diagnostic context retains the thrown detail when available.
+These mean the synchronous call returned an explicit rejection or threw. A missing/changed intermediate ID alone is not rejection; the tracker can bind a later stable player target. The randomizer does not wait 25 seconds after a known rejection. Diagnostic context retains the thrown detail when available.
 
 ## A reload event arrived but the operation failed
 
@@ -50,9 +50,9 @@ Check the `lifecycle_event_received` record for expected event, phase, verificat
 
 ## Vehicle replacement could not be correlated
 
-`vehicle_replace_target_ambiguous` means `replaceVehicle` did not return a usable vehicle object/ID. `vehicle_replace_event_ambiguous`, `vehicle_switched`, or a restore target mismatch means switch events did not identify the exact returned replacement target. The extension never retargets an active operation to an unrelated manual switch.
+Replacement callbacks nominate candidates; they do not force success or cancellation. The tracker accepts a returned ID, callback IDs, and player-0 observations, rejects auxiliary/wrong candidates, and waits for five stable frames plus two coherent scans. `vehicle_stabilization_timeout` means the final model/configuration/parts never became coherent in time. A real unrelated player switch still cancels safely.
 
-Wait for BeamNG to settle, inspect `replacement_target_bound` and `replacement_switch_*` diagnostics, and retry with no simultaneous vehicle-manager action. Undo is intentionally refused outside the vehicle context that created its history entry.
+Wait for BeamNG to settle, inspect `vehicle_target_candidate`, `vehicle_target_rebound`, `vehicle_target_stable`, and lifecycle diagnostics, and retry with no simultaneous vehicle-manager action. Undo is intentionally refused outside the vehicle context that created its history entry.
 
 ## Paint remains on Confirming read-back
 
@@ -90,6 +90,24 @@ A multi-candidate batch is initially recorded only as suspect because the extens
 
 A safe zero-change result is valid and does not create an Undo entry unless another stage actually writes.
 
+## A part failed after reload
+
+One transient incomplete tree is rescanned. When the same structural absence persists across coherent scans, alpha.2 restores the pre-batch snapshot, verifies that rollback, quarantines the model/configuration/slot/candidate combination, and tries a bounded alternative. Look for `part_batch_rollback`, `part_candidate_quarantined`, and retry-budget diagnostics.
+
+If localized rollback itself fails or the bounded budget is exhausted, the full operation rolls back. Reindex clears session quarantine; do not repeatedly select a known broken part while BeamNG is still reloading.
+
+## A broken configuration left no active vehicle
+
+The recovery ladder tries the operation's previous snapshot, then the session last-known-good configuration, then a safe official configuration. Three consecutive load failures open an official-only circuit breaker. Locks do not block recovery; incompatible model-bound locks become visibly unresolved afterward.
+
+Random Car and Full Random can start without an active player vehicle. Scramble cannot infer a model in that state, so use **Spawn safe vehicle** or Random Car. Even if every automatic recovery step fails, the busy flag, operation token, timers, and tracker should be cleared. Use **Copy diagnostics**, retry the quarantine when appropriate, and report any permanently disabled UI as a regression.
+
+## Thumbnail capture reports a state mismatch or invalid PNG
+
+Default capture requires the selected DNA's exact model, normalized configuration, slots, tuning, and paints both before and after the screenshot. Restore the entry first, or choose the explicit non-exact override; that result is marked non-exact in metadata.
+
+Imported/captured PNGs must pass signature, chunk order/length, CRC, IHDR/IDAT/IEND, trailing-payload, and chunk-count validation. A same-size file or valid header alone is insufficient.
+
 ## The result does not drive
 
 **Protect Critical Parts is not a drivability guarantee.** It prevents detectable required/core absence and blocks unproven critical substitutions, but it cannot understand every mechanical relationship or third-party script.
@@ -106,7 +124,7 @@ If a write began, the entry is retained unless automatic rollback succeeds. Succ
 
 ## Immediate click used the wrong setting
 
-Version `0.5.0-alpha.1` sends the displayed action and complete settings snapshot in one Lua call. If the result reports a different manual seed/filter/Chaos value, collect the UI state and JavaScript log because that is a regression. Settings/search timers are cancelled on action or app destroy.
+Version `0.5.0-alpha.2` sends the displayed action and complete settings snapshot in one Lua call. If the result reports a different manual seed/filter/Chaos value, collect the UI state and JavaScript log because that is a regression. Settings/search timers are cancelled on action or app destroy.
 
 For `.vdna.zip`, place exactly one package at `/settings/soturineChaosRandomizer/vehicleDNA/inbox/import.vdna.zip`. General-purpose compressed ZIPs are intentionally unsupported; export a package from this mod. A validation error should identify archive, directory, entry, checksum, manifest, schema, or thumbnail bounds before confirmation becomes available.
 

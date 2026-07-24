@@ -6,7 +6,7 @@ This checklist prepares a possible future `0.5.0-beta.1`; it is not evidence tha
 
 - PC A and PC B with documented OS, BeamNG full build, active user folder, enabled-mod inventory, and randomizer commit.
 - At least one clean 0.38.6 profile.
-- The exact attached `soturine_chaos_randomizer_0.5.0-alpha.1.zip`, verified against its attached `.sha256` on both machines.
+- The exact attached `soturine_chaos_randomizer_0.5.0-alpha.2.zip`, verified against its attached `.sha256` on both machines.
 
 ## Required evidence
 
@@ -14,12 +14,12 @@ This checklist prepares a possible future `0.5.0-beta.1`; it is not evidence tha
 2. Create and explicitly save DNA on PC A from official, deep-tree, tuning-rich, and multi-paint content.
 3. Restart BeamNG and prove the library survives with the same entry/fingerprints.
 4. Export/copy `.vdna.json`, transfer only that JSON to PC B, import it, and compare schema/fingerprints/origin metadata.
-5. Export `.vdna.zip` on PC A, record its SHA-256/entries/thumbnail state, place it at PC B's fixed `/settings/soturineChaosRandomizer/vehicleDNA/inbox/import.vdna.zip`, review preview/dependencies/privacy, confirm import, and prove the local ID is unique while origin ID/importedAt survive.
+5. Export `.vdna.zip` on PC A, record its SHA-256/entries/thumbnail state, place it at PC B's fixed `/settings/soturineChaosRandomizer/vehicleDNA/inbox/import.vdna.zip`, review preview/dependencies/privacy, confirm import, and prove the local ID is unique while origin ID/importedAt and exporter compatibility metadata survive—but local compatibility is recalculated on PC B.
 6. With matching game/content, run Exact preflight and Restore Exact; record every phase hook, final strict read-back, seed, duration, logs, and screenshot.
 7. Remove or change one optional dependency, rerun Compatible preflight, confirm the visible deviation, and validate the reported partial result.
 8. Remove a required/core dependency and prove Exact blocks before writes.
 9. Corrupt a disposable copy of the primary library and validate last-known-good recovery without overwriting the evidence.
-10. Repeat locks/reroll/mutation/compare/gallery, restore/replay/Undo, manual vehicle/map/mod changes, cancellation, busy lock, resizing, keyboard/controller focus, and copy/import limits.
+10. Repeat locks/Reroll/Small/Medium/Wild from a parent final state, model-bound lock resolution, compare/gallery exact and non-exact capture, restore/replay/Undo, manual vehicle/map/mod changes, cancellation, busy lock, resizing, keyboard/controller focus, and copy/import limits.
 11. Inspect `beamng.log`; no fatal Lua/JavaScript error or unexplained timeout may remain.
 
 ## Beta publication gate

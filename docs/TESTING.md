@@ -6,7 +6,7 @@ Automated and installed-source evidence is kept separate from interactive BeamNG
 
 | Item | Value |
 | --- | --- |
-| Date | 2026-07-23 |
+| Date | 2026-07-24 |
 | Operating system | Windows 10 build 19045 |
 | BeamNG executable | `0.38.6.0.19963` |
 | Steam build | `23007233` |
@@ -15,7 +15,7 @@ Automated and installed-source evidence is kept separate from interactive BeamNG
 | Node.js | local 24.11.1; CI 24 |
 | Interactive 0.38 profile/world | unavailable |
 
-No 0.38 world/UI session was launched. All interactive rows below remain **Pending**.
+No alpha.2 0.38 world/UI session was launched. Historical alpha.1 observations are recorded separately and do not count as alpha.2 passes. The dedicated alpha.2 plan remains **0 Passed / 0 Failed / 50 Pending**.
 
 ## Automated commands
 
@@ -35,11 +35,11 @@ find lua -type f -name '*.lua' -print0 | xargs -0 luac5.1 -p
 
 On 2026-07-23, every workflow SHA was resolved again through the official `actions/checkout`, `actions/setup-python`, `actions/setup-node`, and `actions/upload-artifact` GitHub repositories. Each pinned SHA matched its commented tag, and those tags were the repositories' latest releases at inspection time.
 
-Current suite structure after the creative Vehicle DNA implementation:
+Current suite structure for `0.5.0-alpha.2`:
 
-- **39 Python `unittest` methods**;
-- one Python method runs **264 named Lua behavior/syntax/pipeline/performance cases** against BeamNG's shipped Lua 5.1 console when no standalone Lua is available;
-- **27 repository/static methods**, including real `node --check`, JSON/YAML parsing, links, versions, API boundary, UI atomicity/host/DNA/share boundary, accessibility/responsiveness, icon limits, action pins, credentials, paths, and whitespace;
+- **40 Python `unittest` methods**;
+- one Python method runs **388 named Lua behavior/syntax/pipeline/performance cases** against BeamNG's shipped Lua 5.1 console when no standalone Lua is available;
+- **28 repository/static methods**, including real `node --check`, JSON/YAML parsing, links, versions, API boundary, UI atomicity/host/DNA/share boundary, compact modes, accessibility/responsiveness, icon limits, action pins, credentials, paths, and whitespace;
 - **11 package methods**, including two-build equality, SHA, root layout, normalized metadata, version, manifest consistency, and machine-path checks;
 - **1 JavaScript file** syntax-checked;
 - **2 project JSON files** decoded;
@@ -81,6 +81,7 @@ Named Lua cases cover:
 - pins/ratings/tags/notes/collections, filtered/sorted/paginated Garage queries, field-level comparison, fallback/PNG limits, safe managed IDs, and thumbnail count/cleanup policy;
 - `.vdna.json` envelopes plus stored-ZIP CRC/manifest/SHA/schema/allowlist/bounds, traversal/backslash/duplicate/symlink/flag/gap/offset/bomb rejection, missing-thumbnail validity, and origin/local-ID behavior;
 - release manifest version/tag/commit/package/schema/generator/test-count validation and non-publishing cross-platform beta-readiness workflow structure.
+- all 113 explicitly named alpha.2 scenarios: multi-ID/stable target tracking, Full Random post-spawn completion, transient/deep Scramble trees, batch rollback/retry/quarantine, safety-setting combinations, Random Car naming/internal compatibility, parent-final creative integrity, model-bound locks, receiver-local import compatibility, full PNG validation, failed-load recovery, no-active-vehicle actions, and compact UI modes.
 
 Named Python UI cases cover `action_flushes_pending_settings`, immediate manual seed/filter use, destroy cancellation, and server-state non-resend. Package cases use the exact acceptance names for reproducibility, checksum, version, machine paths, root layout, and normalized metadata.
 
@@ -267,7 +268,13 @@ Use the exact final ZIP without extracting it and record the result of every row
 | 99 | Share preview shows dependencies, privacy warning, sizes, and checksum | Pending |
 | 100 | exact exported package transfers PC A to PC B and preflights there | Pending |
 
-Interactive cases passed: **0**. Interactive cases pending: **100**.
+Historical alpha.1 plan: **0 formally Passed / 100 Pending**. Maintainer observations are documented in [the alpha.1 report](INTERACTIVE_TEST_REPORT_0.5.0-alpha.1.md), not promoted to formal results.
+
+## 0.5.0-alpha.2 automated and interactive status
+
+The final local tree has 40 Python methods and 388 named Lua cases green, including the 113 explicit alpha.2 regressions. Node syntax, 2 project JSON files, 3 workflow YAML files, internal links, fixed UI allowlist, compact UI contract, icon bounds, package layout, checksums, manifest, and deterministic repeated builds are validated automatically.
+
+Alpha.2 interactive status is **0 Passed / 0 Failed / 50 Pending**. Use [the alpha.2 plan](INTERACTIVE_TEST_PLAN_0.5.0-alpha.2.md); do not reuse alpha.1 screenshots as a pass. Package/publication details are recorded only after the exact tagged assets have been downloaded again and validated.
 
 ## 0.5.0-alpha.1 package and release result
 

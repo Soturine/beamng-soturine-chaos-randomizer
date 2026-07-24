@@ -7,14 +7,14 @@ This is a preparation checklist, not evidence of submission or approval. A GitHu
 - **Title:** Soturine's Chaos Randomizer
 - **Short name:** Chaos Randomizer
 - **Author:** Soturine
-- **Version candidate:** later than `0.5.0-alpha.1`, only after the beta interactive gate
+- **Version candidate:** later than `0.5.0-alpha.2`, only after the beta interactive gate
 - **Tagline:** Seeded vehicle randomization with bounded Vehicle DNA capture, compatibility reports, and restoration.
 - **Category:** UI Apps / Gameplay (choose the closest current Repository category at submission time)
 - **License:** Apache License 2.0
 
 Suggested description:
 
-> Choose a complete installed configuration, scramble the current vehicle through BeamNG-reported compatible slots, or run the complete pipeline. Save a bounded Vehicle DNA snapshot, inspect compatibility, restore verified available data, or replay the generator seed. Includes phase-aware diagnostics, rollback, and Undo. Protect Critical Parts is a conservative metadata safeguard, not a drivability guarantee.
+> Choose a complete installed configuration with Random Car, scramble the current vehicle through BeamNG-reported compatible slots, or run the complete post-spawn pipeline with Full Random. Save a bounded Vehicle DNA snapshot, inspect compatibility, restore verified available data, or replay a supported generator seed. Includes stable-target diagnostics, localized/total rollback, recovery, and Undo. Protect Critical Parts is a conservative metadata safeguard, not a drivability guarantee.
 
 ## Blocking work before submission
 
@@ -26,7 +26,7 @@ Suggested description:
 - Confirm the supported BeamNG version immediately before upload.
 - Pass the restart persistence, corruption recovery, Exact/Compatible restore, import/export, and multi-PC beta gate in [Multi-PC Testing](MULTI_PC_TESTING.md).
 - Review current Repository rules, allowed categories/tags, image dimensions, file-size limits, and moderation requirements.
-- Do not submit `0.5.0-alpha.1`; it deliberately retains Pending interactive evidence.
+- Do not submit `0.5.0-alpha.2`; it deliberately retains 50 Pending interactive cases.
 
 ## Package checklist
 
@@ -39,7 +39,7 @@ Suggested description:
 - [ ] Confirm the SHA-256 file matches the uploaded ZIP.
 - [ ] Confirm the in-game title is **Soturine's Chaos Randomizer**.
 
-BeamNG's mod manager recognizes Repository-generated `mod_info/<id>/info.json` metadata when present. Do not invent a Repository resource ID or server fields before the platform assigns/provides them. Recheck the current submission workflow and use platform-generated metadata where required.
+BeamNG's Mod Manager/Repository pipeline owns outer package listing metadata. The project currently controls only its UI App `app.json` name/description/icon. Do not invent `mod_info/<id>/info.json`, a Repository resource ID, or server fields before the platform assigns/provides them. Recheck the current submission workflow and use platform-generated metadata where required.
 
 ## Media checklist
 

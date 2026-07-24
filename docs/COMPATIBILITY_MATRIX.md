@@ -2,7 +2,7 @@
 
 This matrix separates installed-source inspection, license-safe automated evidence, mocked pipeline evidence, and real interactive evidence. `Automated` never means gameplay-validated.
 
-Target: Soturine's Chaos Randomizer `0.5.0-alpha.1`; BeamNG.drive `0.38.6.0.19963`; Steam build `23007233`.
+Target: Soturine's Chaos Randomizer `0.5.0-alpha.2`; BeamNG.drive `0.38.6.0.19963`; Steam build `23007233`. Alpha.2 interactive total: **0 Passed / 0 Failed / 50 Pending**.
 
 | 0.5 boundary | Automated/source evidence | Live status |
 | --- | --- | --- |
@@ -12,6 +12,10 @@ Target: Soturine's Chaos Randomizer `0.5.0-alpha.1`; BeamNG.drive `0.38.6.0.1996
 | JSON/ZIP sharing safety | Pure Lua, static boundary, deterministic package fixtures | Pending |
 | Five-view UI, focus, responsive overflow | Node/static CSS/HTML assertions | Pending |
 | Cross-PC package dependency/restore behavior | Documented procedure only | Pending |
+| Multi-ID target tracking and stable rebind | Returned/callback/player/model/config/part fixtures, limits, stale-token and manual-switch cases | Pending |
+| Localized part rollback/retry/quarantine | Pure + mocked deep-tree/structural failure cases | Pending |
+| Failed-load recovery and no-active-vehicle entry | Previous/LKG/official ladder, circuit breaker, cleanup fixtures | Pending |
+| Compact UI modes and contextual controls | Static HTML/CSS/JS contract and syntax checks | Pending |
 
 | Content class | Registry/source evidence | Safety behavior | Automated evidence | Interactive evidence |
 | --- | --- | --- | --- | --- |
@@ -35,7 +39,7 @@ Target: Soturine's Chaos Randomizer `0.5.0-alpha.1`; BeamNG.drive `0.38.6.0.1996
 
 | Case | Automated evidence | Interactive evidence |
 | --- | --- | --- |
-| Fresh capture after Random Config/Scramble/Full Random | final capture/scan/normalize/schema/fingerprint and failed-operation exclusion | Pending |
+| Fresh capture after Random Car/Scramble/Full Random | final capture/scan/normalize/schema/fingerprint and failed-operation exclusion | Pending |
 | Exact preflight/restore | no-write registry preflight, saved-base load, target inspection, adaptive parent-first passes, strict read-back, rollback harness | Pending |
 | Compatible/partial restore | cross-model target inspection, explicit partial authorization, no random fallback, clamp/omission/remap records, applied-subset read-back | Pending |
 | Replay Generation / Pure Seed Replay | frozen saved-base generation and separate base-reselecting advanced replay harnesses | Pending |
@@ -47,7 +51,7 @@ Target: Soturine's Chaos Randomizer `0.5.0-alpha.1`; BeamNG.drive `0.38.6.0.1996
 
 | Operation | Installed source | Automated orchestration | Interactive observation |
 | --- | --- | --- | --- |
-| Replace | object return plus spawned hook; returned ID required | exact switch correlation, wrong-switch cancellation, rollback/Undo target tests | Pending |
+| Replace/spawn | object/ID and spawned/switch hooks are candidate sources; player target is authoritative | multi-ID chain, returned non-final ID, auxiliary target rejection, stable rebind, manual-switch cancellation | Pending |
 | Parts | normal `nil`, respawn, spawned hook | phase read-back, timeout attribution, suspects, safety rollback | Pending |
 | Tuning | normal `nil`, respawn, spawned hook | phase read-back, optional skip, rollback | Pending |
 | Paint | normal `nil`, live update, no spawn | normalized immediate/deferred read-back and rollback | Pending |

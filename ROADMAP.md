@@ -2,6 +2,12 @@
 
 The roadmap is evidence-driven. A feature is not considered stable until it has been exercised against representative official and third-party content in the target BeamNG version.
 
+## 0.5.0-alpha.2 — lifecycle and compact UI hotfix
+
+Implemented on `main`: bounded multi-ID target tracking and stabilization; post-spawn Full Random completion; transient/deep-tree rescans; localized part-batch rollback/retry/quarantine; failed-load previous/last-known-good/official recovery; no-active-vehicle Random Car/Full Random; parent-final creative operations; model-bound locks; receiver-local import compatibility; structural PNG validation; compact/collapsed/expanded UI; and generator 5 `SCR5-...` seeds with schema-1/generator-4 snapshot compatibility.
+
+All 113 requested automated regressions are registered. The alpha.1 maintainer observations remain historical evidence; the alpha.2 interactive plan is 0 Passed / 0 Failed / 50 Pending, so no beta, stable release, `1.0`, or Repository submission is authorized.
+
 ## 0.5.0-alpha.1 — creative Vehicle DNA
 
 Implemented on `main`: persisted vehicle/config/category/slot/part/tuning/paint locks; independent creative RNG substreams; Reroll Unlocked; deterministic Small/Medium/Wild child mutations and bounded lineage; pins, ratings, tags, notes, collections, filters and sort; paginated grid/list gallery with explicit bounded capture and fallback; field comparison; `.vdna.json` and validated fixed-inbox `.vdna.zip`; five-view responsive UI; schema-compatible optional DNA fields and settings schema 4 migration.

@@ -6,6 +6,31 @@ All notable changes are documented here using [Keep a Changelog](https://keepach
 
 No additional changes.
 
+## [0.5.0-alpha.2] - 2026-07-24
+
+Mod Vehicle Lifecycle, Creative Integrity & Compact UI Hotfix. Automated validation passes; alpha.2 interactive gameplay remains Pending.
+
+### Fixed
+
+- Track replacement/reload targets across bounded multi-ID chains, auxiliary vehicles, destroyed intermediates, returned non-final IDs, and delayed model/config/parts availability; callbacks now nominate candidates and five stable frames plus two coherent scans confirm the final player target.
+- Continue Full Random into verified post-spawn parts/tuning/paint work instead of reporting success after selection, with explicit completed, partial, and no-mutable-content results.
+- Rescan transient/deep part trees and recover persistent incompatible changes through localized batch rollback, scoped quarantine, bounded retry, and total rollback only when recovery cannot continue.
+- Recover failed configuration loads through the previous snapshot, last-known-good target, and safe official fallback; always clean operation state, and permit Random Car/Full Random with no active vehicle.
+- Restore and verify `parent.final` before Reroll Unlocked or Small/Medium/Wild mutations; bind model-dependent locks, preserve parents, and keep truthful lineage.
+- Preserve exporter compatibility as metadata while recomputing receiver-local import compatibility; require exact thumbnail state unless explicitly overridden and fully validate bounded PNG structure/CRC.
+
+### Changed
+
+- Rename the visible Random Config action to **Random Car** while preserving the internal `randomConfig` enum and old DNA compatibility.
+- Add collapsed, compact, standard, and expanded UI modes; default to 330×430 with a 300×340 minimum; move Reroll into Advanced and hide contextual mutation actions when no DNA is selected.
+- Bump deterministic generation to version 5 and emit `SCR5-...` seeds because retry/selection/mutation decisions changed. Schema remains version 1; generator-4 snapshots remain restorable and are never reinterpreted as generator 5.
+- Refresh the 250×120 UI App icon and expose bounded lifecycle/recovery diagnostics and user-facing recovery controls.
+
+### Tests
+
+- Register all 113 requested alpha.2 lifecycle, Full Random, Scramble, batch recovery, safety, Random Car, creative, locks, sharing, PNG, load-recovery, and compact-UI regression scenarios.
+- Add a dedicated alpha.1 maintainer-observation report and an honest all-Pending alpha.2 interactive plan.
+
 ## [0.5.0-alpha.1] - 2026-07-23
 
 Creative Vehicle DNA alpha prerelease. Automated and package checks pass; all real BeamNG world/UI and multi-PC cases remain Pending.

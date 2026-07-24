@@ -6,7 +6,7 @@ Vehicle DNA is a portable, bounded description of a completed Chaos Randomizer r
 
 An entry can become available only after an operation completes its lifecycle confirmation, final safety validation where applicable, a fresh configuration capture, a fresh hierarchical slot scan, normalization, schema validation, and fingerprint generation. The UI then offers **Save Vehicle DNA**. Saving is never automatic.
 
-Random Config results are eligible after their configuration lifecycle/read-back confirmation. Scramble and Full Random results additionally pass the final safety scan. A failed capture leaves the gameplay operation result intact but disables saving and records a diagnostic reason.
+Random Car results are eligible after their configuration lifecycle/read-back confirmation. The stored operation value remains `randomConfig` for backward compatibility. Scramble and Full Random results additionally pass the final safety scan. A failed capture leaves the gameplay operation result intact but disables saving and records a diagnostic reason.
 
 ## Four distinct operations
 
@@ -31,7 +31,7 @@ Replay Generation freezes the saved base model and normalized configuration, res
 
 ### Pure Seed Replay
 
-Pure Seed Replay is a separate advanced operation that reruns the original top-level generator action, including model/configuration selection. It can differ if BeamNG, enabled content, algorithms, filters, or other environment inputs changed. Generator version 4 uses `SCR4-XXXX-XXXX`; legacy `XXXX-XXXX` input remains accepted with the same underlying generator sequence.
+Pure Seed Replay is a separate advanced operation that reruns the original top-level generator action, including model/configuration selection. It can differ if BeamNG, enabled content, algorithms, filters, or other environment inputs changed. New work uses generator 5 and `SCR5-XXXX-XXXX`. Generator-4 `SCR4-...`/legacy text keeps its recorded version and is not silently replayed through generator 5; snapshot restore remains supported without RNG replay.
 
 ## Persistence
 
@@ -53,13 +53,13 @@ Limits are 100 entries, 128 KiB canonical data per entry, 1 MiB for the library,
 
 ## Locks, mutations, and Garage metadata
 
-Vehicle DNA can retain the lock profile used during generation without changing its final snapshot. Restore ignores creative locks. Reroll Unlocked and mutations use current locks; deterministic Small/Medium/Wild children preserve parent/root/index/strength/seed lineage and never edit the saved parent. Garage metadata adds optional pins, ratings, tags, notes, collections, sort order, and managed thumbnail metadata without changing schema version 1.
+Vehicle DNA can retain the lock profile used during generation without changing its final snapshot. Restore ignores creative locks. Reroll Unlocked and mutations use current locks, but first restore and verify the saved parent's actual final model/configuration/slots/tuning/paints. Model-dependent locks carry their bound model/configuration and cannot be silently applied elsewhere. Deterministic Small/Medium/Wild children preserve parent/root/index/strength/seed lineage and never edit the saved parent. Garage metadata adds optional pins, ratings, tags, notes, collections, sort order, and managed thumbnail metadata without changing schema version 1.
 
 ## Import and export
 
 `.vdna.json` uses a versioned share envelope and one controlled export filename. `.vdna.zip` uses a fixed export/inbox, five-entry allowlist, CRC/SHA manifest, strict schema identity, optional bounded managed PNG, and preview/confirmation before persistence. An entry ID or name never chooses a path. Pasted text is capped and parsed with `JSON.parse` into a data object before BeamNG bridge serialization. Lua discards unknown top-level fields except the bounded `extensions` object, rejects non-JSON types, cycles, non-finite numbers, oversized/deep structures, invalid schema, and duplicate paths/names.
 
-No import value becomes Lua or JavaScript source, selects a method name, accesses the network, or chooses a filesystem path.
+No import value becomes Lua or JavaScript source, selects a method name, accesses the network, or chooses a filesystem path. Exporter compatibility is retained only as bounded metadata; the receiver recomputes `localCompatibility` from its own mounted registry and reports local missing mods/configuration/parts.
 
 See [Locks](LOCKS.md), [Mutations](MUTATIONS.md), [Gallery](GALLERY.md), [Sharing](SHARING.md), and [Replay Semantics](REPLAY_SEMANTICS.md).
 

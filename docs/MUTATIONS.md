@@ -1,6 +1,6 @@
 # Deterministic Mutations
 
-A mutation creates a new Vehicle DNA child while leaving its saved parent unchanged. The operation first performs a read-only Compatible preflight, automatically loads the parent's saved model and base configuration, inspects the real target, then runs the normal bounded parts/tuning/paint and safety pipeline.
+A mutation creates a new Vehicle DNA child while leaving its saved parent unchanged. The operation first restores and strictly verifies the parent's normalized `final` model/configuration/slots/tuning/paints, then runs the normal bounded parts/tuning/paint and safety pipeline. It never starts from whichever vehicle happened to be active.
 
 ## Strengths and seeds
 
@@ -14,6 +14,6 @@ The mutation seed is derived from the generator contract, parent seed, parent ID
 
 Each child records `parentId`, `rootId`, `generation`, `mutationIndex`, `mutationStrength`, `mutationSeed`, `parentSeed`, and `createdFrom`. Indices advance per parent. Lineage depth is capped at 32, storage is capped at 100 entries, and deleting a parent preserves children with `parentMissing=true`.
 
-Reroll Unlocked can also create a child lineage when invoked with `parentDNAId`. It uses its own derived seed namespace, so it cannot collide with Small/Medium/Wild mutations.
+Reroll Unlocked can also create a child lineage when invoked with `parentDNAId`. It restores the same parent final state before changing unlocked fields. Small, Medium, and Wild share this parent-first invariant. Wild may choose another eligible model/configuration only when the lock profile is not model-bound; vehicle/configuration/slot/part locks restrict selection to their recorded binding or fail as unresolved. Reroll uses its own derived seed namespace, so it cannot collide with Small/Medium/Wild mutations.
 
 No saved parent is edited in place. The generated child remains pending until the user explicitly saves it, just like other randomizer results.

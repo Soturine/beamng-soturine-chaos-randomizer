@@ -2,16 +2,16 @@
 
 Soturine's Chaos Randomizer is a BeamNG.drive UI App and GE Lua extension for seeded, bounded randomization of complete vehicle configurations, compatible hierarchical parts, tuning values, and paint layers.
 
-Current version: **0.5.0-alpha.1 — Locks, Mutations, Favorites, Gallery and Sharing**
+Current version: **0.5.0-alpha.2 — Mod Vehicle Lifecycle, Creative Integrity & Compact UI Hotfix**
 Inspected target: **BeamNG.drive 0.38.6.0.19963** (Steam build 23007233)
 
-This is an alpha artifact, not a gameplay-validated beta or stable release. Automated and installed-source evidence is complete for the documented contracts; the interactive world/UI and multi-PC matrix remains Pending at 0 Passed / 100 Pending.
+This is an alpha artifact, not a gameplay-validated beta or stable release. Automated and installed-source evidence is complete for the documented contracts. Maintainer observations from alpha.1 informed this hotfix, but the alpha.2 interactive world/UI and multi-PC matrix remains Pending.
 
 ## What it does
 
 | Action | Behavior |
 | --- | --- |
-| **Random Config** | Replace the current vehicle with one complete eligible installed configuration; stop without scrambling it. |
+| **Random Car** | Replace the current vehicle with one complete eligible installed configuration; stop without scrambling it. The persisted/internal operation remains `randomConfig`. |
 | **Scramble** | Keep the current model and randomize its BeamNG-reported compatible parts, nested slots, tuning, wheels, tires, and paints. |
 | **Full Random** | Replace with a random eligible model/configuration and automatically run the entire bounded scramble and validation pipeline in one click. |
 
@@ -63,9 +63,11 @@ A confirmed base configuration is not penalized for a later parts/tuning/paint f
 
 Advanced UI shows compact blacklist/suspect counts and the latest records; detailed records stay in `beamng.log` under `SoturineChaosRandomizer`.
 
-### Correlated writes and tolerant verification
+### Stabilized lifecycle and tolerant verification
 
-Vehicle replacement waits are bound to the ID extracted from the actual object returned by `core_vehicles.replaceVehicle`; unrelated switches never retarget spawn, rollback, or Undo. Configuration confirmation uses model, normalized filename, registry identity, and a minimal loaded-state signature in that order. Paint read-back compares only requested supported fields with numeric tolerance and uses a short bounded update-driven retry when the game cache is not immediately current; it never waits for a paint spawn event.
+Replacement/reload callbacks are candidate evidence, not immediate success. A bounded tracker combines the returned ID, callbacks, the current player vehicle, model/configuration read-back, and part read-back; it accepts the final target only after five stable frames and two coherent scans. Legitimate `A → B → C` mod lifecycles, auxiliary vehicles, trailers, destroyed intermediates, and reload-time ID changes can rebind without being mistaken for a manual switch. A truly unrelated player switch still cancels safely.
+
+Transient part-tree gaps are rescanned. A persistent structural failure rolls back only the failing batch, quarantines the model/configuration/slot/candidate combination, and tries a bounded alternative. Failed configuration loads recover through the previous snapshot, last-known-good vehicle, then a safe official fallback; cleanup always releases busy/token/timer state. Random Car and Full Random can start with no active vehicle, while Scramble explains that it needs an active target.
 
 ### Granular capabilities
 
@@ -73,7 +75,7 @@ The adapter reports registry, replace, parts read/write, tuning read/write, pain
 
 ## Installation
 
-1. Download the attached `soturine_chaos_randomizer_0.5.0-alpha.1.zip` release asset, or build that filename locally.
+1. Download the attached `soturine_chaos_randomizer_0.5.0-alpha.2.zip` release asset, or build that filename locally.
 2. Copy the ZIP, without extracting it, into the active BeamNG user folder's `mods` directory.
 3. Enable it in Mod Manager.
 4. Enter Freeroam, open UI Apps, and add **Soturine's Chaos Randomizer**.
@@ -94,21 +96,21 @@ UI actions send the currently displayed settings and action in one Lua call. A p
 
 ## Vehicle DNA Garage
 
-After Random Config, Scramble, or Full Random completes and a fresh final read-back validates, **Save Vehicle DNA** becomes available. Saving is always explicit; `autoSaveDNA` is fixed off. A Vehicle DNA entry records normalized slot paths and selected parts, tuning metadata/values, supported paint fields, base configuration, environment, generation settings, warnings, dependencies, and fingerprints. It never embeds mod archives, JBeam files, textures, or executable code.
+After Random Car, Scramble, or Full Random completes and a fresh final read-back validates, **Save Vehicle DNA** becomes available. Saving is always explicit; `autoSaveDNA` is fixed off. A Vehicle DNA entry records normalized slot paths and selected parts, tuning metadata/values, supported paint fields, base configuration, environment, generation settings, warnings, dependencies, and fingerprints. It never embeds mod archives, JBeam files, textures, or executable code.
 
 - **Restore Exact** performs a read-only registry preflight, loads the saved model/configuration when target inspection is required, then applies parent-first fresh-tree passes and succeeds only after strict read-back. Any target mismatch or divergence rolls back.
 - **Restore Compatible** reports every omission, clamp, and mapping; partial application requires confirmation and never substitutes a random part.
 - **Replay Generation** freezes the saved base model/configuration and replays only the recorded parts/tuning/paint generation stages. **Pure Seed Replay** is a separate advanced action that may reselect the base and differ when content or algorithms changed.
 - **Copy DNA JSON / Import pasted JSON** use schema v1 and bounded JSON-only validation. Imported text is parsed as data before crossing the UI bridge.
 
-New seeds use `SCR4-XXXX-XXXX`; legacy `XXXX-XXXX` seeds remain accepted without changing their generator sequence. Manual-seed selection ignores the hidden recent list. See [Vehicle DNA](docs/VEHICLE_DNA.md) and [Schema](docs/VEHICLE_DNA_SCHEMA.md).
+New seeds use generator 5 and `SCR5-XXXX-XXXX`. `SCR4-...` and legacy seed text remain parseable as their recorded version and are never silently reinterpreted as generator 5. Schema v1 snapshots from generator 4 remain restorable; generation replay requires a supported matching generator. Manual-seed selection ignores the hidden recent list. See [Vehicle DNA](docs/VEHICLE_DNA.md) and [Schema](docs/VEHICLE_DNA_SCHEMA.md).
 
 ## Creative Vehicle DNA in 0.5
 
 - Persisted locks cover vehicle, configuration, evidence-based category, hierarchical slot, current part, tuning, and paint. Restore Snapshot ignores locks; Replay Generation explicitly chooses saved or current locks; Reroll Unlocked and Mutate use current locks.
-- **Reroll Unlocked** keeps every locked dimension and may create a deterministic child lineage. **Small**, **Medium**, and **Wild** mutations load the saved base and create a new pending child without editing the parent.
+- **Reroll Unlocked** and **Small**, **Medium**, and **Wild** first restore and verify the saved parent's real `final` state, then create a new pending child without editing the parent. Model-bound locks keep their bound model/configuration; unlocked Wild prefers another eligible model when available.
 - Garage adds pins, 0-5 rating, tags, notes, collections, search, filters, sort, grid/list, lineage, storage meter, and paginated lazy details. Compare uses normalized fields rather than fingerprints alone.
-- Explicit gallery capture is capped at 500x281, 256 KiB, and 100 managed images. Missing/unavailable images use a safe fallback; imported JSON never chooses a local path.
+- Exact gallery capture compares model, configuration, slots, tuning, and paints before and after capture. A deliberate non-exact override is labeled in metadata. PNGs receive bounded signature, chunk ordering/length, CRC, IHDR/IDAT/IEND, trailing-payload, and chunk-count validation.
 - `.vdna.json` and `.vdna.zip` transfer inert metadata only, plus an optional image explicitly captured by this mod. ZIP import is fixed-inbox, bounded, allowlisted, checksummed, schema-validated, previewed, and confirmed before a unique local ID is created.
 
 See [Locks](docs/LOCKS.md), [Mutations](docs/MUTATIONS.md), [Gallery](docs/GALLERY.md), [Sharing](docs/SHARING.md), [UI Design](docs/UI_DESIGN.md), and [Replay Semantics](docs/REPLAY_SEMANTICS.md).
@@ -144,8 +146,8 @@ The package builder fixes entry order, timestamps, permissions, path separators,
 Expected release files:
 
 ```text
-dist/soturine_chaos_randomizer_0.5.0-alpha.1.zip
-dist/soturine_chaos_randomizer_0.5.0-alpha.1.sha256
+dist/soturine_chaos_randomizer_0.5.0-alpha.2.zip
+dist/soturine_chaos_randomizer_0.5.0-alpha.2.sha256
 dist/release-manifest.json
 ```
 
@@ -164,7 +166,7 @@ See [Testing](docs/TESTING.md), [Compatibility](docs/COMPATIBILITY.md), [Compati
 
 ## Known limitations
 
-- No interactive gameplay result or third-party mod compatibility is claimed yet.
+- No alpha.2 interactive gameplay result or universal third-party mod compatibility is claimed. Alpha.1 maintainer observations are historical evidence, not alpha.2 passes.
 - `onVehicleSpawned` is the installed 0.38.6 reload hook for replace, parts, and tuning writes; phase and post-event state verification distinguish them. Paint writes use immediate or bounded deferred read-back because `respawn=false` emits no reload hook.
 - Tuning metadata exposes display category/subcategory but no proven correlation-group contract. The normalizer supports only an explicit `correlationGroup` plus `shared_normalized_sample`; current installed metadata therefore remains independently sampled.
 - Safety is metadata-based and cannot prove generic drivability; unknown/special layouts can remain `uncertain` without being destructively rejected.
@@ -176,6 +178,7 @@ See [Testing](docs/TESTING.md), [Compatibility](docs/COMPATIBILITY.md), [Compati
 - Fingerprints are deterministic change detectors, not cryptographic signatures or proof that two mod installations contain identical bytes.
 - Paint-design/skin semantics are not specialized beyond ordinary compatible part slots.
 - Repeated local build identity is tested. Cross-platform identity is reported only after comparing the final CI artifact for this exact commit.
+- BeamNG's Mod Manager owns the outer ZIP listing description. This project can reliably control its UI App name/icon/description, but no installed public metadata contract was found for overriding every Mod Manager field; no speculative `mod_info` file is shipped.
 
 ## License
 

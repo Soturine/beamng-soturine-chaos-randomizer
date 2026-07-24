@@ -24,6 +24,8 @@ Repository documentation, tools, tests, workflows, and fixtures do not enter the
 | `apiAdapter.lua` | Only boundary for BeamNG registry, vehicle, JBeam, parts, tuning, paint, VFS, log, and UI calls |
 | `capabilities.lua` | Derive actions and user-visible warnings from granular API capabilities |
 | `lifecycle.lua` | Phase-specific wait expectations and post-event state verification |
+| `vehicleTargetTracker.lua` / `vehicleStabilizer.lua` | Bounded multi-candidate target binding, rebind, player polling, stable-frame/scan proof |
+| `partBatchRecovery.lua` / `vehicleRecovery.lua` | Localized part rollback/quarantine and failed-load recovery ladder/circuit breaker |
 | `configVerification.lua` | Layered model/path/registry/signature configuration identity proof |
 | `contentIndex.lua` | Normalize mounted registry content, evidence-based source/type classes, filters, separated session blacklists |
 | `slotScanner.lua` | Copy/flatten hierarchical trees, stable depth/path/ID order, signatures, changed paths |
@@ -47,6 +49,7 @@ Repository documentation, tools, tests, workflows, and fixtures do not enter the
 | `vehicleDNALocks.lua` / `vehicleDNAMutations.lua` | Persisted normalized lock profiles, deterministic strengths/seeds, and bounded lineage |
 | `vehicleDNACompare.lua` / `vehicleDNAGallery.lua` | Bounded normalized field comparison and managed/fallback thumbnail policy |
 | `vehicleDNAPackage.lua` | Deterministic stored ZIP writer plus fail-closed archive/manifest validation |
+| `pngValidator.lua` | Bounded PNG chunk/order/length/CRC and trailing-data validation |
 | selectors/policy/diagnostics/util | Pure selection, Chaos policy, structured logs, shared helpers |
 
 ## Settings schema
@@ -68,11 +71,11 @@ Repository documentation, tools, tests, workflows, and fixtures do not enter the
   dnaLibraryLimit = 100,
   autoSaveDNA = false,
   defaultRestoreMode = "exact",
-  lockProfile = {kind = "soturineVehicleDNALockProfile", profileVersion = 1}
+  lockProfile = {kind = "soturineVehicleDNALockProfile", profileVersion = 2}
 }
 ```
 
-Schema 4 retains every schema-1/2/3 migration, maps the temporary `dnaLimit` name to `dnaLibraryLimit`, forces autosave off, bounds the library to 1–100 entries, and adds a normalized profile-version-1 lock object. Unknown keys are removed; numeric/enumerated settings and lock collections are bounded.
+Schema 4 retains every schema-1/2/3 migration, maps the temporary `dnaLimit` name to `dnaLibraryLimit`, forces autosave off, bounds the library to 1–100 entries, and normalizes profile-version-2 lock objects. Model-dependent vehicle/configuration/slot/part locks record their bound model and optional bound configuration; unresolved binding blocks creative selection instead of silently dropping the lock.
 
 ## Adapter write contracts
 
@@ -80,7 +83,7 @@ Adapter calls use explicit contracts rather than interpreting `pcall` alone as s
 
 | Write | Synchronous contract | Completion contract |
 | --- | --- | --- |
-| `replaceVehicle` | receives the exact recorded target object and must return a vehicle object with `getID()`/`getId()`/ID evidence; `false`/`nil`/ambiguous ID reject | exact returned vehicle ID plus `onVehicleSpawned` and layered model/config read-back |
+| `replaceVehicle` / spawn | `false` rejects; a returned ID/object is candidate evidence and replacement can begin without a previous active vehicle | callbacks, player-0 polling, model/config/part evidence, then five stable frames and two coherent scans on the final target |
 | `setPartsTreeConfig` | installed API normally returns `nil`; `false` rejects | `onVehicleSpawned`, expected path/candidate read-back |
 | `setConfigVars` | installed API normally returns `nil`; `false` rejects | `onVehicleSpawned`, expected tuning values read-back |
 | `setConfigPaints(..., false)` | installed API normally returns `nil`; `false` rejects | requested-field read-back immediately or through a two-second bounded update retry; no reload event |
@@ -102,15 +105,15 @@ waitingForDNAPartsReload
 waitingForDNATuningReload
 ```
 
-An expectation stores operation token, phase, expected hook, exact vehicle/model/config evidence, requested parts/tuning values, and start time. Replacement writes bind to the vehicle ID extracted from the returned object. A synchronous switch emitted before the call returns is queued and checked against that ID; it is never used to retarget the expectation. `onVehicleSpawned` is accepted only for the exact current target and current token. The post-event snapshot must satisfy the phase-specific expectation before the pipeline advances. A matching hook by itself is not success.
+An expectation stores operation token, phase, expected hook, original player vehicle, model/config evidence, requested parts/tuning values, and start time. The target tracker treats returned IDs, synchronous/asynchronous callbacks, and player-0 polls as bounded candidates. It can rebind from destroyed/intermediate IDs to the final matching player vehicle; no single callback is success. Model/config/part state must remain coherent for five frames and two scans. Candidate/event limits, stale tokens, and the normal phase timeout prevent indefinite tracking.
 
 Config verification applies layers: exact model, normalized path, model-scoped registry key, minimal loaded-state signature, then explicit failure as `config_identity_unverified`. A registry-only cross-model check can return `target_inspection_required`; the orchestrator loads the saved base within the existing transaction and repeats preflight against the confirmed target before any final claim. Paint confirmation is update-driven, interval-limited, attempt-limited, and does not use `onVehicleSpawned`.
 
-Timeouts report the exact phase. Manual map/vehicle/mod-state changes cancel with a distinct lifecycle reason; stale/wrong-vehicle hooks are logged and ignored.
+Timeouts report the exact phase. A model/config-consistent internal ID chain continues, while a proven unrelated player switch cancels with a distinct lifecycle reason. Stale tokens and wrong auxiliary candidates are logged and ignored. Transient part-tree gaps are rescanned; persistent absence requires two coherent scans.
 
 ## Vehicle DNA transaction
 
-A completed Random Config, Scramble, or Full Random result gets a fresh configuration capture and hierarchical scan. Only after normalization, schema validation, and fingerprint generation does `runtime.dna.pending` expose an explicit save. The pending entry is session-only; autosave is always false.
+A completed Random Car (`randomConfig`), Scramble, or Full Random result gets a fresh configuration capture and hierarchical scan. Only after normalization, schema validation, and fingerprint generation does `runtime.dna.pending` expose an explicit save. The pending entry is session-only; autosave is always false.
 
 The selected persistence design is one bounded store because installed-source evidence proves JSON read/write and the helper's temp/rename mode, but not a complete portable directory/listing transaction:
 
@@ -127,7 +130,7 @@ Before a primary write, main passes the already schema-validated in-memory libra
 
 Restore uses one ordinary operation token, original snapshot, history commit, target ID, deadlines, and rollback. Its phases are `dna_preflight`, `dna_base_spawn`, `dna_parts`, `dna_tuning`, `dna_paint`, `dna_validation`, and `dna_final_verification`. Exact requires a fully proven preflight and full final field equality. Compatible applies only uniquely resolved available data, records every omission/clamp, confirms partial intent separately, and verifies the subset actually applied. Neither restore mode consumes RNG or consults recent/blacklist state for fallback selection.
 
-Creative operations snapshot the normalized current lock profile. Category/slot/part, tuning-name, and paint-field decisions use independent derived substreams, so an unrelated lock does not shift unlocked choices. Reroll Unlocked creates a pending result from the current vehicle/config lock policy; mutation first loads the saved parent base and derives its seed from parent seed/ID, index, and strength. Saved parents remain immutable and lineage is capped at 32 generations.
+Creative operations snapshot the normalized current lock profile. Category/slot/part, tuning-name, and paint-field decisions use independent derived substreams, so an unrelated lock does not shift unlocked choices. Reroll Unlocked and every mutation first restore and strictly verify the selected parent's normalized `final` model/configuration/slots/tuning/paints. Only then does the child mutation begin. Wild may select another eligible model when no model-bound lock exists; a model-dependent lock restricts the fair selection pool to its bound model/configuration. Saved parents remain immutable and lineage is capped at 32 generations.
 
 ## Hierarchical mutation passes
 
@@ -140,7 +143,7 @@ Creative operations snapshot the normalized current lock profile. Category/slot/
 7. Commit history once, immediately before the first write.
 8. Apply one tree and wait for the verified reload.
 9. Re-scan the real tree; union new/changed paths with still-present deferred paths.
-10. Stop at the Chaos-derived limit and unconditional five-pass hard cap.
+10. Stop through the bounded depth-derived pass budget, no-progress/repeated-state guards, retry budget, or operation timeout. Trees deeper than twelve levels remain supported within the maximum guard.
 
 The per-pass diagnostics include slots scanned, ancestor paths changed, descendants deferred, blacklisted candidates rejected, protection blocks, actual changes, and reload reason.
 
@@ -183,6 +186,10 @@ tuning:<modelKey>:<variable>
 ```
 
 Only an unconfirmed base spawn can penalize its configuration. A parts failure after base confirmation targets the applied part batch. A single-candidate failure adds strong evidence. A multi-candidate batch adds `1 / batchSize` suspicion and a bounded fingerprint. Repeated appearances in different failed batches can suppress selection and reach the blacklist threshold; successful confirmed use subtracts suspicion. The store is capped at 128 records, eight fingerprints each, and a 900-second inactive TTL. Reindex and mod-state hooks clear failures, suspects, and blacklists.
+
+Part-batch recovery adds session-only quarantine keyed by model/configuration/slot/candidate. It keeps a pre-batch snapshot, permits at most two retries per slot, eight per pass, four localized rollbacks, twelve operation retries, and 128 quarantined candidates. A verified localized rollback continues with an alternative; rollback failure enters total transaction rollback.
+
+Vehicle-load recovery first tries the previous full snapshot, then the session last-known-good configuration, then a safe official configuration. Three consecutive failures open an official-only circuit breaker. Locks do not constrain recovery. Every terminal path clears the tracker, token, timers, busy state, and transient recovery/creative fields.
 
 ## Full Random transaction
 
@@ -231,7 +238,7 @@ Limits: default 10, maximum 50 iterations, maximum 300 seconds, per-operation ti
 
 ## UI boundary
 
-The UI has fixed Randomize, Locks, Garage, Compare, and Share destinations and calls only allowlisted public extension methods. An action click cancels the pending settings timer and sends `runAction(action, currentSettings)` as one serialized Lua call. Lua validates/applies the snapshot before beginning the operation. Pasted DNA is length-checked and parsed with `JSON.parse` before `serializeToLua`; raw import text never becomes Lua source or a method name. Exact/Compatible buttons run preflight first, and Garage compatibility owns the separate destructive confirmation. Server state events assign scope state without scheduling another settings write. Destroy cancels both settings and search timers.
+The UI has fixed Randomize, Locks, Garage, Compare, and Share destinations and calls only allowlisted public extension methods. Random Car is presentation for the unchanged `randomConfig` enum. Collapsed/compact/standard/expanded modes affect layout only; contextual creative buttons are absent when no DNA is selected. An action click cancels the pending settings timer and sends `runAction(action, currentSettings)` as one serialized Lua call. Lua validates/applies the snapshot before beginning the operation. Pasted DNA is length-checked and parsed with `JSON.parse` before `serializeToLua`; raw import text never becomes Lua source or a method name. Exact/Compatible buttons run preflight first, and Garage compatibility owns the separate destructive confirmation. Server state events assign scope state without scheduling another settings write. Destroy cancels both settings and search timers.
 
 Periodic public state contains paginated summaries, bounded reports, metrics, and lock counts—not full DNA, export text, thumbnail bytes, or full details. Explicit details, comparison, lock resolution, and JSON export use dedicated one-off events.
 
@@ -239,7 +246,7 @@ The custom-element host is explicitly block-sized to 100% width/height because t
 
 ## Determinism and packaging
 
-Random choices use operation, pass, variable, and group substreams. Maps are sorted before choices. Results require identical game/content/settings/starting state/blacklist inputs.
+Random choices use operation, pass, variable, group, retry, and creative substreams. Maps are sorted before choices. Generator 5 uses `SCR5-...` seeds because the alpha.2 selection/retry/creative decisions can change output. Schema 1 generator-4 snapshots remain restorable and their seeds keep their version; they are never reinterpreted as generator 5. Results require identical game/content/settings/starting state/quarantine inputs.
 
 The ZIP builder normalizes member order, timestamps, Unix regular-file mode, path separators, packaged text line endings, compression level, and checksum format. It never adds a wrapper directory or development files. A deterministic external release manifest binds VERSION/tag/commit/source-date, filename/bytes/entries/SHA, BeamNG target, schema/generator versions, and real automated/interactive counts. Repeated same-environment builds must be byte-identical; cross-platform identity requires comparing the real archives.
 

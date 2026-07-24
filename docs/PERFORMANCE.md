@@ -31,11 +31,12 @@ The final 0.5 candidate rerun reported `index_seconds=0.034`, `scan_seconds=0.00
 
 - Registry normalization is linear in registered models/configs and is cached across normal operations; Reindex/mod-state changes invalidate it.
 - Slot scan and mutation planning are bounded by the currently loaded tree/candidate set, not all installed ZIP contents.
-- Mutation passes are Chaos-derived and hard-capped at five; descendants use a later fresh snapshot.
-- Per-frame update work is constant-time except a scheduled stress step or one interval-limited paint read-back.
+- Mutation passes are depth-derived and bounded by no-progress/repeated-state/operation guards; descendants use a later fresh snapshot and trees beyond twelve levels can complete.
+- Per-frame update work is constant-time except a scheduled stress step or one interval-limited lifecycle/paint read-back. Lifecycle candidates/events are capped at 16/32 and success requires five stable frames/two coherent scans.
 - Paint confirmation is capped by two seconds and 12 attempts.
 - Diagnostics retain 200 records; history is settings-bounded to 1–50 entries.
 - Part suspects retain at most 128 records, eight fingerprints each, with a 900-second inactive TTL.
+- Part recovery permits two retries per slot, eight per pass, four batch rollbacks, twelve operation retries, and 128 quarantined candidates. Load recovery opens its circuit breaker after three consecutive failures.
 - Developer stress is capped at 50 sequential operations and 300 seconds.
 - Vehicle DNA libraries are capped at 100 entries and 1 MiB canonical JSON; each entry is capped at 128 KiB, 2,048 slots, 2,048 tuning variables, 32 paint layers, and 20 tags.
 - Canonical/import traversal is capped at 32 levels, 10,000 elements, 4,096 characters per string, and 512 characters per canonical path.
@@ -48,7 +49,7 @@ The final 0.5 candidate rerun reported `index_seconds=0.034`, `scan_seconds=0.00
 
 ## Runtime metrics
 
-Public state exposes index build/cache-hit counts, `garageLoadMs`, `compatibilityMs`, `thumbnailLoadMs`, `compareMs`, `exportMs`, `importMs`, `storageBytes`, `storageElements`, and the last operation's total duration, reload count, slot scan time, mutation planning time, tree depth, slot count, and candidate count. Diagnostics record pass metrics and safety status. Absolute machine paths are never included.
+Public state exposes `replacementEvents`, `candidateVehicles`, `rebindCount`, `stabilizationFrames`, `stabilizationScans`, `stabilizationMs`, `partBatchRetries`, `partBatchRollbacks`, `quarantinedCandidates`, and `fullRandomPostSpawnMs`, plus index build/cache-hit counts, `garageLoadMs`, `compatibilityMs`, `thumbnailLoadMs`, `compareMs`, `exportMs`, `importMs`, `storageBytes`, `storageElements`, and the last operation's total duration, reload count, slot scan time, mutation planning time, tree depth, slot count, and candidate count. Diagnostics record pass metrics and safety status. Absolute machine paths are never included.
 
 ## Regression fixtures
 

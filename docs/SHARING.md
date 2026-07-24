@@ -30,6 +30,6 @@ Pasted JSON is parsed in JavaScript before bridge serialization, capped at 131,0
 /settings/soturineChaosRandomizer/vehicleDNA/inbox/import.vdna.zip
 ```
 
-The user validates first, reviews dependency/compatibility metadata and checksum, then confirms. Storage creates a unique local ID while lineage preserves `originId`, `importedAt`, and the validation strategy. Optional image bytes are written only after archive/manifest/PNG validation and are removed if library persistence fails.
+The user validates first, reviews dependency/compatibility metadata and checksum, then confirms. The package's exporter compatibility report is preserved as historical metadata, but it never becomes the receiver's status. `localCompatibility` is freshly calculated from the receiver's mounted registry, so local missing mods/configurations/parts remain visible. Storage creates a unique local ID while lineage preserves `originId`, `importedAt`, and the validation strategy. Optional image bytes are written only after archive/manifest/PNG validation and are removed if library persistence fails.
 
-SHA-256 authenticates transfer integrity against the manifest; it is not a signature of the author or proof that two PCs have identical mods. Inspect dependencies and run preflight before restore.
+PNG acceptance uses bounded signature, chunk ordering, declared-length/overflow, CRC, IHDR/IDAT/IEND, duplicate-header, missing-end, chunk-count, and trailing-payload checks. SHA-256 authenticates transfer integrity against the manifest; it is not a signature of the author or proof that two PCs have identical mods. Inspect dependencies and run preflight before restore.

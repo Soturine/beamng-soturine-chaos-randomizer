@@ -2,7 +2,7 @@
 
 ## Current target
 
-Version `0.5.0-alpha.1` targets the currently installed BeamNG.drive `0.38.6.0.19963`, Steam build `23007233`.
+Version `0.5.0-alpha.2` targets the currently installed BeamNG.drive `0.38.6.0.19963`, Steam build `23007233`.
 
 | BeamNG version | Status | Evidence |
 | --- | --- | --- |
@@ -39,7 +39,7 @@ Synthetic license-safe fixtures cover all of these metadata/tree shapes without 
 
 | Capability | Needed by |
 | --- | --- |
-| registry + replace + lifecycle confirmation | Random Config |
+| registry + spawn/replace + lifecycle confirmation | Random Car (`randomConfig`) |
 | parts read + parts write + lifecycle confirmation | Scramble essential stage |
 | tuning read + tuning write + lifecycle confirmation | optional tuning stage |
 | paint read + paint write | optional paint stage |
@@ -49,7 +49,7 @@ Synthetic license-safe fixtures cover all of these metadata/tree shapes without 
 | DNA file export | optional fixed-path export only; JSON copy remains available without it |
 | DNA backup | controlled last-known-good recovery; no transactional atomicity claim |
 
-If tuning or paint is unavailable, compatible-parts mutation can continue with a visible capability warning. Missing parts write disables Scramble and Full Random. Missing registry/replace disables Random Config.
+If tuning or paint is unavailable, compatible-parts mutation can continue with a visible capability warning. Missing parts write disables Scramble and Full Random. Missing registry/spawn/replace disables Random Car. Random Car and Full Random can create a target when player 0 has no active vehicle; Scramble still requires an active model.
 
 ## Source classification
 
@@ -59,7 +59,7 @@ If tuning or paint is unavailable, compatible-parts mutation can continue with a
 
 `Protect Critical Parts` prevents detectable required/core removal and preserves baseline-proven functional roles through a dynamic evidence graph. Trailer/prop requirements differ from standard road/electric/hybrid-like profiles. `uncertain` is allowed for insufficient unusual metadata and is not a drivability claim; `unsafe` rolls back. BeamNG remains the final loader/compatibility authority, and a reported suitable candidate can still fail during reload.
 
-Replacement compatibility also requires resolving the recorded target object and extracting a target ID from the object returned by `replaceVehicle`. Config identity must be proven by a layered strategy. Paint compatibility is limited to the installed supported fields and a bounded read-back window.
+Replacement compatibility is proven from bounded combined evidence: returned ID/object, callback candidates, current player target, model/configuration identity, requested part read-back, and five stable frames/two coherent scans. The returned ID need not be final. Paint compatibility is limited to the installed supported fields and a bounded read-back window.
 
 ## Determinism boundary
 
@@ -69,14 +69,14 @@ Equal seeds reproduce project choices only when all inputs match:
 - randomizer version;
 - enabled content and metadata;
 - settings and starting vehicle/configuration;
-- session blacklist/suspect state.
+- session blacklist/suspect/quarantine state.
 
 External mod scripts, physics timing, and changed mounted content are outside this guarantee.
 
 Vehicle DNA separates two different contracts:
 
 - Restore Exact applies a saved snapshot without RNG/recent/blacklist fallback and reports exact only after full slot/tuning/paint/topology read-back.
-- Replay Generation freezes the saved base and reruns generator version 4 parts/tuning/paint stages. Pure Seed Replay is explicitly separate and can reselect the base. Legacy seed text is parseable, but an unsupported generator version is not silently replayed.
+- Replay Generation freezes the saved base and reruns a supported matching generator's parts/tuning/paint stages. New alpha.2 work uses generator 5; generator-4 snapshots remain restorable, but old seeds are never silently replayed as generator 5. Pure Seed Replay is explicitly separate and can reselect the base.
 
 Restore Compatible never chooses a random substitute. It reports missing/ambiguous slots, absent parts/dependencies, clamps, paint-layer omissions, and environment differences before the user can confirm a partial application. A cross-model registry preflight reports `target_inspection_required`; after the saved base loads, target inspection decides Exact, Compatible, or rollback.
 
@@ -85,3 +85,5 @@ Restore Compatible never chooses a random substitute. It reports missing/ambiguo
 Include BeamNG build, randomizer commit/version, content name/version/source/license, operation, settings, seed, result, and tagged log excerpts. Do not attach paid/private content. State whether Reindex and a clean profile change the result.
 
 See [Compatibility Matrix](COMPATIBILITY_MATRIX.md) for per-class automated and interactive evidence.
+
+Alpha.1 maintainer observations are retained separately and do not promote any alpha.2 row. The current alpha.2 interactive matrix is **0 Passed / 0 Failed / 50 Pending**.
