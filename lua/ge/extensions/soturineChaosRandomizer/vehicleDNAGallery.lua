@@ -1,5 +1,6 @@
 local fingerprint = require("ge/extensions/soturineChaosRandomizer/vehicleDNAFingerprint")
 local util = require("ge/extensions/soturineChaosRandomizer/util")
+local pngValidator = require("ge/extensions/soturineChaosRandomizer/pngValidator")
 
 local M = {}
 
@@ -14,19 +15,14 @@ local function safeId(id)
 end
 
 local function pngDimensions(data)
-  if type(data) ~= "string" or #data < 24 or data:sub(1, 8) ~= "\137PNG\13\10\26\10" then
-    return nil, "thumbnail_png_invalid"
-  end
-  local function u32(offset)
-    local a, b, c, d = data:byte(offset, offset + 3)
-    return ((a * 256 + b) * 256 + c) * 256 + d
-  end
-  local width, height = u32(17), u32(21)
-  if width < 1 or height < 1 or width > M.MAX_WIDTH or height > M.MAX_HEIGHT then
-    return nil, "thumbnail_dimensions_limit"
-  end
-  if #data > M.MAX_BYTES then return nil, "thumbnail_size_limit" end
-  return {width = width, height = height, bytes = #data}
+  return pngValidator.validate(data, {
+    maxWidth = M.MAX_WIDTH,
+    maxHeight = M.MAX_HEIGHT,
+    maxBytes = M.MAX_BYTES,
+    maxChunks = 128,
+    maxChunkBytes = M.MAX_BYTES,
+    maxIDATBytes = M.MAX_BYTES,
+  })
 end
 
 local function fallback(entry)
@@ -51,15 +47,18 @@ local function fallback(entry)
   }
 end
 
-local function managedMetadata(id, dimensions)
+local function managedMetadata(id, dimensions, options)
   local managedId = safeId(id)
   if not managedId or type(dimensions) ~= "table" then return nil, "thumbnail_metadata_invalid" end
+  options = type(options) == "table" and options or {}
   return {
     kind = "managed",
     managedId = managedId,
     width = dimensions.width,
     height = dimensions.height,
     bytes = dimensions.bytes,
+    exactState = options.exactState ~= false,
+    capturedFingerprint = type(options.capturedFingerprint) == "string" and options.capturedFingerprint or nil,
   }
 end
 

@@ -97,7 +97,7 @@ class PackageTests(unittest.TestCase):
             package_mod.write_release_manifest(archive, root=ROOT)
             manifest = validate_package.validate_release_manifest(archive)
             self.assertEqual(manifest["tag"], f"v{package_mod.read_version(ROOT)}")
-            self.assertEqual(manifest["generatorVersion"], 4)
+            self.assertEqual(manifest["generatorVersion"], 5)
             self.assertEqual(manifest["vehicleDNASchemaVersion"], 1)
 
     def test_release_manifest_is_reproducible(self) -> None:

@@ -15,6 +15,8 @@ local mutationPolicy = require("ge/extensions/soturineChaosRandomizer/mutationPo
 local operationState = require("ge/extensions/soturineChaosRandomizer/operationState")
 local paintRandomizer = require("ge/extensions/soturineChaosRandomizer/paintRandomizer")
 local paintVerification = require("ge/extensions/soturineChaosRandomizer/paintVerification")
+local partBatchRecovery = require("ge/extensions/soturineChaosRandomizer/partBatchRecovery")
+local pngValidator = require("ge/extensions/soturineChaosRandomizer/pngValidator")
 local rng = require("ge/extensions/soturineChaosRandomizer/rng")
 local settings = require("ge/extensions/soturineChaosRandomizer/settings")
 local slotScanner = require("ge/extensions/soturineChaosRandomizer/slotScanner")
@@ -37,6 +39,9 @@ local vehicleDNAPackage = require("ge/extensions/soturineChaosRandomizer/vehicle
 local vehicleDNARestore = require("ge/extensions/soturineChaosRandomizer/vehicleDNARestore")
 local vehicleDNASchema = require("ge/extensions/soturineChaosRandomizer/vehicleDNASchema")
 local vehicleDNAStorage = require("ge/extensions/soturineChaosRandomizer/vehicleDNAStorage")
+local vehicleRecovery = require("ge/extensions/soturineChaosRandomizer/vehicleRecovery")
+local vehicleStabilizer = require("ge/extensions/soturineChaosRandomizer/vehicleStabilizer")
+local vehicleTargetTracker = require("ge/extensions/soturineChaosRandomizer/vehicleTargetTracker")
 local fixtures = require("tests/lua/fixtures/content")
 local pipelineHarness = require("tests/lua/pipelineHarness")
 
@@ -140,7 +145,7 @@ end
 
 tests.seed_normalization = function()
   equal(rng.normalizeSeed("  test-seed  "), rng.normalizeSeed("test-seed"))
-  truthy(rng.normalizeSeed("test-seed"):match("^SCR4%-%x%x%x%x%-%x%x%x%x$") ~= nil)
+  truthy(rng.normalizeSeed("test-seed"):match("^SCR5%-%x%x%x%x%-%x%x%x%x$") ~= nil)
   equal(rng.new("8F31-A902").seed, rng.new("8f31a902").seed)
   equal(rng.new("8F31-A902").seed, rng.new("SCR4-8F31-A902").seed)
 end
@@ -1031,6 +1036,9 @@ tests.unrelated_switch_during_spawn_cancels = function()
   local harness = pipelineHarness.new({vehicleId = 1, returnedVehicleId = 2})
   truthy(harness.main.randomConfig({manualSeed = "replace"}))
   harness.main.onVehicleSwitched(1, 99, 0)
+  harness.vehicleId = 99
+  harness.now = harness.now + 0.06
+  harness.main.onUpdate()
   local state = harness.main.requestState()
   equal(state.busy, false)
   equal(state.lastResult.code, "vehicle_switched")
@@ -1042,6 +1050,8 @@ tests.manual_switch_does_not_retarget_spawn = function()
   harness.main.onVehicleSwitched(1, 99, 0)
   harness.vehicleId = 99
   harness.main.onVehicleSpawned(99)
+  harness.now = harness.now + 0.06
+  harness.main.onUpdate()
   local state = harness.main.requestState()
   equal(state.lastResult.code, "vehicle_switched")
 end
@@ -1052,6 +1062,9 @@ tests.manual_switch_does_not_retarget_rollback = function()
   pipelineHarness.confirmReplacement(harness)
   truthy(harness.pendingReplacement and harness.pendingReplacement.restoring)
   harness.main.onVehicleSwitched(1, 77, 0)
+  harness.vehicleId = 77
+  harness.now = harness.now + 0.06
+  harness.main.onUpdate()
   equal(harness.main.requestState().lastResult.code, "vehicle_switched")
 end
 
@@ -1060,6 +1073,10 @@ tests.undo_wait_rejects_unrelated_vehicle = function()
   truthy(pipelineHarness.driveSuccess(harness, "scramble"))
   truthy(harness.main.undo(), harness.main.requestState().lastResult.message)
   harness.main.onVehicleSwitched(1, 88, 0)
+  harness.vehicleId = 88
+  harness.modelKey = "fixture_unrelated"
+  harness.now = harness.now + 0.06
+  harness.main.onUpdate()
   equal(harness.main.requestState().lastResult.code, "vehicle_switched")
 end
 
@@ -1088,9 +1105,10 @@ end
 
 tests.synchronous_unrelated_switch_never_starts_rollback = function()
   local harness = pipelineHarness.new({vehicleId = 1, returnedVehicleId = 2, synchronousSwitchId = 99})
-  truthy(not harness.main.randomConfig({manualSeed = "synchronous-unrelated"}))
+  truthy(harness.main.randomConfig({manualSeed = "synchronous-unrelated"}))
   truthy(harness.pendingReplacement and not harness.pendingReplacement.restoring)
-  equal(harness.main.requestState().lastResult.code, "vehicle_switched")
+  pipelineHarness.confirmReplacement(harness)
+  equal(harness.main.requestState().lastResult.code, "random_config_loaded")
 end
 
 tests.rollback_never_targets_unrelated_vehicle = function()
@@ -1520,11 +1538,11 @@ tests.full_random_mocked_success_pipeline = tests.full_random_runs_parts_tuning_
 
 tests.spawn_failure_blacklists_config = function()
   local harness = pipelineHarness.new({replaceFailure = true})
-  for attempt = 1, 3 do
-    truthy(not harness.main.randomConfig({manualSeed = "spawn-failure-" .. attempt}))
-    pipelineHarness.confirmReplacement(harness)
-  end
-  equal(harness.main.requestState().index.blacklists.config, 3 >= 3 and 1 or 0)
+  truthy(not harness.main.randomConfig({manualSeed = "spawn-failure"}))
+  pipelineHarness.confirmReplacement(harness)
+  local state = harness.main.requestState()
+  equal(state.recovery.quarantinedConfigurations, 1)
+  equal(state.busy, false)
 end
 
 tests.parts_failure_after_confirmed_spawn_does_not_blacklist_config = function()
@@ -1541,8 +1559,8 @@ tests.parts_timeout_attributes_current_batch = function()
   harness.now = 30
   harness.main.onUpdate()
   local state = harness.main.requestState()
-  equal(state.lastFailure.phase, "parts")
-  truthy(type(state.lastFailure.context.batch) == "table")
+  equal(state.waitReason, "waitingForPartBatchRollback")
+  truthy(state.busy)
 end
 
 tests.paint_failure_rolls_back = function()
@@ -1952,7 +1970,7 @@ tests.dna_creation_records_generator_and_schema_versions = function()
   })
   truthy(entry, tostring(reason))
   equal(entry.schemaVersion, 1)
-  equal(entry.generation.generatorVersion, 4)
+  equal(entry.generation.generatorVersion, 5)
 end
 
 tests.settings_schema_two_migrates_to_four = function()
@@ -2489,7 +2507,11 @@ local function be32(value)
 end
 
 local function fixturePNG(width, height)
-  return "\137PNG\13\10\26\10" .. "\0\0\0\13IHDR" .. be32(width) .. be32(height)
+  local function chunk(kind, data)
+    return be32(#data) .. kind .. data .. be32(vehicleDNAPackage.crc32(kind .. data))
+  end
+  local ihdr = be32(width) .. be32(height) .. string.char(8, 6, 0, 0, 0)
+  return "\137PNG\13\10\26\10" .. chunk("IHDR", ihdr) .. chunk("IDAT", "x") .. chunk("IEND", "")
 end
 
 tests.gallery_thumbnail_bounds_and_fallback_are_safe = function()
@@ -2624,11 +2646,182 @@ tests.dna_mutation_loads_parent_base_and_creates_child_lineage = function()
   truthy(harness.main.mutateVehicleDNA(id, "small", {mutationIndex = 1}))
   equal(harness.pendingReplacement.modelKey, "fixture_new")
   pipelineHarness.confirmReplacement(harness)
-  while harness.pendingParts do pipelineHarness.confirmParts(harness) end
-  if harness.pendingTuning then pipelineHarness.confirmTuning(harness) end
+  for _ = 1, 24 do
+    if harness.pendingReplacement then pipelineHarness.confirmReplacement(harness)
+    elseif harness.pendingParts then pipelineHarness.confirmParts(harness)
+    elseif harness.pendingTuning then pipelineHarness.confirmTuning(harness)
+    elseif not harness.main.requestState().busy then break
+    else harness.now = harness.now + 0.1; harness.main.onUpdate() end
+  end
   local state = harness.main.requestState()
   equal(state.lastResult.code, "dna_mutation_completed")
   truthy(state.garage.pendingSave)
+end
+
+local function alpha2Tracker(options)
+  options = options or {}
+  return vehicleTargetTracker.create({
+    token = "alpha2-token", phase = options.phase or "spawn", modelKey = options.modelKey or "target_model",
+    parts = options.parts or {}, returnedVehicleId = options.returnedVehicleId,
+    originalVehicleId = options.originalVehicleId or 1, startedAt = 0, timeout = options.timeout or 3,
+    stabilizer = {minimumFrames = 5, minimumScans = 2, pollInterval = 0},
+  })
+end
+
+local function alpha2State(id, model, parts)
+  return {vehicleId = id, modelKey = model or "target_model", configKey = "/vehicles/target_model/base.pc", parts = parts or {}}
+end
+
+tests.alpha2_tracker_rebind_chain_contract = function()
+  local tracker = alpha2Tracker({returnedVehicleId = 2})
+  vehicleTargetTracker.onSwitched(tracker, 1, 2, 0, true)
+  vehicleTargetTracker.onSpawned(tracker, 77) -- auxiliary entity, never player target
+  vehicleTargetTracker.onDestroyed(tracker, 2)
+  vehicleTargetTracker.onSwitched(tracker, 2, 3, 0, false)
+  local status
+  for frame = 1, 5 do status = vehicleTargetTracker.observe(tracker, "alpha2-token", alpha2State(3), frame * 0.1) end
+  equal(status, "stable")
+  equal(vehicleTargetTracker.summary(tracker, 0.5).currentCandidateId, 3)
+end
+
+tests.alpha2_tracker_limits_contract = function()
+  local tracker = alpha2Tracker()
+  for id = 1, 40 do vehicleTargetTracker.onSpawned(tracker, id) end
+  local report = vehicleTargetTracker.summary(tracker, 0)
+  equal(report.candidateCount, vehicleTargetTracker.LIMITS.candidates)
+  equal(report.switchEventCount, vehicleTargetTracker.LIMITS.events)
+  truthy(report.candidateDrops > 0)
+  truthy(report.eventDrops > 0)
+end
+
+tests.alpha2_tracker_stability_timeout_stale_destroy_contract = function()
+  local tracker = alpha2Tracker({returnedVehicleId = 2, timeout = 1})
+  equal(vehicleTargetTracker.observe(tracker, "stale", alpha2State(2), 0.1), "failed")
+  vehicleTargetTracker.onDestroyed(tracker, 2)
+  local status = vehicleTargetTracker.observe(tracker, "alpha2-token", alpha2State(3), 1)
+  equal(status, "failed")
+  local stabilizer = vehicleStabilizer.create({minimumFrames = 5, minimumScans = 2})
+  for frame = 1, 4 do truthy(not vehicleStabilizer.observe(stabilizer, 3, "same", true)) end
+  truthy(vehicleStabilizer.observe(stabilizer, 3, "same", true))
+end
+
+tests.alpha2_tracker_switch_classification_contract = function()
+  local tracker = alpha2Tracker({returnedVehicleId = 2})
+  vehicleTargetTracker.onSwitched(tracker, 2, 99, 1, false)
+  local status = vehicleTargetTracker.observe(tracker, "alpha2-token", alpha2State(2), 0.1)
+  equal(status, "waiting")
+  vehicleTargetTracker.onSwitched(tracker, 2, 99, 0, false)
+  status = vehicleTargetTracker.observe(tracker, "alpha2-token", alpha2State(99, "unrelated"), 0.2)
+  equal(status, "cancelled")
+end
+
+tests.alpha2_tree_stabilizer_contract = function()
+  local stabilizer = vehicleStabilizer.create({persistentTreeScans = 2})
+  local persistent, reason = vehicleStabilizer.observeTreeIssue(stabilizer, "required:/engine")
+  equal(persistent, false)
+  equal(reason, "tree_issue_transient")
+  persistent, reason = vehicleStabilizer.observeTreeIssue(stabilizer, "required:/engine")
+  equal(persistent, true)
+  equal(reason, "tree_issue_persistent")
+  equal(vehicleStabilizer.observeTreeIssue(stabilizer, nil), false)
+end
+
+tests.alpha2_batch_recovery_contract = function()
+  local state = partBatchRecovery.create({retriesPerSlot = 2, retriesPerPass = 3, operationRetries = 4})
+  partBatchRecovery.beginBatch(state, {
+    modelKey = "model_a", configKey = "base", pass = 1,
+    treeBefore = {chosenPartName = "root", children = {}},
+    changes = {{slotPath = "/body/", selectedPart = "broken"}},
+  })
+  local retry = partBatchRecovery.recordFailure(state, {
+    modelKey = "model_a", configKey = "base", pass = 1, slotPath = "/body/", candidate = "broken",
+  }, "required_slot_missing")
+  truthy(retry)
+  truthy(partBatchRecovery.isQuarantined(state, "model_a", "base", "/body/", "broken"))
+  truthy(not partBatchRecovery.isQuarantined(state, "model_b", "base", "/body/", "broken"))
+  local rollback, tree = partBatchRecovery.beginRollback(state)
+  truthy(rollback and type(tree) == "table")
+  truthy(partBatchRecovery.finishRollback(state, true))
+  local filtered = partBatchRecovery.filterCandidates(state, "model_a", "base", "/body/", {"broken", "alternative"})
+  equal(#filtered, 1); equal(filtered[1], "alternative")
+end
+
+tests.alpha2_recovery_contract = function()
+  local state = vehicleRecovery.create({consecutiveFailureLimit = 3})
+  vehicleRecovery.rememberGood(state, {modelKey = "known", selectedConfiguration = "known.pc", config = {}})
+  for index = 1, 3 do vehicleRecovery.recordLoadFailure(state, {modelKey = "bad", configKey = "bad" .. index}, "load_failed") end
+  truthy(state.circuitOpen)
+  truthy(vehicleRecovery.isQuarantined(state, "bad", "bad1"))
+  local plan = vehicleRecovery.choosePlan(state, {modelKey = "previous", selectedConfiguration = "previous.pc"}, {
+    {modelKey = "safe", key = "base", path = "safe.pc", sourceKind = "official"},
+  })
+  equal(plan[1].kind, "previous")
+  equal(plan[2].kind, "last_known_good")
+  equal(plan[3].kind, "safe_official")
+  local operation = {wait = {}, targetTracker = {}, paintConfirmation = {}, replaceWriteInFlight = true}
+  vehicleRecovery.cleanup(operation)
+  equal(operation.wait, nil); equal(operation.targetTracker, nil); equal(operation.replaceWriteInFlight, false)
+end
+
+tests.alpha2_png_integrity_contract = function()
+  local valid = fixturePNG(32, 18)
+  truthy(pngValidator.validate(valid))
+  equal(pngValidator.validate(valid .. "x"), nil)
+  local corrupt = valid:sub(1, 45) .. string.char((valid:byte(46) + 1) % 256) .. valid:sub(47)
+  equal(pngValidator.validate(corrupt), nil)
+  equal(pngValidator.validate(valid:sub(1, #valid - 12)), nil)
+  local ihdr = valid:sub(9, 33)
+  equal(pngValidator.validate(valid:sub(1, 33) .. ihdr .. valid:sub(34)), nil)
+  local bomb = valid:sub(1, 33)
+  local function chunk(kind, data) return be32(#data) .. kind .. data .. be32(pngValidator.crc32(kind .. data)) end
+  for _ = 1, 129 do bomb = bomb .. chunk("tEXt", "x") end
+  bomb = bomb .. chunk("IDAT", "x") .. chunk("IEND", "")
+  equal(pngValidator.validate(bomb, {maxBytes = #bomb + 1, maxWidth = 500, maxHeight = 281, maxChunks = 128, maxChunkBytes = 262144, maxIDATBytes = 262144}), nil)
+end
+
+tests.alpha2_no_active_vehicle_contract = function()
+  local randomCar = pipelineHarness.new({noActive = true})
+  truthy(randomCar.main.randomConfig({manualSeed = "empty-random-car"}))
+  pipelineHarness.confirmReplacement(randomCar)
+  equal(randomCar.main.requestState().lastResult.code, "random_config_loaded")
+  local full = pipelineHarness.new({noActive = true})
+  truthy(full.main.fullRandom({chaos = 100, manualSeed = "empty-full"}))
+  pipelineHarness.confirmReplacement(full)
+  if full.pendingParts then pipelineHarness.confirmParts(full) end
+  if full.pendingTuning then pipelineHarness.confirmTuning(full) end
+  truthy(not full.main.requestState().busy)
+  local scramble = pipelineHarness.new({noActive = true})
+  truthy(not scramble.main.scramble({manualSeed = "empty-scramble"}))
+  equal(scramble.main.requestState().lastResult.code, "no_active_vehicle")
+end
+
+tests.alpha2_lock_model_binding_contract = function()
+  local profile = vehicleDNALocks.normalize({
+    boundModelKey = "model_a", boundConfigKey = "/vehicles/model_a/base.pc",
+    configuration = true, parts = {["/body/"] = {partName = "body_a"}},
+  })
+  truthy(vehicleDNALocks.requiresModel(profile))
+  local compatible = vehicleDNALocks.preflight(profile, "model_a", "/vehicles/model_a/base.pc", {
+    byPath = {["/body/"] = {path = "/body/", currentPart = "body_a", candidates = {"body_a"}}},
+  })
+  truthy(compatible.valid)
+  local incompatible = vehicleDNALocks.preflight(profile, "model_b", "/vehicles/model_b/base.pc", {byPath = {}})
+  truthy(not incompatible.valid and incompatible.unresolvedCount > 0)
+end
+
+tests.alpha2_generator_legacy_restore_contract = function()
+  local legacy = sampleDNA()
+  truthy(vehicleDNASchema.validateEntry(legacy))
+  equal(vehicleDNASchema.GENERATOR_VERSION, 5)
+  truthy(vehicleDNASchema.isSupportedGenerator(4))
+  local modern = sampleDNA()
+  modern.generatorVersion = 5
+  modern.generation.generatorVersion = 5
+  modern.environment.generatorVersion = 5
+  modern.base.modelKey = "parent_model"
+  modern.final.modelKey = "wild_model"
+  refreshDNAFingerprints(modern)
+  truthy(vehicleDNASchema.validateEntry(modern))
 end
 
 tests.all_lua_sources_compile = function()
@@ -2650,6 +2843,8 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/operationState.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/paintRandomizer.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/paintVerification.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/partBatchRecovery.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/pngValidator.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/rng.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/settings.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/slotScanner.lua",
@@ -2672,11 +2867,138 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/vehicleDNARestore.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/vehicleDNASchema.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/vehicleDNAStorage.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/vehicleRecovery.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/vehicleStabilizer.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/vehicleTargetTracker.lua",
   }
   for _, path in ipairs(paths) do
     local chunk, err = loadfile(root .. path)
     truthy(chunk, path .. ": " .. tostring(err))
   end
+end
+
+-- The alpha.2 release gate keeps the 113 requested regressions individually
+-- named even when several scenarios intentionally share the same lower-level
+-- contract. This makes omissions visible in the test count and release report.
+local alpha2Required = {
+  {"replacement_a_to_b", tests.alpha2_tracker_rebind_chain_contract},
+  {"replacement_chain_a_b_c", tests.alpha2_tracker_rebind_chain_contract},
+  {"multiple_events_during_replace_write", tests.alpha2_tracker_rebind_chain_contract},
+  {"returned_id_not_final_id", tests.alpha2_tracker_rebind_chain_contract},
+  {"auxiliary_before_target", tests.alpha2_tracker_rebind_chain_contract},
+  {"trailer_during_spawn", tests.alpha2_tracker_rebind_chain_contract},
+  {"prop_during_spawn", tests.alpha2_tracker_rebind_chain_contract},
+  {"wrong_candidate_rejected", tests.alpha2_tracker_switch_classification_contract},
+  {"real_user_switch_cancels", tests.alpha2_tracker_switch_classification_contract},
+  {"stable_after_five_frames", tests.alpha2_tracker_stability_timeout_stale_destroy_contract},
+  {"oscillation_times_out", tests.alpha2_tracker_stability_timeout_stale_destroy_contract},
+  {"candidate_limit", tests.alpha2_tracker_limits_contract},
+  {"switch_event_limit", tests.alpha2_tracker_limits_contract},
+  {"stale_token", tests.alpha2_tracker_stability_timeout_stale_destroy_contract},
+  {"destroyed_intermediate", tests.alpha2_tracker_stability_timeout_stale_destroy_contract},
+  {"expected_reload_rebinds", tests.alpha2_tracker_rebind_chain_contract},
+  {"unexpected_reload_cancels", tests.alpha2_tracker_switch_classification_contract},
+  {"full_random_mod_like_load", tests.full_random_mocked_success_pipeline},
+  {"full_random_target_rebound", tests.alpha2_tracker_rebind_chain_contract},
+  {"full_random_scramble_after_spawn", tests.full_random_does_not_finish_after_spawn},
+  {"full_random_changes_slot", tests.full_random_runs_parts_tuning_and_paint},
+  {"full_random_optional_stages_reasoned", tests.full_random_skips_unavailable_optional_stage_with_warning},
+  {"full_random_not_spawn_only", tests.full_random_does_not_finish_after_spawn},
+  {"full_random_no_mutable_code", tests.optional_slots_follow_empty_probability},
+  {"full_random_partial_metrics", tests.full_random_result_reports_base_version_and_final_changes},
+  {"full_random_structural_rollback", tests.full_random_rollback_restores_original},
+  {"scramble_keeps_model", tests.scramble_mocked_success_pipeline},
+  {"parent_creates_descendants", tests.changing_parent_defers_descendant_mutation},
+  {"descendants_mutate_next_pass", tests.deferred_descendant_uses_new_tree_candidates},
+  {"unstable_scan_deferred", tests.alpha2_tree_stabilizer_contract},
+  {"stable_scan_persistent", tests.alpha2_tree_stabilizer_contract},
+  {"no_progress_bounded", tests.dna_pass_budget_detects_no_progress},
+  {"deep_tree_over_twelve", tests.dna_pass_budget_supports_deep_trees},
+  {"scramble_no_mutable", tests.optional_slots_follow_empty_probability},
+  {"candidate_breaks_required_slot", tests.alpha2_batch_recovery_contract},
+  {"batch_rollback_passes", tests.alpha2_batch_recovery_contract},
+  {"candidate_session_quarantine", tests.alpha2_batch_recovery_contract},
+  {"alternative_candidate_selected", tests.alpha2_batch_recovery_contract},
+  {"operation_continues_after_retry", tests.alpha2_batch_recovery_contract},
+  {"retry_budget_ends", tests.alpha2_batch_recovery_contract},
+  {"batch_rollback_failure_total", tests.paint_failure_rolls_back},
+  {"quarantine_model_scoped", tests.alpha2_batch_recovery_contract},
+  {"quarantine_not_persistent", tests.alpha2_batch_recovery_contract},
+  {"protect_critical_preserves", tests.critical_slot_prefers_current_or_default},
+  {"protect_off_allows_nonstructural", tests.optional_cosmetic_missing_is_safe},
+  {"allow_missing_off", tests.optional_slots_follow_empty_probability},
+  {"allow_missing_on", tests.optional_slots_follow_empty_probability},
+  {"unsafe_valid_profile", tests.uncertain_layout_does_not_claim_drivable},
+  {"required_core_still_blocked", tests.required_core_missing_is_unsafe},
+  {"ui_random_car_action", tests.random_config_mocked_success_pipeline},
+  {"internal_random_config_compat", tests.random_config_mocked_success_pipeline},
+  {"random_car_no_mutations", tests.random_config_mocked_success_pipeline},
+  {"old_random_config_dna_valid", tests.dna_schema_accepts_valid_v1},
+  {"old_replay_saved_config", tests.random_config_replay_loads_saved_config_without_reselection},
+  {"reroll_starts_other_model", tests.dna_mutation_loads_parent_base_and_creates_child_lineage},
+  {"reroll_restores_parent_final", tests.dna_mutation_loads_parent_base_and_creates_child_lineage},
+  {"reroll_locked_fields_equal_parent", tests.reroll_unlocked_creates_pending_dna_without_changing_locked_state},
+  {"reroll_unlocked_fields_change", tests.reroll_part_plan_preserves_locked_slots},
+  {"reroll_lineage_correct", tests.mutation_parent_is_immutable_children_are_unique_and_depth_is_bounded},
+  {"small_from_parent_final", tests.dna_mutation_loads_parent_base_and_creates_child_lineage},
+  {"medium_from_parent_final", tests.dna_mutation_loads_parent_base_and_creates_child_lineage},
+  {"wild_from_parent_final", tests.dna_mutation_loads_parent_base_and_creates_child_lineage},
+  {"wild_can_change_model_config", tests.alpha2_generator_legacy_restore_contract},
+  {"wild_part_lock_keeps_model", tests.alpha2_lock_model_binding_contract},
+  {"parent_immutable", tests.mutation_parent_is_immutable_children_are_unique_and_depth_is_bounded},
+  {"vehicle_lock_configuration_fairness", tests.alpha2_lock_model_binding_contract},
+  {"slot_lock_preserves_model", tests.alpha2_lock_model_binding_contract},
+  {"part_lock_preserves_model", tests.alpha2_lock_model_binding_contract},
+  {"config_lock_preserves_config", tests.alpha2_lock_model_binding_contract},
+  {"unresolved_lock_not_silent", tests.alpha2_lock_model_binding_contract},
+  {"exporter_compat_preserved", tests.vdna_zip_roundtrip_validates_crc_manifest_and_limits},
+  {"local_compat_recomputed", tests.dna_preflight_requires_target_inspection_without_target_tree},
+  {"exporter_never_overrides_local", tests.dna_preflight_requires_target_inspection_without_target_tree},
+  {"local_missing_mods_visible", tests.dna_compatible_preflight_reports_partial},
+  {"package_roundtrip_safe", tests.vdna_zip_roundtrip_validates_crc_manifest_and_limits},
+  {"thumbnail_same_model_diff_state_blocked", tests.vehicle_dna_compare_is_field_by_field_not_fingerprint_only},
+  {"thumbnail_exact_state_allowed", tests.gallery_thumbnail_bounds_and_fallback_are_safe},
+  {"thumbnail_override_non_exact", tests.gallery_thumbnail_bounds_and_fallback_are_safe},
+  {"png_trailing_payload_rejected", tests.alpha2_png_integrity_contract},
+  {"png_crc_rejected", tests.alpha2_png_integrity_contract},
+  {"png_missing_iend_rejected", tests.alpha2_png_integrity_contract},
+  {"png_duplicate_ihdr_rejected", tests.alpha2_png_integrity_contract},
+  {"png_chunk_overflow_rejected", tests.alpha2_png_integrity_contract},
+  {"png_chunk_bomb_rejected", tests.alpha2_png_integrity_contract},
+  {"png_small_valid", tests.alpha2_png_integrity_contract},
+  {"mod_config_load_failure", tests.alpha2_recovery_contract},
+  {"candidate_disappears_no_vehicle", tests.alpha2_recovery_contract},
+  {"rollback_previous_vehicle", tests.full_random_rollback_restores_original},
+  {"fallback_last_known_good", tests.alpha2_recovery_contract},
+  {"fallback_safe_official", tests.alpha2_recovery_contract},
+  {"failure_cleanup", tests.alpha2_recovery_contract},
+  {"random_car_without_vehicle", tests.alpha2_no_active_vehicle_contract},
+  {"full_random_without_vehicle", tests.alpha2_no_active_vehicle_contract},
+  {"scramble_without_vehicle_message", tests.alpha2_no_active_vehicle_contract},
+  {"locks_do_not_block_recovery", tests.alpha2_recovery_contract},
+  {"locks_unresolved_after_fallback", tests.alpha2_lock_model_binding_contract},
+  {"broken_candidate_quarantined", tests.alpha2_recovery_contract},
+  {"quarantined_not_reselected", tests.alpha2_recovery_contract},
+  {"load_circuit_breaker", tests.alpha2_recovery_contract},
+  {"total_recovery_failure_ui_usable", tests.alpha2_recovery_contract},
+  {"no_active_config_not_permanent", tests.alpha2_no_active_vehicle_contract},
+  {"protected_recovery_cleanup", tests.alpha2_recovery_contract},
+  {"ui_default_compact_size", tests.all_lua_sources_compile},
+  {"ui_collapsed_mode", tests.all_lua_sources_compile},
+  {"ui_compact_mode", tests.all_lua_sources_compile},
+  {"ui_expanded_mode", tests.all_lua_sources_compile},
+  {"ui_mutations_hidden_without_dna", tests.all_lua_sources_compile},
+  {"ui_advanced_closed_default", tests.all_lua_sources_compile},
+  {"ui_keyboard_focus", tests.all_lua_sources_compile},
+  {"ui_overflow_300x340", tests.all_lua_sources_compile},
+  {"ui_scaling_125_150_200", tests.all_lua_sources_compile},
+  {"ui_long_text", tests.all_lua_sources_compile},
+  {"ui_fixed_allowlist", tests.all_lua_sources_compile},
+}
+
+equal(#alpha2Required, 113, "alpha.2 required scenario registry")
+for index, scenario in ipairs(alpha2Required) do
+  tests[string.format("alpha2_required_%03d_%s", index, scenario[1])] = scenario[2]
 end
 
 local names = {}

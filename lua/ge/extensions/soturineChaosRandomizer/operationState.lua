@@ -17,7 +17,7 @@ local ALLOWED = {
   waitingForReload = {scanning = true, tuning = true, painting = true, validating = true, completed = true, rollingBack = true, failed = true, cancelled = true},
   tuning = {waitingForReload = true, painting = true, validating = true, completed = true, rollingBack = true, failed = true, cancelled = true},
   painting = {waitingForReload = true, validating = true, completed = true, rollingBack = true, failed = true, cancelled = true},
-  validating = {completed = true, rollingBack = true, failed = true, cancelled = true},
+  validating = {selecting = true, spawning = true, scanning = true, completed = true, rollingBack = true, failed = true, cancelled = true},
   rollingBack = {waitingForVehicle = true, completed = true, failed = true, cancelled = true},
   completed = {idle = true},
   cancelled = {idle = true},

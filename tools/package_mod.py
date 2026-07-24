@@ -22,7 +22,7 @@ FIXED_TIMESTAMP = (2026, 1, 1, 0, 0, 0)
 TEXT_SUFFIXES = {".css", ".html", ".js", ".json", ".lua", ".md", ".txt", ".xml"}
 TEXT_FILENAMES = {"LICENSE", "NOTICE", "VERSION"}
 TARGET_BEAMNG = "0.38.6.0.19963"
-GENERATOR_VERSION = 4
+GENERATOR_VERSION = 5
 DNA_SCHEMA_VERSION = 1
 
 

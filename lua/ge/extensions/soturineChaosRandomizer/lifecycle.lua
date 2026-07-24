@@ -13,6 +13,7 @@ local WAIT_REASONS = {
   dna_base_spawn = "waitingForDNABaseSpawn",
   dna_parts = "waitingForDNAPartsReload",
   dna_tuning = "waitingForDNATuningReload",
+  part_batch_rollback = "waitingForPartBatchRollback",
 }
 
 local function createExpectation(options)

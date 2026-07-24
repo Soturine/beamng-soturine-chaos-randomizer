@@ -8,13 +8,13 @@
   "css": {
     "right": "20px",
     "top": "120px",
-    "width": "360px",
-    "height": "510px",
+    "width": "330px",
+    "height": "430px",
     "min-width": "300px",
-    "min-height": "330px"
+    "min-height": "340px"
   },
   "author": "Soturine",
-  "version": "0.5.0-alpha.1",
+  "version": "0.5.0-alpha.2",
   "preserveAspectRatio": false,
   "directive": "soturineChaosRandomizer",
   "category": "Gameplay",

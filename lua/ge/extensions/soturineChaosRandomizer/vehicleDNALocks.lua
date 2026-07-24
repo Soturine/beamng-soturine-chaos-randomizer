@@ -2,7 +2,7 @@ local util = require("ge/extensions/soturineChaosRandomizer/util")
 
 local M = {}
 
-M.PROFILE_VERSION = 1
+M.PROFILE_VERSION = 2
 M.MAX_SLOT_LOCKS = 2048
 M.MAX_TUNING_LOCKS = 2048
 M.MAX_PAINT_LAYERS = 32
@@ -45,6 +45,8 @@ local function emptyProfile()
   return {
     kind = "soturineVehicleDNALockProfile",
     profileVersion = M.PROFILE_VERSION,
+    boundModelKey = nil,
+    boundConfigKey = nil,
     vehicle = false,
     configuration = false,
     categories = {},
@@ -121,6 +123,8 @@ end
 local function normalize(profile)
   profile = type(profile) == "table" and profile or {}
   local result = emptyProfile()
+  result.boundModelKey = safeText(profile.boundModelKey, 256)
+  result.boundConfigKey = safeText(profile.boundConfigKey, 512)
   result.vehicle = profile.vehicle == true
   result.configuration = profile.configuration == true
   result.categories = normalizeBooleanMap(profile.categories, CATEGORY_SET, #M.CATEGORIES)
@@ -217,6 +221,45 @@ local function resolve(profile, scan)
   return {unresolved = unresolved, unresolvedCount = #unresolved}
 end
 
+local function requiresModel(profile)
+  profile = normalize(profile)
+  if profile.vehicle or profile.configuration then return true end
+  if next(profile.slots) ~= nil or next(profile.parts) ~= nil then return true end
+  return false
+end
+
+local function preflight(profile, modelKey, configKey, scan)
+  profile = normalize(profile)
+  local unresolved = {}
+  if requiresModel(profile) then
+    if not profile.boundModelKey then
+      unresolved[#unresolved + 1] = {kind = "model", reason = "lock_model_unbound"}
+    elseif profile.boundModelKey ~= modelKey then
+      unresolved[#unresolved + 1] = {
+        kind = "model", reason = "lock_model_mismatch", expected = profile.boundModelKey, actual = modelKey,
+      }
+    end
+  end
+  if profile.configuration and profile.boundConfigKey and configKey ~= profile.boundConfigKey then
+    unresolved[#unresolved + 1] = {
+      kind = "configuration", reason = "lock_configuration_mismatch",
+      expected = profile.boundConfigKey, actual = configKey,
+    }
+  end
+  if type(scan) == "table" and profile.boundModelKey == modelKey then
+    local resolution = resolve(profile, scan)
+    for _, item in ipairs(resolution.unresolved) do unresolved[#unresolved + 1] = item end
+  end
+  return {
+    valid = #unresolved == 0,
+    modelBound = requiresModel(profile),
+    boundModelKey = profile.boundModelKey,
+    boundConfigKey = profile.boundConfigKey,
+    unresolved = unresolved,
+    unresolvedCount = #unresolved,
+  }
+end
+
 local function summary(profile)
   profile = normalize(profile)
   local count = (profile.vehicle and 1 or 0) + (profile.configuration and 1 or 0)
@@ -265,6 +308,8 @@ local function applyPatch(profile, patch)
   if patch.parts ~= nil then result.parts = normalizePartLocks(patch.parts) end
   if patch.tuning ~= nil then result.tuning = normalize({tuning = patch.tuning}).tuning end
   if patch.paints ~= nil then result.paints = normalize({paints = patch.paints}).paints end
+  if patch.boundModelKey ~= nil then result.boundModelKey = safeText(patch.boundModelKey, 256) end
+  if patch.boundConfigKey ~= nil then result.boundConfigKey = safeText(patch.boundConfigKey, 512) end
   result.updatedAt = os.time()
   return normalize(result)
 end
@@ -276,6 +321,8 @@ M.isSlotLocked = slotLock
 M.isTuningLocked = tuningLock
 M.isPaintLocked = paintLock
 M.resolve = resolve
+M.requiresModel = requiresModel
+M.preflight = preflight
 M.summary = summary
 M.applyPreset = preset
 M.applyPatch = applyPatch

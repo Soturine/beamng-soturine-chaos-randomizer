@@ -19,7 +19,7 @@ local function deriveSeed(parentSeed, parentId, mutationIndex, strength)
   mutationIndex = math.floor(tonumber(mutationIndex) or 0)
   if not strength or mutationIndex < 1 then return nil, "mutation_parameters_invalid" end
   local source = table.concat({
-    "SCRDNA-MUTATION-1", tostring(parentSeed or ""), tostring(parentId or ""),
+    "SCRDNA-MUTATION-2", tostring(parentSeed or ""), tostring(parentId or ""),
     tostring(mutationIndex), strength,
   }, ":")
   return rng.new(source).seed

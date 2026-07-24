@@ -81,6 +81,7 @@ local function getCapabilities()
       and type(core_vehicles.getConfigList) == "function",
     vehicleReplace = type(core_vehicles) == "table" and type(core_vehicles.replaceVehicle) == "function"
       and type(getObjectByID) == "function",
+    vehicleSpawn = type(core_vehicles) == "table" and type(core_vehicles.spawnNewVehicle) == "function",
     partsRead = vehicleManager and configRead and hierarchicalRead,
     partsWrite = type(core_vehicle_partmgmt) == "table"
       and type(core_vehicle_partmgmt.setPartsTreeConfig) == "function",
@@ -246,7 +247,9 @@ local function vehicleObjectId(vehicle)
 end
 
 local function replaceVehicle(modelKey, config, targetVehicleId)
-  if type(core_vehicles) ~= "table" or type(core_vehicles.replaceVehicle) ~= "function" then
+  local canReplace = type(core_vehicles) == "table" and type(core_vehicles.replaceVehicle) == "function"
+  local canSpawn = type(core_vehicles) == "table" and type(core_vehicles.spawnNewVehicle) == "function"
+  if not canReplace and not canSpawn then
     return false, errorValue("unsupported_api", "Vehicle replacement is unavailable")
   end
   if type(modelKey) ~= "string" or modelKey == "" then
@@ -267,7 +270,11 @@ local function replaceVehicle(modelKey, config, targetVehicleId)
     end
     targetVehicle = value
   end
-  local ok, result = callContract("core_vehicles.replaceVehicle", "vehicle_replace_rejected", "object_required", function()
+  local operationName = targetVehicle == nil and canSpawn and "core_vehicles.spawnNewVehicle" or "core_vehicles.replaceVehicle"
+  local ok, result = callContract(operationName, "vehicle_replace_rejected", "object_required", function()
+    if targetVehicle == nil and canSpawn then
+      return core_vehicles.spawnNewVehicle(modelKey, {config = util.deepCopy(config)})
+    end
     return core_vehicles.replaceVehicle(modelKey, {config = util.deepCopy(config)}, targetVehicle)
   end)
   if not ok then return false, result end
@@ -278,7 +285,7 @@ local function replaceVehicle(modelKey, config, targetVehicleId)
     })
   end
   result.vehicleId = vehicleId
-  result.correlationStrategy = "returned_vehicle_object." .. strategy
+  result.correlationStrategy = (targetVehicle == nil and canSpawn and "spawned_vehicle_object." or "returned_vehicle_object.") .. strategy
   result.requestedTargetVehicleId = targetVehicleId
   return true, result
 end

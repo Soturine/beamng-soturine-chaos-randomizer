@@ -12,6 +12,7 @@ local mutationPolicy = require("ge/extensions/soturineChaosRandomizer/mutationPo
 local operationState = require("ge/extensions/soturineChaosRandomizer/operationState")
 local paintRandomizer = require("ge/extensions/soturineChaosRandomizer/paintRandomizer")
 local paintVerification = require("ge/extensions/soturineChaosRandomizer/paintVerification")
+local partBatchRecovery = require("ge/extensions/soturineChaosRandomizer/partBatchRecovery")
 local rngModule = require("ge/extensions/soturineChaosRandomizer/rng")
 local settingsModule = require("ge/extensions/soturineChaosRandomizer/settings")
 local slotScanner = require("ge/extensions/soturineChaosRandomizer/slotScanner")
@@ -34,12 +35,15 @@ local vehicleDNAPackage = require("ge/extensions/soturineChaosRandomizer/vehicle
 local vehicleDNARestore = require("ge/extensions/soturineChaosRandomizer/vehicleDNARestore")
 local vehicleDNASchema = require("ge/extensions/soturineChaosRandomizer/vehicleDNASchema")
 local vehicleDNAStorage = require("ge/extensions/soturineChaosRandomizer/vehicleDNAStorage")
+local vehicleRecovery = require("ge/extensions/soturineChaosRandomizer/vehicleRecovery")
+local vehicleTargetTracker = require("ge/extensions/soturineChaosRandomizer/vehicleTargetTracker")
+local vehicleStabilizer = require("ge/extensions/soturineChaosRandomizer/vehicleStabilizer")
 
 local M = {}
 
 M.dependencies = {"core_modmanager", "core_vehicle_manager", "core_vehicle_partmgmt", "core_vehicles"}
 
-local EXTENSION_VERSION = "0.5.0-alpha.1"
+local EXTENSION_VERSION = "0.5.0-alpha.2"
 local TARGET_BEAMNG = "0.38.6.0.19963"
 local WAIT_TIMEOUT = 25
 local PAINT_CONFIRM_TIMEOUT = 2
@@ -62,6 +66,8 @@ local runtime = {
   recentModels = {},
   recentConfigs = {},
   capabilities = {},
+  recovery = vehicleRecovery.create(),
+  uiMode = "standard",
   performance = {
     indexBuilds = 0,
     indexCacheHits = 0,
@@ -104,6 +110,10 @@ local validateDNAFinal
 local verifyDNAFinal
 local runDNATargetPreflight
 local completeReplayGeneration
+local cancelOperation
+local attemptPartBatchRollback
+local preflightVehicleDNA
+local startVehicleDNABaseOperation
 
 local function addDNADeviation(active, deviation)
   if type(deviation) ~= "table" then return end
@@ -161,6 +171,10 @@ local function publicState()
   local publicSettings = util.deepCopy(runtime.settings)
   publicSettings.lockProfile = nil
   local lockProfile = vehicleDNALocks.normalize(runtime.settings.lockProfile)
+  local trackerMetrics = runtime.active and runtime.active.targetTracker
+    and vehicleTargetTracker.summary(runtime.active.targetTracker, adapter.clock()) or nil
+  local recoveryMetrics = vehicleRecovery.metrics(runtime.recovery)
+  local okActiveVehicle, activeVehicleId = adapter.getCurrentVehicleId()
   return {
     extensionVersion = EXTENSION_VERSION,
     gameVersion = adapter.getGameVersion(),
@@ -168,6 +182,11 @@ local function publicState()
     operationState = runtime.state.state,
     operationType = runtime.state.kind,
     waitReason = runtime.active and runtime.active.wait and runtime.active.wait.reason or nil,
+    targetStatus = trackerMetrics and trackerMetrics.status or nil,
+    targetMetrics = trackerMetrics,
+    activeVehicleAvailable = okActiveVehicle and activeVehicleId ~= nil,
+    uiMode = runtime.uiMode,
+    recovery = recoveryMetrics,
     token = runtime.state.token,
     progress = util.deepCopy(runtime.progress),
     settings = publicSettings,
@@ -297,6 +316,7 @@ end
 
 local function finishOperation(success, code, message, details, terminalState)
   local active = runtime.active
+  if active then vehicleRecovery.cleanup(active) end
   terminalState = terminalState or (success and "completed" or "failed")
   operationState.finish(runtime.state, terminalState, success and nil or code)
   setResult(success, code, message, details)
@@ -316,6 +336,9 @@ local function finishOperation(success, code, message, details, terminalState)
       slotCount = active.lastScanMetrics and active.lastScanMetrics.slotCount or 0,
       candidateCount = active.lastScanMetrics and active.lastScanMetrics.candidateCount or 0,
       treeDepth = active.lastScanMetrics and active.lastScanMetrics.maxDepth or 0,
+      lifecycle = active.lastTargetMetrics and util.deepCopy(active.lastTargetMetrics) or nil,
+      recovery = util.deepCopy(vehicleRecovery.metrics(runtime.recovery)),
+      batchRecovery = active.batchRecovery and partBatchRecovery.metrics(active.batchRecovery) or nil,
       success = success == true,
     }
   end
@@ -425,7 +448,11 @@ local function beginOperation(kind, context)
   end
   if runtime.state.state ~= "idle" then operationState.reset(runtime.state) end
   local okId, vehicleId = adapter.getCurrentVehicleId()
-  if not okId or vehicleId == nil then return false, adapter.errorValue("no_active_vehicle", "Spawn or enter a vehicle before using Chaos Randomizer") end
+  local canStartEmpty = kind == "randomConfig" or kind == "fullRandom"
+  if (not okId or vehicleId == nil) and not canStartEmpty then
+    return false, adapter.errorValue("no_active_vehicle", "Scramble requires an active vehicle. Use Random Car or Spawn safe vehicle first.")
+  end
+  if not okId then vehicleId = nil end
   local seed, generator = operationSeed()
   runtime.lastSeed = seed
   local timeout = context.operationTimeout or WAIT_TIMEOUT
@@ -459,6 +486,11 @@ local function beginOperation(kind, context)
     safetyBaseline = nil,
     safetyResult = nil,
     phaseTimings = {},
+    startedWithoutVehicle = vehicleId == nil,
+    batchRecovery = partBatchRecovery.create(),
+    treeStabilizer = vehicleStabilizer.create({persistentTreeScans = 2}),
+    safeOfficial = context.safeOfficial == true,
+    stageReasons = {},
   }
   diagnosticsModule.write(runtime.diagnostics, "D", "operation_started", {
     kind = kind,
@@ -489,12 +521,21 @@ local function applyCreativeContext(active, context)
 end
 
 local function captureOriginal(active)
+  if active.startedWithoutVehicle then
+    active.originalState = nil
+    return true
+  end
   local ok, snapshot = adapter.captureCurrentState(active.kind, active.seed)
   if not ok then return false, snapshot end
+  vehicleRecovery.rememberGood(runtime.recovery, snapshot, true)
   return historyTransaction.capture(active, snapshot)
 end
 
 local function commitHistory(active)
+  if active.startedWithoutVehicle and not active.originalState then
+    active.destructiveStarted = true
+    return true
+  end
   local ok, committed = historyTransaction.commit(active, runtime.history, historyModule.push)
   if not ok then
     return false, adapter.errorValue("history_commit_failed", "The original state could not be committed to history")
@@ -510,10 +551,28 @@ end
 
 local function chooseConfiguration(active)
   local models = contentIndex.eligibleModels(runtime.index, runtime.settings)
+  local availableModels = {}
+  for _, model in ipairs(models) do
+    local availableConfigs = {}
+    for _, config in ipairs(model.configs or {}) do
+      local allowedByCircuit = (not runtime.recovery.circuitOpen and not active.safeOfficial) or config.sourceKind == "official"
+      if allowedByCircuit and not vehicleRecovery.isQuarantined(runtime.recovery, config.modelKey, config.key) then
+        availableConfigs[#availableConfigs + 1] = config
+      end
+    end
+    if #availableConfigs > 0 then
+      local copy = util.deepCopy(model)
+      copy.configs = availableConfigs
+      availableModels[#availableModels + 1] = copy
+    end
+  end
+  models = availableModels
   local vehicleLocked = false
-  if active.lockProfileSnapshot and active.lockProfileSnapshot.vehicle then
-    local okCurrent, currentModel = adapter.getCurrentModelKey()
-    if not okCurrent then return nil, nil, currentModel end
+  if active.lockProfileSnapshot and vehicleDNALocks.requiresModel(active.lockProfileSnapshot) then
+    local currentModel = active.lockProfileSnapshot.boundModelKey
+    if not currentModel then
+      return nil, nil, adapter.errorValue("lock_model_unresolved", "Model-bound locks have no compatible vehicle binding")
+    end
     local sameModel = {}
     for _, model in ipairs(models) do if model.key == currentModel then sameModel[#sameModel + 1] = model end end
     models = sameModel
@@ -533,6 +592,19 @@ local function chooseConfiguration(active)
   }
   if runtime.settings.selectionFairness == "configuration" then
     local configs = contentIndex.eligibleConfigs(runtime.index, runtime.settings)
+    local filteredConfigs = {}
+    local allowedModels = {}
+    for _, model in ipairs(models) do allowedModels[model.key] = true end
+    for _, config in ipairs(configs) do
+      if allowedModels[config.modelKey]
+        and not vehicleRecovery.isQuarantined(runtime.recovery, config.modelKey, config.key)
+        and (not (active.lockProfileSnapshot and active.lockProfileSnapshot.configuration)
+          or configVerification.normalizePath(config.path or config.key) == active.lockProfileSnapshot.boundConfigKey)
+      then
+        filteredConfigs[#filteredConfigs + 1] = config
+      end
+    end
+    configs = filteredConfigs
     active.selectionContext.eligibleConfigurations = #configs
     local config, selectionError = configSelector.select(configs, active.rng:fork("configuration"), recentConfigs)
     if not config then return nil, nil, adapter.errorValue(selectionError, "No configurations match the current filters") end
@@ -544,7 +616,16 @@ local function chooseConfiguration(active)
   local model, modelError = vehicleSelector.select(models, active.rng:fork("vehicle"), recentModels)
   if not model then return nil, nil, adapter.errorValue(modelError, "No vehicles match the current filters") end
   active.selectionContext.eligibleConfigurations = #model.configs
-  local config, configError = configSelector.select(model.configs, active.rng:fork("configuration:" .. model.key), recentConfigs)
+  local selectableConfigs = model.configs
+  if active.lockProfileSnapshot and active.lockProfileSnapshot.configuration then
+    selectableConfigs = {}
+    for _, candidate in ipairs(model.configs or {}) do
+      if configVerification.normalizePath(candidate.path or candidate.key) == active.lockProfileSnapshot.boundConfigKey then
+        selectableConfigs[#selectableConfigs + 1] = candidate
+      end
+    end
+  end
+  local config, configError = configSelector.select(selectableConfigs, active.rng:fork("configuration:" .. model.key), recentConfigs)
   if not config then return nil, nil, adapter.errorValue(configError, "The selected vehicle has no eligible configurations") end
   return model, config
 end
@@ -563,6 +644,18 @@ local function enterWaiting(active, phase, afterReload, expected, label, value)
     startedAt = adapter.clock(),
   })
   active.wait = lifecycle.createExpectation(expected)
+  active.targetTracker = vehicleTargetTracker.create({
+    token = active.token,
+    phase = phase,
+    modelKey = active.wait.modelKey,
+    configKey = active.wait.configKey,
+    configIdentity = active.wait.configIdentity,
+    parts = active.wait.parts,
+    originalVehicleId = active.vehicleId,
+    startedAt = active.wait.startedAt,
+    timeout = active.waitTimeout or WAIT_TIMEOUT,
+    stabilizer = {minimumFrames = 5, minimumScans = 2, pollInterval = 0.05, persistentTreeScans = 2},
+  })
   diagnosticsModule.write(runtime.diagnostics, "D", "lifecycle_wait_started", {
     phase = phase,
     waitReason = active.wait.reason,
@@ -578,16 +671,6 @@ local function bindReplacementTarget(active, result, phase)
   if type(result) ~= "table" or type(result.vehicleId) ~= "number" then
     return false, adapter.errorValue("vehicle_replace_target_ambiguous", "The replacement target could not be correlated")
   end
-  local expectedOriginalId
-  if phase == "rollback" or phase == "undo" then
-    expectedOriginalId = active.originalState and active.originalState.vehicleId
-    if expectedOriginalId ~= nil and result.vehicleId ~= expectedOriginalId then
-      return false, adapter.errorValue(phase .. "_target_mismatch", "The restore write targeted an unrelated vehicle", {
-        expectedVehicleId = expectedOriginalId,
-        returnedVehicleId = result.vehicleId,
-      })
-    end
-  end
   active.expectedReplacementVehicleId = result.vehicleId
   active.replaceRequestModel = active.wait and active.wait.modelKey
   active.replaceRequestConfig = active.wait and (active.wait.configIdentity or active.wait.configKey)
@@ -596,6 +679,9 @@ local function bindReplacementTarget(active, result, phase)
   active.vehicleId = result.vehicleId
   runtime.state.vehicleId = result.vehicleId
   if active.wait then active.wait.vehicleId = result.vehicleId end
+  if active.targetTracker then
+    vehicleTargetTracker.bindReturned(active.targetTracker, result.vehicleId, result.correlationStrategy)
+  end
   diagnosticsModule.write(runtime.diagnostics, "D", "replacement_target_bound", {
     phase = phase,
     requestedModel = active.replaceRequestModel,
@@ -613,36 +699,11 @@ local function issueReplacement(active, modelKey, config, phase)
   active.replaceIssuedAt = adapter.clock()
   active.replaceTargetVehicleId = active.vehicleId
   active.replaceWriteInFlight = true
-  active.pendingReplacementSwitch = nil
   local ok, result = adapter.replaceVehicle(modelKey, config, active.replaceTargetVehicleId)
   active.replaceWriteInFlight = false
   if not ok then return false, result end
   local bound, bindError = bindReplacementTarget(active, result, phase)
   if not bound then return false, bindError end
-  local pending = active.pendingReplacementSwitch
-  active.pendingReplacementSwitch = nil
-  if pending and pending.ambiguous then
-    return false, adapter.errorValue("vehicle_replace_event_ambiguous", "Multiple vehicle switches occurred before the replacement target was known", {
-      expectedVehicleId = active.expectedReplacementVehicleId,
-      events = pending.events,
-    })
-  end
-  if pending and pending.newId ~= active.expectedReplacementVehicleId then
-    return false, adapter.errorValue("vehicle_switched", "An unrelated vehicle switch occurred during replacement", {
-      expectedVehicleId = active.expectedReplacementVehicleId,
-      eventVehicleId = pending.newId,
-    })
-  end
-  if pending then
-    diagnosticsModule.write(runtime.diagnostics, "D", "replacement_switch_correlated", {
-      phase = phase,
-      oldId = pending.oldId,
-      eventId = pending.newId,
-      expectedReplacementId = active.expectedReplacementVehicleId,
-      correlationStrategy = active.replaceCorrelationStrategy,
-      queuedDuringWrite = true,
-    })
-  end
   return true, result
 end
 
@@ -696,44 +757,118 @@ local function attributeFailure(active, failure)
   end
 end
 
-local function beginRollback(failure)
-  local active = runtime.active
-  if not active or not active.originalState then
-    finishOperation(false, failure.code, failure.message, {failure = failure, rollback = "not_available"})
-    return
+local function startNextRecovery(active)
+  active.recoveryIndex = (active.recoveryIndex or 0) + 1
+  local step = active.recoverySteps and active.recoverySteps[active.recoveryIndex]
+  if not step then
+    finishOperation(false, "vehicle_recovery_failed", "The operation and all bounded vehicle recovery attempts failed", {
+      originalFailure = active.rollbackFailure,
+      recovery = vehicleRecovery.metrics(runtime.recovery),
+      attempts = (active.recoveryIndex or 1) - 1,
+    })
+    return false
+  end
+  local snapshot = step.snapshot or {}
+  local configValue = snapshot.config or snapshot.selectedConfiguration
+  if type(configValue) == "table" and configValue.path then configValue = configValue.path end
+  local configIdentity
+  if step.kind == "safe_official" and type(snapshot.config) == "table" then
+    configIdentity = adapter.prepareConfigExpectation(snapshot.config)
   end
   local okTransition = operationState.transition(runtime.state, "rollingBack", false)
   if not okTransition then runtime.state.state = "rollingBack" end
-  active.rollbackFailure = failure
   active.phase = "rollback"
-  local okWait, waitError = enterWaiting(active, "rollback", "rollback", {
-    modelKey = active.originalState.modelKey,
-    configKey = active.originalState.selectedConfiguration,
-    parts = adapter.flattenChosenParts(active.originalState.partsTree),
-    tuning = active.originalState.tuning,
-    paints = active.originalState.paints,
-  }, "Restoring the previous vehicle", 0.1)
+  active.recoveryStep = step.kind
+  active.recoverySnapshot = util.deepCopy(snapshot)
+  local okWait, waitError = enterWaiting(active, "rollback", "recovery", {
+    modelKey = snapshot.modelKey,
+    configIdentity = configIdentity,
+    configKey = configIdentity and nil or snapshot.selectedConfiguration,
+    parts = snapshot.partsTree and adapter.flattenChosenParts(snapshot.partsTree) or {},
+    tuning = snapshot.tuning or {},
+    paints = snapshot.paints,
+  }, "Recovering vehicle: " .. tostring(step.kind), 0.1)
   if not okWait then
-    finishOperation(false, "rollback_failed", "Operation failed and rollback could not enter its wait state", {
-      originalFailure = failure,
-      rollbackError = waitError,
-    })
-    return
+    diagnosticsModule.write(runtime.diagnostics, "E", "vehicle_recovery_step_failed", {
+      step = step.kind, reason = waitError,
+    }, true)
+    return startNextRecovery(active)
   end
-  local ok, rollbackResult = issueReplacement(active, active.originalState.modelKey, active.originalState.config, "rollback")
+  local ok, rollbackResult = issueReplacement(active, snapshot.modelKey, configValue, "rollback")
   if not ok then
-    finishOperation(false, "rollback_failed", "Operation failed and rollback was rejected", {
-      originalFailure = failure,
-      rollbackError = rollbackResult,
-    })
-    return
+    diagnosticsModule.write(runtime.diagnostics, "E", "vehicle_recovery_step_failed", {
+      step = step.kind, reason = rollbackResult,
+    }, true)
+    return startNextRecovery(active)
   end
+  diagnosticsModule.write(runtime.diagnostics, "W", "vehicle_recovery_started", {
+    step = step.kind, attempt = active.recoveryIndex, modelKey = snapshot.modelKey,
+  }, true)
+  return true
+end
+
+local function beginRollback(failure)
+  local active = runtime.active
+  if not active then return end
+  active.rollbackFailure = failure
+  active.recoverySteps = vehicleRecovery.choosePlan(runtime.recovery, active.originalState, runtime.index.allConfigs)
+  active.recoveryIndex = 0
+  startNextRecovery(active)
+end
+
+attemptPartBatchRollback = function(active, reason)
+  if not active or not active.currentBatch or #active.currentBatch == 0 or not active.batchRecovery then
+    return false, "part_batch_snapshot_missing"
+  end
+  local decision = active.currentBatch[1]
+  local configKey = active.selectedConfig and active.selectedConfig.key
+    or active.originalState and active.originalState.selectedConfiguration
+  local retryAllowed, retryReason = partBatchRecovery.recordFailure(active.batchRecovery, {
+    modelKey = active.modelKey or (active.selectedModel and active.selectedModel.key),
+    configKey = configKey,
+    slotPath = decision.slotPath,
+    candidate = decision.selectedPart,
+    pass = active.pass,
+  }, reason)
+  if not retryAllowed then return false, retryReason end
+  local rollbackAllowed, treeOrReason = partBatchRecovery.beginRollback(active.batchRecovery)
+  if not rollbackAllowed then return false, treeOrReason end
+  diagnosticsModule.write(runtime.diagnostics, "W", "part_candidate_quarantined", {
+    modelKey = active.modelKey,
+    configKey = configKey,
+    slotPath = decision.slotPath,
+    candidate = decision.selectedPart,
+    reason = reason,
+    recovery = partBatchRecovery.metrics(active.batchRecovery),
+  }, true)
+  if runtime.state.state == "waitingForReload" then operationState.transition(runtime.state, "scanning", false) end
+  if runtime.state.state == "scanning" then operationState.transition(runtime.state, "mutating", false) end
+  active.batchRollbackDecisions = util.deepCopy(active.currentBatch)
+  local expectedParts = adapter.flattenChosenParts(treeOrReason)
+  local okWait, waitError = enterWaiting(active, "part_batch_rollback", "batchRetry", {
+    vehicleId = active.vehicleId,
+    modelKey = active.modelKey or (active.selectedModel and active.selectedModel.key),
+    parts = expectedParts,
+  }, "Rolling back unsafe part batch", 0.46)
+  if not okWait then return false, waitError.code or "part_batch_rollback_wait_failed" end
+  local okApply, applyError = adapter.applyPartsTree(treeOrReason)
+  if not okApply then
+    partBatchRecovery.finishRollback(active.batchRecovery, false)
+    return false, applyError.code or "part_batch_rollback_failed"
+  end
+  return true, "part_batch_rollback_started"
 end
 
 local function failActive(errorData, attemptRollback, phase, context)
   local active = runtime.active
   local failure = failureRecord(active, phase, errorData, context)
   runtime.lastFailure = failure
+  if failure.phase == "spawn" and active and active.selectedConfig then
+    vehicleRecovery.recordLoadFailure(runtime.recovery, {
+      modelKey = active.selectedConfig.modelKey,
+      configKey = active.selectedConfig.key,
+    }, failure.code)
+  end
   attributeFailure(active, failure)
   diagnosticsModule.write(runtime.diagnostics, "E", "operation_error", failure, true)
   if attemptRollback and active and active.destructiveStarted and failure.phase ~= "rollback" and failure.phase ~= "undo" then
@@ -887,7 +1022,7 @@ local function capturePendingDNA(active, details)
       modelKey = capture.modelKey,
       configPath = capture.selectedConfiguration,
     },
-    startingState = active.originalState,
+    startingState = active.parentFinalState or active.originalState,
     selectionContext = active.selectionContext,
     recentPolicy = active.selectionContext and active.selectionContext.recentPolicy or "not_applicable",
     dependencies = dependencies,
@@ -990,9 +1125,18 @@ local function completeChaos(active)
     nestedPasses = active.partPassesApplied or 0,
     tuningValues = util.deepCopy(active.tuningChanges),
     paintLayers = active.paintChanges,
+    stageReasons = util.deepCopy(active.stageReasons or {}),
+    lifecycle = util.deepCopy(active.lastTargetMetrics),
+    batchRecovery = active.batchRecovery and partBatchRecovery.metrics(active.batchRecovery) or nil,
     safety = util.deepCopy(safetyOrError),
     warnings = util.deepCopy(active.warnings),
   }
+  local totalChanges = #active.changes + #active.tuningChanges + active.paintChanges
+  if active.kind == "fullRandom" and totalChanges == 0 then
+    runtime.dna.pending = nil
+    finishOperation(false, "full_random_no_mutable_content", "Full Random loaded the vehicle, but no mutable content was available", details)
+    return
+  end
   local dnaReady, dnaOrError = capturePendingDNA(active, details)
   details.dnaReady = dnaReady
   if dnaReady then
@@ -1003,6 +1147,14 @@ local function completeChaos(active)
   end
   local completionCode = active.creativeOperation == "reroll_unlocked" and "reroll_unlocked_completed"
     or active.creativeOperation == "mutation" and "dna_mutation_completed" or "completed"
+  if active.kind == "fullRandom" then
+    local partial = details.stageReasons.tuning == "tuning_capability_unavailable"
+      or details.stageReasons.paint == "paint_capability_unavailable"
+    completionCode = partial and "full_random_partial" or "full_random_completed"
+    details.partial = partial
+  elseif active.kind == "scramble" and totalChanges == 0 and not active.creativeOperation then
+    completionCode = "scramble_no_mutable_content"
+  end
   local creativeMessage = active.creativeOperation == "reroll_unlocked" and "Reroll Unlocked complete"
     or active.creativeOperation == "mutation" and "Vehicle DNA mutation complete" or nil
   finishOperation(true, completionCode, creativeMessage or completionMessage or string.format(
@@ -1015,6 +1167,8 @@ startPaint = function(active)
   if not operationState.isCurrent(runtime.state, active.token) then return end
   if not runtime.capabilities.scramblePaint then
     active.warnings[#active.warnings + 1] = "Paint randomization was skipped because paint read/write capability is unavailable."
+    active.stageReasons = active.stageReasons or {}
+    active.stageReasons.paint = "paint_capability_unavailable"
     completeChaos(active)
     return
   end
@@ -1033,6 +1187,8 @@ startPaint = function(active)
     end or nil,
   })
   active.paintChanges = changed
+  active.stageReasons = active.stageReasons or {}
+  active.stageReasons.paint = changed > 0 and "paint_processed" or "paint_no_mutable_fields"
   diagnosticsModule.write(runtime.diagnostics, "D", "paint_randomized", {changes = changed})
   if changed > 0 then
     local okHistory, historyError = commitHistory(active)
@@ -1062,6 +1218,8 @@ startTuning = function(active)
   if not operationState.isCurrent(runtime.state, active.token) then return end
   if not runtime.capabilities.scrambleTuning then
     active.warnings[#active.warnings + 1] = "Tuning randomization was skipped because tuning read/write capability is unavailable."
+    active.stageReasons = active.stageReasons or {}
+    active.stageReasons.tuning = "tuning_capability_unavailable"
     operationState.transition(runtime.state, "painting", false)
     startPaint(active)
     return
@@ -1082,6 +1240,8 @@ startTuning = function(active)
     }
   )
   active.tuningChanges = changes
+  active.stageReasons = active.stageReasons or {}
+  active.stageReasons.tuning = #changes > 0 and "tuning_processed" or "tuning_no_mutable_values"
   diagnosticsModule.write(runtime.diagnostics, "D", "tuning_randomized", {
     changes = #changes,
     groups = groups,
@@ -1105,6 +1265,19 @@ startTuning = function(active)
   if not okApply then failActive(applyError, true, "tuning") end
 end
 
+local function safetyFailureFingerprint(failures)
+  local values = {}
+  for _, failure in ipairs(failures or {}) do
+    values[#values + 1] = table.concat({
+      tostring(failure.code or failure.reason or "invalid"),
+      tostring(failure.slotPath or failure.path or failure.role or ""),
+      tostring(failure.partName or failure.candidate or ""),
+    }, ":")
+  end
+  table.sort(values)
+  return table.concat(values, "|")
+end
+
 processMutationPass = function(active)
   if not operationState.isCurrent(runtime.state, active.token) then return end
   if runtime.state.state ~= "scanning" then
@@ -1126,10 +1299,47 @@ processMutationPass = function(active)
   active.safetyResult = safetyResult
   local validProtection, protectionFailures = safetyResult.valid, safetyResult.failures
   if not validProtection then
+    local persistent, persistenceReason = vehicleStabilizer.observeTreeIssue(
+      active.treeStabilizer, safetyFailureFingerprint(protectionFailures)
+    )
+    if not persistent then
+      active.treeRescanAt = adapter.clock() + 0.05
+      diagnosticsModule.write(runtime.diagnostics, "W", "tree_validation_deferred", {
+        reason = persistenceReason,
+        failures = protectionFailures,
+        metrics = vehicleStabilizer.metrics(active.treeStabilizer),
+      })
+      setProgress("Waiting for a coherent parts tree", 0.44)
+      return
+    end
+    if active.currentBatch then
+      local recovering, recoveryReason = attemptPartBatchRollback(active, "critical_state_invalid")
+      if recovering then return end
+      diagnosticsModule.write(runtime.diagnostics, "E", "part_batch_recovery_exhausted", {
+        reason = recoveryReason, recovery = partBatchRecovery.metrics(active.batchRecovery),
+      }, true)
+    end
     failActive(adapter.errorValue("critical_state_invalid", "Critical or required parts are missing after reload", {
       failures = protectionFailures,
     }), true, "validation")
     return
+  end
+  vehicleStabilizer.observeTreeIssue(active.treeStabilizer, nil)
+  active.treeRescanAt = nil
+  if active.currentBatch then
+    active.partPassesApplied = (active.partPassesApplied or 0) + 1
+    for _, decision in ipairs(active.currentBatch) do
+      if decision.selectedPart and decision.selectedPart ~= "" then
+        local recorded, successDetails = contentIndex.recordSuccess(runtime.index, "part", {
+          modelKey = active.modelKey or (active.selectedModel and active.selectedModel.key),
+          slotPath = decision.slotPath,
+          candidate = decision.selectedPart,
+        }, os.time())
+        if recorded then diagnosticsModule.write(runtime.diagnostics, "D", "part_candidate_success", successDetails) end
+      end
+    end
+    active.currentBatch = nil
+    active.batchRecovery.currentBatch = nil
   end
   if active.pass > active.policy.maxMutationPasses then
     operationState.transition(runtime.state, "tuning", false)
@@ -1153,6 +1363,11 @@ processMutationPass = function(active)
   local tree, decisions = mutationEngine.plan(scan, eligible, active.policy, partsGenerator, {
     passNumber = active.pass,
     isBlacklisted = function(slot, candidate)
+      local configKey = active.selectedConfig and active.selectedConfig.key
+        or active.originalState and active.originalState.selectedConfiguration
+      if partBatchRecovery.isQuarantined(active.batchRecovery, modelKey, configKey, slot.path, candidate) then
+        return true, "part_candidate_quarantined"
+      end
       local allowed, reason = contentIndex.isCandidateEligible(runtime.index, {
         modelKey = modelKey,
         slotPath = slot.path,
@@ -1219,6 +1434,14 @@ processMutationPass = function(active)
   local expectedParts = {}
   for _, decision in ipairs(actual) do expectedParts[decision.slotPath] = decision.selectedPart end
   active.currentBatch = util.deepCopy(actual)
+  partBatchRecovery.beginBatch(active.batchRecovery, {
+    modelKey = modelKey,
+    configKey = active.selectedConfig and active.selectedConfig.key
+      or active.originalState and active.originalState.selectedConfiguration,
+    pass = active.pass,
+    treeBefore = snapshot.tree,
+    changes = actual,
+  })
   local applyingLabel = active.pass > 1
     and string.format("Applying nested part pass %d", active.pass)
     or "Applying part pass 1"
@@ -1465,6 +1688,19 @@ local function rerollUnlocked(options)
     lineage = lineage,
     seed = seed,
   }
+  if parent then
+    local preflightOk, report = preflightVehicleDNA(parent.id, "compatible")
+    if not preflightOk or not report or report.registryStatus == "registry_incompatible" then return false end
+    return startVehicleDNABaseOperation(parent, report, "mutation", true, {
+      seed = seed,
+      settings = runtime.settings,
+      lockProfile = profile,
+      lineage = lineage,
+      creativeOperation = "reroll_unlocked",
+      strength = "wild",
+      allowModelChange = not vehicleDNALocks.requiresModel(profile),
+    })
+  end
   if profile.configuration then return startScramble(context) end
   return startSpawnOperation("fullRandom", context)
 end
@@ -1485,6 +1721,30 @@ end
 
 local function persistLockProfile(profile, code, message)
   if runtime.state.busy then return false end
+  profile = vehicleDNALocks.normalize(profile)
+  if vehicleDNALocks.requiresModel(profile) then
+    local okModel, modelKey = adapter.getCurrentModelKey()
+    if not okModel then
+      setResult(false, "lock_model_unresolved", "Model-bound locks require an active vehicle")
+      publishState()
+      return false
+    end
+    profile.boundModelKey = modelKey
+    if profile.configuration then
+      local okConfig, config = adapter.getCurrentConfig()
+      if not okConfig then
+        setResult(false, "lock_configuration_unresolved", "Configuration Lock requires a readable active configuration")
+        publishState()
+        return false
+      end
+      profile.boundConfigKey = configVerification.normalizePath(config.partConfigFilename)
+    else
+      profile.boundConfigKey = nil
+    end
+  else
+    profile.boundModelKey = nil
+    profile.boundConfigKey = nil
+  end
   runtime.settings.lockProfile = vehicleDNALocks.normalize(profile)
   local ok, saveError = adapter.saveSettings(runtime.settings)
   if ok then setResult(true, code or "lock_profile_updated", message or "Lock profile updated", {
@@ -1658,6 +1918,47 @@ local function requestState()
   initialize()
   publishState()
   return publicState()
+end
+
+local function setUICompactMode(mode)
+  initialize()
+  local allowed = {collapsed = true, compact = true, standard = true, expanded = true}
+  if not allowed[mode] then return false end
+  runtime.uiMode = mode
+  publishState()
+  return true
+end
+
+local function copyDiagnostics()
+  initialize()
+  local payload = {
+    extensionVersion = EXTENSION_VERSION,
+    gameVersion = adapter.getGameVersion(),
+    state = runtime.state.state,
+    lastResult = util.deepCopy(runtime.lastResult),
+    lastFailure = util.deepCopy(runtime.lastFailure),
+    performance = util.deepCopy(runtime.performance),
+    recovery = vehicleRecovery.metrics(runtime.recovery),
+    records = diagnosticsModule.snapshot(runtime.diagnostics),
+  }
+  local ok, encoded = adapter.encodeJSON(payload, true)
+  if not ok then return false end
+  adapter.emit("SoturineChaosRandomizerDiagnostics", {text = encoded, bytes = #encoded})
+  return true
+end
+
+local function spawnSafeVehicle()
+  initialize()
+  if runtime.state.busy then return false end
+  return startSpawnOperation("randomConfig", {safeOfficial = true})
+end
+
+local function retryQuarantinedConfigurations()
+  if runtime.state.busy then return false end
+  vehicleRecovery.retryQuarantined(runtime.recovery)
+  setResult(true, "vehicle_quarantine_cleared", "Quarantined configurations are eligible for a manual retry")
+  publishState()
+  return true
 end
 
 local function persistDNALibrary(candidate, successCode, successMessage)
@@ -1932,6 +2233,33 @@ local function packageSHA(value)
   return ok and digest or nil
 end
 
+local function localImportCompatibility(entry)
+  if not runtime.index.valid then
+    local ok, indexError = rebuildIndex()
+    if not ok then return nil, indexError end
+  end
+  local availableModIDs = {}
+  for _, model in ipairs(runtime.index.models or {}) do
+    local raw = model.raw or {}
+    local id = raw.modID or raw.modId
+    if id ~= nil then availableModIDs[tostring(id)] = true end
+  end
+  for _, config in ipairs(runtime.index.allConfigs or {}) do
+    local raw = config.raw or {}
+    local id = raw.modID or raw.modId
+    if id ~= nil then availableModIDs[tostring(id)] = true end
+  end
+  return vehicleDNACompatibility.evaluate(entry, {
+    modelsByKey = runtime.index.modelsByKey,
+    configs = runtime.index.allConfigs,
+    availableModIDs = availableModIDs,
+    gameVersion = adapter.getGameVersion(),
+    extensionVersion = EXTENSION_VERSION,
+    targetBeamNG = TARGET_BEAMNG,
+    generatorVersion = vehicleDNASchema.GENERATOR_VERSION,
+  }, "compatible")
+end
+
 local function exportVehicleDNAPackage(id)
   initialize()
   if not runtime.capabilities.dnaPackageWrite then
@@ -2030,6 +2358,21 @@ local function importVehicleDNAPackage(reference)
     or tostring(manifest.generatorVersion or "") ~= tostring(entry.generatorVersion or "")
   then setResult(false, "vdna_package_schema_mismatch", "Package manifest schema does not match Vehicle DNA payload"); publishState(); return false end
   local originId = entry.id
+  local exporterCompatibility = {
+    status = type(compatibilityPreview.status) == "string" and compatibilityPreview.status:sub(1, 64) or "not_evaluated",
+    registryStatus = type(compatibilityPreview.registryStatus) == "string" and compatibilityPreview.registryStatus:sub(1, 64) or nil,
+    missing = math.max(0, math.floor(tonumber(compatibilityPreview.missing) or 0)),
+    changed = math.max(0, math.floor(tonumber(compatibilityPreview.changed) or 0)),
+  }
+  local localCompatibility, localError = localImportCompatibility(entry)
+  if not localCompatibility then
+    setResult(false, localError.code or "local_compatibility_unavailable", localError.message or "Local compatibility could not be evaluated")
+    publishState()
+    return false
+  end
+  entry.extensions = util.shallowMerge(entry.extensions or {}, {
+    exporterCompatibility = exporterCompatibility,
+  })
   entry.lineage = util.shallowMerge(entry.lineage or {}, {
     originId = originId, importedAt = os.time(), importStrategy = "validated_vdna_package",
   })
@@ -2048,12 +2391,9 @@ local function importVehicleDNAPackage(reference)
       originId = originId, summary = vehicleDNAStorage.summary(entry),
       dependencies = util.deepCopy(entry.dependencies or {}), packageBytes = #packageData,
       packageSha256 = packageSHA(packageData), thumbnailPresent = inspected.entries["thumbnail.png"] ~= nil,
-      compatibility = {
-        status = type(compatibilityPreview.status) == "string" and compatibilityPreview.status:sub(1, 64) or "not_evaluated",
-        registryStatus = type(compatibilityPreview.registryStatus) == "string" and compatibilityPreview.registryStatus:sub(1, 64) or nil,
-        missing = math.max(0, math.floor(tonumber(compatibilityPreview.missing) or 0)),
-        changed = math.max(0, math.floor(tonumber(compatibilityPreview.changed) or 0)),
-      },
+      exporterCompatibility = exporterCompatibility,
+      localCompatibility = util.deepCopy(localCompatibility),
+      compatibility = util.deepCopy(localCompatibility),
     },
   }
   runtime.performance.importMs = math.max(0, (adapter.clock() - started) * 1000)
@@ -2083,7 +2423,33 @@ local function confirmVehicleDNAPackageImport()
   return persisted
 end
 
-local function captureVehicleDNAThumbnail(id)
+local function currentThumbnailState(entry)
+  local okCapture, capture = adapter.captureCurrentState("thumbnail_preflight", entry.generation and entry.generation.seed)
+  if not okCapture then return nil, capture end
+  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot()
+  if not okSnapshot then return nil, snapshot end
+  local scan, scanError = slotScanner.scan(snapshot.tree, snapshot.metadataByPath)
+  if not scan then return nil, adapter.errorValue(scanError, "Thumbnail state scan failed") end
+  local observed = {
+    modelKey = capture.modelKey,
+    slots = vehicleDNANormalizer.normalizeSlots(scan),
+    tuning = vehicleDNANormalizer.normalizeTuning(snapshot.variables, capture.tuning or snapshot.currentTuning),
+    paints = vehicleDNANormalizer.normalizePaints(capture.paints or snapshot.paints),
+  }
+  local expected = {
+    modelKey = entry.final.modelKey,
+    slots = util.deepCopy(entry.final.slots or {}),
+    tuning = util.deepCopy(entry.final.tuning or {}),
+    paints = util.deepCopy(entry.final.paints or {}),
+  }
+  return {
+    exact = util.deepEqual(expected, observed, 1e-8),
+    fingerprint = vehicleDNAFingerprint.fingerprint(observed),
+    observed = observed,
+  }
+end
+
+local function captureVehicleDNAThumbnail(id, options)
   initialize()
   if runtime.state.busy or runtime.dna.thumbnailPending then return false end
   local entry = vehicleDNAStorage.find(runtime.dna.library, id)
@@ -2097,9 +2463,13 @@ local function captureVehicleDNAThumbnail(id)
       setResult(false, "thumbnail_count_limit", "Managed thumbnail limit reached"); publishState(); return false
     end
   end
-  local okModel, modelKey = adapter.getCurrentModelKey()
-  if not okModel or modelKey ~= (entry.final and entry.final.modelKey) then
-    setResult(false, "thumbnail_model_mismatch", "Load this Vehicle DNA model before explicitly capturing its thumbnail"); publishState(); return false
+  options = type(options) == "table" and options or {}
+  local stateMatch, stateError = currentThumbnailState(entry)
+  if not stateMatch then
+    setResult(false, stateError.code or "thumbnail_state_unavailable", stateError.message or "Current vehicle state could not be verified"); publishState(); return false
+  end
+  if not stateMatch.exact and options.allowNonExact ~= true then
+    setResult(false, "thumbnail_state_mismatch", "Restore the exact Vehicle DNA state or explicitly allow a non-exact thumbnail"); publishState(); return false
   end
   local started = adapter.clock()
   runtime.dna.thumbnailPending = id
@@ -2113,7 +2483,16 @@ local function captureVehicleDNAThumbnail(id)
     end
     local dimensions, reason = vehicleDNAGallery.pngDimensions(result.data)
     if not dimensions then adapter.removeDNAThumbnail(id); setResult(false, reason, "Captured thumbnail was rejected"); publishState(); return end
-    local metadata = vehicleDNAGallery.managedMetadata(id, dimensions)
+    local finalMatch, finalMatchError = currentThumbnailState(entry)
+    if not finalMatch or (stateMatch.exact and not finalMatch.exact) then
+      adapter.removeDNAThumbnail(id)
+      setResult(false, "thumbnail_state_changed", finalMatchError and finalMatchError.message or "Vehicle state changed during thumbnail capture")
+      publishState(); return
+    end
+    local metadata = vehicleDNAGallery.managedMetadata(id, dimensions, {
+      exactState = stateMatch.exact,
+      capturedFingerprint = finalMatch.fingerprint,
+    })
     local updated, updateError = vehicleDNAStorage.setThumbnail(runtime.dna.library, id, metadata)
     if not updated then adapter.removeDNAThumbnail(id); setResult(false, updateError, "Thumbnail metadata could not be stored"); publishState(); return end
     persistDNALibrary(updated, "thumbnail_captured", "Vehicle DNA thumbnail captured")
@@ -2196,7 +2575,7 @@ local function dnaEnvironment(entry)
   }
 end
 
-local function preflightVehicleDNA(id, mode)
+preflightVehicleDNA = function(id, mode)
   initialize()
   if runtime.state.busy then return false end
   local started = adapter.clock()
@@ -2247,7 +2626,7 @@ local function pureSeedReplayVehicleDNA(id)
   return started
 end
 
-local function startVehicleDNABaseOperation(entry, registryReport, purpose, confirmPartial, creativeContext)
+startVehicleDNABaseOperation = function(entry, registryReport, purpose, confirmPartial, creativeContext)
   local kind = purpose == "replay" and "dnaReplayGeneration"
     or purpose == "mutation" and "dnaMutation"
     or (purpose == "restore_exact" and "dnaRestoreExact" or "dnaRestoreCompatible")
@@ -2258,7 +2637,9 @@ local function startVehicleDNABaseOperation(entry, registryReport, purpose, conf
   active.rng = rngModule.new(active.seed)
   active.phase = "dna_registry_preflight"
   active.dnaEntry = entry
-  active.dnaMode = purpose == "restore_exact" and "exact" or purpose == "restore_compatible" and "compatible" or "replay"
+  active.dnaMode = purpose == "restore_exact" and "exact"
+    or purpose == "restore_compatible" and "compatible"
+    or purpose == "mutation" and "exact" or "replay"
   active.replayGeneration = purpose == "replay"
   active.confirmPartial = confirmPartial == true
   active.policy = mutationPolicy.fromSettings(entry.generation and entry.generation.settings or runtime.settings)
@@ -2268,13 +2649,15 @@ local function startVehicleDNABaseOperation(entry, registryReport, purpose, conf
     active.lockProfileSnapshot = vehicleDNALocks.normalize(creativeContext.lockProfile)
   elseif purpose == "mutation" then
     creativeContext = type(creativeContext) == "table" and creativeContext or {}
-    active.creativeOperation = "mutation"
+    active.creativeOperation = creativeContext.creativeOperation or "mutation"
     active.captureOperation = entry.generation.operation
     active.seed = creativeContext.seed
     active.rng = rngModule.new(active.seed)
     active.policy = mutationPolicy.fromSettings(creativeContext.settings)
     active.lockProfileSnapshot = vehicleDNALocks.normalize(creativeContext.lockProfile)
     active.pendingLineage = util.deepCopy(creativeContext.lineage)
+    active.mutationStrength = creativeContext.strength
+    active.allowModelChange = creativeContext.allowModelChange == true
   end
   active.dnaReport = registryReport
   active.dnaDeviations = {}
@@ -2370,6 +2753,8 @@ local function mutateVehicleDNA(id, strength, options)
     settings = mutationSettings,
     lockProfile = runtime.settings.lockProfile,
     lineage = lineage,
+    strength = strength,
+    allowModelChange = strength == "wild" and not vehicleDNALocks.requiresModel(runtime.settings.lockProfile),
   })
 end
 
@@ -2399,18 +2784,18 @@ runDNATargetPreflight = function(active)
   setProgress("Inspecting loaded Vehicle DNA target", 0.24)
   local environment, environmentError = dnaEnvironment(active.dnaEntry)
   if not environment then failActive(environmentError, true, "dna_target_preflight"); return end
-  local report = vehicleDNACompatibility.evaluate(
-    active.dnaEntry, environment, active.dnaMode == "exact" and "exact" or "compatible"
-  )
+  local inspectionMode = active.creativeOperation and "compatible"
+    or active.dnaMode == "exact" and "exact" or "compatible"
+  local report = vehicleDNACompatibility.evaluate(active.dnaEntry, environment, inspectionMode)
   active.dnaTargetReport = report
   runtime.dna.preflight = report
   for _, deviation in ipairs(report.deviations or {}) do addDNADeviation(active, deviation) end
   diagnosticsModule.write(runtime.diagnostics, "I", "dna_target_preflight", report, true)
-  if report.status == "target_inspection_required" or report.status == "incompatible" then
+  if (report.status == "target_inspection_required" and not active.creativeOperation) or report.status == "incompatible" then
     failActive(adapter.errorValue("dna_target_preflight_incompatible", "Loaded Vehicle DNA target is incompatible", {report = report}), true, "dna_target_preflight")
     return
   end
-  if active.dnaMode == "exact" and report.status ~= "exact" then
+  if active.dnaMode == "exact" and not active.creativeOperation and report.status ~= "exact" then
     failActive(adapter.errorValue("dna_target_preflight_incompatible", "Restore Exact target inspection found differences", {report = report}), true, "dna_target_preflight")
     return
   end
@@ -2419,15 +2804,6 @@ runDNATargetPreflight = function(active)
     return
   end
   active.dnaTargetStatus = report.status
-  if active.creativeOperation == "mutation" then
-    active.pass = 1
-    active.previousScan = nil
-    active.deferredPaths = {}
-    active.mutatedPaths = {}
-    operationState.transition(runtime.state, "scanning", false)
-    processMutationPass(active)
-    return
-  end
   if active.replayGeneration then
     if active.dnaEntry.generation.operation == "randomConfig" then
       local transitioned, transitionError = operationState.transition(runtime.state, "validating", false)
@@ -2589,6 +2965,54 @@ validateDNAFinal = function(active)
   verifyDNAFinal(active)
 end
 
+local function continueCreativeFromParent(active, capture, scan)
+  local lockReport = vehicleDNALocks.preflight(
+    active.lockProfileSnapshot,
+    active.dnaEntry.final.modelKey,
+    capture.selectedConfiguration,
+    scan
+  )
+  if not lockReport.valid then
+    failActive(adapter.errorValue("creative_lock_unresolved", "Creative locks do not resolve on the parent final state", {
+      lockReport = lockReport,
+    }), true, "creative_lock_preflight")
+    return
+  end
+  active.parentFinalState = util.deepCopy(capture)
+  active.parentFinalRestored = true
+  active.dnaMode = nil
+  active.dnaAppliedParts = nil
+  active.dnaExpectedTuning = nil
+  active.dnaExpectedPaints = nil
+  active.dnaPassBudget = nil
+  active.pass = 1
+  active.previousScan = nil
+  active.deferredPaths = {}
+  active.mutatedPaths = {}
+  active.safetyBaseline = nil
+  active.modelKey = active.dnaEntry.final.modelKey
+  if active.allowModelChange then
+    operationState.transition(runtime.state, "selecting", false)
+    local model, config, selectionError = chooseConfiguration(active)
+    if not model then failActive(selectionError, true, "creative_selection"); return end
+    active.selectedModel = model
+    active.selectedConfig = config
+    active.modelKey = model.key
+    active.configIdentity = adapter.prepareConfigExpectation(config)
+    operationState.transition(runtime.state, "spawning", false)
+    local okWait, waitError = enterWaiting(active, "spawn", "creativeMutationSpawn", {
+      modelKey = model.key,
+      configIdentity = active.configIdentity,
+    }, "Loading Wild mutation vehicle", 0.28)
+    if not okWait then failActive(waitError, true, "creative_selection"); return end
+    local okReplace, replaceError = issueReplacement(active, model.key, config.path or config.key, "spawn")
+    if not okReplace then failActive(replaceError, true, "creative_selection"); return end
+    return
+  end
+  operationState.transition(runtime.state, "scanning", false)
+  processMutationPass(active)
+end
+
 verifyDNAFinal = function(active)
   active.phase = "dna_final_verification"
   setProgress("Verifying restored Vehicle DNA", 0.96)
@@ -2638,6 +3062,10 @@ verifyDNAFinal = function(active)
     failActive(adapter.errorValue("dna_final_verification_failed", "Restored Vehicle DNA diverged during final verification", {failures = failures}), true, "dna_final_verification")
     return
   end
+  if active.creativeOperation == "mutation" or active.creativeOperation == "reroll_unlocked" then
+    continueCreativeFromParent(active, capture, scan)
+    return
+  end
   local status = active.dnaMode == "exact" and "exact" or (#active.dnaDeviations > 0 and "partial" or "compatible")
   finishOperation(true, "dna_restore_" .. status, "Vehicle DNA restored: " .. status, {
     restoreStatus = status, dnaId = active.dnaEntry.id, deviations = util.deepCopy(active.dnaDeviations),
@@ -2645,68 +3073,37 @@ verifyDNAFinal = function(active)
   })
 end
 
-local function onVehicleSpawned(vehicleId)
-  if not runtime.state.busy or not runtime.active or not runtime.active.wait then return end
+local function completeStableTarget(vehicleId, verificationState, verificationDetails)
   local active = runtime.active
-  local okCurrent, currentId = adapter.getCurrentVehicleId()
-  if not okCurrent or currentId ~= vehicleId then
-    diagnosticsModule.write(runtime.diagnostics, "D", "lifecycle_event_ignored", {
-      eventReceived = "onVehicleSpawned", reason = "wrong_vehicle_event", vehicleId = vehicleId,
-    })
-    return
-  end
-  local matched, matchReason = lifecycle.matches(active.wait, {
-    eventType = "onVehicleSpawned",
-    vehicleId = vehicleId,
-    token = active.token,
-  })
-  if not matched then
-    diagnosticsModule.write(runtime.diagnostics, "D", "lifecycle_event_ignored", {
-      eventReceived = "onVehicleSpawned", expectedEvent = active.wait.eventType, reason = matchReason,
-    })
-    return
-  end
-  local okState, verificationState = adapter.getVerificationState()
-  if not okState then failActive(verificationState, true, active.phase); return end
-  local verified, verificationReason, verificationDetails = lifecycle.verify(active.wait, verificationState)
   local elapsed = adapter.clock() - (active.wait.startedAt or adapter.clock())
-  diagnosticsModule.write(runtime.diagnostics, verified and "D" or "E", "lifecycle_event_received", {
-    eventReceived = "onVehicleSpawned",
+  diagnosticsModule.write(runtime.diagnostics, "D", "vehicle_target_stable", {
+    eventReceived = "stable_player_target",
     expectedEvent = active.wait.eventType,
     phase = active.wait.phase,
-    stateVerified = verified,
-    verificationReason = verificationReason,
+    stateVerified = true,
     verificationStrategy = verificationDetails and verificationDetails.strategy,
     identityConfirmed = verificationDetails and verificationDetails.identityConfirmed,
     elapsed = elapsed,
-  }, not verified)
-  if not verified then
-    if active.wait.phase == "rollback" then
-      finishOperation(false, "rollback_unconfirmed", "Rollback event arrived but restored state could not be confirmed", {
-        rollback = "unconfirmed", reason = verificationReason,
-      })
-    else
-      failActive(adapter.errorValue("post_event_state_unconfirmed", "Reload event arrived but requested state was not confirmed", {
-        verificationReason = verificationReason,
-      }), true, active.wait.phase)
-    end
-    return
-  end
+    lifecycle = active.lastTargetMetrics,
+  }, true)
 
   local completedPhase = active.wait.phase
   local afterReload = active.afterReload
   active.wait = nil
+  active.targetTracker = nil
   active.vehicleId = vehicleId
   runtime.state.vehicleId = vehicleId
   if completedPhase == "spawn" or completedPhase == "parts" or completedPhase == "tuning"
     or completedPhase == "undo" or completedPhase == "rollback" or completedPhase == "dna_base_spawn"
-    or completedPhase == "dna_parts" or completedPhase == "dna_tuning"
+    or completedPhase == "dna_parts" or completedPhase == "dna_tuning" or completedPhase == "part_batch_rollback"
   then
     active.reloadCount = (active.reloadCount or 0) + 1
   end
 
   if completedPhase == "spawn" then
     active.baseConfirmed = true
+    local goodOk, goodSnapshot = adapter.captureCurrentState(active.kind, active.seed)
+    if goodOk then vehicleRecovery.rememberGood(runtime.recovery, goodSnapshot) end
     pushRecent(runtime.recentModels, active.selectedModel.key)
     pushRecent(runtime.recentConfigs, configSelector.identifier(active.selectedConfig))
     if afterReload == "randomConfig" then
@@ -2743,21 +3140,27 @@ local function onVehicleSpawned(vehicleId)
       processMutationPass(active)
     end
   elseif completedPhase == "parts" then
-    active.partPassesApplied = (active.partPassesApplied or 0) + 1
-    for _, decision in ipairs(active.currentBatch or {}) do
-      if decision.selectedPart and decision.selectedPart ~= "" then
-        local recorded, successDetails = contentIndex.recordSuccess(runtime.index, "part", {
-          modelKey = active.modelKey or (active.selectedModel and active.selectedModel.key),
-          slotPath = decision.slotPath,
-          candidate = decision.selectedPart,
-        }, os.time())
-        if recorded then
-          diagnosticsModule.write(runtime.diagnostics, "D", "part_candidate_success", successDetails)
+    active.pass = active.pass + 1
+    operationState.transition(runtime.state, "scanning", false)
+    processMutationPass(active)
+  elseif completedPhase == "part_batch_rollback" then
+    partBatchRecovery.finishRollback(active.batchRecovery, true)
+    for _, decision in ipairs(active.batchRollbackDecisions or {}) do
+      active.mutatedPaths[decision.slotPath] = nil
+      for index = #active.changes, 1, -1 do
+        if active.changes[index].slotPath == decision.slotPath
+          and active.changes[index].selectedPart == decision.selectedPart
+        then
+          table.remove(active.changes, index)
+          break
         end
       end
     end
+    active.batchRollbackDecisions = nil
     active.currentBatch = nil
+    active.previousScan = nil
     active.pass = active.pass + 1
+    vehicleStabilizer.observeTreeIssue(active.treeStabilizer, nil)
     operationState.transition(runtime.state, "scanning", false)
     processMutationPass(active)
   elseif completedPhase == "tuning" then
@@ -2769,8 +3172,13 @@ local function onVehicleSpawned(vehicleId)
   elseif completedPhase == "rollback" then
     local originalFailure = active.rollbackFailure or failureRecord(active, "rollback", adapter.errorValue("operation_failed", "Operation failed"))
     historyTransaction.rollbackSucceeded(active, runtime.history, historyModule.pop)
-    finishOperation(false, originalFailure.code, originalFailure.message .. "; previous state restored", {
+    local goodOk, goodSnapshot = adapter.captureCurrentState("recovery", active.seed)
+    if goodOk then vehicleRecovery.rememberGood(runtime.recovery, goodSnapshot, true) end
+    local recoveryStep = active.recoveryStep or "previous"
+    finishOperation(false, originalFailure.code, originalFailure.message .. "; vehicle recovery completed", {
       rollback = "completed",
+      recoveryStep = recoveryStep,
+      locksRequireReview = recoveryStep ~= "previous",
       originalFailure = originalFailure,
     })
   elseif completedPhase == "dna_base_spawn" then
@@ -2788,7 +3196,69 @@ local function onVehicleSpawned(vehicleId)
   end
 end
 
-local function cancelOperation(code, message)
+local function onVehicleSpawned(vehicleId)
+  if not runtime.state.busy or not runtime.active or not runtime.active.targetTracker then return end
+  local active = runtime.active
+  vehicleTargetTracker.onSpawned(active.targetTracker, vehicleId)
+  diagnosticsModule.write(runtime.diagnostics, "D", "vehicle_target_candidate", {
+    source = "onVehicleSpawned",
+    phase = active.phase,
+    vehicleId = vehicleId,
+  })
+end
+
+local function processTargetTracking()
+  local active = runtime.active
+  if not runtime.state.busy or not active or not active.wait or not active.targetTracker then return false end
+  local now = adapter.clock()
+  if not vehicleStabilizer.shouldPoll(active.targetTracker.stabilizer, now) then return true end
+  local okState, stateOrError = adapter.getVerificationState()
+  local observed = okState and stateOrError or nil
+  local status, reason, details = vehicleTargetTracker.observe(active.targetTracker, active.token, observed, now)
+  active.lastTargetMetrics = vehicleTargetTracker.summary(active.targetTracker, now)
+  if status == "stable" then
+    completeStableTarget(details.vehicleId, details.state, details.verification)
+    return true
+  end
+  if status == "cancelled" then
+    cancelOperation("vehicle_switched", "Operation cancelled because the player selected an unrelated vehicle")
+    return true
+  end
+  if status == "failed" then
+    local phase = active.wait and active.wait.phase or active.phase or "lifecycle"
+    if phase == "parts" and active.currentBatch then
+      local recovering, recoveryReason = attemptPartBatchRollback(active, reason)
+      if recovering then return true end
+      diagnosticsModule.write(runtime.diagnostics, "E", "part_batch_recovery_exhausted", {
+        reason = recoveryReason, lifecycle = active.lastTargetMetrics,
+      }, true)
+    end
+    if phase == "rollback" then
+      diagnosticsModule.write(runtime.diagnostics, "E", "vehicle_recovery_step_failed", {
+        step = active.recoveryStep, reason = reason, lifecycle = active.lastTargetMetrics,
+      }, true)
+      startNextRecovery(active)
+    else
+      failActive(adapter.errorValue(reason, "The vehicle did not stabilize before timeout", {
+        lifecycle = active.lastTargetMetrics,
+        lastReadError = okState and nil or stateOrError,
+      }), true, phase)
+    end
+    return true
+  end
+  if reason ~= active.lastTargetReason then
+    active.lastTargetReason = reason
+    diagnosticsModule.write(runtime.diagnostics, "D", "vehicle_target_stabilizing", {
+      phase = active.phase,
+      reason = reason,
+      lifecycle = active.lastTargetMetrics,
+      readError = okState and nil or stateOrError,
+    })
+  end
+  return true
+end
+
+cancelOperation = function(code, message)
   if not runtime.state.busy then return end
   local failure = failureRecord(runtime.active, "lifecycle", adapter.errorValue(code or "operation_cancelled", message or "Operation cancelled"))
   runtime.lastFailure = failure
@@ -2822,8 +3292,8 @@ local function cancelDeveloperStressInternal(reason)
 end
 
 local function onVehicleSwitched(oldId, newId, player)
-  if player ~= nil and player ~= 0 then return end
   if runtime.stress and runtime.stress.active and not runtime.state.busy
+    and (player == nil or player == 0)
     and newId ~= runtime.stress.vehicleId
   then
     cancelDeveloperStressInternal("vehicle_changed")
@@ -2831,54 +3301,16 @@ local function onVehicleSwitched(oldId, newId, player)
   end
   if not runtime.state.busy or not runtime.active then return end
   local active = runtime.active
-  local replacementWait = active.phase == "spawn" or active.phase == "rollback" or active.phase == "undo"
-    or active.phase == "dna_base_spawn"
-  if replacementWait then
-    if active.replaceWriteInFlight then
-      if active.pendingReplacementSwitch then
-        active.pendingReplacementSwitch = {
-          ambiguous = true,
-          events = {
-            util.deepCopy(active.pendingReplacementSwitch),
-            {oldId = oldId, newId = newId},
-          },
-        }
-      else
-        active.pendingReplacementSwitch = {oldId = oldId, newId = newId}
-      end
-      diagnosticsModule.write(runtime.diagnostics, "D", "replacement_switch_queued", {
-        phase = active.phase,
-        oldId = oldId,
-        eventId = newId,
-        reason = "replace_write_in_flight",
-      })
-      return
-    end
-    if active.expectedReplacementVehicleId and newId == active.expectedReplacementVehicleId then
-      diagnosticsModule.write(runtime.diagnostics, "D", "replacement_switch_correlated", {
-        phase = active.phase,
-        oldId = oldId,
-        eventId = newId,
-        expectedReplacementId = active.expectedReplacementVehicleId,
-        correlationStrategy = active.replaceCorrelationStrategy,
-      })
-      return
-    end
-    diagnosticsModule.write(runtime.diagnostics, "W", "replacement_switch_rejected", {
-      phase = active.phase,
-      oldId = oldId,
-      eventId = newId,
-      expectedReplacementId = active.expectedReplacementVehicleId,
-      rejectionReason = active.expectedReplacementVehicleId and "unrelated_switch" or "ambiguous_target",
-    }, true)
-    if runtime.stress and runtime.stress.active then
-      cancelDeveloperStressInternal("vehicle_changed")
-    else
-      cancelOperation("vehicle_switched", "Operation cancelled because an unrelated vehicle switch occurred")
-    end
+  if active.targetTracker then
+    local _, reason = vehicleTargetTracker.onSwitched(
+      active.targetTracker, oldId, newId, player, active.replaceWriteInFlight == true
+    )
+    diagnosticsModule.write(runtime.diagnostics, "D", "vehicle_switch_observed", {
+      phase = active.phase, oldId = oldId, newId = newId, player = player, classification = reason,
+    })
     return
   end
-  if newId ~= runtime.state.vehicleId then
+  if (player == nil or player == 0) and newId ~= runtime.state.vehicleId then
     if runtime.stress and runtime.stress.active then
       cancelDeveloperStressInternal("vehicle_changed")
     else
@@ -2900,11 +3332,11 @@ local function onVehicleDestroyed(vehicleId)
   end
   if runtime.state.busy and runtime.active then
     local active = runtime.active
-    local replacementWait = active.phase == "spawn" or active.phase == "rollback" or active.phase == "undo"
-      or active.phase == "dna_base_spawn"
-    if replacementWait and active.expectedReplacementVehicleId ~= active.originalVehicleId
-      and vehicleId == active.originalVehicleId
-    then
+    if active.targetTracker then
+      vehicleTargetTracker.onDestroyed(active.targetTracker, vehicleId)
+      diagnosticsModule.write(runtime.diagnostics, "D", "vehicle_target_destroyed_observed", {
+        phase = active.phase, vehicleId = vehicleId,
+      })
       return
     end
     if vehicleId == runtime.state.vehicleId or vehicleId == active.expectedReplacementVehicleId then
@@ -3060,6 +3492,14 @@ local function onUpdate()
     cancelDeveloperStressInternal("duration_limit")
     return
   end
+  if processTargetTracking() then return end
+  if runtime.state.busy and runtime.active and runtime.active.treeRescanAt
+    and adapter.clock() >= runtime.active.treeRescanAt
+  then
+    runtime.active.treeRescanAt = nil
+    processMutationPass(runtime.active)
+    return
+  end
   if processPaintConfirmation() then return end
   if runtime.state.busy and operationState.isExpired(runtime.state) then
     local active = runtime.active
@@ -3103,6 +3543,10 @@ M.lockPaint = lockPaint
 M.applyLockPreset = applyLockPreset
 M.rerollUnlocked = rerollUnlocked
 M.requestState = requestState
+M.setUICompactMode = setUICompactMode
+M.copyDiagnostics = copyDiagnostics
+M.spawnSafeVehicle = spawnSafeVehicle
+M.retryQuarantinedConfigurations = retryQuarantinedConfigurations
 M.runDeveloperStress = runDeveloperStress
 M.cancelDeveloperStress = cancelDeveloperStress
 M.cancelCurrentOperation = cancelCurrentOperation

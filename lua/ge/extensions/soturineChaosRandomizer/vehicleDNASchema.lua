@@ -6,7 +6,8 @@ local vehicleDNAGallery = require("ge/extensions/soturineChaosRandomizer/vehicle
 local M = {}
 
 M.SCHEMA_VERSION = 1
-M.GENERATOR_VERSION = 4
+M.GENERATOR_VERSION = 5
+M.LEGACY_GENERATOR_VERSION = 4
 M.MAX_SLOTS = 2048
 M.MAX_TUNING = 2048
 M.MAX_PAINTS = 32
@@ -22,6 +23,11 @@ M.MAX_ENTRY_BYTES = 131072
 
 local OPERATIONS = {randomConfig = true, scramble = true, fullRandom = true}
 local SOURCE_KINDS = {official = true, mod = true, user = true, unknown = true}
+
+local function supportedGenerator(value)
+  value = tonumber(value)
+  return value == M.GENERATOR_VERSION or value == M.LEGACY_GENERATOR_VERSION
+end
 
 local function stringValue(value, maximum)
   return type(value) == "string" and #value > 0 and #value <= (maximum or 512)
@@ -73,11 +79,14 @@ local function validateEntry(entry, options)
     return false, "dna_timestamp_invalid"
   end
   if type(entry.environment) ~= "table" or type(entry.generation) ~= "table" then return false, "dna_context_missing" end
-  if tonumber(entry.generatorVersion) ~= M.GENERATOR_VERSION then return false, "dna_generator_version_invalid" end
-  if tonumber(entry.generation.generatorVersion) ~= M.GENERATOR_VERSION then return false, "dna_generator_version_invalid" end
+  local generatorVersion = tonumber(entry.generatorVersion)
+  if not supportedGenerator(generatorVersion) then return false, "dna_generator_version_invalid" end
+  if tonumber(entry.generation.generatorVersion) ~= generatorVersion then return false, "dna_generator_version_invalid" end
   if type(entry.base) ~= "table" or not stringValue(entry.base.modelKey, 256) then return false, "dna_base_invalid" end
   if type(entry.final) ~= "table" or not stringValue(entry.final.modelKey, 256) then return false, "dna_final_missing" end
-  if entry.base.modelKey ~= entry.final.modelKey then return false, "dna_model_identity_mismatch" end
+  if generatorVersion == M.LEGACY_GENERATOR_VERSION and entry.base.modelKey ~= entry.final.modelKey then
+    return false, "dna_model_identity_mismatch"
+  end
   local operation = entry.generation.operation
   if not OPERATIONS[operation] or entry.operation ~= operation then return false, "dna_operation_invalid" end
   if not stringValue(entry.generation.seed, 256) or type(entry.seed) ~= "table"
@@ -207,6 +216,7 @@ local function migrateEntry(entry)
 end
 
 M.validateEntry = validateEntry
+M.isSupportedGenerator = supportedGenerator
 M.migrateEntry = migrateEntry
 
 return M

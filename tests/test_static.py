@@ -193,8 +193,26 @@ class StaticValidationTests(unittest.TestCase):
         width, height, size = validate_package.validate_icon(
             ROOT / "ui/modules/apps/soturineChaosRandomizer/app.png"
         )
-        self.assertEqual((width, height), (500, 240))
+        self.assertEqual((width, height), (250, 120))
         self.assertLess(size, 100_000)
+
+    def test_alpha2_compact_ui_contract(self) -> None:
+        app = json.loads((ROOT / "ui/modules/apps/soturineChaosRandomizer/app.json").read_text(encoding="utf-8"))
+        html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
+        css = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.css").read_text(encoding="utf-8")
+        source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        self.assertEqual((app["css"]["width"], app["css"]["height"]), ("330px", "430px"))
+        self.assertEqual((app["css"]["min-width"], app["css"]["min-height"]), ("300px", "340px"))
+        self.assertIn("RANDOM CAR", html)
+        self.assertNotIn("RANDOM CONFIG", html)
+        self.assertIn("ng-if=\"chaos.state.garage.selectedId\"", html)
+        self.assertIn("advancedOpen: false", source)
+        for mode in ("collapsed", "compact", "expanded"):
+            self.assertIn("scr-mode-" + mode, css)
+        self.assertIn("@media (max-width: 310px), (max-height: 350px)", css)
+        self.assertIn(":focus-visible", css)
+        self.assertIn("setUICompactMode", source)
+        self.assertIn("var allowed =", source)
 
     def test_workflow_yaml_parses(self) -> None:
         try:

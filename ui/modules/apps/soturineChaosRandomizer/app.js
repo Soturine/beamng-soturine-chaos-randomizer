@@ -70,6 +70,7 @@
           metadata: {rating: '0', collection: '', tags: '', notes: ''},
           state: {
             busy: false,
+            uiMode: 'standard',
             operationState: 'loading',
             progress: {label: 'Loading extension', value: 0},
             capabilities: {},
@@ -97,7 +98,7 @@
         }
 
         function engineCall(method) {
-          var allowed = {requestState: true, cancelCurrentOperation: true, getVehicleDNALocks: true, confirmVehicleDNAPackageImport: true}
+          var allowed = {requestState: true, cancelCurrentOperation: true, getVehicleDNALocks: true, confirmVehicleDNAPackageImport: true, copyDiagnostics: true, spawnSafeVehicle: true, retryQuarantinedConfigurations: true}
           if (!allowed[method]) return
           bngApi.engineLua('if soturineChaosRandomizer then soturineChaosRandomizer.' + method + '() end')
         }
@@ -141,7 +142,8 @@
             lockTuning: true,
             lockPaint: true,
             applyLockPreset: true,
-            updateLockProfile: true
+            updateLockProfile: true,
+            setUICompactMode: true
           }
           if (!allowed[method]) return
           var serialized = (args || []).map(function (value) { return bngApi.serializeToLua(value) })
@@ -233,6 +235,15 @@
         }
 
         scope.chaos.toggleAdvanced = function () { scope.chaos.advancedOpen = !scope.chaos.advancedOpen }
+        scope.chaos.setMode = function (mode) {
+          var allowed = {collapsed: true, compact: true, standard: true, expanded: true}
+          if (!allowed[mode]) return
+          if (mode === 'compact') scope.chaos.view = 'randomize'
+          callWithArgs('setUICompactMode', [mode])
+        }
+        scope.chaos.spawnSafeVehicle = function () { if (!scope.chaos.state.busy) engineCall('spawnSafeVehicle') }
+        scope.chaos.retryQuarantined = function () { if (!scope.chaos.state.busy) engineCall('retryQuarantinedConfigurations') }
+        scope.chaos.copyDiagnostics = function () { engineCall('copyDiagnostics') }
 
         scope.chaos.rerollUnlocked = function () {
           if (scope.chaos.state.busy) return
@@ -433,6 +444,11 @@
         }
 
         scope.chaos.captureThumbnail = function (dna) { if (dna && !scope.chaos.state.busy) callWithArgs('captureVehicleDNAThumbnail', [dna.id]) }
+        scope.chaos.captureNonExactThumbnail = function (dna) {
+          if (dna && !scope.chaos.state.busy && window.confirm('Capture a clearly marked non-exact thumbnail for this Vehicle DNA?')) {
+            callWithArgs('captureVehicleDNAThumbnail', [dna.id, {allowNonExact: true}])
+          }
+        }
         scope.chaos.removeThumbnail = function (dna) { if (dna && !scope.chaos.state.busy) callWithArgs('removeVehicleDNAThumbnail', [dna.id]) }
 
         scope.chaos.compareDNA = function () {
@@ -537,6 +553,11 @@
         scope.$on('SoturineChaosRandomizerDNAComparison', function (event, data) { scope.$evalAsync(function () { scope.chaos.comparison = data }) })
         scope.$on('SoturineChaosRandomizerDNAExport', function (event, data) {
           scope.$evalAsync(function () { scope.chaos.exportText = data && data.text ? data.text : '' })
+        })
+        scope.$on('SoturineChaosRandomizerDiagnostics', function (event, data) {
+          copyText(data && data.text ? data.text : '', function (copied) {
+            scope.chaos.copyStatus = copied ? 'Diagnostics copied' : 'Copy unavailable'
+          })
         })
         scope.$on('VehicleFocusChanged', function () { $timeout(requestState, 250) })
         scope.$on('$destroy', function () {

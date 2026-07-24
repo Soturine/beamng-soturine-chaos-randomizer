@@ -71,6 +71,7 @@ local function new(options)
     pendingTuning = nil,
     original = nil,
   }
+  if options.noActive then harness.vehicleId = nil end
   if options.emptyOptional then
     harness.tree.children.optional = {
       id = "optional", path = "/optional/", chosenPartName = "", suitablePartNames = {}, children = {},
@@ -274,18 +275,30 @@ local function confirmReplacement(harness)
     harness.tuning = {boost = 0.5}
   end
   harness.main.onVehicleSpawned(harness.vehicleId)
+  for _ = 1, 5 do
+    harness.now = harness.now + 0.06
+    harness.main.onUpdate()
+  end
 end
 
 local function confirmParts(harness)
   harness.tree = assert(harness.pendingParts, "no pending parts")
   harness.pendingParts = nil
   harness.main.onVehicleSpawned(harness.vehicleId)
+  for _ = 1, 5 do
+    harness.now = harness.now + 0.06
+    harness.main.onUpdate()
+  end
 end
 
 local function confirmTuning(harness)
   harness.tuning = assert(harness.pendingTuning, "no pending tuning")
   harness.pendingTuning = nil
   harness.main.onVehicleSpawned(harness.vehicleId)
+  for _ = 1, 5 do
+    harness.now = harness.now + 0.06
+    harness.main.onUpdate()
+  end
 end
 
 local function driveSuccess(harness, action)

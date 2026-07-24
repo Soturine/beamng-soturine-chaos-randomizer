@@ -6,7 +6,7 @@ local function derive(raw)
   raw = type(raw) == "table" and raw or {}
   local result = util.deepCopy(raw)
   result.randomConfig = raw.vehicleRegistry == true
-    and raw.vehicleReplace == true and raw.lifecycleConfirmation == true
+    and (raw.vehicleReplace == true or raw.vehicleSpawn == true) and raw.lifecycleConfirmation == true
   result.scrambleParts = raw.partsRead == true
     and raw.partsWrite == true and raw.lifecycleConfirmation == true
   result.scrambleTuning = raw.tuningRead == true

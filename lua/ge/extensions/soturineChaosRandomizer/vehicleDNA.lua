@@ -90,7 +90,7 @@ local function create(options)
       startingStateFingerprint = startingFingerprint,
     },
     operation = tostring(options.operation or capture.operationType or "unknown"),
-    seed = {display = seed, legacy = not seed:match("^SCR4%-")},
+    seed = {display = seed, legacy = not seed:match("^SCR[45]%-")},
     base = basePayload,
     final = finalPayload,
     safety = util.deepCopy(options.safety or result.safety or {}),
