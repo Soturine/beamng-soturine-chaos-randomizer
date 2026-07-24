@@ -12,6 +12,11 @@ import subprocess
 import zipfile
 import re
 
+try:
+    from tools.lua_metrics import run_lua_suite
+except ModuleNotFoundError:  # Direct execution: python tools/package_mod.py
+    from lua_metrics import run_lua_suite
+
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CONTENT_ROOTS = ("lua", "ui", "settings")
@@ -22,7 +27,7 @@ FIXED_TIMESTAMP = (2026, 1, 1, 0, 0, 0)
 TEXT_SUFFIXES = {".css", ".html", ".js", ".json", ".lua", ".md", ".txt", ".xml"}
 TEXT_FILENAMES = {"LICENSE", "NOTICE", "VERSION"}
 TARGET_BEAMNG = "0.38.6.0.19963"
-GENERATOR_VERSION = 5
+GENERATOR_VERSION = 6
 DNA_SCHEMA_VERSION = 1
 
 
@@ -133,32 +138,40 @@ def test_counts(root: Path = REPOSITORY_ROOT) -> dict[str, int]:
     python_methods = 0
     for path in (root / "tests").glob("test_*.py"):
         python_methods += len(re.findall(r"^\s+def test_[A-Za-z0-9_]+\(", path.read_text(encoding="utf-8"), re.MULTILINE))
-    lua_source = (root / "tests/lua/run.lua").read_text(encoding="utf-8")
-    direct_lua_cases = len(set(re.findall(r"^tests\.([A-Za-z0-9_]+)\s*=", lua_source, re.MULTILINE)))
-    required_lua_cases = len(re.findall(
-        r'^\s+\{"[^"]+",\s*tests\.[A-Za-z0-9_]+\},?$',
-        lua_source,
-        re.MULTILINE,
-    ))
-    lua_cases = direct_lua_cases + required_lua_cases
-    return {
-        "pythonMethods": python_methods,
-        "luaCases": lua_cases,
-        "javascriptFiles": len(list((root / "ui").rglob("*.js"))),
+    _, lua_metrics = run_lua_suite(root.resolve())
+    interactive = {"Passed": 0, "Failed": 0, "Pending": 0, "Blocked": 0, "Not applicable": 0}
+    interactive_plan = root / "docs" / "INTERACTIVE_TEST_PLAN_0.6.0.md"
+    if interactive_plan.is_file():
+        source = interactive_plan.read_text(encoding="utf-8")
+        for status in interactive:
+            interactive[status] = len(re.findall(rf"\|\s*{re.escape(status)}\s*\|", source))
+    result = {
+        "pythonTestMethodsUnique": python_methods,
+        **lua_metrics,
+        "nodeSyntaxFiles": len(list((root / "ui").rglob("*.js"))),
         "jsonFiles": len([
             path for path in root.rglob("*.json")
             if not any(part in {".git", "dist", "__pycache__"} for part in path.relative_to(root).parts)
         ]),
-        "interactivePassed": 0,
-        "interactiveFailed": 0,
-        "interactivePending": 50,
+        "yamlFiles": len(list((root / ".github" / "workflows").glob("*.yml"))),
+        "packageTestMethods": len(re.findall(
+            r"^\s+def test_[A-Za-z0-9_]+\(",
+            (root / "tests" / "test_package.py").read_text(encoding="utf-8"),
+            re.MULTILINE,
+        )),
+        "interactivePassed": interactive["Passed"],
+        "interactiveFailed": interactive["Failed"],
+        "interactivePending": interactive["Pending"],
+        "interactiveBlocked": interactive["Blocked"],
+        "interactiveNotApplicable": interactive["Not applicable"],
     }
+    return result
 
 
 def write_release_manifest(archive: Path, output: Path | None = None, root: Path = REPOSITORY_ROOT) -> Path:
     report = build_report(archive, root)
     manifest = {
-        "manifestVersion": 1,
+        "manifestVersion": 2,
         "version": report["version"],
         "tag": f"v{report['version']}",
         "commit": report["commit"],
