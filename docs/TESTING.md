@@ -72,8 +72,10 @@ dependency. The exact A/B regression harness asserts that B's delayed callback,
 tuning, and paint plans cannot reach recovered vehicle A.
 
 This evidence is automated or mocked. The
-[interactive plan](INTERACTIVE_TEST_PLAN_0.6.0.md) is still entirely Pending,
-so package/release publication remains blocked even while the suites pass.
+[interactive plan](INTERACTIVE_TEST_PLAN_0.6.0.md) is still entirely Pending.
+The corrected delivery policy permits this Experimental pre-1.0 publication
+with explicit disclosure; these rows remain post-publication evidence work and
+are not promoted to passes.
 
 ## Mandatory regression coverage
 

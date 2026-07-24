@@ -5,10 +5,10 @@ Soturine's Chaos Randomizer is a BeamNG.drive UI App and GE Lua extension for se
 Current version: **0.6.0 — Full Coverage, Tuning Integrity, Chaos Lineup & AI Director**
 Inspected target: **BeamNG.drive 0.38.6.0.19963** (Steam build 23007233)
 
-This project remains Experimental, pre-1.0, and best-effort with mods. The
-0.6.0 implementation has automated and installed-source evidence, but its
-60-case BeamNG world/UI plan remains Pending. It is not a stable, final, or
-gameplay-validated release, and no v0.6.0 release has been published.
+This is an Experimental pre-1.0 release with best-effort mod support. The 0.6.0
+implementation has automated and installed-source evidence, but its 60-case
+BeamNG world/UI plan remains Pending. Publication does not claim real gameplay
+validation.
 
 ## What it does
 
@@ -97,7 +97,7 @@ The adapter reports registry, replace, parts read/write, tuning read/write, pain
 
 ## Installation
 
-1. After the release gate is complete, download the attached `soturine_chaos_randomizer_0.6.0.zip` release asset, or build that filename locally. No 0.6.0 asset is currently published.
+1. Download the attached `soturine_chaos_randomizer_0.6.0.zip` release asset, or build that filename locally.
 2. Copy the ZIP, without extracting it, into the active BeamNG user folder's `mods` directory.
 3. Enable it in Mod Manager.
 4. Enter Freeroam, open UI Apps, and add **Soturine's Chaos Randomizer**.

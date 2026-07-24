@@ -2,10 +2,10 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.0] - 2026-07-24
 
-0.6.0 implementation candidate. Release publication remains blocked on the
-documented interactive BeamNG plan.
+Experimental pre-1.0 release. Automated validation passes; real BeamNG gameplay
+validation remains 0 Passed / 0 Failed / 60 Pending.
 
 ### Added
 
@@ -46,8 +46,8 @@ documented interactive BeamNG plan.
 - Add the 104 master mappings and 52 pause-lifecycle mappings with unique-test,
   executed-case, assertion, package, and interactive counts reported
   separately.
-- Interactive status is 0 Passed / 0 Failed / 60 Pending; no release has been
-  published.
+- Interactive status is 0 Passed / 0 Failed / 60 Pending and is disclosed as
+  post-publication validation work.
 
 ## [0.5.0-alpha.2] - 2026-07-24
 

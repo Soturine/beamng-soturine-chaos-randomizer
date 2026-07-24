@@ -3,15 +3,16 @@
 Esta matriz é o checklist normativo conjunto do prompt mestre da v0.6.0 e do
 adendo crítico de pause-state lifecycle. O adendo prevalece quando trata de
 pausa, Busy, target tracking, callbacks antigas, rollback, recovery ou escrita
-no veículo errado. A release v0.6.0 permanece bloqueada até que os dois
-conjuntos estejam concluídos e verificados.
+no veículo errado. A correção de entrega posterior preserva todos os requisitos,
+mas autoriza a publicação Experimental pre-1.0 com os 60 testes interativos
+honestamente Pending; nenhum Pending é promovido a Passed.
 
 Checkpoint preservado antes desta matriz:
 
 - commit WIP local: b1da35f
 - mensagem: WIP: checkpoint v0.6.0 implementation
-- branch: main, um commit à frente de origin/main no momento do checkpoint
-- publicação: não realizada
+- backups locais: `backup-v0.6.0-wip` e `backup-v0.6.0-monolith`
+- snapshot pré-reestruturação: nenhuma publicação havia sido realizada
 
 ## Legenda de status
 
@@ -26,7 +27,8 @@ Snapshot de verificação da revisão atual, em 2026-07-24:
 - 44 métodos Python únicos aprovados;
 - 294 funções/casos Lua únicos executados, com 269 mappings e 3.290 assertions;
 - 60 casos interativos documentados e ainda Pending;
-- zero tag, push, release ou publicação realizados.
+- este snapshot antecede a reestruturação e a publicação autorizada pela
+  correção de entrega.
 
 ## Requisitos do prompt mestre
 
@@ -83,10 +85,10 @@ Snapshot de verificação da revisão atual, em 2026-07-24:
 | M-48 | Evitar crescer main; extrair módulos sugeridos; adapters como trust boundaries; validar UI JSON; limites centralizados; cleanup; Lua 5.1. | main.lua e módulos dedicados | architecture boundaries | static architecture/Lua load | runtime smoke test | Automated verified | Implemented and covered by the 2026-07-24 full automated run; live BeamNG evidence remains governed by the interactive plan. |
 | M-49 | Preservar validação JSON/allowlists/size/PNG/ZIP/checksum e proibir execução/path/Lua/API externa; lineup/route/AI importados são dados. | validator.lua, pngValidator.lua, vehicleDNAPackage.lua, lineupStorage.lua | validation/import boundaries | security/static/package tests | import malicioso manual | Automated verified | Implemented and covered by the 2026-07-24 full automated run; live BeamNG evidence remains governed by the interactive plan. |
 | M-50 | Produzir ZIP/sha256/manifest reproduzíveis com raiz correta, exclusões e metadados/contagens honestas validadas. | tools/package.py, tests/test_package.py, dist/* | package build/verify | package suite | instalação local do ZIP | Automated verified | Implemented and covered by the 2026-07-24 full automated run; live BeamNG evidence remains governed by the interactive plan. |
-| M-51 | Publicar tag/release v0.6.0 experimental pre-1.0 sem sufixos/alegações falsas; baixar e comparar todos assets/CI após publicação; preservar v0.5.0-alpha.2. | Git/GitHub workflow, release notes | release process | package/provenance checks | post-publish audit | Blocked | Blocked by the unexecuted interactive plan; no tag, release, push, or publication was performed. |
-| M-52 | Satisfazer critérios finais de Full Coverage, tuning, recovery, Lineup, Spawn, AI, UI, testes e release sem alegações falsas. | todos | acceptance gate | M-T001–M-T104 e A-T001–A-T052 | M-I e A-I | Blocked | Blocked by the unexecuted interactive plan; no tag, release, push, or publication was performed. |
+| M-51 | Publicar tag/release v0.6.0 experimental pre-1.0 sem sufixos/alegações falsas; baixar e comparar todos assets/CI após publicação; preservar v0.5.0-alpha.2. | Git/GitHub workflow, release notes | release process | package/provenance checks | post-publish audit | In progress | Authorized by the delivery correction; completes externally after green CI and downloaded-asset validation. |
+| M-52 | Satisfazer critérios finais de Full Coverage, tuning, recovery, Lineup, Spawn, AI, UI, testes e release sem alegações falsas. | todos | acceptance gate | M-T001–M-T104 e A-T001–A-T052 | M-I e A-I | Interactive pending | Automated requirements are verified; 60 live cases remain explicitly Pending under the corrected publication policy. |
 | M-53 | Resposta final usa seções Implemented, Behavior changes, Coverage, Compatibility, Automated/Interactive tests, Assets, Limitations e Not performed com métricas separadas. | resposta final e release notes | final reporting | manifest/result cross-check | Not applicable | Implemented | Implemented in the WIP checkpoint, traceability/reporting artifacts, or required final-report structure. |
-| M-54 | Cumprir todas as regras inegociáveis: semântica das ações, Chaos 100, Completed honesto, rollback/quarantine, tuning pós-peças, Lineup central, NavGraph/AI auditada, testes não inflados, versão/histórico. | todos | release gate | matrizes completas | suíte interativa completa | Blocked | Blocked by the unexecuted interactive plan; no tag, release, push, or publication was performed. |
+| M-54 | Cumprir todas as regras inegociáveis: semântica das ações, Chaos 100, Completed honesto, rollback/quarantine, tuning pós-peças, Lineup central, NavGraph/AI auditada, testes não inflados, versão/histórico. | todos | release gate | matrizes completas | suíte interativa completa | Interactive pending | Implementation and automated evidence are verified; interactive evidence remains Pending without blocking the corrected delivery. |
 
 ## Testes automatizados obrigatórios do prompt mestre
 
@@ -232,9 +234,9 @@ de funções/casos únicos, mappings e assertions permanecem separados.
 | A-25 | Lifecycle não reduz Full Coverage/Tuning: ledgers são ligados a operationId/targetGeneration/model/config, fechados em cancel/recovery e nunca migram para recovery target. | ledgers, main.lua, tuningPipeline.lua | bind/close ledgers | isolation plus ledger tests | failure mid-parts/tuning/paint | Automated verified | Implemented and covered by the 2026-07-24 full automated run; live BeamNG evidence remains governed by the interactive plan. |
 | A-26 | Lineup usa targetGeneration por competidor; falha fecha geração/ledger, recovery não recebe plano, retry usa nova geração e concorrência/callback antiga não altera slot seguinte. | lineupManager.lua, main.lua | competitor generation lifecycle | lineup stale callback tests | falha entre competidores | Automated verified | Implemented and covered by the 2026-07-24 full automated run; live BeamNG evidence remains governed by the interactive plan. |
 | A-27 | Spawn/AI: cada veículo gerenciado tem geração; AI só após target confirmado e sem callback stale; Ready exige zero writes/timers/callbacks aceitos pendentes, Busy false e validação final. | managedVehicleRegistry.lua, spawnDirector.lua, aiDirector.lua, lineupManager.lua | managed generation/ready gate | managed target tests | spawn/AI após callback atrasada | Automated verified | Implemented and covered by the 2026-07-24 full automated run; live BeamNG evidence remains governed by the interactive plan. |
-| A-28 | Cumprir os 18 critérios de aceitação do adendo, inclusive teste interativo real e ausência de alegação falsa; manter release bloqueada enquanto faltar qualquer gate. | esta matriz, todos os módulos | addendum acceptance gate | A-T001–A-T052 | A-I regression | Blocked | Blocked by the unexecuted interactive plan; no tag, release, push, or publication was performed. |
+| A-28 | Cumprir os 18 critérios de aceitação do adendo, inclusive teste interativo real e ausência de alegação falsa; manter release bloqueada enquanto faltar qualquer gate. | esta matriz, todos os módulos | addendum acceptance gate | A-T001–A-T052 | A-I regression | Interactive pending | The later delivery correction supersedes only the publication block; all live acceptance evidence remains Pending and disclosed. |
 | A-29 | Resposta final inclui seção exata “Pause-State Lifecycle Fix” com causa/evidência/arquivos/state machine/clocks/separação/stale/good/recovery/testes/incerteza; se necessário dizer “static fix implemented; interactive confirmation pending”. | resposta final, release notes | final reporting | evidence cross-check | Not applicable | Implemented | Implemented in the WIP checkpoint, traceability/reporting artifacts, or required final-report structure. |
-| A-30 | Preservar mestre e WIP, tratar adendo como release blocker, separar target/tree, corrigir pausa/Busy, invalidar callback/plano antes de recovery, impedir plano B em A, completed-good só após final e manter matriz. | todos | continuation/release policy | full combined suite | full combined plan | Blocked | Blocked by the unexecuted interactive plan; no tag, release, push, or publication was performed. |
+| A-30 | Preservar mestre e WIP, tratar adendo como release blocker, separar target/tree, corrigir pausa/Busy, invalidar callback/plano antes de recovery, impedir plano B em A, completed-good só após final e manter matriz. | todos | continuation/release policy | full combined suite | full combined plan | Interactive pending | Lifecycle implementation is verified; the corrected delivery policy permits publication while the live plan remains Pending. |
 
 ## Testes automatizados obrigatórios do adendo
 
@@ -375,8 +377,9 @@ devem ser distribuídos pela grade e o caso de regressão tem execução própri
 
 ## Gate de release
 
-A release não pode ser publicada enquanto qualquer requisito obrigatório estiver
-Not started, In progress, Interactive pending, Blocked ou falhando. Antes da
-publicação, esta matriz deve ser atualizada com evidência, revisão da suíte
-automatizada completa, registro interativo honesto e auditoria do artifact
-reproduzível.
+A correção de entrega autoriza esta publicação com 0 Passed / 0 Failed / 60
+Pending, desde que a suíte automatizada, CI, pacote reproduzível e assets
+baixados sejam validados e a ausência de gameplay real seja declarada. Falhas
+automatizadas, CI vermelho, divergência de assets ou alegação falsa continuam
+bloqueando tag/release. Os testes interativos permanecem trabalho de evidência
+pós-publicação.

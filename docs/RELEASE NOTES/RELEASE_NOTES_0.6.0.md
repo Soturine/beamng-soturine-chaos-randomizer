@@ -2,10 +2,9 @@
 
 Full Coverage, Tuning Integrity, Chaos Lineup & AI Director.
 
-Status: **release candidate implementation only; not published**. This project
-remains Experimental, pre-1.0, and best-effort with mods. Automated/source
+**Experimental pre-1.0 release.** Mod support is best-effort. Automated/source
 evidence does not replace the 60-row live BeamNG plan, which is still entirely
-Pending. Do not describe this build as stable, final, or gameplay validated.
+Pending. Publication does not claim real gameplay validation.
 
 ## Implemented
 
@@ -33,7 +32,7 @@ Pending. Do not describe this build as stable, final, or gameplay validated.
 
 Chaos 100 attempts and classifies every eligible unlocked entry; it does not
 promise that every entry changes. Completed means coverage is terminal and
-final read-back/validation passed. Random Car still loads a complete
+completion read-back/validation passed. Random Car still loads a complete
 configuration without Scramble; Scramble includes parts/tuning/paint on the
 current model; Full Random includes a new base plus that complete pipeline.
 
@@ -71,15 +70,15 @@ Automated coverage exercises target/tree separation, Full Coverage ledgers,
 tuning integrity, Lineup, Spawn/managed generations, routes/AI, UI source
 contracts, stale callbacks, snapshot roles, pause/slow-motion/frame-step
 clocks, recovery isolation, package structure, and honest test counting.
-The current candidate records 44 unique Python methods, 294 unique Lua test
+The release tree records 44 unique Python methods, 294 unique Lua test
 functions/executed cases, 269 requirement mappings, and 3,290 Lua assertions.
-These counts must be rerun and copied from the manifest of the eventual final
-tested commit; they are candidate evidence, not publication evidence.
+These counts are rerun and copied into the manifest built from the tagged tested
+commit.
 
 ## Backward compatibility
 
-The visible version is exactly 0.6.0, with no alpha/beta/RC suffix. Vehicle DNA
-schema remains 1 because new fields remain optional. Generator 6 emits
+The visible version is exactly 0.6.0. Vehicle DNA schema remains 1 because new
+fields remain optional. Generator 6 emits
 `SCR6-...`; generator-4 and generator-5 snapshots remain restorable and are
 never reinterpreted as generator 6. The internal/public `randomConfig` action
 ID remains compatible. Historical tags and releases are untouched.
@@ -89,8 +88,8 @@ ID remains compatible. Historical tags and releases are untouched.
 The current repository suite passes all 44 unique Python methods, including 11
 package methods and 32 static methods plus the Lua wrapper. The wrapper passes
 294 unique Lua functions/cases, 269 requirement mappings, and 3,290 assertions.
-Mappings and aliases are not new test functions. The same suite must pass again
-from the eventual release tree.
+Mappings and aliases are not new test functions. The same suite passes from the
+release tree before tagging.
 
 ## Interactive tests
 
@@ -99,17 +98,20 @@ in `docs/INTERACTIVE_TEST_PLAN_0.6.0.md`. Until it is executed, no gameplay,
 mod, NavGraph, multi-vehicle, recording, scaling, or recovery claim is promoted
 to Passed.
 
+Real BeamNG gameplay validation remains pending.
+The pause-state lifecycle correction is statically implemented and covered by
+automated simulations, but interactive confirmation is still pending.
+
 ## Release assets
 
-Required eventual names are:
+Release asset names are:
 
 - `soturine_chaos_randomizer_0.6.0.zip`
 - `soturine_chaos_randomizer_0.6.0.sha256`
 - `release-manifest.json`
 
-They must be rebuilt reproducibly from the exact tested commit and validated
-with `lua/`, `ui/`, and `settings/` at ZIP root. No 0.6.0 tag or release has
-been published.
+They are rebuilt reproducibly from the exact tagged commit and validated after
+download, with `lua/`, `ui/`, and `settings/` at ZIP root.
 
 ## Known limitations
 
@@ -124,6 +126,5 @@ been published.
 
 ## Not performed
 
-No release publication, tag creation, push, historical release modification,
-Repository submission, interactive gameplay pass, or claim of stable/final
-status was performed for this implementation checkpoint.
+No Repository submission, interactive gameplay pass, or gameplay-validation
+claim was performed. Historical releases and tags are not modified.

@@ -4,7 +4,7 @@ The roadmap is evidence-driven. A feature is not considered stable until it has 
 
 ## 0.6.0 — Full Coverage, Tuning Integrity, Chaos Lineup & AI Director
 
-Implemented on the current candidate: Chaos-100 coverage ledgers, generic
+Implemented in the 0.6.0 release: Chaos-100 coverage ledgers, generic
 post-parts tuning integrity, sequential 2–16 competitor Lineup, bounded Spawn
 Director/managed generations, capability-gated NavGraph/AI Director, and the
 priority pause-state lifecycle fix with target/tree separation, dual clocks,
@@ -13,10 +13,9 @@ and cancellable phase UI.
 
 The version intentionally has no alpha/beta/RC suffix but remains Experimental,
 pre-1.0, and best-effort with mods. Automated and installed-source evidence is
-green for the implementation candidate. The dedicated plan is 0 Passed / 0
-Failed / 60 Pending, so tag/release publication remains blocked. Next work is
-live BeamNG execution, fixes for any failures, clean-profile package validation,
-and only then final artifact/release provenance checks.
+green for the release tree. The dedicated plan remains 0 Passed / 0 Failed / 60
+Pending and is explicitly disclosed rather than promoted to gameplay evidence.
+Next work is live BeamNG execution and fixes for any failures found there.
 
 ## 0.5.0-alpha.2 — lifecycle and compact UI hotfix
 

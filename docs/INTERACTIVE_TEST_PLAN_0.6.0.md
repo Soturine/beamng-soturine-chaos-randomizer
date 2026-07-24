@@ -1,9 +1,10 @@
 # Interactive Test Plan 0.6.0
 
-This is the release-blocking live BeamNG plan for the master requirements and
-the pause-state lifecycle addendum. No 0.6.0 gameplay/UI run has been performed
-yet. Current result: **0 Passed / 0 Failed / 60 Pending / 0 Blocked / 0 Not
-applicable**.
+This is the live BeamNG evidence plan for the master requirements and the
+pause-state lifecycle addendum. No 0.6.0 gameplay/UI run has been performed yet.
+Current result: **0 Passed / 0 Failed / 60 Pending / 0 Blocked / 0 Not
+applicable**. The corrected delivery policy permits publication with this exact
+disclosure; it does not convert any row into a pass.
 
 Only a test executed in BeamNG.drive 0.38.6.0.19963 against the exact candidate
 commit may change from Pending. Automated tests, installed-source inspection,
@@ -94,10 +95,11 @@ if those stages are absent and the operation remains cancellable/diagnosable.
 | A-I035 | Non-drivable/uncertain vehicle: acceptance stays explicit; no false drivability claim. | Pending | — |
 | A-I036 | Regression: bad-engine A → Full Random B appears → pause → resume; B never mutates A, no Busy deadlock, no pause required to progress. | Pending | — |
 
-## Release gate
+## Release disclosure
 
-Publication remains blocked while any required row is Pending, Failed, or
-Blocked. After all rows pass, rebuild the deterministic package from the exact
-tested commit, install that ZIP in a clean profile, rerun the package smoke
-checks, and update the requirements matrix and release notes with the actual
-evidence counts.
+Real BeamNG gameplay validation remains pending.
+The pause-state lifecycle correction is statically implemented and covered by
+automated simulations, but interactive confirmation is still pending.
+
+The release may be published with 0 Passed / 0 Failed / 60 Pending. Future live
+executions must still use the exact artifact identity and evidence fields above.
