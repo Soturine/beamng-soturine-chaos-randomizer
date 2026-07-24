@@ -4,7 +4,7 @@
   "types": [
     "ui.apps.categories.vehicle_control"
   ],
-  "description": "Create, lock, mutate, compare, and safely share deterministic Vehicle DNA.",
+  "description": "Build fully classified chaos vehicles, lineups, safe spawn layouts, and managed AI routes.",
   "css": {
     "right": "20px",
     "top": "120px",
@@ -14,7 +14,7 @@
     "min-height": "340px"
   },
   "author": "Soturine",
-  "version": "0.5.0-alpha.2",
+  "version": "0.6.0",
   "preserveAspectRatio": false,
   "directive": "soturineChaosRandomizer",
   "category": "Gameplay",

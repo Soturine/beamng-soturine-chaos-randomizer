@@ -2,10 +2,13 @@
 
 Soturine's Chaos Randomizer is a BeamNG.drive UI App and GE Lua extension for seeded, bounded randomization of complete vehicle configurations, compatible hierarchical parts, tuning values, and paint layers.
 
-Current version: **0.5.0-alpha.2 — Mod Vehicle Lifecycle, Creative Integrity & Compact UI Hotfix**
+Current version: **0.6.0 — Full Coverage, Tuning Integrity, Chaos Lineup & AI Director**
 Inspected target: **BeamNG.drive 0.38.6.0.19963** (Steam build 23007233)
 
-This is an alpha artifact, not a gameplay-validated beta or stable release. Automated and installed-source evidence is complete for the documented contracts. Maintainer observations from alpha.1 informed this hotfix, but the alpha.2 interactive world/UI and multi-PC matrix remains Pending.
+This project remains Experimental, pre-1.0, and best-effort with mods. The
+0.6.0 implementation has automated and installed-source evidence, but its
+60-case BeamNG world/UI plan remains Pending. It is not a stable, final, or
+gameplay-validated release, and no v0.6.0 release has been published.
 
 ## What it does
 
@@ -22,6 +25,25 @@ For example, you may start in an Ibishu Covet, press **Full Random** once, and f
 - **Manual seed** makes project-owned choices repeatable when the game version, content, settings, starting state, and session blacklist are unchanged.
 
 The randomizer never opens installed mod ZIPs, never forces a part that BeamNG did not report for the exact loaded slot, and never calls or reseeds global `math.random`.
+
+Version 0.6.0 also adds:
+
+- **Full Coverage:** Chaos 100 attempts and terminally classifies every eligible
+  unlocked slot, public tuning variable, and supported paint field. Completed
+  does not mean every value changed.
+- **Chaos Lineup:** sequential 2–16 competitor generation through the central
+  Full Random pipeline, independent substreams, acceptance policies,
+  checkpoints, and portable data-only Lineup JSON.
+- **Spawn Director:** deterministic formations/custom points, spatial preview,
+  stable DNA read-back, and generation-bound managed vehicle IDs.
+- **AI Director:** capability-gated NavGraph Destination/Route and real-target
+  Chase/Follow/Traffic control, stagger, arrival/stuck policies, and compact
+  recording controls. NavGraph is the internal drivable network, not the visual
+  GPS line.
+
+See [Full Coverage](docs/FULL_COVERAGE.md), [Tuning Integrity](docs/TUNING_INTEGRITY.md),
+[Chaos Lineup](docs/CHAOS_LINEUP.md), [Spawn Director](docs/SPAWN_DIRECTOR.md),
+[AI Director](docs/AI_DIRECTOR.md), and [NavGraph and Routes](docs/NAVGRAPH_AND_ROUTES.md).
 
 ## Safety and compatibility behavior
 
@@ -75,7 +97,7 @@ The adapter reports registry, replace, parts read/write, tuning read/write, pain
 
 ## Installation
 
-1. Download the attached `soturine_chaos_randomizer_0.5.0-alpha.2.zip` release asset, or build that filename locally.
+1. After the release gate is complete, download the attached `soturine_chaos_randomizer_0.6.0.zip` release asset, or build that filename locally. No 0.6.0 asset is currently published.
 2. Copy the ZIP, without extracting it, into the active BeamNG user folder's `mods` directory.
 3. Enable it in Mod Manager.
 4. Enter Freeroam, open UI Apps, and add **Soturine's Chaos Randomizer**.
@@ -103,7 +125,7 @@ After Random Car, Scramble, or Full Random completes and a fresh final read-back
 - **Replay Generation** freezes the saved base model/configuration and replays only the recorded parts/tuning/paint generation stages. **Pure Seed Replay** is a separate advanced action that may reselect the base and differ when content or algorithms changed.
 - **Copy DNA JSON / Import pasted JSON** use schema v1 and bounded JSON-only validation. Imported text is parsed as data before crossing the UI bridge.
 
-New seeds use generator 5 and `SCR5-XXXX-XXXX`. `SCR4-...` and legacy seed text remain parseable as their recorded version and are never silently reinterpreted as generator 5. Schema v1 snapshots from generator 4 remain restorable; generation replay requires a supported matching generator. Manual-seed selection ignores the hidden recent list. See [Vehicle DNA](docs/VEHICLE_DNA.md) and [Schema](docs/VEHICLE_DNA_SCHEMA.md).
+New seeds use generator 6 and `SCR6-XXXX-XXXX`. `SCR4-...`, `SCR5-...`, and legacy seed text remain parseable as their recorded version and are never silently reinterpreted as generator 6. Schema v1 snapshots from older generators remain restorable; generation replay requires a supported matching generator. Manual-seed selection ignores the hidden recent list. See [Vehicle DNA](docs/VEHICLE_DNA.md) and [Schema](docs/VEHICLE_DNA_SCHEMA.md).
 
 ## Creative Vehicle DNA in 0.5
 
@@ -146,8 +168,8 @@ The package builder fixes entry order, timestamps, permissions, path separators,
 Expected release files:
 
 ```text
-dist/soturine_chaos_randomizer_0.5.0-alpha.2.zip
-dist/soturine_chaos_randomizer_0.5.0-alpha.2.sha256
+dist/soturine_chaos_randomizer_0.6.0.zip
+dist/soturine_chaos_randomizer_0.6.0.sha256
 dist/release-manifest.json
 ```
 
@@ -161,12 +183,13 @@ dist/release-manifest.json
 - Synthetic registry/config-pack/full-mod/part-pack/wheel-pack/user/unknown fixtures: automated.
 - Clean-profile ZIP install, UI rendering/resizing, gameplay operations, representative third-party mods, and bounded stress inside a world: **Pending**.
 - Vehicle DNA exact/compatible restore, creative locks/mutations, managed capture, corruption recovery, restart persistence, and cross-PC package import inside the game: **Pending**.
+- Full Coverage, tuning integrity, 2/4/8/16 Lineups, live Spawn/managed-ID behavior, NavGraph/AI driving, pause lifecycle, and regression recovery in a BeamNG world: **Pending (0 Passed / 0 Failed / 60 Pending)**.
 
-See [Testing](docs/TESTING.md), [Compatibility](docs/COMPATIBILITY.md), [Compatibility Matrix](docs/COMPATIBILITY_MATRIX.md), [Safety Model](docs/SAFETY_MODEL.md), [Performance](docs/PERFORMANCE.md), and [Troubleshooting](docs/TROUBLESHOOTING.md).
+See [Testing](docs/TESTING.md), [0.6.0 Interactive Plan](docs/INTERACTIVE_TEST_PLAN_0.6.0.md), [Requirements Matrix](docs/REQUIREMENTS_MATRIX_0.6.0.md), [Compatibility](docs/COMPATIBILITY.md), [Compatibility Matrix](docs/COMPATIBILITY_MATRIX.md), [Safety Model](docs/SAFETY_MODEL.md), [Performance](docs/PERFORMANCE.md), and [Troubleshooting](docs/TROUBLESHOOTING.md).
 
 ## Known limitations
 
-- No alpha.2 interactive gameplay result or universal third-party mod compatibility is claimed. Alpha.1 maintainer observations are historical evidence, not alpha.2 passes.
+- No 0.6.0 interactive gameplay result or universal third-party mod compatibility is claimed. Earlier maintainer observations are historical evidence, not 0.6.0 passes.
 - `onVehicleSpawned` is the installed 0.38.6 reload hook for replace, parts, and tuning writes; phase and post-event state verification distinguish them. Paint writes use immediate or bounded deferred read-back because `respawn=false` emits no reload hook.
 - Tuning metadata exposes display category/subcategory but no proven correlation-group contract. The normalizer supports only an explicit `correlationGroup` plus `shared_normalized_sample`; current installed metadata therefore remains independently sampled.
 - Safety is metadata-based and cannot prove generic drivability; unknown/special layouts can remain `uncertain` without being destructively rejected.

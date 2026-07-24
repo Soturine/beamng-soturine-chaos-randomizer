@@ -4,7 +4,50 @@ All notable changes are documented here using [Keep a Changelog](https://keepach
 
 ## [Unreleased]
 
-No additional changes.
+0.6.0 implementation candidate. Release publication remains blocked on the
+documented interactive BeamNG plan.
+
+### Added
+
+- Full Coverage slot/tuning/paint ledgers with Chaos-100 terminal
+  classification, bounded convergence, scoped rollback/quarantine, and honest
+  Completed/Partial results.
+- Sequential Chaos Lineup, data-only schema/import/export, independent episode
+  substreams, variety/acceptance rules, incremental checkpoints, and failure
+  actions.
+- Spawn Director formations/custom point, audited headings, spatial preview,
+  stable DNA read-back, and generation-bound managed vehicle registry.
+- Capability-gated AI Director, NavGraph Destination/Route, real-target
+  Chase/Follow/Traffic, route editor, stagger, arrival/stuck policies, and
+  compact director controls.
+
+### Fixed
+
+- Separate target identity from parts-tree convergence and prevent a mutable
+  parts fingerprint from retargeting vehicle writes.
+- Derive Busy from an explicit phase machine; separate real/simulation clocks;
+  preserve housekeeping during target waits; expose progress watchdog,
+  simulation-resume, cancel, details, and diagnostics states.
+- Bind callbacks, timers, mutation plans, and coverage ledgers to operation,
+  phase, and target generations; invalidate them before recovery and block old
+  parts/tuning/paint writes from recovery targets.
+- Separate original, candidate-base, current-target, recovery-target,
+  last-readable, and last-completed-good snapshot roles.
+
+### Compatibility
+
+- Use generator 6 and `SCR6-...` while preserving schema-1 generator-4/5
+  snapshots and the internal `randomConfig` action identity.
+- Keep Recorded/Scripted AI playback disabled with a capability reason because
+  the audited build lacks a bounded portable path-transfer contract.
+
+### Tests
+
+- Add the 104 master mappings and 52 pause-lifecycle mappings with unique-test,
+  executed-case, assertion, package, and interactive counts reported
+  separately.
+- Interactive status is 0 Passed / 0 Failed / 60 Pending; no release has been
+  published.
 
 ## [0.5.0-alpha.2] - 2026-07-24
 

@@ -2,6 +2,22 @@
 
 The roadmap is evidence-driven. A feature is not considered stable until it has been exercised against representative official and third-party content in the target BeamNG version.
 
+## 0.6.0 — Full Coverage, Tuning Integrity, Chaos Lineup & AI Director
+
+Implemented on the current candidate: Chaos-100 coverage ledgers, generic
+post-parts tuning integrity, sequential 2–16 competitor Lineup, bounded Spawn
+Director/managed generations, capability-gated NavGraph/AI Director, and the
+priority pause-state lifecycle fix with target/tree separation, dual clocks,
+generation guards, recovery-only isolation, correct snapshot roles, watchdog,
+and cancellable phase UI.
+
+The version intentionally has no alpha/beta/RC suffix but remains Experimental,
+pre-1.0, and best-effort with mods. Automated and installed-source evidence is
+green for the implementation candidate. The dedicated plan is 0 Passed / 0
+Failed / 60 Pending, so tag/release publication remains blocked. Next work is
+live BeamNG execution, fixes for any failures, clean-profile package validation,
+and only then final artifact/release provenance checks.
+
 ## 0.5.0-alpha.2 — lifecycle and compact UI hotfix
 
 Implemented on `main`: bounded multi-ID target tracking and stabilization; post-spawn Full Random completion; transient/deep-tree rescans; localized part-batch rollback/retry/quarantine; failed-load previous/last-known-good/official recovery; no-active-vehicle Random Car/Full Random; parent-final creative operations; model-bound locks; receiver-local import compatibility; structural PNG validation; compact/collapsed/expanded UI; and generator 5 `SCR5-...` seeds with schema-1/generator-4 snapshot compatibility.

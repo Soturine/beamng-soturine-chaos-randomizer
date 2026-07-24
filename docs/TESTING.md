@@ -15,7 +15,9 @@ Automated and installed-source evidence is kept separate from interactive BeamNG
 | Node.js | local 24.11.1; CI 24 |
 | Interactive 0.38 profile/world | unavailable |
 
-No alpha.2 0.38 world/UI session was launched. Historical alpha.1 observations are recorded separately and do not count as alpha.2 passes. The dedicated alpha.2 plan remains **0 Passed / 0 Failed / 50 Pending**.
+No 0.6.0 0.38 world/UI session was launched. Historical observations are
+recorded separately and do not count as 0.6.0 passes. The combined master and
+pause-lifecycle plan remains **0 Passed / 0 Failed / 60 Pending**.
 
 ## Automated commands
 
@@ -35,17 +37,43 @@ find lua -type f -name '*.lua' -print0 | xargs -0 luac5.1 -p
 
 On 2026-07-23, every workflow SHA was resolved again through the official `actions/checkout`, `actions/setup-python`, `actions/setup-node`, and `actions/upload-artifact` GitHub repositories. Each pinned SHA matched its commented tag, and those tags were the repositories' latest releases at inspection time.
 
-Current suite structure for `0.5.0-alpha.2`:
+Current suite structure for the `0.6.0` implementation candidate:
 
-- **40 Python `unittest` methods**;
-- one Python method runs **388 named Lua behavior/syntax/pipeline/performance cases** against BeamNG's shipped Lua 5.1 console when no standalone Lua is available;
-- **28 repository/static methods**, including real `node --check`, JSON/YAML parsing, links, versions, API boundary, UI atomicity/host/DNA/share boundary, compact modes, accessibility/responsiveness, icon limits, action pins, credentials, paths, and whitespace;
+- **44 unique Python `unittest` methods**: 1 Lua-suite wrapper, 32
+  repository/static methods, and 11 package methods;
+- the Lua wrapper runs **294 unique Lua test functions / 294 executed cases**
+  against BeamNG's shipped Lua 5.1 console when no standalone Lua is
+  available;
+- the Lua manifest records **269 requirement mappings** separately from test
+  functions, including the 104 master and 52 pause-lifecycle mappings;
+- the latest full Lua execution recorded **3,290 assertions**;
+- repository/static methods include real `node --check`, JSON/YAML parsing,
+  links, versions, API boundaries, action allowlists, lifecycle controls,
+  production navigation, compact Director, Spawn/AI capability honesty,
+  accessibility/responsiveness, icon limits, pinned actions, credentials,
+  machine paths, and whitespace;
 - **11 package methods**, including two-build equality, SHA, root layout, normalized metadata, version, manifest consistency, and machine-path checks;
 - **1 JavaScript file** syntax-checked;
 - **2 project JSON files** decoded;
 - **3 workflow YAML files** decoded.
 
-These counts must be rechecked in the final report from the final committed tree.
+These WIP counts were measured after the lifecycle/production implementation.
+They must be rechecked in the final report and release manifest from the exact
+final tested commit; mappings and aliases never count as new functions.
+
+## 0.6.0 automated and interactive status
+
+The 104 master mappings cover Full Coverage, rollback, tuning, paint, recovery,
+Lineup, Spawn, AI, UI source contracts, and test counting. The 52 addendum
+mappings cover running/paused/slow-motion/frame-step clocks, target/tree
+separation, generations, transaction/snapshot roles, recovery-only isolation,
+Busy release, Cancel/Copy availability, watchdog, and no pause-toggle
+dependency. The exact A/B regression harness asserts that B's delayed callback,
+tuning, and paint plans cannot reach recovered vehicle A.
+
+This evidence is automated or mocked. The
+[interactive plan](INTERACTIVE_TEST_PLAN_0.6.0.md) is still entirely Pending,
+so package/release publication remains blocked even while the suites pass.
 
 ## Mandatory regression coverage
 
