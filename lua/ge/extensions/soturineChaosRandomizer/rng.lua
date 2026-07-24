@@ -23,7 +23,7 @@ local function parseSeed(value)
   end
 
   local text = tostring(value or ""):gsub("^%s+", ""):gsub("%s+$", "")
-  local compactHex = text:gsub("^[Ss][Cc][Rr][45]%-", ""):gsub("%-", "")
+  local compactHex = text:gsub("^[Ss][Cc][Rr][456]%-", ""):gsub("%-", "")
   if compactHex:match("^%x%x%x%x%x%x%x%x$") then
     local seed = tonumber(compactHex, 16) % MODULUS
     return seed == 0 and 1 or seed
@@ -36,7 +36,7 @@ end
 
 local function formatSeed(seed)
   local compact = string.format("%08X", parseSeed(seed))
-  return "SCR5-" .. string.sub(compact, 1, 4) .. "-" .. string.sub(compact, 5, 8)
+  return "SCR6-" .. string.sub(compact, 1, 4) .. "-" .. string.sub(compact, 5, 8)
 end
 
 local Generator = {}
