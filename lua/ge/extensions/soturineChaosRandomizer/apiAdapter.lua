@@ -15,6 +15,9 @@ local DNA_EXPORT_PATH = "/settings/soturineChaosRandomizer/vehicleDNA/share/expo
 local DNA_PACKAGE_EXPORT_PATH = "/settings/soturineChaosRandomizer/vehicleDNA/share/export.vdna.zip"
 local DNA_PACKAGE_INBOX_PATH = "/settings/soturineChaosRandomizer/vehicleDNA/inbox/import.vdna.zip"
 local DNA_THUMBNAIL_DIRECTORY = "/settings/soturineChaosRandomizer/vehicleDNA/thumbnails/"
+local LINEUP_LIBRARY_PATH = "/settings/soturineChaosRandomizer/lineups/library.json"
+local LINEUP_EXPORT_PATH = "/settings/soturineChaosRandomizer/lineups/export.lineup.json"
+local LINEUP_IMPORT_PATH = "/settings/soturineChaosRandomizer/lineups/inbox.lineup.json"
 
 local jbeamIO
 local okJbeam, loadedJbeam = pcall(require, "jbeam/io")
@@ -98,6 +101,8 @@ local function getCapabilities()
     dnaWrite = jsonRead and jsonWrite,
     dnaExportFile = jsonWrite,
     dnaBackup = jsonRead and jsonWrite,
+    lineupRead = jsonRead,
+    lineupWrite = jsonWrite,
     dnaPackageWrite = type(hashStringSHA256) == "function" and type(io) == "table" and FS ~= nil,
     dnaPackageRead = type(hashStringSHA256) == "function" and type(io) == "table" and FS ~= nil,
     thumbnailCapture = type(extensions) == "table" and type(extensions.load) == "function"
@@ -644,6 +649,37 @@ local function saveDNALibrary(library, lastKnownGood)
   return true, {path = DNA_LIBRARY_PATH, backupPath = DNA_BACKUP_PATH, verified = true}
 end
 
+local function loadLineupLibrary()
+  if type(jsonReadFile) ~= "function" then return false, errorValue("lineup_storage_unavailable", "Lineup JSON storage is unavailable") end
+  local ok, value = safeCall("jsonReadFile lineup library", function() return jsonReadFile(LINEUP_LIBRARY_PATH) end)
+  if not ok then return false, value end
+  return true, type(value) == "table" and util.deepCopy(value) or nil
+end
+
+local function saveLineupLibrary(library)
+  if type(jsonWriteFile) ~= "function" or type(jsonReadFile) ~= "function" then return false, errorValue("lineup_storage_unavailable", "Lineup JSON storage is unavailable") end
+  local ok, value = safeCall("jsonWriteFile lineup library", function() return jsonWriteFile(LINEUP_LIBRARY_PATH, util.deepCopy(library), true, nil, true) end)
+  if not ok or value == false then return false, errorValue("lineup_write_failed", "Lineup library write failed") end
+  local readOk, readBack = pcall(jsonReadFile, LINEUP_LIBRARY_PATH)
+  if not readOk or not util.deepEqual(readBack, library, 1e-10) then return false, errorValue("lineup_readback_failed", "Lineup library read-back failed") end
+  return true, {path = LINEUP_LIBRARY_PATH, verified = true}
+end
+
+local function exportLineup(lineup)
+  if type(jsonWriteFile) ~= "function" then return false, errorValue("lineup_export_unavailable", "Lineup export is unavailable") end
+  local ok, value = safeCall("jsonWriteFile lineup export", function() return jsonWriteFile(LINEUP_EXPORT_PATH, util.deepCopy(lineup), true, nil, true) end)
+  return ok and value ~= false, ok and {path = LINEUP_EXPORT_PATH} or value
+end
+
+
+local function importLineup()
+  if type(jsonReadFile) ~= "function" then return false, errorValue("lineup_import_unavailable", "Lineup import is unavailable") end
+  local ok, value = safeCall("jsonReadFile lineup inbox", function() return jsonReadFile(LINEUP_IMPORT_PATH) end)
+  if not ok then return false, value end
+  if type(value) ~= "table" then return false, errorValue("lineup_import_missing", "The fixed lineup inbox file was not found") end
+  return true, util.deepCopy(value)
+end
+
 local function encodeJSON(value, pretty)
   local encoder = pretty and jsonEncodePretty or jsonEncode
   if type(encoder) ~= "function" then return false, errorValue("dna_export_unavailable", "JSON encoding is unavailable") end
@@ -847,6 +883,33 @@ local function clock()
   return os.clock()
 end
 
+local function getPauseState()
+  if type(simTimeAuthority) ~= "table" or type(simTimeAuthority.getPause) ~= "function" then
+    return false, errorValue("pause_state_unavailable", "BeamNG pause state is unavailable")
+  end
+  local ok, paused = safeCall("simTimeAuthority.getPause", function()
+    return simTimeAuthority.getPause()
+  end)
+  if not ok then return false, paused end
+  if type(paused) ~= "boolean" then
+    return false, errorValue("pause_state_invalid", "BeamNG returned an invalid pause state")
+  end
+  return true, paused
+end
+
+local function getSimulationSpeed()
+  if type(simTimeAuthority) ~= "table" or type(simTimeAuthority.getReal) ~= "function" then
+    return false, errorValue("simulation_speed_unavailable", "BeamNG simulation speed is unavailable")
+  end
+  local ok, speed = safeCall("simTimeAuthority.getReal", function()
+    return simTimeAuthority.getReal()
+  end)
+  if not ok then return false, speed end
+  speed = tonumber(speed)
+  if not speed then return false, errorValue("simulation_speed_invalid", "BeamNG returned an invalid simulation speed") end
+  return true, speed
+end
+
 local function entropy()
   local vehicleId = -1
   local ok, id = getCurrentVehicleId()
@@ -883,6 +946,10 @@ M.saveSettings = saveSettings
 M.loadDNALibrary = loadDNALibrary
 M.loadDNALibraryBackup = loadDNALibraryBackup
 M.saveDNALibrary = saveDNALibrary
+M.loadLineupLibrary = loadLineupLibrary
+M.saveLineupLibrary = saveLineupLibrary
+M.exportLineup = exportLineup
+M.importLineup = importLineup
 M.encodeJSON = encodeJSON
 M.decodeJSON = decodeJSON
 M.sha256 = sha256
@@ -895,6 +962,8 @@ M.captureDNAThumbnail = captureDNAThumbnail
 M.removeDNAThumbnail = removeDNAThumbnail
 M.logRecord = logRecord
 M.clock = clock
+M.getPauseState = getPauseState
+M.getSimulationSpeed = getSimulationSpeed
 M.entropy = entropy
 M.getGameVersion = getGameVersion
 M.getVerificationState = getVerificationState
@@ -907,5 +976,8 @@ M.DNA_EXPORT_PATH = DNA_EXPORT_PATH
 M.DNA_PACKAGE_EXPORT_PATH = DNA_PACKAGE_EXPORT_PATH
 M.DNA_PACKAGE_INBOX_PATH = DNA_PACKAGE_INBOX_PATH
 M.DNA_THUMBNAIL_DIRECTORY = DNA_THUMBNAIL_DIRECTORY
+M.LINEUP_LIBRARY_PATH = LINEUP_LIBRARY_PATH
+M.LINEUP_EXPORT_PATH = LINEUP_EXPORT_PATH
+M.LINEUP_IMPORT_PATH = LINEUP_IMPORT_PATH
 
 return M

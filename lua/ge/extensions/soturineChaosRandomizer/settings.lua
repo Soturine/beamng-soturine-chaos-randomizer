@@ -4,7 +4,7 @@ local vehicleDNALocks = require("ge/extensions/soturineChaosRandomizer/vehicleDN
 local M = {}
 
 local DEFAULTS = {
-  schemaVersion = 4,
+  schemaVersion = 5,
   chaos = 75,
   allowMissingParts = true,
   protectCriticalParts = false,
@@ -19,6 +19,8 @@ local DEFAULTS = {
   dnaLibraryLimit = 100,
   autoSaveDNA = false,
   defaultRestoreMode = "exact",
+  extremeTuning = false,
+  allowPartialResult = false,
   lockProfile = vehicleDNALocks.empty(),
 }
 
@@ -54,7 +56,7 @@ local function migrate(raw)
 
   if version < 4 and raw.lockProfile == nil then raw.lockProfile = vehicleDNALocks.empty() end
 
-  raw.schemaVersion = 4
+  raw.schemaVersion = 5
   raw.allowEmptyParts = nil
   raw.fairMode = nil
   raw.keepVehicleDrivable = nil
@@ -74,6 +76,8 @@ local function validate(raw)
   result.includeProps = boolOrDefault(raw.includeProps, result.includeProps)
   result.diagnosticLogging = boolOrDefault(raw.diagnosticLogging, result.diagnosticLogging)
   result.autoSaveDNA = false
+  result.extremeTuning = boolOrDefault(raw.extremeTuning, result.extremeTuning)
+  result.allowPartialResult = boolOrDefault(raw.allowPartialResult, result.allowPartialResult)
 
   if FILTERS[raw.contentFilter] then result.contentFilter = raw.contentFilter end
   if FAIRNESS[raw.selectionFairness] then result.selectionFairness = raw.selectionFairness end
