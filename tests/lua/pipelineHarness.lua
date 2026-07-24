@@ -53,6 +53,10 @@ local function new(options)
   options = type(options) == "table" and options or {}
   local harness = {
     now = 0,
+    simulationTime = 0,
+    frameCounter = 0,
+    paused = options.paused == true,
+    simulationScale = tonumber(options.simulationScale) or 1,
     vehicleId = options.vehicleId or 1,
     returnedVehicleId = options.returnedVehicleId or options.vehicleId or 1,
     modelKey = "fixture_old",
@@ -64,6 +68,8 @@ local function new(options)
     tuningMaximum = 1,
     paints = {{baseColor = {0.2, 0.3, 0.4, 1}, metallic = 0.2, roughness = 0.5, clearcoat = 0.8, clearcoatRoughness = 0}},
     calls = {},
+    writes = {},
+    callbackLog = {},
     emitted = {},
     options = options,
     pendingReplacement = nil,
@@ -101,6 +107,8 @@ local function new(options)
 
   local adapter = {}
   function adapter.clock() return harness.now end
+  function adapter.getPauseState() return true, harness.paused end
+  function adapter.getSimulationSpeed() return true, harness.simulationScale end
   function adapter.logRecord() end
   function adapter.errorValue(code, message, context) return {code = code, message = message, context = context or {}} end
   function adapter.getCapabilities() return util.deepCopy(capabilities) end
@@ -185,9 +193,16 @@ local function new(options)
     if options.synchronousSwitchId and not restoring then
       harness.main.onVehicleSwitched(harness.vehicleId, options.synchronousSwitchId, 0)
     end
+    if options.spawnCallbackBeforeReturn then
+      harness.callbackLog[#harness.callbackLog + 1] = {kind = "spawn_before_return", vehicleId = targetId}
+      harness.main.onVehicleSpawned(targetId)
+    end
     return true, {value = vehicleObject(targetId), vehicleId = targetId, correlationStrategy = "fixture_returned_id"}
   end
   function adapter.getVerificationState()
+    if options.newTargetUnavailable and harness.modelKey == "fixture_new" then
+      return false, adapter.errorValue("fixture_target_unavailable", "fixture new target unavailable")
+    end
     return true, {
       vehicleId = harness.vehicleId,
       modelKey = harness.modelKey,
@@ -200,6 +215,13 @@ local function new(options)
   end
   function adapter.getCurrentSlotSnapshot()
     harness.calls[#harness.calls + 1] = "scan"
+    harness.scanCount = (harness.scanCount or 0) + 1
+    if type(options.treeSequence) == "table" and #options.treeSequence > 0 then
+      local index = math.min(harness.scanCount, #options.treeSequence)
+      harness.tree = util.deepCopy(options.treeSequence[index])
+    elseif options.treeNeverConverges then
+      harness.tree.children.body.chosenPartName = harness.scanCount % 2 == 0 and "body_a" or "body_b"
+    end
     return true, {
       tree = util.deepCopy(harness.tree),
       metadataByPath = util.deepCopy(harness.metadata),
@@ -211,6 +233,10 @@ local function new(options)
   end
   function adapter.applyPartsTree(tree)
     harness.calls[#harness.calls + 1] = "parts"
+    harness.writes[#harness.writes + 1] = {
+      kind = "parts", vehicleId = harness.vehicleId, modelKey = harness.modelKey,
+      payload = util.deepCopy(tree),
+    }
     if options.partsFailure then return false, adapter.errorValue("parts_apply_rejected", "fixture parts rejected") end
     harness.pendingParts = util.deepCopy(tree)
     return true, {confirmationRequired = true}
@@ -223,6 +249,10 @@ local function new(options)
   end
   function adapter.applyTuning(values)
     harness.calls[#harness.calls + 1] = "tuning"
+    harness.writes[#harness.writes + 1] = {
+      kind = "tuning", vehicleId = harness.vehicleId, modelKey = harness.modelKey,
+      payload = util.deepCopy(values),
+    }
     if options.tuningFailure then return false, adapter.errorValue("tuning_apply_rejected", "fixture tuning rejected") end
     harness.pendingTuning = util.deepCopy(values)
     return true, {confirmationRequired = true}
@@ -230,16 +260,26 @@ local function new(options)
   function adapter.getPaints() return true, util.deepCopy(harness.paints) end
   function adapter.applyPaints(paints)
     harness.calls[#harness.calls + 1] = "paint"
+    harness.writes[#harness.writes + 1] = {
+      kind = "paint", vehicleId = harness.vehicleId, modelKey = harness.modelKey,
+      payload = util.deepCopy(paints),
+    }
     if options.paintFailure then return false, adapter.errorValue("paint_apply_rejected", "fixture paint rejected") end
-    harness.paints = util.deepCopy(paints)
     if options.deferredPaint then
+      harness.pendingPaint = util.deepCopy(paints)
+      harness.paintReadyAt = harness.now + 0.15
       return true, {confirmationRequired = true, expected = util.deepCopy(paints), readbackReason = "fixture_deferred"}
     end
+    harness.paints = util.deepCopy(paints)
     return true, {confirmationRequired = false, verified = true, expected = util.deepCopy(paints)}
   end
   function adapter.verifyPaints(expected)
     if options.paintNeverConfirms then return false, "fixture_mismatch" end
+    if options.deferredPaint and harness.pendingPaint and harness.now < harness.paintReadyAt then
+      return false, "fixture_deferred"
+    end
     harness.paints = util.deepCopy(expected)
+    harness.pendingPaint = nil
     return true, "requested_fields_match"
   end
   adapter.flattenChosenParts = flatten
@@ -252,7 +292,33 @@ local function new(options)
   return harness
 end
 
-local function confirmReplacement(harness)
+local function advance(harness, realDelta, simulationDelta, frames)
+  realDelta = tonumber(realDelta) or 0.1
+  frames = math.max(1, math.floor(tonumber(frames) or 1))
+  for _ = 1, frames do
+    local simDelta = tonumber(simulationDelta)
+    if simDelta == nil then
+      simDelta = harness.paused and 0 or realDelta * harness.simulationScale
+    end
+    harness.now = harness.now + realDelta
+    harness.simulationTime = harness.simulationTime + simDelta
+    harness.frameCounter = harness.frameCounter + 1
+    harness.main.onUpdate(realDelta, simDelta, realDelta)
+  end
+  return harness.main.requestState()
+end
+
+local function setPaused(harness, paused)
+  harness.paused = paused == true
+  return harness.paused
+end
+
+local function frameStep(harness, realDelta, simulationDelta)
+  harness.paused = true
+  return advance(harness, realDelta or 0.1, simulationDelta or (1 / 60), 1)
+end
+
+local function applyPendingReplacement(harness, emitCallback)
   local pending = assert(harness.pendingReplacement, "no pending replacement")
   harness.pendingReplacement = nil
   harness.vehicleId = pending.vehicleId
@@ -274,10 +340,18 @@ local function confirmReplacement(harness)
     end
     harness.tuning = {boost = 0.5}
   end
-  harness.main.onVehicleSpawned(harness.vehicleId)
-  for _ = 1, 5 do
-    harness.now = harness.now + 0.06
-    harness.main.onUpdate()
+  if emitCallback ~= false then
+    harness.callbackLog[#harness.callbackLog + 1] = {kind = "spawn", vehicleId = harness.vehicleId}
+    harness.main.onVehicleSpawned(harness.vehicleId)
+  end
+  return pending
+end
+
+local function confirmReplacement(harness)
+  applyPendingReplacement(harness, true)
+  for _ = 1, 24 do
+    advance(harness, 0.06, nil, 1)
+    if harness.pendingParts or harness.pendingTuning or not harness.main.requestState().busy then break end
   end
 end
 
@@ -285,9 +359,9 @@ local function confirmParts(harness)
   harness.tree = assert(harness.pendingParts, "no pending parts")
   harness.pendingParts = nil
   harness.main.onVehicleSpawned(harness.vehicleId)
-  for _ = 1, 5 do
-    harness.now = harness.now + 0.06
-    harness.main.onUpdate()
+  for _ = 1, 24 do
+    advance(harness, 0.06, nil, 1)
+    if harness.pendingParts or harness.pendingTuning or not harness.main.requestState().busy then break end
   end
 end
 
@@ -296,13 +370,23 @@ local function confirmTuning(harness)
   harness.pendingTuning = nil
   harness.main.onVehicleSpawned(harness.vehicleId)
   for _ = 1, 5 do
-    harness.now = harness.now + 0.06
-    harness.main.onUpdate()
+    advance(harness, 0.06, nil, 1)
   end
 end
 
-local function driveSuccess(harness, action)
-  local started = harness.main.runAction(action, {
+local function driveActive(harness, maxSteps)
+  for _ = 1, math.max(1, math.floor(tonumber(maxSteps) or 128)) do
+    if not harness.main.requestState().busy then break
+    elseif harness.pendingReplacement then confirmReplacement(harness)
+    elseif harness.pendingParts then confirmParts(harness)
+    elseif harness.pendingTuning then confirmTuning(harness)
+    else advance(harness, harness.pendingPaint and 0.2 or 0.1, nil, 1) end
+  end
+  return harness.main.requestState()
+end
+
+local function driveSuccess(harness, action, overrides)
+  local actionSettings = {
     chaos = 100,
     allowMissingParts = false,
     protectCriticalParts = true,
@@ -312,24 +396,32 @@ local function driveSuccess(harness, action)
     includeProps = true,
     selectionFairness = "vehicle",
     manualSeed = "pipeline-seed",
-  })
+  }
+  for key, value in pairs(type(overrides) == "table" and overrides or {}) do actionSettings[key] = value end
+  local started = harness.main.runAction(action, actionSettings)
   if not started then return false end
   if action == "randomConfig" or action == "fullRandom" then confirmReplacement(harness) end
   if action == "scramble" or action == "fullRandom" then
-    if harness.pendingParts then confirmParts(harness) end
-    if harness.pendingTuning then confirmTuning(harness) end
-    if harness.options.deferredPaint then
-      harness.now = harness.now + 0.2
-      harness.main.onUpdate()
+    for _ = 1, 64 do
+      if not harness.main.requestState().busy then break
+      elseif harness.pendingReplacement then break
+      elseif harness.pendingParts then confirmParts(harness)
+      elseif harness.pendingTuning then confirmTuning(harness)
+      else advance(harness, harness.pendingPaint and 0.2 or 0.1, nil, 1) end
     end
   end
   return true
 end
 
 M.new = new
+M.advance = advance
+M.setPaused = setPaused
+M.frameStep = frameStep
+M.applyPendingReplacement = applyPendingReplacement
 M.confirmReplacement = confirmReplacement
 M.confirmParts = confirmParts
 M.confirmTuning = confirmTuning
+M.driveActive = driveActive
 M.driveSuccess = driveSuccess
 
 return M

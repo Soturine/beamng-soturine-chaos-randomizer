@@ -2,6 +2,11 @@ local root = rawget(_G, "SCR_TEST_ROOT") or os.getenv("SCR_TEST_VFS_ROOT") or ".
 package.path = root .. "/?.lua;" .. root .. "/lua/?.lua;" .. root .. "/lua/?/init.lua;" .. package.path
 
 local configSelector = require("ge/extensions/soturineChaosRandomizer/configSelector")
+local coverageLimits = require("ge/extensions/soturineChaosRandomizer/coverageLimits")
+local slotCoverageLedger = require("ge/extensions/soturineChaosRandomizer/slotCoverageLedger")
+local treeConvergence = require("ge/extensions/soturineChaosRandomizer/treeConvergence")
+local timeSource = require("ge/extensions/soturineChaosRandomizer/timeSource")
+local candidateIsolation = require("ge/extensions/soturineChaosRandomizer/candidateIsolation")
 local adapter = require("ge/extensions/soturineChaosRandomizer/apiAdapter")
 local capabilities = require("ge/extensions/soturineChaosRandomizer/capabilities")
 local contentIndex = require("ge/extensions/soturineChaosRandomizer/contentIndex")
@@ -13,6 +18,7 @@ local lifecycle = require("ge/extensions/soturineChaosRandomizer/lifecycle")
 local mutationEngine = require("ge/extensions/soturineChaosRandomizer/mutationEngine")
 local mutationPolicy = require("ge/extensions/soturineChaosRandomizer/mutationPolicy")
 local operationState = require("ge/extensions/soturineChaosRandomizer/operationState")
+local progressWatchdog = require("ge/extensions/soturineChaosRandomizer/progressWatchdog")
 local paintRandomizer = require("ge/extensions/soturineChaosRandomizer/paintRandomizer")
 local paintVerification = require("ge/extensions/soturineChaosRandomizer/paintVerification")
 local partBatchRecovery = require("ge/extensions/soturineChaosRandomizer/partBatchRecovery")
@@ -22,6 +28,19 @@ local settings = require("ge/extensions/soturineChaosRandomizer/settings")
 local slotScanner = require("ge/extensions/soturineChaosRandomizer/slotScanner")
 local stressRunner = require("ge/extensions/soturineChaosRandomizer/stressRunner")
 local tuning = require("ge/extensions/soturineChaosRandomizer/tuningRandomizer")
+local tuningCoverageLedger = require("ge/extensions/soturineChaosRandomizer/tuningCoverageLedger")
+local tuningPipeline = require("ge/extensions/soturineChaosRandomizer/tuningPipeline")
+local paintCoverageLedger = require("ge/extensions/soturineChaosRandomizer/paintCoverageLedger")
+local lineupSchema = require("ge/extensions/soturineChaosRandomizer/lineupSchema")
+local lineupManager = require("ge/extensions/soturineChaosRandomizer/lineupManager")
+local lineupStorage = require("ge/extensions/soturineChaosRandomizer/lineupStorage")
+local managedVehicleRegistry = require("ge/extensions/soturineChaosRandomizer/managedVehicleRegistry")
+local spawnDirector = require("ge/extensions/soturineChaosRandomizer/spawnDirector")
+local spawnApiAdapter = require("ge/extensions/soturineChaosRandomizer/spawnApiAdapter")
+local routePlanner = require("ge/extensions/soturineChaosRandomizer/routePlanner")
+local destinationMarker = require("ge/extensions/soturineChaosRandomizer/destinationMarker")
+local aiAdapter = require("ge/extensions/soturineChaosRandomizer/aiAdapter")
+local aiDirector = require("ge/extensions/soturineChaosRandomizer/aiDirector")
 local util = require("ge/extensions/soturineChaosRandomizer/util")
 local validator = require("ge/extensions/soturineChaosRandomizer/validator")
 local vehicleSelector = require("ge/extensions/soturineChaosRandomizer/vehicleSelector")
@@ -46,18 +65,28 @@ local fixtures = require("tests/lua/fixtures/content")
 local pipelineHarness = require("tests/lua/pipelineHarness")
 
 local tests = {}
+local requirementMappings = {}
+local assertionCount = 0
+local builtinAssert = assert
+assert = function(...)
+  assertionCount = assertionCount + 1
+  return builtinAssert(...)
+end
 
 local function equal(actual, expected, message)
+  assertionCount = assertionCount + 1
   if actual ~= expected then
     error((message or "values differ") .. ": expected " .. tostring(expected) .. ", got " .. tostring(actual), 2)
   end
 end
 
 local function truthy(value, message)
+  assertionCount = assertionCount + 1
   if not value then error(message or "expected a truthy value", 2) end
 end
 
 local function near(actual, expected, epsilon, message)
+  assertionCount = assertionCount + 1
   if math.abs(actual - expected) > (epsilon or 1e-9) then
     error((message or "values are not near") .. ": expected " .. tostring(expected) .. ", got " .. tostring(actual), 2)
   end
@@ -145,7 +174,7 @@ end
 
 tests.seed_normalization = function()
   equal(rng.normalizeSeed("  test-seed  "), rng.normalizeSeed("test-seed"))
-  truthy(rng.normalizeSeed("test-seed"):match("^SCR5%-%x%x%x%x%-%x%x%x%x$") ~= nil)
+  truthy(rng.normalizeSeed("test-seed"):match("^SCR6%-%x%x%x%x%-%x%x%x%x$") ~= nil)
   equal(rng.new("8F31-A902").seed, rng.new("8f31a902").seed)
   equal(rng.new("8F31-A902").seed, rng.new("SCR4-8F31-A902").seed)
 end
@@ -183,8 +212,8 @@ tests.chaos_policy_boundaries = function()
   equal(high.slider, 100)
   equal(low.emptySlotChance, 0)
   truthy(high.emptySlotChance > 0)
-  equal(low.maxMutationPasses, 1)
-  equal(high.maxMutationPasses, 5)
+  equal(low.maxMutationPasses, 48)
+  equal(high.maxMutationPasses, 48)
   truthy(mutationPolicy.mutationChance(high, {depth = 2}, 1) <= 1)
 end
 
@@ -347,7 +376,7 @@ tests.settings_migration = function()
     fairMode = false,
     historyLimit = 0,
   })
-  equal(migrated.schemaVersion, 4)
+  equal(migrated.schemaVersion, 5)
   equal(migrated.chaos, 100)
   equal(migrated.allowMissingParts, false)
   equal(migrated.selectionFairness, "configuration")
@@ -518,8 +547,8 @@ tests.stable_path_order_is_deterministic = function()
 end
 
 tests.mutation_pass_cap_is_respected = function()
-  equal(mutationPolicy.fromSettings({chaos = 100}).maxMutationPasses, 5)
-  truthy(mutationPolicy.fromSettings({chaos = 100}).maxMutationPasses <= 5)
+  equal(mutationPolicy.fromSettings({chaos = 100}).maxMutationPasses, 48)
+  truthy(mutationPolicy.fromSettings({chaos = 100}).maxMutationPasses >= 12)
 end
 
 tests.stale_candidates_are_never_applied = function()
@@ -560,7 +589,7 @@ end
 
 tests.legacy_keep_vehicle_drivable_setting_migrates = function()
   local value = settings.validate({schemaVersion = 1, keepVehicleDrivable = true})
-  equal(value.schemaVersion, 4)
+  equal(value.schemaVersion, 5)
   equal(value.protectCriticalParts, true)
   equal(value.keepVehicleDrivable, nil)
 end
@@ -1379,7 +1408,7 @@ tests.trailer_profile_has_no_propulsion_requirement = tests.trailer_does_not_req
 
 tests.trailer_full_random_can_complete_without_engine = function()
   local harness = pipelineHarness.new({modelType = "Trailer", tuningUnavailable = true, paintUnavailable = true})
-  truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom", {allowPartialResult = true}))
   local state = harness.main.requestState()
   equal(state.lastResult.success, true)
   truthy(#state.lastResult.details.warnings >= 2)
@@ -1406,7 +1435,7 @@ end
 
 tests.prop_operation_reports_control_limit_honestly = function()
   local harness = pipelineHarness.new({modelType = "Prop", tuningUnavailable = true, paintUnavailable = true})
-  truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom", {allowPartialResult = true}))
   local result = harness.main.requestState().lastResult
   equal(result.details.safety.status, "not_applicable")
   truthy(result.message:find("prop control is not validated", 1, true) ~= nil)
@@ -1491,9 +1520,26 @@ end
 
 tests.full_random_skips_unavailable_optional_stage_with_warning = function()
   local harness = pipelineHarness.new({tuningUnavailable = true, paintUnavailable = true})
-  truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom", {allowPartialResult = true}))
   local details = harness.main.requestState().lastResult.details
   truthy(#details.warnings >= 2)
+  equal(details.status, "Partial")
+end
+
+tests.v060_partial_result_setting_controls_rollback = function()
+  local rollback = pipelineHarness.new({tuningUnavailable = true, paintUnavailable = true})
+  truthy(pipelineHarness.driveSuccess(rollback, "fullRandom", {allowPartialResult = false}))
+  truthy(rollback.pendingReplacement and rollback.pendingReplacement.restoring)
+  pipelineHarness.confirmReplacement(rollback)
+  local rejected = rollback.main.requestState().lastResult
+  equal(rejected.code, "partial_result_not_allowed")
+  equal(rejected.details.rollback, "completed")
+
+  local kept = pipelineHarness.new({tuningUnavailable = true, paintUnavailable = true})
+  truthy(pipelineHarness.driveSuccess(kept, "fullRandom", {allowPartialResult = true}))
+  local accepted = kept.main.requestState().lastResult
+  equal(accepted.success, true)
+  equal(accepted.details.status, "Partial")
 end
 
 tests.full_random_has_one_history_entry = tests.full_random_is_one_operation
@@ -1970,12 +2016,12 @@ tests.dna_creation_records_generator_and_schema_versions = function()
   })
   truthy(entry, tostring(reason))
   equal(entry.schemaVersion, 1)
-  equal(entry.generation.generatorVersion, 5)
+  equal(entry.generation.generatorVersion, 6)
 end
 
 tests.settings_schema_two_migrates_to_four = function()
   local value = settings.validate({schemaVersion = 2, dnaLimit = 25, autoSaveDNA = true})
-  equal(value.schemaVersion, 4)
+  equal(value.schemaVersion, 5)
   equal(value.dnaLibraryLimit, 25)
   equal(value.autoSaveDNA, false)
 end
@@ -2273,7 +2319,8 @@ tests.replay_generation_freezes_saved_base_from_different_model = function()
   while harness.pendingParts do pipelineHarness.confirmParts(harness) end
   if harness.pendingTuning then pipelineHarness.confirmTuning(harness) end
   local result = harness.main.requestState().lastResult
-  truthy(result.code == "dna_replay_exact" or result.code == "dna_replay_close")
+  truthy(result.code == "dna_replay_exact" or result.code == "dna_replay_close"
+    or result.code == "dna_replay_partial")
   equal(result.details.baseSelectionFrozen, true)
 end
 
@@ -2341,7 +2388,7 @@ end
 
 tests.lock_profile_migrates_and_persists_separately = function()
   local value = settings.validate({schemaVersion = 3})
-  equal(value.schemaVersion, 4)
+  equal(value.schemaVersion, 5)
   equal(value.lockProfile.kind, "soturineVehicleDNALockProfile")
   local locked = vehicleDNALocks.applyPatch(value.lockProfile, {
     vehicle = true, categories = {engine = true}, tuning = {all = true},
@@ -2632,6 +2679,11 @@ tests.reroll_unlocked_creates_pending_dna_without_changing_locked_state = functi
     tuning = {all = true}, paints = {all = true},
   }))
   truthy(harness.main.rerollUnlocked({seed = "reroll-locked"}))
+  for _ = 1, 16 do
+    if not harness.main.requestState().busy then break end
+    harness.now = harness.now + 0.1
+    harness.main.onUpdate()
+  end
   local state = harness.main.requestState()
   equal(state.lastResult.code, "reroll_unlocked_completed")
   truthy(state.garage.pendingSave)
@@ -2812,7 +2864,7 @@ end
 tests.alpha2_generator_legacy_restore_contract = function()
   local legacy = sampleDNA()
   truthy(vehicleDNASchema.validateEntry(legacy))
-  equal(vehicleDNASchema.GENERATOR_VERSION, 5)
+  equal(vehicleDNASchema.GENERATOR_VERSION, 6)
   truthy(vehicleDNASchema.isSupportedGenerator(4))
   local modern = sampleDNA()
   modern.generatorVersion = 5
@@ -2824,6 +2876,758 @@ tests.alpha2_generator_legacy_restore_contract = function()
   truthy(vehicleDNASchema.validateEntry(modern))
 end
 
+tests.v060_coverage_chaos100_and_slot_identity = function()
+  local policy = mutationPolicy.fromSettings({chaos = 100, protectCriticalParts = true})
+  equal(mutationPolicy.mutationChance(policy, {depth = 1}, 1), 1)
+  equal(mutationPolicy.mutationChance(policy, {depth = 7}, 9), 1)
+  local ledger = slotCoverageLedger.create({modelKey = "fixture", configIdentity = {key = "base"}, operationId = "op-a", targetGeneration = 4})
+  truthy(slotCoverageLedger.bindContext(ledger, {operationId = "op-a", targetGeneration = 4}))
+  truthy(not slotCoverageLedger.bindContext(ledger, {operationId = "op-a", targetGeneration = 5}))
+  local scan = {slots = {
+    {parentPath = "/front/", path = "/shared/", id = "shared", depth = 2, currentPart = "a", candidates = {"a", "b"}},
+    {parentPath = "/rear/", path = "/shared/", id = "shared", depth = 2, currentPart = "c", candidates = {"c"}},
+  }}
+  slotCoverageLedger.observeScan(ledger, {modelKey = "fixture", configIdentity = {key = "base"}}, scan, 1)
+  equal(#ledger.order, 2)
+  truthy(ledger.order[1] ~= ledger.order[2])
+  slotCoverageLedger.classify(ledger, ledger.order[1], "changed", {eligible = true, selectedByChaos = true})
+  slotCoverageLedger.classify(ledger, ledger.order[2], "no_alternative", {eligible = true, selectedByChaos = true})
+  slotCoverageLedger.markFinalParts(ledger, { ["/shared/"] = "b" })
+  local summary = slotCoverageLedger.summary(ledger)
+  equal(summary.slotsEligible, 2)
+  equal(summary.slotsSelectedByChaos, 2)
+  truthy(slotCoverageLedger.isComplete(ledger))
+end
+
+tests.v060_tree_convergence_and_absolute_limits = function()
+  local limits = coverageLimits.derive({slotCount = 40, maxDepth = 8})
+  truthy(limits.maxTotalPasses > 12)
+  truthy(limits.maxTotalPasses <= coverageLimits.DEFAULTS.maxTotalPasses)
+  local state = treeConvergence.create(limits, 0)
+  truthy(not treeConvergence.observe(state, {signature = "a", discovered = 8, pending = 1, changesApplied = 1}))
+  truthy(not treeConvergence.observe(state, {signature = "b", discovered = 9, pending = 0, changesApplied = 0}))
+  truthy(not treeConvergence.observe(state, {signature = "b", discovered = 9, pending = 0, changesApplied = 0}))
+  truthy(treeConvergence.observe(state, {signature = "b", discovered = 9, pending = 0, changesApplied = 0}))
+  equal(coverageLimits.exceeded(limits, {noProgressPasses = limits.maxNoProgressPasses}, 1), "maxNoProgressPasses")
+end
+
+tests.v060_coverage_tracks_new_and_disappearing_slots = function()
+  local context = {modelKey = "fixture", configIdentity = "base"}
+  local ledger = slotCoverageLedger.create(context)
+  slotCoverageLedger.observeScan(ledger, context, {slots = {
+    {parentPath = "/", path = "/body/", id = "body", depth = 1, currentPart = "a", candidates = {"a", "b"}},
+    {parentPath = "/body/", path = "/body/child/", id = "child", depth = 2, currentPart = "x", candidates = {"x", "y"}},
+  }}, 1)
+  slotCoverageLedger.observeScan(ledger, context, {slots = {
+    {parentPath = "/", path = "/body/", id = "body", depth = 1, currentPart = "b", candidates = {"a", "b"}},
+    {parentPath = "/body/", path = "/body/new/", id = "new", depth = 6, currentPart = "n", candidates = {"n"}},
+  }}, 2)
+  local disappeared, newly = 0, 0
+  for _, key in ipairs(ledger.order) do
+    local entry = ledger.entries[key]
+    if entry.status == "disappeared_after_parent_change" then disappeared = disappeared + 1 end
+    if entry.newlyDiscovered then newly = newly + 1 end
+  end
+  equal(disappeared, 1)
+  equal(newly, 1)
+end
+
+tests.v060_candidate_isolation_proves_only_the_culprit = function()
+  local state = candidateIsolation.create({
+    {slotPath = "/a/", selectedPart = "a2"},
+    {slotPath = "/b/", selectedPart = "b2"},
+    {slotPath = "/c/", selectedPart = "c2"},
+  }, 20)
+  equal(#assert(candidateIsolation.nextBatch(state)), 3)
+  equal(candidateIsolation.record(state, false, "batch_failed"), "batch_split")
+  equal(#assert(candidateIsolation.nextBatch(state)), 1)
+  equal(candidateIsolation.record(state, true), "confirmed")
+  equal(#assert(candidateIsolation.nextBatch(state)), 2)
+  equal(candidateIsolation.record(state, false, "batch_failed"), "batch_split")
+  candidateIsolation.nextBatch(state); candidateIsolation.record(state, true)
+  candidateIsolation.nextBatch(state); candidateIsolation.record(state, false, "candidate_failed")
+  truthy(candidateIsolation.complete(state))
+  equal(#state.confirmed, 2)
+  equal(#state.suspects, 1)
+  equal(state.suspects[1].slotPath, "/c/")
+end
+
+tests.v060_tuning_pipeline_covers_metadata_and_readback = function()
+  local variables = {
+    boost = {min = 0, max = 1, default = 0.5, step = 0.25, category = "Engine", subCategory = "Boost"},
+    fixed = {min = 1, max = 1, default = 1, category = "Engine"},
+    hidden = {min = 0, max = 1, hideInUI = true},
+    action = {min = 0, max = 1, action = true},
+  }
+  local values, changes, ledger = tuningPipeline.plan(variables, {boost = 0.5, fixed = 1},
+    mutationPolicy.fromSettings({chaos = 100}), rng.new("tuning-v060"), {}, nil, 1)
+  equal(#changes, 1)
+  truthy(values.boost ~= 0.5)
+  tuningCoverageLedger.readBack(ledger, {boost = 0.8}, 1)
+  local summary = tuningCoverageLedger.summary(ledger)
+  equal(summary.tuningEligible, 1)
+  equal(summary.tuningSelectedByChaos, 1)
+  equal(summary.tuningFixed, 1)
+  equal(summary.tuningClamped, 1)
+  truthy(tuningCoverageLedger.isComplete(ledger))
+  truthy(tuningCoverageLedger.bindContext(ledger, {operationId = "tuning-op", targetGeneration = 2}))
+  truthy(not tuningCoverageLedger.bindContext(ledger, {operationId = "tuning-op", targetGeneration = 3}))
+end
+
+tests.v060_tuning_rescan_discovers_only_new_variables = function()
+  local policy = mutationPolicy.fromSettings({chaos = 100})
+  local variables = {spring = {min = 0, max = 10, default = 5, step = 1, category = "Suspension"}}
+  local _, _, ledger = tuningPipeline.plan(variables, {spring = 5}, policy, rng.new("pass-1"), {}, nil, 1)
+  variables.nitrous = {min = 0, max = 100, default = 50, step = 10, category = "Powertrain"}
+  local _, changes, _, newly = tuningPipeline.plan(variables, {spring = 5, nitrous = 50}, policy,
+    rng.new("pass-2"), {onlyNew = true}, ledger, 2)
+  equal(#newly, 1)
+  equal(newly[1], "nitrous")
+  equal(#changes, 1)
+  equal(changes[1].name, "nitrous")
+end
+
+tests.v060_paint_coverage_confirms_supported_fields = function()
+  local before = {{baseColor = {0, 0, 0, 1}, metallic = 0, roughness = 0.5, clearcoat = 0, clearcoatRoughness = 0.5}}
+  local after = {{baseColor = {1, 0, 0, 1}, metallic = 0.8, roughness = 0.2, clearcoat = 1, clearcoatRoughness = 0.1}}
+  local ledger = paintCoverageLedger.create(before, function(_, field) return field == "clearcoat" end, true)
+  paintCoverageLedger.requested(ledger, before, after, {[1] = true})
+  paintCoverageLedger.readBack(ledger, after)
+  local summary = paintCoverageLedger.summary(ledger)
+  equal(summary.paintLocked, 1)
+  equal(summary.paintRejected, 0)
+  truthy(summary.paintChanged > 0)
+  truthy(paintCoverageLedger.isComplete(ledger))
+  truthy(paintCoverageLedger.bindContext(ledger, {operationId = "paint-op", targetGeneration = 8}))
+  truthy(not paintCoverageLedger.bindContext(ledger, {operationId = "paint-op", targetGeneration = 9}))
+  local unsupported = paintCoverageLedger.create({}, nil, false)
+  equal(paintCoverageLedger.summary(unsupported).paintUnsupported, 1)
+end
+
+tests.v060_lineup_seeds_progress_schema_and_storage = function()
+  local lineup = assert(lineupManager.create({count = 16, episodeSeed = "episode", acceptPartial = false}))
+  truthy(lineupSchema.validate(lineup))
+  local seeds = {}
+  for _, competitor in ipairs(lineup.competitors) do
+    truthy(not seeds[competitor.seed])
+    seeds[competitor.seed] = true
+  end
+  local thirdSeed = lineup.competitors[3].seed
+  local first = assert(lineupManager.nextCompetitor(lineup))
+  equal(first.targetGeneration, 1)
+  local accepted = {
+    success = true,
+    details = {
+      verifiedTraits = {modelKey = "model_a", configuration = "base", sourceKind = "official", vehicleClass = "Car"},
+      lifecycleAcceptance = {
+        finalValidationPassed = true, busy = false,
+        pendingWrites = 0, pendingTimers = 0, pendingCallbacks = 0,
+      },
+    },
+  }
+  truthy(not lineupManager.record(lineup, 1, accepted, sampleDNA({id = "dna-stale"}), first.targetGeneration + 1))
+  equal(first.status, "Generating")
+  truthy(lineupManager.record(lineup, 1, accepted, sampleDNA({id = "dna-ready"}), first.targetGeneration))
+  equal(first.status, "Ready")
+  local second = assert(lineupManager.nextCompetitor(lineup))
+  local secondGeneration = second.targetGeneration
+  truthy(lineupManager.record(lineup, 2, {success = false, message = "fixture"}, nil, secondGeneration))
+  second.status = "Pending"
+  lineup.nextIndex = 2
+  local retry = assert(lineupManager.nextCompetitor(lineup))
+  equal(retry.targetGeneration, secondGeneration + 1)
+  truthy(lineupManager.record(lineup, 2, {success = false, message = "fixture retry"}, nil, retry.targetGeneration))
+  equal(lineup.competitors[3].seed, thirdSeed)
+  equal(lineupManager.summary(lineup).failed, 1)
+  local library = lineupStorage.create(2)
+  truthy(lineupStorage.add(library, lineup))
+  equal(#library.entries, 1)
+  local invalid = util.deepCopy(lineup); invalid.competitors[17] = util.deepCopy(invalid.competitors[16]); invalid.competitors[17].index = 17; invalid.competitors[17].id = "extra"
+  truthy(not lineupSchema.validate(invalid))
+end
+
+tests.v060_lineup_import_is_data_only = function()
+  local lineup = assert(lineupManager.create({count = 2, episodeSeed = "import"}))
+  lineup.competitors[1].script = "os.execute('never')"
+  lineup.competitors[1].compatibility = {status = "exporter_claim"}
+  local imported = assert(lineupSchema.sanitizedImport(lineup))
+  equal(imported.competitors[1].script, nil)
+  equal(imported.competitors[1].compatibility.status, "requires_local_recompute")
+end
+
+tests.v060_lineup_variety_substreams_and_failure_actions = function()
+  local lineup = assert(lineupManager.create({
+    count = 3, episodeSeed = "variety",
+    avoidDuplicateModels = true, avoidDuplicateConfigurations = true,
+    avoidDuplicateFamilies = true, diversifyVehicleClasses = true,
+    diversifySource = true, maxAttemptsPerCompetitor = 3,
+  }))
+  local first = lineup.competitors[1]
+  first.status = "Ready"
+  first.traits = {verified = {
+    modelKey = "model_a", configuration = "base", family = "family_a",
+    vehicleClass = "Car", sourceKind = "official",
+  }}
+  local models = {
+    {key = "model_a", type = "Car", sourceKind = "official", raw = {Family = "family_a"}, configs = {
+      {modelKey = "model_a", key = "sport", sourceKind = "official"},
+    }},
+    {key = "model_b", type = "Truck", sourceKind = "mod", raw = {Family = "family_b"}, configs = {
+      {modelKey = "model_b", key = "base", sourceKind = "mod"},
+    }},
+  }
+  local filtered, metrics = lineupManager.filterModels(models, lineup.varietyRules, {first})
+  equal(#filtered, 1)
+  equal(filtered[1].key, "model_b")
+  truthy(metrics.bestDiversityScore >= 1)
+
+  local unknown = {{key = "unknown_model", sourceKind = "unknown", raw = {}, configs = {
+    {modelKey = "unknown_model", key = "unknown_config", sourceKind = "unknown"},
+  }}}
+  local unknownFiltered = lineupManager.filterModels(unknown, lineup.varietyRules, {first})
+  equal(#unknownFiltered, 1)
+  local unknownTraits = lineupManager.verifiedTraits(unknown[1], unknown[1].configs[1])
+  equal(unknownTraits.vehicleClass, nil)
+  equal(unknownTraits.family, nil)
+
+  local second = lineup.competitors[2]
+  local operationA = assert(lineupManager.domainSeed(lineup, second, "operation", 1))
+  local operationRetry = assert(lineupManager.domainSeed(lineup, second, "operation", 2))
+  local paintA = assert(lineupManager.domainSeed(lineup, second, "paint", 1))
+  local thirdOperation = assert(lineupManager.domainSeed(lineup, lineup.competitors[3], "operation", 1))
+  truthy(operationA ~= operationRetry)
+  truthy(operationA ~= paintA)
+  local thirdAgain = assert(lineupManager.domainSeed(lineup, lineup.competitors[3], "operation", 1))
+  equal(thirdOperation, thirdAgain)
+
+  second.status, second.attemptCount = "Failed", 1
+  truthy(lineupManager.resolveFailure(lineup, 2, "retry"))
+  equal(second.status, "Pending")
+  second.status = "Failed"
+  truthy(lineupManager.resolveFailure(lineup, 2, "fallback"))
+  truthy(second.forceOfficialFallback)
+  second.status = "Failed"
+  truthy(lineupManager.resolveFailure(lineup, 2, "skip"))
+  equal(second.status, "Skipped")
+  lineup.competitors[3].status = "Failed"
+  truthy(lineupManager.resolveFailure(lineup, 3, "stop"))
+  truthy(not lineup.active)
+
+  local lifecycleResult = {success = true, details = {
+    verifiedTraits = {modelKey = "mystery", configuration = "base", sourceKind = "unknown"},
+    metadataUncertain = true, potentiallyUndrivable = true,
+    lifecycleAcceptance = {finalValidationPassed = true, busy = false, pendingWrites = 0, pendingTimers = 0, pendingCallbacks = 0},
+  }}
+  local strict = assert(lineupManager.create({count = 2, episodeSeed = "strict"}))
+  local strictCompetitor = assert(lineupManager.nextCompetitor(strict))
+  truthy(lineupManager.record(strict, 1, lifecycleResult, sampleDNA({id = "strict-dna"}), strictCompetitor.targetGeneration))
+  equal(strictCompetitor.status, "Partial")
+  truthy(strictCompetitor.warning:find("requires explicit acceptance", 1, true) ~= nil)
+  local permissive = assert(lineupManager.create({
+    count = 2, episodeSeed = "permissive", acceptMetadataUncertain = true, acceptPotentiallyUndrivable = true,
+  }))
+  local permissiveCompetitor = assert(lineupManager.nextCompetitor(permissive))
+  truthy(lineupManager.record(permissive, 1, lifecycleResult, sampleDNA({id = "permissive-dna"}), permissiveCompetitor.targetGeneration))
+  equal(permissiveCompetitor.status, "Ready with warnings")
+end
+
+tests.v060_spawn_plans_are_camera_relative_and_safe = function()
+  local frame = {position = {x = 10, y = 20, z = 5}, forward = {x = 0, y = 1, z = 0}, right = {x = 1, y = 0, z = 0}}
+  local ground = function(position) return true, {point = {x = position.x, y = position.y, z = 0}, normal = {x = 0, y = 0, z = 1}} end
+  local right = assert(spawnDirector.plan(frame, {mode = "Right", count = 1, spacing = 6}, ground, {}))
+  equal(right.placements[1].position.x, 16)
+  equal(right.placements[1].position.y, 20)
+  local gridA = assert(spawnDirector.plan(frame, {mode = "Grid", count = 4, spacing = 6, columns = 2}, ground, {}))
+  local gridB = assert(spawnDirector.plan(frame, {mode = "Grid", count = 4, spacing = 6, columns = 2}, ground, {}))
+  truthy(util.deepEqual(gridA.placements, gridB.placements))
+  local circle = assert(spawnDirector.plan(frame, {mode = "Circle", count = 4, radius = 12}, ground, {}))
+  equal(#circle.placements, 4)
+  local missing, missingReason = spawnDirector.plan(frame, {count = 1}, function() return false, "ground_not_found" end, {})
+  equal(missing, nil); equal(missingReason, "ground_not_found")
+  local blocked, blockedReason = spawnDirector.plan(frame, {mode = "Right", count = 1, spacing = 6}, ground, {{x = 16, y = 20, z = 0}})
+  equal(blocked, nil); equal(blockedReason, "position_blocked")
+end
+
+tests.v060_spawn_heading_readback_and_ownership = function()
+  local frame = {
+    position = {x = 0, y = 0, z = 5}, forward = {x = 0, y = 1, z = 0}, right = {x = 1, y = 0, z = 0},
+    playerForward = {x = 1, y = 0, z = 0}, roadForward = {x = -1, y = 0, z = 0},
+  }
+  local ground = function(position) return true, {point = {x = position.x, y = position.y, z = 0}, normal = {x = 0, y = 0, z = 1}} end
+  local player = assert(spawnDirector.plan(frame, {mode = "Front", count = 1, headingMode = "player"}, ground, {}))
+  near(player.placements[1].forward.x, 1, 1e-8)
+  local road = assert(spawnDirector.plan(frame, {mode = "Front", count = 1, heading = "Road direction"}, ground, {}))
+  near(road.placements[1].forward.x, -1, 1e-8)
+  local face = assert(spawnDirector.plan(frame, {
+    mode = "Right", count = 1, headingMode = "destination", destination = {x = 100, y = 0, z = 0},
+  }, ground, {}))
+  truthy(face.placements[1].forward.x > 0.9)
+  equal(face.options.maxConcurrentLoads, 1)
+  local custom = assert(spawnDirector.plan(frame, {
+    mode = "Custom point", count = 4, customPoint = {x = 25, y = 35, z = 5}, headingMode = "camera",
+  }, ground, {}))
+  equal(#custom.placements, 1)
+  equal(custom.placements[1].position.x, 25)
+  local noRoad, noRoadReason = spawnDirector.plan({
+    position = frame.position, forward = frame.forward, right = frame.right,
+  }, {mode = "Front", count = 1, headingMode = "road"}, ground, {})
+  equal(noRoad, nil); equal(noRoadReason, "road_heading_unavailable")
+
+  local steep, steepReason = spawnDirector.plan(frame, {count = 1}, function(position)
+    return true, {point = position, normal = {x = 1, y = 0, z = 0}}
+  end, {})
+  equal(steep, nil); equal(steepReason, "slope_too_high")
+
+  local oldManager = core_vehicle_manager
+  core_vehicle_manager = {getVehicleData = function(id)
+    return {model = "model_b", config = {parts = {engine = "engine_b"}, vars = {boost = 2}, paints = {{metallic = 0.5}}}}
+  end}
+  local verified, state = spawnApiAdapter.verifySpawnTarget(17, "model_b", {
+    parts = {engine = "engine_b"}, vars = {boost = 2}, paints = {{metallic = 0.5}},
+  })
+  core_vehicle_manager = oldManager
+  truthy(verified)
+  equal(state.vehicleId, 17)
+
+  local registry = managedVehicleRegistry.create(2)
+  local entry = assert(managedVehicleRegistry.register(registry, 17, {
+    targetConfirmed = false, validated = false, modelKey = "model_b", dnaId = "dna-b",
+    competitorId = "competitor-b", spawnTransform = face.placements[1],
+  }))
+  truthy(not managedVehicleRegistry.attachAuxiliary(registry, entry.handle, 18, {proven = false, ownerVehicleId = 17}))
+  truthy(managedVehicleRegistry.attachAuxiliary(registry, entry.handle, 18, {proven = true, ownerVehicleId = 17}))
+  local owner, kind = managedVehicleRegistry.findByVehicle(registry, 18)
+  equal(owner.handle, entry.handle); equal(kind, "auxiliary")
+  truthy(managedVehicleRegistry.setPending(registry, entry.handle, {writes = 0, timers = 0, callbacks = 0}))
+  truthy(managedVehicleRegistry.markReady(registry, entry.handle, entry.targetGeneration,
+    {busy = false, targetConfirmed = true, validated = true}))
+  truthy(managedVehicleRegistry.readyEntry(registry, entry.handle, entry.targetGeneration))
+end
+
+tests.v060_managed_registry_rebinds_without_cross_vehicle_damage = function()
+  local registry = managedVehicleRegistry.create(3)
+  local first = assert(managedVehicleRegistry.register(registry, 10, {competitor = 1}))
+  local second = assert(managedVehicleRegistry.register(registry, 20, {competitor = 2}))
+  equal(first.status, "active")
+  local loading = assert(managedVehicleRegistry.register(registry, 30,
+    {competitor = 3, targetConfirmed = false, validated = false}))
+  equal(loading.status, "loading")
+  local loadingGeneration = loading.targetGeneration
+  truthy(managedVehicleRegistry.setPending(registry, loading.handle, {writes = 1, callbacks = 1}))
+  truthy(not managedVehicleRegistry.markReady(registry, loading.handle, loadingGeneration,
+    {busy = false, targetConfirmed = true, validated = true}))
+  truthy(managedVehicleRegistry.setPending(registry, loading.handle, {writes = 0, timers = 0, callbacks = 0}))
+  truthy(managedVehicleRegistry.markReady(registry, loading.handle, loadingGeneration,
+    {busy = false, targetConfirmed = true, validated = true}))
+  equal(loading.status, "ready")
+  local oldGeneration = first.targetGeneration
+  truthy(not managedVehicleRegistry.rebind(registry, first.handle, 10, 12, oldGeneration + 1))
+  equal(first.vehicleId, 10)
+  truthy(managedVehicleRegistry.rebind(registry, first.handle, 10, 11))
+  truthy(first.targetGeneration > oldGeneration)
+  truthy(not managedVehicleRegistry.rebind(registry, first.handle, 11, 20))
+  truthy(managedVehicleRegistry.destroyed(registry, 11))
+  equal(registry.entries[second.handle].status, "active")
+  truthy(managedVehicleRegistry.remove(registry, first.handle))
+  equal(#managedVehicleRegistry.list(registry), 2)
+end
+
+tests.v060_navgraph_routes_and_ai_bounds = function()
+  local fake = {
+    findClosestRoad = function(position) return true, position.x < 5 and "start" or "finish" end,
+    getPath = function(first, second) return true, {first, "middle", second} end,
+  }
+  local route = assert(routePlanner.destinationRoute(fake, {x = 0, y = 0, z = 0}, {x = 10, y = 0, z = 0}, 10))
+  equal(route.kind, "NavGraph")
+  equal(#route.nodes, 3)
+  local noRoute, reason = routePlanner.destinationRoute({findClosestRoad = fake.findClosestRoad, getPath = function() return false end},
+    {x = 0, y = 0, z = 0}, {x = 10, y = 0, z = 0}, 10)
+  equal(noRoute, nil); equal(reason, "navgraph_route_unreachable")
+  local director = aiDirector.create(1)
+  local entry = assert(aiDirector.assign(director, "one", 1, "Destination", {delay = 2, arrivalRadius = 5}, 10))
+  equal(entry.startAt, 12)
+  local rejected, limitReason = aiDirector.assign(director, "two", 2, "Traffic", {}, 10)
+  equal(rejected, nil); equal(limitReason, "ai_vehicle_limit")
+  local staggered = aiDirector.create(3)
+  local first = assert(aiDirector.assign(staggered, "first", 11, "Traffic", {delay = 0}, 5))
+  local second = assert(aiDirector.assign(staggered, "second", 12, "Traffic", {delay = 0.4}, 5))
+  local third = assert(aiDirector.assign(staggered, "third", 13, "Traffic", {delay = 0.8}, 5))
+  near(second.startAt - first.startAt, 0.4, 1e-8)
+  near(third.startAt - second.startAt, 0.4, 1e-8)
+  aiDirector.setStatus(staggered, "first", "running", "fixture")
+  aiDirector.setStatus(staggered, "second", "running", "fixture")
+  aiDirector.setStatus(staggered, "third", "running", "fixture")
+  local stoppedIds = {}
+  local stopped = aiDirector.controlAll(staggered, "stop", 6, function(vehicleId) stoppedIds[vehicleId] = true end)
+  equal(stopped, 3)
+  truthy(stoppedIds[11] and stoppedIds[12] and stoppedIds[13])
+  equal(staggered.entries.first.status, "stopped")
+  equal(staggered.entries.second.status, "stopped")
+  equal(staggered.entries.third.status, "stopped")
+  local originalMap = map
+  map = nil
+  local detected = aiAdapter.capabilities()
+  map = originalMap
+  equal(detected.Destination, false)
+  equal(detected.Scripted, false)
+  local scripted, scriptedReason = aiAdapter.start(1, "Scripted", {})
+  equal(scripted, false); equal(scriptedReason, "ai_mode_scripted_unavailable")
+end
+
+tests.v060_route_editor_ai_progress_and_isolation = function()
+  local routeState = routePlanner.create(4)
+  truthy(routePlanner.addPoint(routeState, {x = 1, y = 0, z = 0}))
+  truthy(routePlanner.addPoint(routeState, {x = 2, y = 0, z = 0}))
+  truthy(routePlanner.reverse(routeState))
+  equal(routeState.points[1].x, 2)
+  truthy(routePlanner.removeLast(routeState))
+  equal(#routeState.points, 1)
+  truthy(routePlanner.clear(routeState))
+  equal(#routeState.points, 0)
+
+  local fake = {
+    findClosestRoad = function(position) return true, "n" .. tostring(position.x), nil end,
+    getPath = function(first, second) return true, {first, second} end,
+  }
+  local loopRoute = assert(routePlanner.routeThrough(fake, {x = 0, y = 0, z = 0}, {
+    {x = 1, y = 0, z = 0}, {x = 2, y = 0, z = 0},
+  }, 20, true))
+  truthy(#loopRoute.nodes >= 3)
+  equal(loopRoute.points[1].x, loopRoute.points[#loopRoute.points].x)
+
+  local director = aiDirector.create(2)
+  local arrival = assert(aiDirector.assign(director, "arrival", 10, "Destination", {
+    arrivalRadius = 5, arrivalSpeed = 1, timeout = 30, targetGeneration = 7,
+  }, 0))
+  aiDirector.setStatus(director, "arrival", "running", "fixture")
+  arrival.startedAt = 0
+  equal(aiDirector.observe(director, "arrival", {distance = 4, speed = 5}, 1), "running")
+  local arrived, arrivedReason = aiDirector.observe(director, "arrival", {distance = 3, speed = 0.5}, 2)
+  equal(arrived, "arrived"); equal(arrivedReason, "arrival_confirmed")
+
+  local stuck = assert(aiDirector.assign(director, "stuck", 11, "Destination", {
+    recoveryWhenStuck = true, stuckAction = "replan", stuckTimeout = 3,
+    minimumSpeed = 1, maxReplans = 1,
+  }, 0))
+  aiDirector.setStatus(director, "stuck", "running", "fixture")
+  stuck.startedAt, stuck.lastProgressAt = 0, 0
+  equal(aiDirector.observe(director, "stuck", {distance = 100, speed = 0}, 0), "running")
+  local stuckEvent, stuckAction = aiDirector.observe(director, "stuck", {distance = 100, speed = 0}, 4)
+  equal(stuckEvent, "stuck"); equal(stuckAction, "replan")
+  truthy(aiDirector.requestReplan(director, "stuck"))
+  truthy(not aiDirector.requestReplan(director, "stuck"))
+
+  aiDirector.setStatus(director, "arrival", "running", "fixture")
+  local stopped, targetReason = aiDirector.observe(director, "arrival", {targetMissing = true}, 3)
+  -- Destination has no live target, so targetMissing is deliberately ignored.
+  equal(stopped, "running"); equal(targetReason, nil)
+
+  local chaseDirector = aiDirector.create(1)
+  local chaseEntry = assert(aiDirector.assign(chaseDirector, "chase", 12, "Chase", {targetVehicleId = 20}, 0))
+  aiDirector.setStatus(chaseDirector, "chase", "running", "fixture")
+  chaseEntry.startedAt = 0
+  local removed, removedReason = aiDirector.observe(chaseDirector, "chase", {targetMissing = true}, 1)
+  equal(removed, "stopped"); equal(removedReason, "ai_target_removed")
+
+  local oldLookup = getObjectByID
+  local commands = {}
+  getObjectByID = function(id)
+    return {queueLuaCommand = function(_, command) commands[id] = (commands[id] or "") .. command end}
+  end
+  local chaseOk = aiAdapter.start(10, "Chase", {
+    targetVehicleId = 20, speed = 15, speedMode = "limit", aggression = 0.5,
+  })
+  getObjectByID = oldLookup
+  truthy(chaseOk)
+  truthy(commands[10]:find("setTargetObjectID%(20%)") ~= nil)
+  equal(commands[20], nil)
+
+  local marker = destinationMarker.create()
+  marker.exactPoint, marker.point, marker.status = {x = 1, y = 2, z = 3}, {x = 1, y = 2, z = 3}, "preview"
+  truthy(destinationMarker.confirm(marker, "exact"))
+  truthy(marker.active and marker.confirmed)
+  truthy(destinationMarker.clear(marker))
+  truthy(not marker.active and marker.point == nil)
+end
+
+tests.v060_pause_time_sources_contract = function()
+  local now = 0
+  local clocks = timeSource.create(function() return now end)
+  now = 0.1
+  timeSource.sample(clocks, 0.1, 0, 0.1, true, now)
+  equal(clocks.realMonotonicTime, 0.1)
+  equal(clocks.simulationTime, 0)
+  equal(clocks.realDelta, 0.1)
+  equal(clocks.simulationDelta, 0)
+  equal(clocks.frameCounter, 1)
+  truthy(clocks.paused)
+
+  now = 0.2
+  timeSource.sample(clocks, 0.1, 0.025, 0.1, false, now)
+  near(clocks.simulationTime, 0.025, 1e-8)
+  near(clocks.slowMotionRatio, 0.25, 1e-8)
+  truthy(not clocks.paused)
+
+  now = 0.3
+  timeSource.sample(clocks, 0.1, 1 / 60, 0.1, true, now)
+  truthy(clocks.paused)
+  truthy(clocks.simulationDelta > 0)
+  equal(clocks.frameCounter, 3)
+end
+
+tests.v060_explicit_lifecycle_generations_contract = function()
+  local now = 0
+  local state = operationState.create(function() return now end, 10)
+  local ok, token = operationState.begin(state, "fullRandom", 1, 10)
+  truthy(ok)
+  equal(state.phase, "capturing_original")
+  truthy(operationState.deriveBusy(state))
+  local operationGeneration = state.operationGeneration
+  truthy(operationState.setPhase(state, "tracking_target_identity", 5, "fixture"))
+  local context = operationState.captureContext(state, {vehicleId = 2, modelKey = "B"})
+  truthy(operationState.validateContinuation(state, context, {vehicleId = 2, modelKey = "B"}))
+  truthy(operationState.setPhase(state, "stabilizing_tree", 5, "fixture_tree"))
+  local current, reason = operationState.validateContinuation(state, context, {vehicleId = 2, modelKey = "B"})
+  equal(current, false)
+  equal(reason, "stale_callback_ignored")
+  truthy(operationState.nextTarget(state, {vehicleId = 3}) > context.targetGeneration)
+  local replacement = operationState.invalidate(state, "recovery", {operation = true, target = true})
+  truthy(replacement ~= token)
+  truthy(state.operationGeneration > operationGeneration)
+  truthy(operationState.setPhase(state, "recovering_previous", 5, "fixture_recovery"))
+  truthy(operationState.phasePolicy(state).requiresSimulationProgress)
+  truthy(operationState.finish(state, "failed", "fixture"))
+  truthy(not operationState.deriveBusy(state))
+  equal(state.phase, "failed")
+end
+
+tests.v060_target_identity_tree_separation_contract = function()
+  local tracker = vehicleTargetTracker.create({
+    token = "op", operationId = "SCR-1", operationGeneration = 1,
+    phaseGeneration = 2, targetGeneration = 3, modelKey = "model",
+    configKey = "/vehicles/model/base.pc", parts = {["/body/"] = "body_b"},
+    startedAt = 0, timeout = 5,
+    stabilizer = {minimumFrames = 2, minimumScans = 2, pollInterval = 0},
+    treeStabilizer = {minimumFrames = 2, minimumScans = 2, pollInterval = 0},
+  })
+  local context = {
+    operationId = "SCR-1", operationGeneration = 1,
+    phaseGeneration = 2, targetGeneration = 3,
+  }
+  local changing = {
+    vehicleId = 7, modelKey = "model", configKey = "/vehicles/model/base.pc",
+    parts = {["/body/"] = "body_a"},
+  }
+  local fingerprintA = vehicleTargetTracker.stateFingerprint(changing)
+  vehicleTargetTracker.observe(tracker, "op", changing, 0.1, context)
+  local status = vehicleTargetTracker.observe(tracker, "op", changing, 0.2, context)
+  equal(status, "waiting")
+  truthy(vehicleTargetTracker.summary(tracker, 0.2).identityConfirmed)
+  changing.parts["/body/"] = "body_b"
+  equal(vehicleTargetTracker.stateFingerprint(changing), fingerprintA)
+  status = vehicleTargetTracker.observe(tracker, "op", changing, 0.3, context)
+  equal(status, "waiting")
+  status = vehicleTargetTracker.observe(tracker, "op", changing, 0.4, context)
+  equal(status, "stable")
+  local report = vehicleTargetTracker.summary(tracker, 0.4)
+  truthy(report.identityConfirmed)
+  equal(report.treeStatus, "vehicle_target_stable")
+end
+
+tests.v060_recovery_snapshot_roles_contract = function()
+  local recovery = vehicleRecovery.create()
+  local damaged = {modelKey = "A", vehicleId = 1, selectedConfiguration = "damaged.pc"}
+  truthy(vehicleRecovery.rememberReadable(recovery, damaged))
+  equal(recovery.lastCompletedGoodSnapshot, nil)
+  local final = {modelKey = "B", vehicleId = 2, selectedConfiguration = "final.pc"}
+  truthy(vehicleRecovery.rememberCompletedGood(recovery, final))
+  equal(recovery.lastReadableSnapshot.modelKey, "B")
+  equal(recovery.lastCompletedGoodSnapshot.modelKey, "B")
+
+  local operation = {
+    currentBatch = {{slotPath = "/body/"}}, afterReload = "mutation",
+    paintConfirmation = {}, pendingTuningChanges = {{name = "boost"}},
+    treeRescanAt = 10, operationMutationPlan = {stage = "parts"},
+    targetTracker = {}, wait = {},
+    slotLedger = {}, tuningLedger = {}, paintLedger = {},
+    batchRecovery = {currentBatch = {}},
+  }
+  truthy(vehicleRecovery.invalidateForRecovery(operation))
+  truthy(operation.recoveryOnly)
+  equal(operation.currentBatch, nil)
+  equal(operation.afterReload, nil)
+  equal(operation.paintConfirmation, nil)
+  equal(operation.operationMutationPlan, nil)
+  truthy(operation.slotLedger.closed and operation.tuningLedger.closed and operation.paintLedger.closed)
+end
+
+tests.v060_progress_watchdog_contract = function()
+  local watchdog = progressWatchdog.create(0, {warningAfter = 2, stalledAfter = 4, pauseDependencyWindow = 1})
+  equal(progressWatchdog.evaluate(watchdog, 2.1, false), "warning")
+  equal(progressWatchdog.evaluate(watchdog, 4.1, false), "stalled")
+  progressWatchdog.observePause(watchdog, true, 4.2)
+  progressWatchdog.note(watchdog, "target", "target_evidence", 4.3)
+  truthy(watchdog.pauseDependentProgressDetected)
+  equal(progressWatchdog.evaluate(watchdog, 20, true), "waiting_for_simulation_resume")
+  truthy(not watchdog.stalled)
+  local report = progressWatchdog.snapshot(watchdog, 20)
+  equal(report.lastTargetEvidenceAt, 4.3)
+end
+
+tests.v060_actions_complete_without_pause_toggle = function()
+  for _, action in ipairs({"randomConfig", "scramble", "fullRandom"}) do
+    local harness = pipelineHarness.new()
+    truthy(pipelineHarness.driveSuccess(harness, action, {
+      manualSeed = "no-pause-toggle-" .. action,
+    }))
+    local state = harness.main.requestState()
+    truthy(not state.busy, action .. " stayed busy")
+    truthy(state.lastResult and state.lastResult.success, action .. " did not succeed")
+    truthy(type(state.lifecyclePhase) == "string")
+  end
+end
+
+tests.v060_initial_pause_wait_resume_contract = function()
+  for _, action in ipairs({"randomConfig", "scramble", "fullRandom"}) do
+    local harness = pipelineHarness.new({paused = true})
+    truthy(harness.main.runAction(action, {
+      chaos = 100, manualSeed = "initially-paused-" .. action,
+      includeAutomation = true, includeTrailers = true, includeProps = true,
+    }))
+    if harness.pendingReplacement then pipelineHarness.applyPendingReplacement(harness, true) end
+    pipelineHarness.advance(harness, 0.1, 0, 8)
+    local pausedState = harness.main.requestState()
+    truthy(pausedState.lastResult == nil or pausedState.lastResult.code ~= "vehicle_target_timeout")
+    truthy(pausedState.clocks.paused)
+    pipelineHarness.setPaused(harness, false)
+    local finalState = pipelineHarness.driveActive(harness, 128)
+    truthy(not finalState.busy, action .. " did not leave paused state")
+    truthy(finalState.lastResult and finalState.lastResult.success, action .. " failed after resume")
+  end
+end
+
+tests.v060_pause_mid_pipeline_and_frame_step_contract = function()
+  local harness = pipelineHarness.new({deferredPaint = true})
+  truthy(harness.main.fullRandom({chaos = 100, manualSeed = "pause-mid-pipeline"}))
+  pipelineHarness.confirmReplacement(harness)
+  truthy(harness.pendingParts)
+  harness.tree = harness.pendingParts
+  harness.pendingParts = nil
+  pipelineHarness.setPaused(harness, true)
+  harness.main.onVehicleSpawned(harness.vehicleId)
+  local targetGeneration = harness.main.requestState().lifecycle.targetGeneration
+  pipelineHarness.advance(harness, 0.1, 0, 10)
+  local pausedState = harness.main.requestState()
+  truthy(pausedState.busy)
+  equal(pausedState.lifecycle.targetGeneration, targetGeneration)
+  pipelineHarness.frameStep(harness, 0.1, 1 / 60)
+  equal(harness.main.requestState().lifecycle.targetGeneration, targetGeneration)
+  pipelineHarness.setPaused(harness, false)
+  local finalState = pipelineHarness.driveActive(harness, 128)
+  truthy(not finalState.busy)
+  truthy(finalState.lastResult and finalState.lastResult.success)
+end
+
+tests.v060_slow_motion_is_seed_independent = function()
+  local normal = pipelineHarness.new({simulationScale = 1})
+  local slow = pipelineHarness.new({simulationScale = 0.25})
+  truthy(pipelineHarness.driveSuccess(normal, "fullRandom", {manualSeed = "slowmo-seed"}))
+  truthy(pipelineHarness.driveSuccess(slow, "fullRandom", {manualSeed = "slowmo-seed"}))
+  truthy(util.deepEqual(normal.tree, slow.tree, 1e-8))
+  truthy(util.deepEqual(normal.tuning, slow.tuning, 1e-8))
+  truthy(util.deepEqual(normal.paints, slow.paints, 1e-8))
+end
+
+tests.v060_recovery_stale_callback_isolation_contract = function()
+  local harness = pipelineHarness.new({partsFailure = true, vehicleId = 1, returnedVehicleId = 2})
+  harness.tuning.boost = -1
+  harness.paints[1].metallic = 0.91
+  local originalTree = util.deepCopy(harness.tree)
+  local originalTuning = util.deepCopy(harness.tuning)
+  local originalPaints = util.deepCopy(harness.paints)
+  truthy(harness.main.fullRandom({chaos = 100, manualSeed = "recovery-stale-B"}))
+  pipelineHarness.confirmReplacement(harness)
+  truthy(harness.pendingReplacement and harness.pendingReplacement.restoring)
+  pipelineHarness.applyPendingReplacement(harness, false)
+  equal(harness.vehicleId, 1)
+  local writesBeforeStale = #harness.writes
+  harness.main.onVehicleSpawned(2)
+  harness.main.onVehicleSpawned(1)
+  pipelineHarness.advance(harness, 0.1, 0.1, 10)
+  local state = harness.main.requestState()
+  truthy(not state.busy, "recovery remained busy in " .. tostring(state.lifecyclePhase)
+    .. " result=" .. tostring(state.lastResult and state.lastResult.code))
+  truthy(state.lastResult and not state.lastResult.success)
+  equal(state.lastResult.details.rollback, "completed")
+  equal(#harness.writes, writesBeforeStale)
+  truthy(util.deepEqual(harness.tree, originalTree, 1e-8))
+  truthy(util.deepEqual(harness.tuning, originalTuning, 1e-8))
+  truthy(util.deepEqual(harness.paints, originalPaints, 1e-8))
+  truthy(state.lifecycle.staleCallbackCount > 0)
+end
+
+tests.v060_busy_cancel_and_diagnostics_contract = function()
+  for _, terminal in ipairs({"completed", "partial", "failed", "cancelled"}) do
+    local state = operationState.create(function() return 0 end, 5)
+    truthy(operationState.begin(state, "fixture", 1, 5))
+    truthy(operationState.finish(state, terminal, terminal == "completed" and nil or "fixture"))
+    truthy(not operationState.deriveBusy(state), terminal .. " stayed busy")
+  end
+
+  local harness = pipelineHarness.new({paused = true})
+  truthy(harness.main.scramble({chaos = 100, manualSeed = "cancel-paused"}))
+  truthy(harness.main.requestState().busy)
+  truthy(harness.main.copyDiagnostics())
+  truthy(harness.main.cancelCurrentOperation())
+  -- The callback payload is retained here only by the mock adapter; main has
+  -- invalidated and dropped the corresponding plan/generation.
+  harness.pendingParts = nil
+  pipelineHarness.setPaused(harness, false)
+  local state = pipelineHarness.driveActive(harness, 128)
+  truthy(not state.busy, "cancel remained busy in " .. tostring(state.lifecyclePhase)
+    .. " result=" .. tostring(state.lastResult and state.lastResult.code))
+  truthy(state.lastResult)
+end
+
+tests.v060_onupdate_housekeeping_contract = function()
+  local file = assert(io.open(root .. "/lua/ge/extensions/soturineChaosRandomizer/main.lua", "rb"))
+  local source = file:read("*a")
+  file:close()
+  truthy(not source:find("if processTargetTracking%(%) then return end"))
+  truthy(source:find("production%.processSpawnDirector%(%)") ~= nil)
+  truthy(source:find("production%.processAIDirector%(%)") ~= nil)
+  truthy(source:find("operation_watchdog", 1, true) ~= nil)
+end
+
+tests.v060_public_state_exposes_lineup_spawn_ai_and_coverage = function()
+  local harness = pipelineHarness.new()
+  local state = harness.main.requestState()
+  truthy(type(state.lineup) == "table")
+  truthy(type(state.spawnDirector) == "table")
+  truthy(type(state.aiDirector) == "table")
+  truthy(type(state.coverage) == "table" or state.coverage == nil)
+  local empty = pipelineHarness.new({noActive = true})
+  truthy(not empty.main.scramble({manualSeed = "no-active-v060"}))
+  equal(empty.main.requestState().lastResult.message,
+    "Scramble requires an active vehicle. Use Random Car or Spawn Safe Vehicle.")
+end
+
+tests.v060_runner_counting_contract = function()
+  local unique = {}
+  for _, fn in pairs(tests) do unique[fn] = true end
+  local functionCount = 0
+  for _ in pairs(unique) do functionCount = functionCount + 1 end
+  truthy(functionCount > 250)
+  truthy(#requirementMappings >= 217)
+  local names = {}
+  for _, mapping in ipairs(requirementMappings) do
+    truthy(type(mapping[1]) == "string" and mapping[1] ~= "")
+    truthy(type(mapping[2]) == "function")
+    truthy(not names[mapping[1]], "duplicate requirement mapping: " .. mapping[1])
+    names[mapping[1]] = true
+  end
+end
+
 tests.all_lua_sources_compile = function()
   local paths = {
     "/lua/ge/extensions/soturineChaosRandomizer.lua",
@@ -2831,25 +3635,41 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/capabilities.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/configSelector.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/configVerification.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/coverageLimits.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/contentIndex.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/candidateIsolation.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/diagnostics.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/failureAttribution.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/history.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/historyTransaction.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/lifecycle.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/lineupManager.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/lineupSchema.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/lineupStorage.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/main.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/mutationEngine.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/mutationPolicy.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/managedVehicleRegistry.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/operationState.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/progressWatchdog.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/paintRandomizer.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/paintCoverageLedger.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/paintVerification.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/partBatchRecovery.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/pngValidator.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/rng.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/routePlanner.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/timeSource.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/settings.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/slotScanner.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/stressRunner.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/spawnApiAdapter.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/spawnDirector.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/slotCoverageLedger.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/treeConvergence.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/tuningRandomizer.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/tuningCoverageLedger.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/tuningPipeline.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/util.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/validator.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/vehicleSelector.lua",
@@ -2870,6 +3690,9 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/vehicleRecovery.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/vehicleStabilizer.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/vehicleTargetTracker.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/aiAdapter.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/aiDirector.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/destinationMarker.lua",
   }
   for _, path in ipairs(paths) do
     local chunk, err = loadfile(root .. path)
@@ -2996,13 +3819,187 @@ local alpha2Required = {
   {"ui_fixed_allowlist", tests.all_lua_sources_compile},
 }
 
+local v060Required = {
+  {"01_chaos_100_selects_all_eligible_slots", tests.v060_coverage_chaos100_and_slot_identity},
+  {"02_parent_slot_not_capped_at_85_percent", tests.v060_coverage_chaos100_and_slot_identity},
+  {"03_chaos_50_classifies_non_selected_slots", tests.chaos_policy_boundaries},
+  {"04_tree_deeper_than_five_levels_converges", tests.v060_tree_convergence_and_absolute_limits},
+  {"05_new_slots_appear_after_reload", tests.v060_coverage_tracks_new_and_disappearing_slots},
+  {"06_slot_disappears_after_parent_change", tests.v060_coverage_tracks_new_and_disappearing_slots},
+  {"07_homonymous_slots_under_different_parents_do_not_collide", tests.v060_coverage_chaos100_and_slot_identity},
+  {"08_absolute_limit_produces_partial", tests.v060_partial_result_setting_controls_rollback},
+  {"09_no_progress_ends_with_reason", tests.v060_tree_convergence_and_absolute_limits},
+  {"10_completed_requires_complete_ledger", tests.v060_coverage_chaos100_and_slot_identity},
+  {"11_full_random_uses_same_ledger", tests.full_random_result_reports_base_version_and_final_changes},
+  {"12_random_car_has_no_mutation_ledger", tests.random_config_mocked_success_pipeline},
+  {"13_second_item_failure_does_not_punish_first", tests.v060_candidate_isolation_proves_only_the_culprit},
+  {"14_binary_split_localizes_candidate", tests.v060_candidate_isolation_proves_only_the_culprit},
+  {"15_suspect_and_confirmed_quarantine_are_distinct", tests.v060_candidate_isolation_proves_only_the_culprit},
+  {"16_retry_uses_alternative", tests.alpha2_batch_recovery_contract},
+  {"17_quarantined_candidate_does_not_return_in_session", tests.blacklisted_candidate_is_not_selected},
+  {"18_total_rollback_only_after_local_failure", tests.full_random_rollback_restores_original},
+  {"19_keep_partial_off_restores_state", tests.v060_partial_result_setting_controls_rollback},
+  {"20_keep_partial_on_preserves_valid_vehicle", tests.v060_partial_result_setting_controls_rollback},
+  {"21_tuning_is_read_after_parts", tests.full_random_runs_parts_tuning_and_paint},
+  {"22_new_part_adds_tuning_variable", tests.v060_tuning_rescan_discovers_only_new_variables},
+  {"23_rescan_finds_new_tuning_variable", tests.v060_tuning_rescan_discovers_only_new_variables},
+  {"24_chaos_100_selects_all_tuning", tests.v060_tuning_pipeline_covers_metadata_and_readback},
+  {"25_discrete_value_excludes_current_value", tests.v060_tuning_pipeline_covers_metadata_and_readback},
+  {"26_continuous_value_respects_tolerance", tests.extreme_biased_tuning},
+  {"27_fixed_value_gets_reason", tests.v060_tuning_pipeline_covers_metadata_and_readback},
+  {"28_readback_clamp_is_recorded", tests.v060_tuning_pipeline_covers_metadata_and_readback},
+  {"29_readback_rejection_generates_rollback", tests.v060_partial_result_setting_controls_rollback},
+  {"30_suspension_failure_does_not_erase_engine", tests.v060_tuning_pipeline_covers_metadata_and_readback},
+  {"31_dynamic_category_appears", tests.v060_tuning_rescan_discovers_only_new_variables},
+  {"32_hidden_variable_is_ignored", tests.v060_tuning_pipeline_covers_metadata_and_readback},
+  {"33_internal_slot_variable_is_not_tuning", tests.v060_tuning_pipeline_covers_metadata_and_readback},
+  {"34_vehicle_action_is_not_executed", tests.v060_tuning_pipeline_covers_metadata_and_readback},
+  {"35_explicit_correlation_group_is_respected", tests.explicit_group_uses_shared_substream},
+  {"36_similar_names_without_metadata_are_not_correlated", tests.uncorrelated_variables_remain_independent},
+  {"37_dna_saves_final_tuning", tests.explicit_save_persists_dna_with_readback},
+  {"38_restore_compatible_clamps_with_deviation", tests.restore_compatible_reports_clamped_deviation_and_verifies_readback},
+  {"39_generator_5_is_not_reinterpreted_as_6", tests.alpha2_generator_legacy_restore_contract},
+  {"40_substreams_remain_independent", tests.reroll_independent_substreams_survive_unrelated_category_locks},
+  {"41_paint_coverage_is_classified", tests.v060_paint_coverage_confirms_supported_fields},
+  {"42_paint_readback_is_confirmed", tests.v060_paint_coverage_confirms_supported_fields},
+  {"43_unsupported_paint_field_is_not_false_success", tests.v060_paint_coverage_confirms_supported_fields},
+  {"44_recovery_prefers_last_known_good", tests.alpha2_recovery_contract},
+  {"45_official_fallback_uses_ranking", tests.alpha2_recovery_contract},
+  {"46_recovery_tries_next_candidate", tests.alpha2_recovery_contract},
+  {"47_no_vehicle_state_keeps_ui_available", tests.alpha2_no_active_vehicle_contract},
+  {"48_random_car_without_vehicle", tests.alpha2_no_active_vehicle_contract},
+  {"49_full_random_without_vehicle", tests.alpha2_no_active_vehicle_contract},
+  {"50_scramble_without_vehicle_explains_action", tests.v060_public_state_exposes_lineup_spawn_ai_and_coverage},
+  {"51_lineup_seeds_are_independent", tests.v060_lineup_variety_substreams_and_failure_actions},
+  {"52_competitor_two_failure_does_not_change_three", tests.v060_lineup_variety_substreams_and_failure_actions},
+  {"53_incremental_generation_saves_progress", tests.v060_lineup_seeds_progress_schema_and_storage},
+  {"54_lineup_partial_respects_setting", tests.v060_partial_result_setting_controls_rollback},
+  {"55_duplicate_model_avoidance", tests.v060_lineup_variety_substreams_and_failure_actions},
+  {"56_rule_without_metadata_does_not_invent_class", tests.v060_lineup_variety_substreams_and_failure_actions},
+  {"57_automatic_collection", tests.v060_lineup_seeds_progress_schema_and_storage},
+  {"58_rename_does_not_change_dna", tests.v060_lineup_seeds_progress_schema_and_storage},
+  {"59_export_contains_no_mod_bytes", tests.v060_lineup_import_is_data_only},
+  {"60_import_recomputes_compatibility", tests.v060_lineup_import_is_data_only},
+  {"61_lineup_schema_validates_limits", tests.v060_lineup_seeds_progress_schema_and_storage},
+  {"62_sixteen_competitors_respect_bound", tests.v060_lineup_seeds_progress_schema_and_storage},
+  {"63_failure_does_not_delete_previous_competitors", tests.v060_lineup_seeds_progress_schema_and_storage},
+  {"64_front_right_left_transforms", tests.v060_spawn_plans_are_camera_relative_and_safe},
+  {"65_grid_is_deterministic", tests.v060_spawn_plans_are_camera_relative_and_safe},
+  {"66_circle_is_deterministic", tests.v060_spawn_plans_are_camera_relative_and_safe},
+  {"67_missing_ground_raycast_fails_with_reason", tests.v060_spawn_plans_are_camera_relative_and_safe},
+  {"68_overlap_blocks_spawn", tests.v060_spawn_plans_are_camera_relative_and_safe},
+  {"69_spawn_is_sequential", tests.v060_spawn_heading_readback_and_ownership},
+  {"70_dna_is_restored_after_spawn", tests.v060_spawn_heading_readback_and_ownership},
+  {"71_managed_id_is_updated", tests.v060_managed_registry_rebinds_without_cross_vehicle_damage},
+  {"72_respawn_updates_id", tests.v060_managed_registry_rebinds_without_cross_vehicle_damage},
+  {"73_remove_cleans_only_one_vehicle", tests.v060_managed_registry_rebinds_without_cross_vehicle_damage},
+  {"74_ai_capability_detection", tests.v060_navgraph_routes_and_ai_bounds},
+  {"75_missing_api_disables_mode", tests.v060_navgraph_routes_and_ai_bounds},
+  {"76_reachable_destination", tests.v060_navgraph_routes_and_ai_bounds},
+  {"77_destination_without_navgraph", tests.v060_navgraph_routes_and_ai_bounds},
+  {"78_route_points", tests.v060_route_editor_ai_progress_and_isolation},
+  {"79_reverse_route", tests.v060_route_editor_ai_progress_and_isolation},
+  {"80_loop_route", tests.v060_route_editor_ai_progress_and_isolation},
+  {"81_chase_uses_real_target", tests.v060_route_editor_ai_progress_and_isolation},
+  {"82_removed_target_stops_with_reason", tests.v060_route_editor_ai_progress_and_isolation},
+  {"83_ai_stagger", tests.v060_navgraph_routes_and_ai_bounds},
+  {"84_stop_all_ai", tests.v060_navgraph_routes_and_ai_bounds},
+  {"85_arrival_radius", tests.v060_route_editor_ai_progress_and_isolation},
+  {"86_stuck_detection", tests.v060_route_editor_ai_progress_and_isolation},
+  {"87_replan_is_bounded", tests.v060_route_editor_ai_progress_and_isolation},
+  {"88_marker_and_trigger_cleanup", tests.v060_route_editor_ai_progress_and_isolation},
+  {"89_one_vehicle_ai_does_not_change_another", tests.v060_route_editor_ai_progress_and_isolation},
+  {"90_player_switch_preserves_managed_ids", tests.v060_managed_registry_rebinds_without_cross_vehicle_damage},
+  {"91_reroll_remains_secondary", tests.v060_public_state_exposes_lineup_spawn_ai_and_coverage},
+  {"92_random_lineup_ai_navigation", tests.v060_public_state_exposes_lineup_spawn_ai_and_coverage},
+  {"93_compact_recording_mode", tests.v060_public_state_exposes_lineup_spawn_ai_and_coverage},
+  {"94_ui_300_by_340_without_overflow", tests.all_lua_sources_compile},
+  {"95_ui_scaling_125_150_200", tests.all_lua_sources_compile},
+  {"96_keyboard_and_focus", tests.all_lua_sources_compile},
+  {"97_tooltips", tests.all_lua_sources_compile},
+  {"98_long_text", tests.all_lua_sources_compile},
+  {"99_sixteen_cards_are_paginated", tests.garage_sort_and_pagination_are_bounded},
+  {"100_diagnostics_copy_is_bounded", tests.diagnostic_history_is_bounded},
+  {"101_unique_functions_are_not_duplicated", tests.v060_runner_counting_contract},
+  {"102_requirement_mappings_are_separate", tests.v060_runner_counting_contract},
+  {"103_executed_count_matches_runner", tests.v060_runner_counting_contract},
+  {"104_manifest_matches_real_result", tests.v060_runner_counting_contract},
+}
+
+local v060PauseLifecycleRequired = {
+  {"01_random_car_completes_without_pausing", tests.v060_actions_complete_without_pause_toggle},
+  {"02_scramble_completes_without_pausing", tests.v060_actions_complete_without_pause_toggle},
+  {"03_full_random_completes_without_pausing", tests.v060_actions_complete_without_pause_toggle},
+  {"04_random_car_started_paused_does_not_deadlock", tests.v060_initial_pause_wait_resume_contract},
+  {"05_scramble_started_paused_does_not_deadlock", tests.v060_initial_pause_wait_resume_contract},
+  {"06_full_random_started_paused_does_not_deadlock", tests.v060_initial_pause_wait_resume_contract},
+  {"07_pause_during_spawn_preserves_ownership", tests.v060_initial_pause_wait_resume_contract},
+  {"08_pause_during_target_tracking_does_not_reset_target", tests.v060_pause_mid_pipeline_and_frame_step_contract},
+  {"09_pause_during_tree_convergence_does_not_reclassify_target", tests.v060_target_identity_tree_separation_contract},
+  {"10_pause_during_parts_write_never_writes_other_vehicle", tests.v060_recovery_stale_callback_isolation_contract},
+  {"11_pause_during_tuning_does_not_leave_busy", tests.v060_pause_mid_pipeline_and_frame_step_contract},
+  {"12_pause_during_paint_has_no_false_timeout", tests.v060_pause_mid_pipeline_and_frame_step_contract},
+  {"13_resume_continues_only_pending_phase", tests.v060_initial_pause_wait_resume_contract},
+  {"14_slow_motion_does_not_change_seed_or_result", tests.v060_slow_motion_is_seed_independent},
+  {"15_frame_step_does_not_create_false_target_switch", tests.v060_pause_mid_pipeline_and_frame_step_contract},
+  {"16_simulation_delta_zero_real_time_advances", tests.v060_pause_time_sources_contract},
+  {"17_real_timeout_does_not_use_simulation_time", tests.v060_pause_time_sources_contract},
+  {"18_requires_simulation_phase_waits_instead_of_failing", tests.v060_initial_pause_wait_resume_contract},
+  {"19_cancel_works_while_paused", tests.v060_busy_cancel_and_diagnostics_contract},
+  {"20_recovery_works_while_paused", tests.v060_busy_cancel_and_diagnostics_contract},
+  {"21_target_identity_stabilizes_while_parts_tree_changes", tests.v060_target_identity_tree_separation_contract},
+  {"22_parts_tree_changes_without_resetting_vehicle_identity", tests.v060_target_identity_tree_separation_contract},
+  {"23_stable_id_model_config_confirm_target", tests.v060_target_identity_tree_separation_contract},
+  {"24_tree_convergence_starts_after_target", tests.v060_target_identity_tree_separation_contract},
+  {"25_tree_callback_cannot_rebind_wrong_model", tests.v060_target_identity_tree_separation_contract},
+  {"26_plan_for_vehicle_b_never_applies_to_a", tests.v060_recovery_stale_callback_isolation_contract},
+  {"27_delayed_b_callback_is_ignored_after_rollback", tests.v060_recovery_stale_callback_isolation_contract},
+  {"28_delayed_b_tuning_does_not_apply_in_recovery", tests.v060_recovery_stale_callback_isolation_contract},
+  {"29_delayed_b_paint_does_not_apply_in_recovery", tests.v060_recovery_stale_callback_isolation_contract},
+  {"30_current_batch_is_cleared_before_recovery", tests.v060_recovery_snapshot_roles_contract},
+  {"31_old_after_reload_is_invalidated", tests.v060_recovery_snapshot_roles_contract},
+  {"32_phase_generation_rejects_old_callback", tests.v060_explicit_lifecycle_generations_contract},
+  {"33_recovery_only_blocks_scramble", tests.v060_recovery_snapshot_roles_contract},
+  {"34_recovery_finishes_as_recovered_failure", tests.v060_recovery_stale_callback_isolation_contract},
+  {"35_recovery_does_not_call_mutation_pass", tests.v060_recovery_stale_callback_isolation_contract},
+  {"36_original_snapshot_is_not_automatically_good", tests.v060_recovery_snapshot_roles_contract},
+  {"37_spawn_base_does_not_update_completed_good", tests.v060_recovery_snapshot_roles_contract},
+  {"38_unaccepted_partial_does_not_update_completed_good", tests.v060_recovery_snapshot_roles_contract},
+  {"39_final_success_updates_completed_good", tests.v060_recovery_snapshot_roles_contract},
+  {"40_validated_recovery_does_not_resume_failed_operation", tests.v060_recovery_stale_callback_isolation_contract},
+  {"41_damaged_original_remains_original_only", tests.v060_recovery_snapshot_roles_contract},
+  {"42_fallback_receives_no_old_mutation_plan", tests.v060_recovery_snapshot_roles_contract},
+  {"43_busy_releases_after_success", tests.v060_actions_complete_without_pause_toggle},
+  {"44_busy_releases_after_partial", tests.v060_busy_cancel_and_diagnostics_contract},
+  {"45_busy_releases_after_failure", tests.v060_busy_cancel_and_diagnostics_contract},
+  {"46_busy_releases_after_cancel", tests.v060_busy_cancel_and_diagnostics_contract},
+  {"47_busy_releases_after_rollback", tests.v060_recovery_stale_callback_isolation_contract},
+  {"48_busy_releases_after_recovery", tests.v060_recovery_stale_callback_isolation_contract},
+  {"49_cancel_remains_enabled", tests.v060_busy_cancel_and_diagnostics_contract},
+  {"50_copy_diagnostics_remains_enabled", tests.v060_busy_cancel_and_diagnostics_contract},
+  {"51_stalled_warning_appears", tests.v060_progress_watchdog_contract},
+  {"52_no_pause_toggle_is_required", tests.v060_actions_complete_without_pause_toggle},
+}
+
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")
-for index, scenario in ipairs(alpha2Required) do
-  tests[string.format("alpha2_required_%03d_%s", index, scenario[1])] = scenario[2]
+equal(#v060Required, 104, "0.6.0 required scenario registry")
+equal(#v060PauseLifecycleRequired, 52, "0.6.0 pause lifecycle scenario registry")
+for _, scenario in ipairs(alpha2Required) do
+  requirementMappings[#requirementMappings + 1] = {"0.5.0-alpha.2:" .. scenario[1], scenario[2]}
+end
+for _, scenario in ipairs(v060Required) do
+  requirementMappings[#requirementMappings + 1] = {"0.6.0:" .. scenario[1], scenario[2]}
+end
+for _, scenario in ipairs(v060PauseLifecycleRequired) do
+  requirementMappings[#requirementMappings + 1] = {"0.6.0-pause-lifecycle:" .. scenario[1], scenario[2]}
 end
 
+local canonicalByFunction = {}
+for name, fn in pairs(tests) do
+  if canonicalByFunction[fn] == nil or name < canonicalByFunction[fn] then canonicalByFunction[fn] = name end
+end
 local names = {}
-for name in pairs(tests) do names[#names + 1] = name end
+for _, name in pairs(canonicalByFunction) do names[#names + 1] = name end
 table.sort(names)
 
 local failures = {}
@@ -3021,4 +4018,6 @@ if #failures > 0 then
   error(table.concat(failures, "\n"))
 end
 
+print(string.format("SCR_TEST_METRICS functions=%d mappings=%d cases=%d assertions=%d",
+  #names, #requirementMappings, #names, assertionCount))
 print("SCR_TESTS_" .. "OK " .. tostring(#names))

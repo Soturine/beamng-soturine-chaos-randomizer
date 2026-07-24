@@ -1,75 +1,20 @@
 from __future__ import annotations
 
-import json
-import os
 from pathlib import Path
 import re
-import shutil
-import subprocess
 import unittest
-import uuid
+
+from tools.lua_metrics import run_lua_suite
 
 
 ROOT = Path(__file__).resolve().parents[1]
-RUNNER = ROOT / "tests" / "lua" / "run.lua"
-
-
-def find_beamng_console() -> Path | None:
-    configured = os.environ.get("BEAMNG_CONSOLE")
-    candidates = [
-        Path(configured) if configured else None,
-        Path(r"D:\SteamLibrary\steamapps\common\BeamNG.drive\Bin64\console.x64.exe"),
-        Path(r"C:\Program Files (x86)\Steam\steamapps\common\BeamNG.drive\Bin64\console.x64.exe"),
-    ]
-    return next((path for path in candidates if path and path.is_file()), None)
-
-
 class LuaLogicTests(unittest.TestCase):
     def test_actual_lua_modules(self) -> None:
-        lua_command = os.environ.get("LUA") or next(
-            (command for command in ("lua5.1", "lua", "luajit") if shutil.which(command)),
-            None,
-        )
-        if lua_command:
-            result = subprocess.run(
-                [lua_command, str(RUNNER)],
-                cwd=ROOT,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-        else:
-            console = find_beamng_console()
-            if not console:
-                self.fail("No Lua 5.1-compatible interpreter found; set LUA or BEAMNG_CONSOLE")
-            game_root = console.parent.parent
-            stage = game_root / f"scr_test_{os.getpid()}_{uuid.uuid4().hex[:8]}"
-            self.assertEqual(stage.parent.resolve(), game_root.resolve())
-            try:
-                shutil.copytree(ROOT / "lua", stage / "lua")
-                shutil.copytree(ROOT / "tests" / "lua", stage / "tests" / "lua")
-                bootstrap = stage / "run_tests.lua"
-                virtual_root = "/" + stage.name
-                bootstrap.write_text(
-                    "SCR_TEST_ROOT = " + json.dumps(virtual_root) + "\n"
-                    + "dofile(" + json.dumps(virtual_root + "/tests/lua/run.lua") + ")\n",
-                    encoding="utf-8",
-                    newline="\n",
-                )
-                result = subprocess.run(
-                    [str(console), "file", str(bootstrap)],
-                    cwd=game_root,
-                    text=True,
-                    capture_output=True,
-                    check=False,
-                )
-            finally:
-                if stage.exists():
-                    self.assertEqual(stage.parent.resolve(), game_root.resolve())
-                    shutil.rmtree(stage)
-
-        output = result.stdout + result.stderr
+        output, metrics = run_lua_suite(ROOT)
         self.assertRegex(output, re.compile(r"^SCR_TESTS_OK \d+\s*$", re.MULTILINE), msg=output)
+        self.assertEqual(metrics["luaTestFunctionsUnique"], metrics["luaExecutedCases"])
+        self.assertGreaterEqual(metrics["luaRequirementMappings"], 217)
+        self.assertGreater(metrics["luaAssertions"], metrics["luaExecutedCases"])
 
 
 if __name__ == "__main__":
