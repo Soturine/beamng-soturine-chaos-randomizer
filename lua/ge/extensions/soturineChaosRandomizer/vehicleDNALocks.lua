@@ -52,7 +52,7 @@ local function emptyProfile()
     categories = {},
     slots = {},
     parts = {},
-    tuning = {all = false, variables = {}, normalized = {}},
+    tuning = {all = false, variables = {}, categories = {}, subCategories = {}, normalized = {}},
     paints = {all = false, layers = {}, fields = {}},
     updatedAt = 0,
   }
@@ -133,6 +133,8 @@ local function normalize(profile)
   local tuning = type(profile.tuning) == "table" and profile.tuning or {}
   result.tuning.all = tuning.all == true
   result.tuning.variables = normalizeBooleanMap(tuning.variables, nil, M.MAX_TUNING_LOCKS)
+  result.tuning.categories = normalizeBooleanMap(tuning.categories, nil, M.MAX_TUNING_LOCKS)
+  result.tuning.subCategories = normalizeBooleanMap(tuning.subCategories, nil, M.MAX_TUNING_LOCKS)
   result.tuning.normalized = {}
   for _, name in ipairs(util.sortedKeys(type(tuning.normalized) == "table" and tuning.normalized or {})) do
     local value = tonumber(tuning.normalized[name])
@@ -187,9 +189,11 @@ local function slotLock(profile, slot)
   return false
 end
 
-local function tuningLock(profile, name)
+local function tuningLock(profile, name, category, subCategory)
   profile = normalize(profile)
   return profile.categories.tuning == true or profile.tuning.all == true or profile.tuning.variables[name] == true
+    or (category ~= nil and profile.tuning.categories[category] == true)
+    or (subCategory ~= nil and profile.tuning.subCategories[tostring(category or "") .. "\31" .. tostring(subCategory)] == true)
 end
 
 local function paintLock(profile, layer, field)
@@ -268,6 +272,8 @@ local function summary(profile)
   for _ in pairs(profile.slots) do slots = slots + 1; count = count + 1 end
   for _ in pairs(profile.parts) do parts = parts + 1; count = count + 1 end
   for _ in pairs(profile.tuning.variables) do tuning = tuning + 1; count = count + 1 end
+  for _ in pairs(profile.tuning.categories) do tuning = tuning + 1; count = count + 1 end
+  for _ in pairs(profile.tuning.subCategories) do tuning = tuning + 1; count = count + 1 end
   if profile.tuning.all then count = count + 1 end
   if profile.paints.all then count = count + 1 end
   for _ in pairs(profile.paints.layers) do paint = paint + 1; count = count + 1 end

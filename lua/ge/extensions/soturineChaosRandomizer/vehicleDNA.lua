@@ -20,6 +20,21 @@ local function create(options)
   local settings = normalizer.normalizeSettings(options.settings)
   local slots = normalizer.normalizeSlots(options.scan)
   local tuning = normalizer.normalizeTuning(snapshot.variables, capture.tuning or snapshot.currentTuning)
+  local tuningCoverage = type(options.tuningCoverage) == "table" and options.tuningCoverage or {}
+  local coverageByName = {}
+  for _, record in ipairs(tuningCoverage) do if type(record) == "table" and record.name then coverageByName[record.name] = record end end
+  for _, record in ipairs(tuning) do
+    local coverage = coverageByName[record.name]
+    if coverage then
+      for _, field in ipairs({"category", "subCategory", "sourcePart", "correlationGroup"}) do
+        if coverage[field] ~= nil then record[field] = coverage[field] end
+      end
+      record.requestedValue = coverage.requested
+      record.readBackValue = coverage.readBack
+      record.readBackStatus = coverage.status
+      record.clamped = coverage.clamped == true
+    end
+  end
   local paints = normalizer.normalizePaints(capture.paints or snapshot.paints)
   local seed = tostring(options.seed or result.seed or "")
   local base = type(options.base) == "table" and options.base or {}
@@ -90,7 +105,7 @@ local function create(options)
       startingStateFingerprint = startingFingerprint,
     },
     operation = tostring(options.operation or capture.operationType or "unknown"),
-    seed = {display = seed, legacy = not seed:match("^SCR[45]%-")},
+    seed = {display = seed, legacy = not seed:match("^SCR[456]%-")},
     base = basePayload,
     final = finalPayload,
     safety = util.deepCopy(options.safety or result.safety or {}),

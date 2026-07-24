@@ -6,8 +6,9 @@ local vehicleDNAGallery = require("ge/extensions/soturineChaosRandomizer/vehicle
 local M = {}
 
 M.SCHEMA_VERSION = 1
-M.GENERATOR_VERSION = 5
+M.GENERATOR_VERSION = 6
 M.LEGACY_GENERATOR_VERSION = 4
+M.PREVIOUS_GENERATOR_VERSION = 5
 M.MAX_SLOTS = 2048
 M.MAX_TUNING = 2048
 M.MAX_PAINTS = 32
@@ -26,7 +27,8 @@ local SOURCE_KINDS = {official = true, mod = true, user = true, unknown = true}
 
 local function supportedGenerator(value)
   value = tonumber(value)
-  return value == M.GENERATOR_VERSION or value == M.LEGACY_GENERATOR_VERSION
+  return value == M.GENERATOR_VERSION or value == M.PREVIOUS_GENERATOR_VERSION
+    or value == M.LEGACY_GENERATOR_VERSION
 end
 
 local function stringValue(value, maximum)

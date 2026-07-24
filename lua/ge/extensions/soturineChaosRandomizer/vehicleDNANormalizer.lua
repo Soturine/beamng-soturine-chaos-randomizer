@@ -40,6 +40,9 @@ local function normalizeTuning(variables, values)
         local number = tonumber(metadata[source])
         if util.isFinite(number) then record[target] = number end
       end
+      for _, field in ipairs({"title", "description", "category", "subCategory", "unit", "sourcePart", "correlationGroup"}) do
+        if type(metadata[field]) == "string" and metadata[field] ~= "" then record[field] = metadata[field] end
+      end
       result[#result + 1] = record
     end
   end
@@ -55,7 +58,7 @@ local function normalizeSettings(settings)
   local result = {}
   for _, key in ipairs({
     "chaos", "allowMissingParts", "protectCriticalParts", "contentFilter", "includeAutomation",
-    "includeTrailers", "includeProps", "selectionFairness", "manualSeed",
+    "includeTrailers", "includeProps", "selectionFairness", "manualSeed", "extremeTuning",
   }) do result[key] = util.deepCopy(type(settings) == "table" and settings[key] or nil) end
   return result
 end
