@@ -16,7 +16,10 @@ local function fromSettings(settings)
     nestedMutationChance = 0.10 + 0.90 * chaos,
     extremeTuningChance = chaos * chaos,
     paintMutationChance = 0.20 + 0.80 * chaos,
-    maxMutationPasses = math.min(5, 1 + math.floor(chaos * 4)),
+    -- Normal completion is governed by tree convergence. This value remains
+    -- only as a compatibility field for older callers and mirrors the hard
+    -- safety ceiling rather than a five-pass success condition.
+    maxMutationPasses = 48,
     emptySlotChance = allowMissing and math.max(0, (chaos - 0.25) / 0.75) * 0.35 or 0,
     tuningSpread = 0.05 + 0.95 * chaos,
     paintContrast = 0.10 + 0.90 * chaos,
@@ -26,6 +29,7 @@ local function fromSettings(settings)
 end
 
 local function mutationChance(policy, slot, passNumber)
+  if tonumber(policy.slider) == 100 then return 1 end
   local chance = policy.partMutationChance
   if slot and slot.depth == 1 then
     chance = chance * policy.parentMutationChance

@@ -22,9 +22,10 @@ end
 
 local function randomize(paints, policy, generator, options)
   options = options or {}
-  if type(paints) ~= "table" or #paints == 0 then return util.deepCopy(paints or {}), 0 end
+  if type(paints) ~= "table" or #paints == 0 then return util.deepCopy(paints or {}), 0, {} end
   local result = util.deepCopy(paints)
   local changed = 0
+  local selectedLayers = {}
   local baseHue = generator:float(0, 1)
 
   for index = 1, #result do
@@ -62,9 +63,10 @@ local function randomize(paints, policy, generator, options)
       end
       result[index] = paint
       changed = changed + 1
+      selectedLayers[index] = true
     end
   end
-  return result, changed
+  return result, changed, selectedLayers
 end
 
 M.hsvToRgb = hsvToRgb

@@ -101,7 +101,8 @@ local function plan(scan, eligiblePaths, policy, generator, options)
         local category = options.categoryForSlot and options.categoryForSlot(slot) or "other"
         slotGenerator = generator:fork("category:" .. tostring(category)):fork("slot:" .. tostring(slot.path))
       end
-    if eligible and slotGenerator:boolean(mutationPolicy.mutationChance(policy, slot, passNumber)) then
+    local selectedByChaos = eligible and slotGenerator:boolean(mutationPolicy.mutationChance(policy, slot, passNumber))
+    if eligible and selectedByChaos then
       local alternatives, rejected = cleanCandidates(
         slot.candidates,
         slot.currentPart,
@@ -153,6 +154,7 @@ local function plan(scan, eligiblePaths, policy, generator, options)
             decisions[#decisions + 1] = {
               slotName = slot.id,
               slotPath = slot.path,
+              keys = util.copyArray(slot.keys),
               previousPart = slot.currentPart,
               selectedPart = selected,
               previousSource = util.deepCopy(slot.currentSource),
@@ -187,7 +189,27 @@ local function plan(scan, eligiblePaths, policy, generator, options)
           protected = true,
           reason = protectionReason,
         }
+      elseif selected == nil then
+        decisions[#decisions + 1] = {
+          slotName = slot.id,
+          slotPath = slot.path,
+          previousPart = slot.currentPart,
+          selectedPart = slot.currentPart,
+          passNumber = passNumber,
+          skipped = true,
+          reason = #alternatives == 0 and "no_alternative" or "unchanged_same_selection",
+        }
       end
+    elseif eligible then
+      decisions[#decisions + 1] = {
+        slotName = slot.id,
+        slotPath = slot.path,
+        previousPart = slot.currentPart,
+        selectedPart = slot.currentPart,
+        passNumber = passNumber,
+        skipped = true,
+        reason = "not_selected_by_chaos",
+      }
     end
     end
   end
