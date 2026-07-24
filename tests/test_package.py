@@ -97,13 +97,15 @@ class PackageTests(unittest.TestCase):
             package_mod.write_release_manifest(archive, root=ROOT)
             manifest = validate_package.validate_release_manifest(archive)
             self.assertEqual(manifest["tag"], f"v{package_mod.read_version(ROOT)}")
-            self.assertEqual(manifest["generatorVersion"], 5)
+            self.assertEqual(manifest["generatorVersion"], 6)
             self.assertEqual(manifest["vehicleDNASchemaVersion"], 1)
-            self.assertEqual(manifest["tests"]["pythonMethods"], 40)
-            self.assertEqual(manifest["tests"]["luaCases"], 388)
+            expected_counts = package_mod.test_counts(ROOT)
+            self.assertEqual(manifest["tests"], expected_counts)
+            self.assertEqual(manifest["tests"]["luaTestFunctionsUnique"], manifest["tests"]["luaExecutedCases"])
+            self.assertGreaterEqual(manifest["tests"]["luaRequirementMappings"], 217)
+            self.assertGreater(manifest["tests"]["luaAssertions"], manifest["tests"]["luaExecutedCases"])
             self.assertEqual(manifest["tests"]["interactivePassed"], 0)
             self.assertEqual(manifest["tests"]["interactiveFailed"], 0)
-            self.assertEqual(manifest["tests"]["interactivePending"], 50)
 
     def test_release_manifest_is_reproducible(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

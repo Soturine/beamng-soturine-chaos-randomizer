@@ -61,6 +61,9 @@ class StaticValidationTests(unittest.TestCase):
         allowed = {
             ROOT / "lua" / "ge" / "extensions" / "soturineChaosRandomizer" / "apiAdapter.lua",
             ROOT / "lua" / "ge" / "extensions" / "soturineChaosRandomizer" / "main.lua",
+            ROOT / "lua" / "ge" / "extensions" / "soturineChaosRandomizer" / "spawnApiAdapter.lua",
+            ROOT / "lua" / "ge" / "extensions" / "soturineChaosRandomizer" / "aiAdapter.lua",
+            ROOT / "lua" / "ge" / "extensions" / "soturineChaosRandomizer" / "destinationMarker.lua",
         }
         for path in sorted((ROOT / "lua").rglob("*.lua")):
             if path in allowed:
@@ -143,6 +146,57 @@ class StaticValidationTests(unittest.TestCase):
             self.assertIn(fragment, html)
         for fragment in (":focus-visible", "@media (max-width:", "prefers-reduced-motion", "overflow-y: auto"):
             self.assertIn(fragment, css)
+
+    def test_v060_lifecycle_controls_remain_available(self) -> None:
+        html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
+        source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        self.assertIn("Phase: {{chaos.state.lifecyclePhase", html)
+        self.assertIn("Operation stalled", html)
+        self.assertIn("Cancel and roll back", html)
+        self.assertIn("Copy diagnostics", html)
+        progress = html[html.index('<div class="scr-progress"'):]
+        self.assertNotIn('ng-disabled=', progress.split("</div>\n  </main>", 1)[0].split("scr-progress-actions", 1)[1])
+        self.assertIn("cancelCurrentOperation: true", source)
+        self.assertIn("copyDiagnostics: true", source)
+
+    def test_v060_production_navigation_and_tooltips(self) -> None:
+        html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
+        source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        for label in ("Lineup", "Spawn", "AI"):
+            self.assertIn(f"label: '{label}'", source)
+        for tooltip in (
+            "loads a normal configuration", "Generate a reusable roster",
+            "Drive confirmed managed vehicles",
+        ):
+            self.assertIn(tooltip, source)
+        self.assertIn("limitTo:8:(chaos.lineupPage * 8)", html)
+        self.assertIn("lineupPageCount", source)
+
+    def test_v060_compact_director_and_size_contract(self) -> None:
+        app = json.loads((ROOT / "ui/modules/apps/soturineChaosRandomizer/app.json").read_text(encoding="utf-8"))
+        html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
+        css = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.css").read_text(encoding="utf-8")
+        self.assertEqual(app["css"]["min-width"], "300px")
+        self.assertEqual(app["css"]["min-height"], "340px")
+        for fragment in ("CHAOS DIRECTOR", "vehicles ready", "START ALL", "STOP ALL"):
+            self.assertIn(fragment, html)
+        self.assertIn(".scr-mode-compact .scr-body > .scr-director-compact", css)
+        self.assertIn("overflow-y: auto", css)
+
+    def test_v060_spawn_and_ai_controls_are_capability_honest(self) -> None:
+        html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
+        source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        for fragment in (
+            "Same as player vehicle", "Road direction", "Face destination", "Custom yaw",
+            "Spawn all sequentially", "Use next unspawned competitor", "Selected DNA",
+            "Use exact point", "Snap to NavGraph", "Add route point", "Remove last", "Reverse",
+            "Target speed (km/h)", "Recovery when stuck", "Allow damaged vehicles to continue",
+            "Recorded (unavailable)", "Scripted (unavailable)",
+        ):
+            self.assertIn(fragment, html)
+        self.assertIn("options.speedKph", source)
+        self.assertIn("/ 3.6", source)
+        self.assertIn("if (!allowed[method]) return", source)
 
     def test_ui_sharing_and_thumbnail_paths_are_controlled(self) -> None:
         source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
