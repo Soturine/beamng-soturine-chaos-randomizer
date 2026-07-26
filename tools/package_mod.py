@@ -140,11 +140,14 @@ def test_counts(root: Path = REPOSITORY_ROOT) -> dict[str, int]:
         python_methods += len(re.findall(r"^\s+def test_[A-Za-z0-9_]+\(", path.read_text(encoding="utf-8"), re.MULTILINE))
     _, lua_metrics = run_lua_suite(root.resolve())
     interactive = {"Passed": 0, "Failed": 0, "Pending": 0, "Blocked": 0, "Not applicable": 0}
-    interactive_plan = root / "docs" / "INTERACTIVE_TEST_PLAN_0.6.0.md"
+    interactive_plan = root / "docs" / f"INTERACTIVE_TEST_PLAN_{read_version(root)}.md"
     if interactive_plan.is_file():
         source = interactive_plan.read_text(encoding="utf-8")
         for status in interactive:
-            interactive[status] = len(re.findall(rf"\|\s*{re.escape(status)}\s*\|", source))
+            total = re.search(rf"\|\s*{re.escape(status)}\s*\|\s*(\d+)\s*\|", source)
+            interactive[status] = int(total.group(1)) if total else len(
+                re.findall(rf"\|\s*{re.escape(status)}\s*\|", source)
+            )
     result = {
         "pythonTestMethodsUnique": python_methods,
         **lua_metrics,

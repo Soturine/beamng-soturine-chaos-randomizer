@@ -1,7 +1,7 @@
 # Vehicle DNA Schema v1
 
 The canonical format is `SoturineVehicleDNA`, the internal kind is
-`soturineVehicleDNA`, and `schemaVersion` remains `1`. New 0.6.0 entries record
+`soturineVehicleDNA`, and `schemaVersion` remains `1`. New 0.6.1 entries record
 generator version `6` at both the top level and in `generation`; generator-4/5
 schema-v1 entries remain valid snapshots. Future schema versions are rejected
 as read-only/unsupported rather than partially interpreted.
@@ -26,7 +26,7 @@ as read-only/unsupported rather than partially interpreted.
   "tags": [],
   "environment": {
     "beamNGVersion": "0.38.6.0",
-    "extensionVersion": "0.6.0",
+    "extensionVersion": "0.6.1",
     "targetBeamNG": "0.38.6.0.19963",
     "schemaVersion": 1,
     "generatorVersion": 6

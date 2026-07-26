@@ -25,6 +25,7 @@ class PackageTests(unittest.TestCase):
             self.assertTrue(checksum.is_file())
             self.assertIn("lua/ge/extensions/soturineChaosRandomizer.lua", names)
             self.assertIn("ui/modules/apps/soturineChaosRandomizer/app.png", names)
+            self.assertIn("ui/modules/apps/soturineChaosRandomizer/assets/fox-mark.svg", names)
             self.assertFalse(any(name.startswith("soturine_chaos_randomizer/") for name in names))
 
     def test_rejects_backslash_paths(self) -> None:
@@ -106,6 +107,8 @@ class PackageTests(unittest.TestCase):
             self.assertGreater(manifest["tests"]["luaAssertions"], manifest["tests"]["luaExecutedCases"])
             self.assertEqual(manifest["tests"]["interactivePassed"], 0)
             self.assertEqual(manifest["tests"]["interactiveFailed"], 0)
+            self.assertEqual(manifest["tests"]["interactivePending"], 50)
+            self.assertEqual(manifest["tests"]["interactiveBlocked"], 0)
 
     def test_release_manifest_is_reproducible(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

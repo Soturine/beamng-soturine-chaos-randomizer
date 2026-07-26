@@ -102,18 +102,20 @@ jobs:
             exit 1
           fi
 
-      - name: Create verified prerelease
+      - name: Create verified experimental prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="$(tr -d '\r\n' < VERSION)"
+          notes="docs/RELEASE NOTES/RELEASE_NOTES_${version}.md"
+          test -f "$notes"
           gh release create "$GITHUB_REF_NAME" \
             "dist/soturine_chaos_randomizer_${version}.zip" \
             "dist/soturine_chaos_randomizer_${version}.sha256" \
             "dist/release-manifest.json" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Soturine's Chaos Randomizer ${version}" \
-            --notes-file "docs/RELEASE NOTES/RELEASE_NOTES_0.5.0-alpha.2.md" \
+            --notes-file "$notes" \
             --verify-tag \
             --prerelease \
             --latest=false

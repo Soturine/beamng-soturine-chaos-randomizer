@@ -55,7 +55,7 @@ metadata and bound to the relevant model/configuration. Unresolved locks are
 reported, not silently migrated.
 
 Vehicle DNA schema 1 stores the observed final tuning values and metadata.
-Version 0.6.0 uses generator 6 and `SCR6-...` seeds. Generator-4 and generator-5
+Version 0.6.1 continues to use generator 6 and `SCR6-...` seeds. Generator-4 and generator-5
 snapshots remain restorable as their recorded versions and are never
 reinterpreted as generator 6. Compatible restore may clamp only with an
 explicit deviation and verified read-back.
