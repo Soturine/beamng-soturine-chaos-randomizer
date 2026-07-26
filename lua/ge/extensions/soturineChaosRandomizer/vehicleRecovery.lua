@@ -121,6 +121,8 @@ local function cleanup(operation)
   operation.replaceWriteInFlight = false
   operation.pendingReplacementSwitch = nil
   operation.recoveryTimer = nil
+  operation.readRetry = nil
+  operation.readUnavailable = nil
   return true
 end
 
@@ -143,6 +145,10 @@ local function invalidateForRecovery(operation)
   operation.replaceWriteInFlight = false
   operation.pendingReplacementSwitch = nil
   operation.candidateIsolation = nil
+  operation.readRetry = nil
+  operation.readUnavailable = nil
+  operation.selectedModel = nil
+  operation.selectedConfig = nil
   if type(operation.batchRecovery) == "table" then operation.batchRecovery.currentBatch = nil end
   if type(operation.slotLedger) == "table" then
     operation.slotLedger.closed = true

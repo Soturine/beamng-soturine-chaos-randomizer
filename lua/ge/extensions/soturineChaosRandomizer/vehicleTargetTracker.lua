@@ -61,6 +61,7 @@ local function create(options)
     expectedConfigKey = options.configKey,
     expectedConfigIdentity = util.deepCopy(options.configIdentity),
     expectedParts = util.deepCopy(options.parts or {}),
+    requirePartsReadable = options.requirePartsReadable == true,
     originalVehicleId = options.originalVehicleId,
     returnedVehicleId = options.returnedVehicleId,
     currentCandidateId = options.returnedVehicleId,
@@ -79,7 +80,7 @@ local function create(options)
     lastState = nil,
     status = "vehicle_target_stabilizing",
     identityStatus = "tracking_target_identity",
-    treeStatus = next(options.parts or {}) and "pending" or "not_required",
+    treeStatus = (next(options.parts or {}) or options.requirePartsReadable == true) and "pending" or "not_required",
     identityConfirmed = false,
     identityReported = false,
     identityConfirmedAt = nil,
@@ -187,6 +188,9 @@ local function verifyIdentity(tracker, state)
 end
 
 local function verifyTree(tracker, state)
+  if tracker.requirePartsReadable and (state.partsAvailable == false or type(state.parts) ~= "table") then
+    return false, state.readStatus or "parts_read_unavailable"
+  end
   for path, candidate in pairs(tracker.expectedParts or {}) do
     if type(state.parts) ~= "table" or state.parts[path] ~= candidate then
       return false, "parts_state_mismatch:" .. tostring(path)
@@ -261,7 +265,7 @@ local function observe(tracker, token, state, now, context)
   -- legitimate reload from being reclassified as a different target.
   if not tracker.identityReported then tracker.identityReported = true end
 
-  if next(tracker.expectedParts or {}) then
+  if next(tracker.expectedParts or {}) or tracker.requirePartsReadable then
     local treeMatches, treeReason = verifyTree(tracker, state)
     if not treeMatches then
       vehicleStabilizer.reset(tracker.treeStabilizer, treeReason)

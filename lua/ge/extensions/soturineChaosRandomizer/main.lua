@@ -69,6 +69,8 @@ local TARGET_BEAMNG = "0.38.6.0.19963"
 local WAIT_TIMEOUT = 25
 local PAINT_CONFIRM_TIMEOUT = 2
 local RECENT_LIMIT = 4
+local READ_RETRY_TIMEOUT = 5
+local READ_RETRY_INTERVAL = 0.10
 local DNA_RESTORE_TIMEOUT = 120
 
 local runtime = {
@@ -529,15 +531,6 @@ local function finishOperation(success, code, message, details, terminalState)
   local active = runtime.active
   terminalState = terminalState or (success and "completed" or "failed")
   operationState.finish(runtime.state, terminalState, success and nil or code)
-  if active and (success == true or (details and details.rollback == "completed")) then
-    local readable, finalSnapshot = adapter.captureCurrentState("operation_final", active.seed)
-    if readable then
-      vehicleRecovery.rememberReadable(runtime.recovery, finalSnapshot)
-      if success == true and terminalState == "completed" then
-        vehicleRecovery.rememberCompletedGood(runtime.recovery, finalSnapshot)
-      end
-    end
-  end
   if active then vehicleRecovery.cleanup(active) end
   details = type(details) == "table" and details or {}
   if active then
@@ -551,6 +544,19 @@ local function finishOperation(success, code, message, details, terminalState)
       pendingCallbacks = active.targetTracker and 1 or 0,
       staleCallbackCount = runtime.state.staleCallbackCount,
     }
+  end
+  if active and (success == true or details.rollback == "completed") then
+    local readable, finalSnapshot = adapter.captureCurrentState("operation_final", active.seed)
+    if readable then
+      vehicleRecovery.rememberReadable(runtime.recovery, finalSnapshot)
+      local accepted = success == true and terminalState == "completed"
+        and details.lifecycleAcceptance.busy == false
+        and details.lifecycleAcceptance.pendingWrites == 0
+        and details.lifecycleAcceptance.pendingTimers == 0
+        and details.lifecycleAcceptance.pendingCallbacks == 0
+        and active.recoveryOnly ~= true
+      if accepted then vehicleRecovery.rememberCompletedGood(runtime.recovery, finalSnapshot) end
+    end
   end
   setResult(success, code, message, details)
   runtime.progress = {label = success and "Complete" or message, value = success and 1 or 0}
@@ -1008,6 +1014,7 @@ local function enterWaiting(active, phase, afterReload, expected, label, value)
     recoveryOnly = active.recoveryOnly == true,
     stabilizer = {minimumFrames = 5, minimumScans = 2, pollInterval = 0.05, persistentTreeScans = 2},
     treeStabilizer = {minimumFrames = 2, minimumScans = 2, pollInterval = 0},
+    requirePartsReadable = createsTarget,
   })
   diagnosticsModule.write(runtime.diagnostics, "D", "lifecycle_wait_started", {
     phase = phase,
@@ -1184,6 +1191,14 @@ local function beginRollback(failure)
   local active = runtime.active
   if not active then return end
   active.rollbackFailure = failure
+  if active.selectedConfig then
+    vehicleRecovery.quarantine(
+      runtime.recovery,
+      active.selectedConfig.modelKey or (active.selectedModel and active.selectedModel.key),
+      active.selectedConfig.key,
+      failure.code
+    )
+  end
   active.recoverySteps = vehicleRecovery.choosePlan(runtime.recovery, active.originalState, runtime.index.allConfigs)
   active.recoveryIndex = 0
   active.token = operationState.invalidate(runtime.state, "recovery_started", {
@@ -1887,7 +1902,42 @@ processMutationPass = function(active)
   setProgress(string.format("Scanning complete slot tree (pass %d)", active.coveragePass), 0.30 + math.min(active.coveragePass, 8) * 0.045)
   local scanStarted = adapter.clock()
   local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot()
-  if not okSnapshot then failActive(snapshot, active.destructiveStarted, "parts"); return end
+  if not okSnapshot then
+    local readCode = type(snapshot) == "table" and snapshot.code or "parts_read_unavailable"
+    local retryable = readCode == "missing_parts_tree" or readCode == "parts_read_unavailable"
+      or readCode == "config_read_unavailable" or readCode == "no_active_vehicle"
+    if retryable then
+      local now = runtime.time.realMonotonicTime
+      active.readRetry = active.readRetry or {
+        firstAt = now,
+        deadline = now + math.min(READ_RETRY_TIMEOUT, active.waitTimeout or WAIT_TIMEOUT),
+        count = 0,
+      }
+      active.readRetry.count = active.readRetry.count + 1
+      active.readRetry.lastCode = readCode
+      active.readRetry.lastAt = now
+      if now < active.readRetry.deadline then
+        active.treeRescanAt = now + READ_RETRY_INTERVAL
+        active.treeRescanContext = operationState.captureContext(runtime.state, active.operationCurrentTarget)
+        setProgress("Waiting for the target parts tree to become readable", runtime.progress.value)
+        diagnosticsModule.write(runtime.diagnostics, "W", "parts_read_retry", {
+          code = readCode,
+          attempt = active.readRetry.count,
+          deadline = active.readRetry.deadline,
+          target = util.deepCopy(active.operationCurrentTarget),
+        })
+        return
+      end
+      snapshot = adapter.errorValue("parts_read_unavailable", "The target parts tree remained unavailable after bounded retries", {
+        sourceCode = readCode,
+        attempts = active.readRetry.count,
+        elapsed = math.max(0, now - active.readRetry.firstAt),
+      })
+    end
+    failActive(snapshot, active.destructiveStarted, "parts")
+    return
+  end
+  active.readRetry = nil
   local scan, scanError = slotScanner.scan(snapshot.tree, snapshot.metadataByPath)
   active.slotScanDuration = (active.slotScanDuration or 0) + math.max(0, adapter.clock() - scanStarted)
   if not scan then failActive(adapter.errorValue(scanError, "Could not scan the current parts tree"), active.destructiveStarted, "parts"); return end
