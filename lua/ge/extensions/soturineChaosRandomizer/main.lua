@@ -261,6 +261,7 @@ local function publicState()
         position = competitor.position, configuration = competitor.configuration,
         source = util.deepCopy(competitor.source), dependencies = util.deepCopy(competitor.dependencies),
         coverage = util.deepCopy(competitor.coverage), targetGeneration = competitor.targetGeneration,
+        progress = competitor.progress,
         managedHandle = competitor.managedHandle,
         raceStatus = competitor.raceStatus, traits = util.deepCopy(competitor.traits),
       }
@@ -431,6 +432,19 @@ local function setLifecyclePhase(active, phase, timeout, reason)
     if active then
       active.lifecyclePhase = phase
       active.phaseGeneration = runtime.state.phaseGeneration
+      if active.lineupIndex and runtime.lineup.current then
+        local racePhase = phase == "selecting" and "Selecting"
+          or (phase == "issuing_spawn" or phase == "tracking_target_identity" or phase == "stabilizing_tree") and "Loading"
+          or (phase == "final_validation") and "Verifying"
+          or (phase == "planning_parts" or phase == "applying_parts" or phase == "waiting_parts_reload"
+            or phase == "planning_tuning" or phase == "applying_tuning" or phase == "waiting_tuning_reload"
+            or phase == "applying_paint" or phase == "verifying_paint") and "Randomizing"
+        if racePhase then
+          productionModules.lineupManager.setPhase(
+            runtime.lineup.current, active.lineupIndex, racePhase, runtime.progress.label
+          )
+        end
+      end
     end
     noteProgress(active, "phase", reason or phase)
   end
@@ -627,24 +641,20 @@ local function finishOperation(success, code, message, details, terminalState)
       end
     end
     local lineup = runtime.lineup.current
-    if success then
+    if terminalState == "cancelled" then
+      productionModules.lineupManager.cancel(lineup, "Race generation cancelled by user")
+    elseif success then
       lineup.consecutiveFailures = 0
     else
       lineup.consecutiveFailures = (lineup.consecutiveFailures or 0) + 1
-      if competitor and (competitor.attemptCount or 0) < (lineup.maxAttemptsPerCompetitor or 3)
-        and lineup.consecutiveFailures < (lineup.maxConsecutiveFailures or 4)
-      then
-        competitor.status = "Pending"
-        competitor.generationStatus = "Pending"
-        competitor.warning = "Retrying with an independent candidate substream after recovery"
-        lineup.nextIndex = active.lineupIndex
-      elseif lineup.consecutiveFailures >= (lineup.maxConsecutiveFailures or 4) then
+      if lineup.consecutiveFailures >= (lineup.maxConsecutiveFailures or 4) then
         lineup.active = false
         lineup.warnings[#lineup.warnings + 1] = "Generation stopped at the consecutive failure limit"
       end
     end
     if type(production.persistCurrentLineup) == "function" then production.persistCurrentLineup() end
     runtime.lineup.pendingNext = lineup.active == true
+    if active.lineupPreviousSettings then runtime.settings = settingsModule.validate(active.lineupPreviousSettings) end
   end
   runtime.active = nil
 
@@ -4480,17 +4490,19 @@ function production.startNextLineupCompetitor()
     publishState()
     return false
   end
+  local previousSettings = util.deepCopy(runtime.settings)
   local settings = util.deepCopy(runtime.settings)
   local attemptNumber = (competitor.attemptCount or 0) + 1
   settings.manualSeed = productionModules.lineupManager.domainSeed(
     runtime.lineup.current, competitor, "operation", attemptNumber
   ) or competitor.seed
+  settings.seedMode = "fixed"
   settings.allowPartialResult = runtime.lineup.current.acceptPartial == true
   if competitor.forceOfficialFallback then settings.contentFilter = "official" end
-  if runtime.lineup.current.preset == "Maximum Chaos" then settings.chaos, settings.extremeTuning = 100, true
-  elseif runtime.lineup.current.preset == "Mods Showcase" then settings.chaos, settings.contentFilter = 100, "mods"
-  else settings.chaos = math.max(60, settings.chaos or 75) end
-  applySettingsSnapshot(settings)
+  for key, value in pairs(runtime.lineup.current.settings.actionSettings or {}) do
+    if value ~= nil then settings[key] = value end
+  end
+  runtime.settings = settingsModule.validate(settings)
   local excludedModels, excludedConfigurations = {}, {}
   local acceptedCompetitors = {}
   local rules = runtime.lineup.current.varietyRules or {}
@@ -4516,8 +4528,14 @@ function production.startNextLineupCompetitor()
     runtime.active.lineupSeed = runtime.lineup.current.episodeSeed
     runtime.active.lineupAttempt = attemptNumber
     runtime.active.lineupTargetGeneration = competitor.targetGeneration
+    runtime.active.lineupPreviousSettings = previousSettings
     runtime.active.captureOperation = "fullRandom"
     competitor.forceOfficialFallback = nil
+    productionModules.lineupManager.setPhase(
+      runtime.lineup.current, competitor.index,
+      runtime.state.phase == "selecting" and "Selecting" or "Loading",
+      runtime.progress.label
+    )
   else
     productionModules.lineupManager.record(
       runtime.lineup.current, competitor.index, runtime.lastResult, nil, competitor.targetGeneration
@@ -4655,7 +4673,11 @@ function production.previewLineupSpawn(options)
   else
     setResult(false, "lineup_missing", "Create or import a lineup, or choose a Vehicle DNA"); publishState(); return false
   end
-  if #competitors == 0 then setResult(false, "lineup_no_spawnable_competitors", "No accepted competitors are ready to spawn"); publishState(); return false end
+  if #competitors == 0 then
+    setResult(false, "race_no_ready_cars", "No race cars are ready yet. Generate cars first.")
+    publishState()
+    return false
+  end
   options.count = math.min(#competitors, tonumber(options.count) or #competitors)
   if options.mode == "Custom point" or options.mode == "Custom" then
     options.customPoint = {
@@ -5007,6 +5029,11 @@ end
 
 function production.startManagedAI(options)
   options = type(options) == "table" and util.deepCopy(options) or {}
+  if #(runtime.managedVehicles.order or {}) == 0 then
+    setResult(false, "race_no_managed_vehicles", "No managed race cars are available. Place cars first.")
+    publishState()
+    return false
+  end
   local mode = options.mode or "Destination"
   local capabilities = productionModules.aiAdapter.capabilities()
   if capabilities[mode] ~= true then
@@ -5062,7 +5089,10 @@ function production.startManagedAI(options)
       end
     else failures[#failures + 1] = {handle = handle, reason = managedReason} end
   end
-  setResult(started > 0, started > 0 and "ai_director_scheduled" or "ai_director_failed", started > 0 and "AI Director scheduled managed vehicles" or "No managed vehicle could be scheduled", {started = started, failures = failures})
+  setResult(started > 0, started > 0 and "ai_director_scheduled" or "ai_director_failed",
+    started > 0 and "AI Director scheduled managed vehicles"
+      or "Managed race cars could not start. Check Drive details and NavGraph availability.",
+    {started = started, failures = failures})
   publishState()
   return started > 0
 end

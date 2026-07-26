@@ -4,7 +4,7 @@ local schema = require("ge/extensions/soturineChaosRandomizer/lineupSchema")
 
 local M = {}
 
-local PRESETS = {Balanced = true, ["Maximum Chaos"] = true, ["Mods Showcase"] = true}
+local PRESETS = {Balanced = true, ["Maximum Chaos"] = true, ["Mods Showcase"] = true, Custom = true}
 local RULE_DEFAULTS = {
   avoidDuplicateModels = true, avoidDuplicateConfigurations = true,
   avoidDuplicateFamilies = false, maximumSameFamily = 2,
@@ -23,6 +23,68 @@ local TRAIT_FIELDS = {
   wheelStyle = {"wheelStyle", "WheelStyle"},
   bodyType = {"bodyType", "BodyType", "bodyStyle", "BodyStyle"},
 }
+
+local function presetOptions(name, options)
+  options = type(options) == "table" and options or {}
+  if name == "Custom" then return util.deepCopy(options) end
+  local result = util.deepCopy(options)
+  if name == "Maximum Chaos" then
+    result.chaos = 100
+    result.contentFilter = "everything"
+    result.allowOfficialVehicles = true
+    result.allowModVehicles = true
+    result.allowAutomationVehicles = options.allowAutomationVehicles == true
+    result.avoidDuplicateModels = true
+    result.avoidDuplicateConfigurations = true
+    result.diversifyVehicleClasses = true
+    result.diversifyPropulsion = true
+    result.diversifyDrivetrain = true
+    result.diversifySource = true
+    result.diversifyWheelStyles = true
+    result.diversifyBodyTypes = true
+    result.protectCriticalParts = false
+    result.allowMissingParts = true
+    result.extremeTuning = true
+    result.acceptPartial = options.acceptPartial == nil or options.acceptPartial == true
+    result.acceptMetadataUncertain = options.acceptMetadataUncertain == nil or options.acceptMetadataUncertain == true
+    result.acceptPotentiallyUndrivable = options.acceptPotentiallyUndrivable == nil
+      or options.acceptPotentiallyUndrivable == true
+  elseif name == "Mods Showcase" then
+    result.chaos = 80
+    result.contentFilter = options.allowOfficialVehicles == true and "everything" or "mods"
+    result.allowOfficialVehicles = options.allowOfficialVehicles == true
+    result.allowModVehicles = true
+    result.allowAutomationVehicles = options.allowAutomationVehicles == true
+    result.avoidDuplicateModels = true
+    result.avoidDuplicateConfigurations = true
+    result.diversifySource = true
+    result.diversifyVehicleClasses = true
+    result.diversifyBodyTypes = true
+    result.protectCriticalParts = true
+    result.allowMissingParts = false
+    result.extremeTuning = false
+    result.tuningIntensity = "medium"
+    result.acceptPartial = options.acceptPartial == true
+    result.acceptMetadataUncertain = true
+    result.acceptPotentiallyUndrivable = options.acceptPotentiallyUndrivable == true
+  else
+    result.chaos = 65
+    result.contentFilter = "everything"
+    result.allowOfficialVehicles = true
+    result.allowModVehicles = true
+    result.allowAutomationVehicles = options.allowAutomationVehicles == true
+    result.avoidDuplicateModels = true
+    result.avoidDuplicateConfigurations = true
+    result.protectCriticalParts = true
+    result.allowMissingParts = false
+    result.extremeTuning = false
+    result.acceptPartial = false
+    result.acceptMetadataUncertain = false
+    result.acceptPotentiallyUndrivable = false
+  end
+  result.preset = name
+  return result
+end
 
 local function cleanEvidence(value)
   if type(value) ~= "string" and type(value) ~= "number" then return nil end
@@ -178,6 +240,7 @@ local function create(options)
   if count < minimum or count > schema.MAX_COMPETITORS then return nil, "lineup_competitor_limit" end
   local episodeSeed = raceSeed(options.episodeSeed)
   local preset = PRESETS[options.preset] and options.preset or "Balanced"
+  options = presetOptions(preset, options)
   local varietyRules = {}
   for key, default in pairs(RULE_DEFAULTS) do
     if type(default) == "boolean" then varietyRules[key] = options[key] == nil and default or options[key] == true
@@ -196,6 +259,16 @@ local function create(options)
       acceptPotentiallyUndrivable = options.acceptPotentiallyUndrivable == true,
       maxAttemptsPerCompetitor = math.max(1, math.min(10, math.floor(tonumber(options.maxAttemptsPerCompetitor) or 3))),
       maxConsecutiveFailures = math.max(1, math.min(16, math.floor(tonumber(options.maxConsecutiveFailures) or 4))),
+      actionSettings = {
+        chaos = options.chaos,
+        contentFilter = options.contentFilter,
+        allowMissingParts = options.allowMissingParts,
+        protectCriticalParts = options.protectCriticalParts,
+        extremeTuning = options.extremeTuning,
+        includeAutomation = options.allowAutomationVehicles,
+        includeTrailers = options.allowTrailers,
+        includeProps = options.allowProps,
+      },
     }, varietyRules = varietyRules,
     spawnPlan = {}, aiPlan = {}, warnings = {}, dependencies = {},
     collectionName = "Chaos Lineup — " .. os.date("%Y-%m-%d"),
@@ -232,7 +305,7 @@ local function nextCompetitor(lineup)
       competitor.pendingWrites = 0
       competitor.pendingTimers = 0
       competitor.pendingCallbacks = 0
-      competitor.status = "Generating"
+      competitor.status = "Selecting"
       lineup.nextIndex = index
       lineup.updatedAt = os.time()
       return competitor
@@ -241,6 +314,36 @@ local function nextCompetitor(lineup)
   lineup.active = false
   lineup.updatedAt = os.time()
   return nil
+end
+
+local function setPhase(lineup, index, phase, progress)
+  local competitor = lineup and lineup.competitors and lineup.competitors[index]
+  if not competitor or competitor.generationClosed then return false, "lineup_competitor_closed" end
+  local allowed = {Selecting = true, Loading = true, Randomizing = true, Verifying = true}
+  if not allowed[phase] then return false, "lineup_phase_invalid" end
+  competitor.status = phase
+  competitor.generationStatus = phase
+  competitor.progress = progress
+  lineup.updatedAt = os.time()
+  return true
+end
+
+local function cancel(lineup, reason)
+  if not lineup then return false, "lineup_missing" end
+  for _, competitor in ipairs(lineup.competitors or {}) do
+    if not competitor.generationClosed and competitor.status ~= "Ready"
+      and competitor.status ~= "Ready with warnings" and competitor.status ~= "Partial"
+      and competitor.status ~= "Failed" and competitor.status ~= "Skipped"
+    then
+      competitor.status = "Cancelled"
+      competitor.generationStatus = "Cancelled"
+      competitor.generationClosed = true
+      competitor.warning = reason or "Race generation cancelled by user"
+    end
+  end
+  lineup.active = false
+  lineup.updatedAt = os.time()
+  return true
 end
 
 local function record(lineup, index, result, dna, targetGeneration)
@@ -344,7 +447,7 @@ local function summary(lineup)
     result.total = result.total + 1
     if competitor.status == "Ready" or competitor.status == "Ready with warnings" then result.ready = result.ready + 1
     elseif competitor.status == "Partial" then result.partial = result.partial + 1
-    elseif competitor.status == "Failed" then result.failed = result.failed + 1
+    elseif competitor.status == "Failed" or competitor.status == "Cancelled" then result.failed = result.failed + 1
     else result.pending = result.pending + 1 end
     result.retries = result.retries + math.max(0, (competitor.attemptCount or 0) - 1)
     if competitor.forceOfficialFallback or competitor.quarantinedCandidateReplaced then
@@ -359,11 +462,14 @@ M.RULE_DEFAULTS = RULE_DEFAULTS
 M.raceSeed = raceSeed
 M.verifiedTraits = verifiedTraits
 M.metadataUncertain = metadataUncertain
+M.presetOptions = presetOptions
 M.filterModels = filterModels
 M.domainSeed = domainSeed
 M.create = create
 M.nextCompetitor = nextCompetitor
 M.record = record
+M.setPhase = setPhase
+M.cancel = cancel
 M.resolveFailure = resolveFailure
 M.summary = summary
 

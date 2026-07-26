@@ -8,8 +8,10 @@ M.MIN_COMPETITORS = 2
 M.MAX_COMPETITORS = 16
 
 local STATUSES = {
-  Pending = true, Generating = true, Ready = true, ["Ready with warnings"] = true,
+  Pending = true, Selecting = true, Loading = true, Randomizing = true, Verifying = true,
+  Generating = true, Ready = true, ["Ready with warnings"] = true,
   Partial = true, Failed = true, Skipped = true,
+  Cancelled = true,
   ["Quarantined candidate replaced"] = true, Spawned = true, Destroyed = true,
 }
 local RACE_STATUSES = {

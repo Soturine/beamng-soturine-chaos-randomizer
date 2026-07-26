@@ -3026,7 +3026,7 @@ tests.v060_lineup_seeds_progress_schema_and_storage = function()
     },
   }
   truthy(not lineupManager.record(lineup, 1, accepted, sampleDNA({id = "dna-stale"}), first.targetGeneration + 1))
-  equal(first.status, "Generating")
+  equal(first.status, "Selecting")
   truthy(lineupManager.record(lineup, 1, accepted, sampleDNA({id = "dna-ready"}), first.targetGeneration))
   equal(first.status, "Ready")
   local second = assert(lineupManager.nextCompetitor(lineup))
@@ -3124,7 +3124,8 @@ tests.v060_lineup_variety_substreams_and_failure_actions = function()
   equal(strictCompetitor.status, "Partial")
   truthy(strictCompetitor.warning:find("requires explicit acceptance", 1, true) ~= nil)
   local permissive = assert(lineupManager.create({
-    count = 2, episodeSeed = "permissive", acceptMetadataUncertain = true, acceptPotentiallyUndrivable = true,
+    count = 2, episodeSeed = "permissive", preset = "Custom",
+    acceptMetadataUncertain = true, acceptPotentiallyUndrivable = true,
   }))
   local permissiveCompetitor = assert(lineupManager.nextCompetitor(permissive))
   truthy(lineupManager.record(permissive, 1, lifecycleResult, sampleDNA({id = "permissive-dna"}), permissiveCompetitor.targetGeneration))
