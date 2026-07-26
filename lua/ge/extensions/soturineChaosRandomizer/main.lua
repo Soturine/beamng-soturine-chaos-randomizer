@@ -105,7 +105,7 @@ local runtime = {
   aiDirector = productionModules.aiDirector.create(32),
   destination = productionModules.destinationMarker.create(),
   aiRoute = productionModules.routePlanner.create(16),
-  uiMode = "standard",
+  uiMode = "expanded",
   performance = {
     indexBuilds = 0,
     indexCacheHits = 0,
@@ -2699,7 +2699,7 @@ end
 
 local function setUICompactMode(mode)
   initialize()
-  local allowed = {collapsed = true, compact = true, standard = true, expanded = true}
+  local allowed = {collapsed = true, expanded = true}
   if not allowed[mode] then return false end
   runtime.uiMode = mode
   publishState()

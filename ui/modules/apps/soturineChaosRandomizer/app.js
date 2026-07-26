@@ -24,16 +24,12 @@
         var queryTimer = null
 
         scope.chaos = {
-          view: 'randomize',
+          view: 'chaos',
           navigation: [
-            {id: 'randomize', label: 'Randomize', help: 'Random Car loads a normal configuration; Scramble transforms the current vehicle; Full Random loads a new vehicle and scrambles its reachable tree.'},
-            {id: 'locks', label: 'Locks'},
-            {id: 'garage', label: 'Garage'},
-            {id: 'compare', label: 'Compare'},
-            {id: 'share', label: 'Share'},
-            {id: 'lineup', label: 'Lineup', help: 'Generate a reusable roster of independently randomized competitors.'},
-            {id: 'spawn', label: 'Spawn', help: 'Place confirmed lineup or Vehicle DNA entries safely and sequentially.'},
-            {id: 'ai', label: 'AI', help: 'Drive confirmed managed vehicles to a destination or along a route.'}
+            {id: 'chaos', label: 'CHAOS'},
+            {id: 'garage', label: 'GARAGE'},
+            {id: 'race', label: 'RACE'},
+            {id: 'settings', label: 'SETTINGS'}
           ],
           lockPresets: ['Everything', 'Visual', 'Mechanical', 'Accessories'],
           lockCategories: [
@@ -60,6 +56,10 @@
           exportText: '',
           dnaName: '',
           garageView: 'grid',
+          garageSection: 'saved',
+          raceSection: 'cars',
+          racePresets: ['Balanced', 'Maximum Chaos', 'Mods Showcase'],
+          operationDetailsOpen: false,
           garageQuery: {search: '', filter: 'all', sort: 'updated', model: '', tag: '', collection: ''},
           replayPolicy: 'original',
           lockData: null,
@@ -78,7 +78,7 @@
           aiOptions: {mode: 'Destination', speedKph: 65, speedMode: 'limit', aggression: 0.5, driveInLane: true, avoidCars: true, delay: 0, stagger: 0.5, arrivalRadius: 8, timeout: 600, finishAction: 'stop', loop: false, recoveryWhenStuck: false, stuckAction: 'none', stuckTimeout: 12, maxReplans: 2, allowDamagedVehicles: true, targetVehicleId: null, handles: []},
           state: {
             busy: false,
-            uiMode: 'standard',
+            uiMode: 'expanded',
             operationState: 'loading',
             lifecyclePhase: 'idle',
             clocks: {paused: false, pauseKnown: false, realDelta: 0, simulationDelta: 0, frameCounter: 0},
@@ -96,7 +96,7 @@
             spawnDirector: {managed: [], run: null},
             aiDirector: {capabilities: {}, vehicles: [], destination: {status: 'empty'}, route: {points: []}},
             settings: {
-              schemaVersion: 5,
+              schemaVersion: 6,
               chaos: 75,
               allowMissingParts: true,
               protectCriticalParts: false,
@@ -107,6 +107,8 @@
               selectionFairness: 'vehicle',
               diagnosticLogging: false,
               manualSeed: '',
+              seedMode: 'random',
+              rememberLocks: false,
               dnaLibraryLimit: 100,
               autoSaveDNA: false,
               defaultRestoreMode: 'exact',
@@ -266,10 +268,11 @@
 
         scope.chaos.toggleAdvanced = function () { scope.chaos.advancedOpen = !scope.chaos.advancedOpen }
         scope.chaos.setMode = function (mode) {
-          var allowed = {collapsed: true, compact: true, standard: true, expanded: true}
+          var allowed = {collapsed: true, expanded: true}
           if (!allowed[mode]) return
           callWithArgs('setUICompactMode', [mode])
         }
+        scope.chaos.toggleMode = function () { scope.chaos.setMode(scope.chaos.state.uiMode === 'collapsed' ? 'expanded' : 'collapsed') }
         scope.chaos.spawnSafeVehicle = function () { if (!scope.chaos.state.busy) engineCall('spawnSafeVehicle') }
         scope.chaos.retryQuarantined = function () { if (!scope.chaos.state.busy) engineCall('retryQuarantinedConfigurations') }
         scope.chaos.copyDiagnostics = function () { engineCall('copyDiagnostics') }
@@ -284,7 +287,7 @@
           if (!dna || scope.chaos.state.busy) return
           callWithArgs('rerollUnlocked', [{parentDNAId: dna.id}])
           scope.chaos.dnaDetails = null
-          scope.chaos.view = 'randomize'
+          scope.chaos.view = 'chaos'
         }
 
         scope.chaos.cancelCurrent = function () {
@@ -292,10 +295,10 @@
         }
 
         scope.chaos.openView = function (view) {
-          var allowed = {randomize: true, locks: true, garage: true, compare: true, share: true, lineup: true, spawn: true, ai: true}
+          var allowed = {chaos: true, garage: true, race: true, settings: true}
           if (!allowed[view]) return
           scope.chaos.view = view
-          if (view === 'locks') $timeout(scope.chaos.requestLocks, 0)
+          if (view === 'settings') $timeout(scope.chaos.requestLocks, 0)
         }
 
         scope.chaos.copySeed = function () {
@@ -306,6 +309,15 @@
         }
 
         scope.chaos.createLineup = function () { if (!scope.chaos.state.busy) callWithArgs('createChaosLineup', [angular.copy(scope.chaos.lineupOptions)]) }
+        scope.chaos.applyRacePreset = function (preset) {
+          var policy = {
+            Balanced: {preset: 'Balanced', acceptPartial: false, acceptMetadataUncertain: false, acceptPotentiallyUndrivable: false, avoidDuplicateModels: true, avoidDuplicateConfigurations: true, allowOfficialVehicles: true, allowModVehicles: true},
+            'Maximum Chaos': {preset: 'Maximum Chaos', acceptPartial: true, acceptMetadataUncertain: true, acceptPotentiallyUndrivable: true, avoidDuplicateModels: true, avoidDuplicateConfigurations: true, allowOfficialVehicles: true, allowModVehicles: true},
+            'Mods Showcase': {preset: 'Mods Showcase', acceptPartial: false, acceptMetadataUncertain: true, acceptPotentiallyUndrivable: false, avoidDuplicateModels: true, avoidDuplicateConfigurations: true, allowOfficialVehicles: false, allowModVehicles: true}
+          }[preset]
+          if (policy) angular.extend(scope.chaos.lineupOptions, policy)
+        }
+        scope.chaos.markRaceCustom = function () { scope.chaos.lineupOptions.preset = 'Custom' }
         scope.chaos.exportLineup = function () { engineCall('exportChaosLineup') }
         scope.chaos.importLineup = function () { engineCall('importChaosLineup') }
         scope.chaos.renameCompetitor = function (competitor) {
@@ -352,6 +364,10 @@
         scope.chaos.setRecording = function (managed, enabled) { if (managed) callWithArgs('setAIRecording', [managed.handle, enabled === true]) }
         scope.chaos.readyManagedCount = function () {
           return (scope.chaos.state.spawnDirector && scope.chaos.state.spawnDirector.managed || []).filter(function (entry) { return entry.status === 'ready' }).length
+        }
+        scope.chaos.raceReadyCount = function () {
+          var current = scope.chaos.state.lineup && scope.chaos.state.lineup.current
+          return current && current.summary ? Number(current.summary.ready) || 0 : 0
         }
         scope.chaos.managedStep = function (delta) {
           var managed = scope.chaos.state.spawnDirector && scope.chaos.state.spawnDirector.managed || []
@@ -402,6 +418,12 @@
         scope.chaos.unlockAll = function () {
           callWithArgs('updateLockProfile', [{vehicle: false, configuration: false, categories: {}, slots: {}, parts: {}, tuning: {}, paints: {}}])
           refreshLocksSoon()
+        }
+
+        scope.chaos.clearFixedSeed = function () {
+          scope.chaos.state.settings.manualSeed = ''
+          scope.chaos.state.settings.seedMode = 'random'
+          scope.chaos.scheduleSettings()
         }
 
         scope.chaos.invertCategories = function () {
@@ -494,7 +516,7 @@
           if (!dna || scope.chaos.state.busy) return
           callWithArgs('mutateVehicleDNA', [dna.id, strength, {}])
           scope.chaos.mutationDNA = null
-          scope.chaos.view = 'randomize'
+          scope.chaos.view = 'chaos'
         }
 
         scope.chaos.mutateSelectedDNA = function (strength) {

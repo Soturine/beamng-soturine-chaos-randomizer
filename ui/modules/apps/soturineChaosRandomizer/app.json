@@ -4,14 +4,14 @@
   "types": [
     "ui.apps.categories.vehicle_control"
   ],
-  "description": "Build fully classified chaos vehicles, lineups, safe spawn layouts, and managed AI routes.",
+  "description": "Randomize vehicles and manage a compact Race workflow with best-effort mod support.",
   "css": {
     "right": "20px",
     "top": "120px",
-    "width": "330px",
-    "height": "430px",
+    "width": "340px",
+    "height": "320px",
     "min-width": "300px",
-    "min-height": "340px"
+    "min-height": "220px"
   },
   "author": "Soturine",
   "version": "0.6.0",
