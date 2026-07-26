@@ -4,7 +4,7 @@ local vehicleDNALocks = require("ge/extensions/soturineChaosRandomizer/vehicleDN
 local M = {}
 
 local DEFAULTS = {
-  schemaVersion = 5,
+  schemaVersion = 6,
   chaos = 75,
   allowMissingParts = true,
   protectCriticalParts = false,
@@ -16,6 +16,8 @@ local DEFAULTS = {
   historyLimit = 10,
   diagnosticLogging = false,
   manualSeed = "",
+  seedMode = "random",
+  rememberLocks = false,
   dnaLibraryLimit = 100,
   autoSaveDNA = false,
   defaultRestoreMode = "exact",
@@ -27,6 +29,7 @@ local DEFAULTS = {
 local FILTERS = {everything = true, official = true, mods = true}
 local FAIRNESS = {vehicle = true, configuration = true}
 local RESTORE_MODES = {exact = true, compatible = true}
+local SEED_MODES = {random = true, fixed = true}
 
 local function boolOrDefault(value, fallback)
   if type(value) == "boolean" then return value end
@@ -56,7 +59,15 @@ local function migrate(raw)
 
   if version < 4 and raw.lockProfile == nil then raw.lockProfile = vehicleDNALocks.empty() end
 
-  raw.schemaVersion = 5
+  if version < 6 then
+    -- v0.6.0 persisted session locks and treated any saved seed as active.
+    -- v0.6.1 starts unlocked and with fresh entropy unless the user opts in.
+    raw.lockProfile = vehicleDNALocks.empty()
+    raw.rememberLocks = false
+    raw.seedMode = "random"
+  end
+
+  raw.schemaVersion = 6
   raw.allowEmptyParts = nil
   raw.fairMode = nil
   raw.keepVehicleDrivable = nil
@@ -78,16 +89,24 @@ local function validate(raw)
   result.autoSaveDNA = false
   result.extremeTuning = boolOrDefault(raw.extremeTuning, result.extremeTuning)
   result.allowPartialResult = boolOrDefault(raw.allowPartialResult, result.allowPartialResult)
+  result.rememberLocks = boolOrDefault(raw.rememberLocks, result.rememberLocks)
 
   if FILTERS[raw.contentFilter] then result.contentFilter = raw.contentFilter end
   if FAIRNESS[raw.selectionFairness] then result.selectionFairness = raw.selectionFairness end
   result.historyLimit = math.floor(util.clamp(raw.historyLimit or result.historyLimit, 1, 50))
   result.dnaLibraryLimit = math.floor(util.clamp(raw.dnaLibraryLimit or result.dnaLibraryLimit, 1, 100))
   if RESTORE_MODES[raw.defaultRestoreMode] then result.defaultRestoreMode = raw.defaultRestoreMode end
+  if SEED_MODES[raw.seedMode] then result.seedMode = raw.seedMode end
   result.lockProfile = vehicleDNALocks.normalize(raw.lockProfile)
   if type(raw.manualSeed) == "string" then
     result.manualSeed = string.sub(raw.manualSeed:gsub("^%s+", ""):gsub("%s+$", ""), 1, 128)
   end
+  return result
+end
+
+local function forPersistence(value)
+  local result = validate(value)
+  if result.rememberLocks ~= true then result.lockProfile = vehicleDNALocks.empty() end
   return result
 end
 
@@ -99,5 +118,6 @@ M.defaults = function() return util.deepCopy(DEFAULTS) end
 M.migrate = migrate
 M.validate = validate
 M.update = update
+M.forPersistence = forPersistence
 
 return M

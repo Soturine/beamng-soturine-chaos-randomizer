@@ -521,7 +521,7 @@ local function restoreStressSettings()
     runtime.settings = settingsModule.validate(runtime.stress.originalSettings)
     historyModule.setLimit(runtime.history, runtime.settings.historyLimit)
     diagnosticsModule.setEnabled(runtime.diagnostics, runtime.settings.diagnosticLogging)
-    adapter.saveSettings(runtime.settings)
+    adapter.saveSettings(settingsModule.forPersistence(runtime.settings))
     runtime.stress.originalSettings = nil
   end
 end
@@ -2381,7 +2381,7 @@ local function applySettingsSnapshot(snapshot)
   runtime.dna.library.limit = runtime.settings.dnaLibraryLimit
   historyModule.setLimit(runtime.history, runtime.settings.historyLimit)
   diagnosticsModule.setEnabled(runtime.diagnostics, runtime.settings.diagnosticLogging)
-  local ok, saveError = adapter.saveSettings(runtime.settings)
+  local ok, saveError = adapter.saveSettings(settingsModule.forPersistence(runtime.settings))
   if not ok then
     setResult(false, saveError.code, saveError.message, {settingsAppliedForSession = true})
     diagnosticsModule.write(runtime.diagnostics, "W", "settings_persistence_failed", saveError, true)
@@ -2480,7 +2480,7 @@ local function updateSettings(patch)
   runtime.dna.library.limit = runtime.settings.dnaLibraryLimit
   historyModule.setLimit(runtime.history, runtime.settings.historyLimit)
   diagnosticsModule.setEnabled(runtime.diagnostics, runtime.settings.diagnosticLogging)
-  local ok, saveError = adapter.saveSettings(runtime.settings)
+  local ok, saveError = adapter.saveSettings(settingsModule.forPersistence(runtime.settings))
   if not ok then setResult(false, saveError.code, saveError.message, {settingsAppliedForSession = true}) end
   publishState()
   return ok
@@ -2513,7 +2513,7 @@ local function persistLockProfile(profile, code, message)
     profile.boundConfigKey = nil
   end
   runtime.settings.lockProfile = vehicleDNALocks.normalize(profile)
-  local ok, saveError = adapter.saveSettings(runtime.settings)
+  local ok, saveError = adapter.saveSettings(settingsModule.forPersistence(runtime.settings))
   if ok then setResult(true, code or "lock_profile_updated", message or "Lock profile updated", {
     summary = vehicleDNALocks.summary(runtime.settings.lockProfile),
   }) else setResult(false, saveError.code, saveError.message, {settingsAppliedForSession = true}) end

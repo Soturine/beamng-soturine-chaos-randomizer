@@ -376,7 +376,7 @@ tests.settings_migration = function()
     fairMode = false,
     historyLimit = 0,
   })
-  equal(migrated.schemaVersion, 5)
+  equal(migrated.schemaVersion, 6)
   equal(migrated.chaos, 100)
   equal(migrated.allowMissingParts, false)
   equal(migrated.selectionFairness, "configuration")
@@ -589,7 +589,7 @@ end
 
 tests.legacy_keep_vehicle_drivable_setting_migrates = function()
   local value = settings.validate({schemaVersion = 1, keepVehicleDrivable = true})
-  equal(value.schemaVersion, 5)
+  equal(value.schemaVersion, 6)
   equal(value.protectCriticalParts, true)
   equal(value.keepVehicleDrivable, nil)
 end
@@ -2021,7 +2021,7 @@ end
 
 tests.settings_schema_two_migrates_to_four = function()
   local value = settings.validate({schemaVersion = 2, dnaLimit = 25, autoSaveDNA = true})
-  equal(value.schemaVersion, 5)
+  equal(value.schemaVersion, 6)
   equal(value.dnaLibraryLimit, 25)
   equal(value.autoSaveDNA, false)
 end
@@ -2388,7 +2388,7 @@ end
 
 tests.lock_profile_migrates_and_persists_separately = function()
   local value = settings.validate({schemaVersion = 3})
-  equal(value.schemaVersion, 5)
+  equal(value.schemaVersion, 6)
   equal(value.lockProfile.kind, "soturineVehicleDNALockProfile")
   local locked = vehicleDNALocks.applyPatch(value.lockProfile, {
     vehicle = true, categories = {engine = true}, tuning = {all = true},
