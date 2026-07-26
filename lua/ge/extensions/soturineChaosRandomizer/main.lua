@@ -4025,36 +4025,29 @@ local function processTargetTracking()
   if not runtime.state.busy or not active or not active.wait or not active.targetTracker then return false end
   local now = runtime.time.realMonotonicTime
   if not vehicleStabilizer.shouldPoll(active.targetTracker.stabilizer, now) then return true end
-  local waitingForSimulation = runtime.time.paused == true and runtime.time.simulationDelta <= 0
-  if waitingForSimulation and not active.pauseWaitStartedAt then
-    active.pauseWaitStartedAt = now
-    active.resumeLifecyclePhase = runtime.state.phase
-    setLifecyclePhase(active, "waiting_for_simulation_resume", false, "simulation_paused")
-    active.targetTracker.phaseGeneration = runtime.state.phaseGeneration
-    active.waitContext.phaseGeneration = runtime.state.phaseGeneration
-    active.targetTracker.status = "waiting_for_simulation_resume"
-    setProgress("Waiting for the simulation to resume so the vehicle can finish loading", runtime.progress.value)
-  elseif not waitingForSimulation and active.pauseWaitStartedAt then
-    local pausedDuration = math.max(0, now - active.pauseWaitStartedAt)
-    active.targetTracker.deadline = active.targetTracker.deadline + pausedDuration
-    local resumePhase = active.targetTracker.identityConfirmed
-      and next(active.targetTracker.expectedParts or {}) and "stabilizing_tree"
-      or "tracking_target_identity"
-    setLifecyclePhase(active, resumePhase, active.waitTimeout or WAIT_TIMEOUT, "simulation_resumed")
-    active.targetTracker.phaseGeneration = runtime.state.phaseGeneration
-    active.waitContext.phaseGeneration = runtime.state.phaseGeneration
-    active.pauseWaitStartedAt = nil
-    active.resumeLifecyclePhase = nil
-  end
   local okState, stateOrError = adapter.getVerificationState()
   local observed = okState and stateOrError or nil
+  if okState then
+    if observed.readStatus and observed.readStatus ~= "ready" then
+      active.readUnavailable = active.readUnavailable or {count = 0, firstAt = now}
+      active.readUnavailable.count = active.readUnavailable.count + 1
+      active.readUnavailable.lastCode = observed.readStatus
+      active.readUnavailable.lastAt = now
+    else
+      active.readUnavailable = nil
+    end
+  else
+    local readCode = type(stateOrError) == "table" and stateOrError.code or "config_read_unavailable"
+    active.readUnavailable = active.readUnavailable or {count = 0, firstAt = now}
+    active.readUnavailable.count = active.readUnavailable.count + 1
+    active.readUnavailable.lastCode = readCode
+    active.readUnavailable.lastAt = now
+  end
   local context = util.deepCopy(active.waitContext or {})
-  context.waitingForSimulation = waitingForSimulation
   local status, reason, details = vehicleTargetTracker.observe(active.targetTracker, active.token, observed, now, context)
   active.lastTargetMetrics = vehicleTargetTracker.summary(active.targetTracker, now)
   if active.lastTargetMetrics.identityConfirmed and active.lastTargetMetrics.treeStatus ~= "not_required"
-    and not waitingForSimulation and runtime.state.phase ~= "stabilizing_tree"
-  then
+    and runtime.state.phase ~= "stabilizing_tree" then
     setLifecyclePhase(active, "stabilizing_tree", active.waitTimeout or WAIT_TIMEOUT, "target_identity_confirmed")
     active.targetTracker.phaseGeneration = runtime.state.phaseGeneration
     active.waitContext.phaseGeneration = runtime.state.phaseGeneration
@@ -5139,22 +5132,6 @@ local function processPaintConfirmation()
     }, true)
     return true
   end
-  if runtime.time.paused and runtime.time.simulationDelta <= 0 then
-    if not confirmation.pauseStartedAt then
-      confirmation.pauseStartedAt = now
-      setLifecyclePhase(active, "waiting_for_simulation_resume", false, "paint_waiting_for_simulation")
-      confirmation.context = operationState.captureContext(runtime.state, active.operationCurrentTarget)
-      setProgress("Waiting for the simulation to resume so the vehicle can finish loading", runtime.progress.value)
-    end
-    return true
-  elseif confirmation.pauseStartedAt then
-    local pauseDuration = math.max(0, now - confirmation.pauseStartedAt)
-    confirmation.deadline = confirmation.deadline + pauseDuration
-    confirmation.nextCheckAt = now
-    confirmation.pauseStartedAt = nil
-    setLifecyclePhase(active, "verifying_paint", PAINT_CONFIRM_TIMEOUT, "paint_simulation_resumed")
-    confirmation.context = operationState.captureContext(runtime.state, active.operationCurrentTarget)
-  end
   if paintVerification.shouldCheck(confirmation, now) then
     paintVerification.recordAttempt(confirmation, now)
     local verified, reason = adapter.verifyPaints(confirmation.expected)
@@ -5261,7 +5238,7 @@ local function onUpdate(dtReal, dtSim, dtRaw)
       and not runtime.active.pauseDependencyReported
     then
       runtime.active.pauseDependencyReported = true
-      diagnosticsModule.write(runtime.diagnostics, "E", "pause_dependent_progress_detected", {
+      diagnosticsModule.write(runtime.diagnostics, "E", "pause_toggle_unblocked_operation", {
         lifecyclePhase = runtime.state.phase,
         clocks = timeSource.snapshot(runtime.time),
       }, true)

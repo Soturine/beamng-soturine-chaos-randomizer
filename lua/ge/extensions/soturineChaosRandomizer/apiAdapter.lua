@@ -384,6 +384,7 @@ local function getVerificationState()
   if not okModel then return false, modelKey end
   local okConfig, config = getCurrentConfig()
   if not okConfig then return false, config end
+  local partsAvailable = type(config.partsTree) == "table"
   return true, {
     vehicleId = vehicleId,
     modelKey = modelKey,
@@ -393,7 +394,9 @@ local function getVerificationState()
       key = configVerification.stableKey(config.partConfigFilename),
       signature = configVerification.signature(config),
     },
-    parts = flattenChosenParts(config.partsTree or {}),
+    parts = partsAvailable and flattenChosenParts(config.partsTree) or nil,
+    partsAvailable = partsAvailable,
+    readStatus = partsAvailable and "ready" or "parts_read_unavailable",
     tuning = util.deepCopy(config.vars or {}),
     paints = util.deepCopy(config.paints or {}),
   }

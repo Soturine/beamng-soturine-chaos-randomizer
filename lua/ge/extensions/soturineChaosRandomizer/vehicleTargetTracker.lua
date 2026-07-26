@@ -81,6 +81,7 @@ local function create(options)
     identityStatus = "tracking_target_identity",
     treeStatus = next(options.parts or {}) and "pending" or "not_required",
     identityConfirmed = false,
+    identityReported = false,
     identityConfirmedAt = nil,
     fingerprintReason = "identity_not_confirmed",
     stabilizer = vehicleStabilizer.create(options.stabilizer),
@@ -215,13 +216,12 @@ local function observe(tracker, token, state, now, context)
     tracker.status = "stale_callback_ignored"
     return "failed", "stale_callback_ignored"
   end
-  local waitingForSimulation = type(context) == "table" and context.waitingForSimulation == true
-  if now >= tracker.deadline and not waitingForSimulation then
+  if now >= tracker.deadline then
     tracker.status = "vehicle_target_timeout"
     return "failed", "vehicle_target_timeout"
   end
   if type(state) ~= "table" or type(state.vehicleId) ~= "number" then
-    tracker.status = waitingForSimulation and "waiting_for_simulation_resume" or "vehicle_target_stabilizing"
+    tracker.status = "vehicle_target_stabilizing"
     return "waiting", tracker.status
   end
   addCandidate(tracker, state.vehicleId, "player_poll", {modelKey = state.modelKey, configKey = state.configKey})
@@ -256,11 +256,16 @@ local function observe(tracker, token, state, now, context)
     tracker.identityStatus = "target_identity_confirmed"
   end
 
+  -- Identity ownership is a completed lifecycle milestone before any mutable
+  -- parts-tree convergence is considered. Reporting it separately prevents a
+  -- legitimate reload from being reclassified as a different target.
+  if not tracker.identityReported then tracker.identityReported = true end
+
   if next(tracker.expectedParts or {}) then
     local treeMatches, treeReason = verifyTree(tracker, state)
     if not treeMatches then
       vehicleStabilizer.reset(tracker.treeStabilizer, treeReason)
-      tracker.treeStatus = waitingForSimulation and "waiting_for_simulation_resume" or "parts_tree_converging"
+      tracker.treeStatus = "parts_tree_converging"
       tracker.fingerprintReason = "parts_tree_changed"
       tracker.status = tracker.treeStatus
       return "waiting", tracker.treeStatus, {identityConfirmed = true, treeReason = treeReason}
@@ -294,6 +299,7 @@ local function summary(tracker, now)
   metrics.status = tracker.status
   metrics.identityStatus = tracker.identityStatus
   metrics.identityConfirmed = tracker.identityConfirmed
+  metrics.identityReported = tracker.identityReported
   metrics.identityConfirmedAt = tracker.identityConfirmedAt
   metrics.treeStatus = tracker.treeStatus
   metrics.treeStabilizationFrames = treeMetrics.stabilizationFrames
