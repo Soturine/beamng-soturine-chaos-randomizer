@@ -57,22 +57,21 @@ Current suite structure for the `0.6.1` implementation candidate:
 - **2 project JSON files** decoded;
 - **3 workflow YAML files** decoded.
 
-These WIP counts were measured after the lifecycle/production implementation.
-They must be rechecked in the final report and release manifest from the exact
-final tested commit; mappings and aliases never count as new functions.
+These counts are rechecked by the release manifest from the exact final commit;
+mappings and aliases never count as new functions.
 
-## 0.6.0 automated and interactive status
+## 0.6.1 automated and interactive status
 
-The 104 master mappings cover Full Coverage, rollback, tuning, paint, recovery,
-Lineup, Spawn, AI, UI source contracts, and test counting. The 52 addendum
-mappings cover running/paused/slow-motion/frame-step clocks, target/tree
-separation, generations, transaction/snapshot roles, recovery-only isolation,
-Busy release, Cancel/Copy availability, watchdog, and no pause-toggle
-dependency. The exact A/B regression harness asserts that B's delayed callback,
-tuning, and paint plans cannot reach recovered vehicle A.
+The 76 v0.6.1 mappings cover pause-independent lifecycle, wall-clock deadlines,
+fresh entropy and anti-repeat behavior, completed-good snapshot roles, bounded
+recovery, schema-6 lock/seed defaults, terminal Race competitors, real presets,
+the four-destination compact UI, slider/fox contracts, and degraded external
+parts reads. Earlier v0.6.0 mappings remain as regression coverage. The exact
+A/B harness still asserts that B's delayed callback, tuning, and paint plans
+cannot reach recovered vehicle A.
 
 This evidence is automated or mocked. The
-[interactive plan](INTERACTIVE_TEST_PLAN_0.6.0.md) is still entirely Pending.
+[interactive plan](INTERACTIVE_TEST_PLAN_0.6.1.md) is still entirely Pending.
 The corrected delivery policy permits this Experimental pre-1.0 publication
 with explicit disclosure; these rows remain post-publication evidence work and
 are not promoted to passes.

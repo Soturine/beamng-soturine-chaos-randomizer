@@ -240,7 +240,7 @@ Open operation details and record phase, operation/phase/target generations,
 target/tree status, clocks, pending counts, and stale callback count. A warning
 does not trigger early rollback while the phase is legitimately waiting for
 simulation. Use Copy diagnostics, then Cancel and roll back. If Cancel or Copy
-is unavailable, treat that as a 0.6.0 lifecycle regression.
+is unavailable, treat that as a v0.6.1 lifecycle regression.
 
 ## A recovered or previous vehicle changed unexpectedly
 
