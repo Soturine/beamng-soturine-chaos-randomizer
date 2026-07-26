@@ -1,8 +1,13 @@
 # AI Director
 
-AI Director controls only Spawn Director managed vehicles through audited
+AI Director is the internal engine for **Race → Drive** and controls only Spawn Director managed vehicles through audited
 in-game BeamNG APIs. It has no BeamNGpy dependency, external process, Python
 server, network service, or imported executable script.
+
+Drive stays disabled, with an explanation, until Placement has produced at
+least one confirmed managed vehicle. The compact public controls expose the
+core AI mode, destination/route, speed, aggression, stagger, start and stop
+workflow; capability details remain honest rather than working-looking stubs.
 
 ## Audited boundary and capabilities
 

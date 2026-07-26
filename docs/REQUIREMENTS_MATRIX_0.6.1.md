@@ -90,7 +90,7 @@ This matrix traces the v0.6.1 master prompt to implementation and evidence. `Aut
 | D01 | Preserve Vehicle DNA schema 1, generator 6 and `SCR6` compatibility. | `vehicleDNASchema.lua`, `rng.lua`, `VERSION` | compatibility | full automated suite | Automated verified |
 | D02 | Preserve legacy lineup/race schema and `.lineup.json` reads. | `lineupManager.lua`, UI bridge | compatibility | lineup import tests | Automated verified |
 | D03 | Maintain an exact 50-case v0.6.1 live evidence plan and honest report. | `INTERACTIVE_TEST_PLAN_0.6.1.md`, `INTERACTIVE_TEST_REPORT_0.6.1.md` | live evidence | document review | Implemented; 50 Pending |
-| D04 | Update all named user and maintainer documentation using public Race terminology. | README, CHANGELOG, ROADMAP, named `docs/` files | documentation | link/static tests | In progress |
+| D04 | Update all named user and maintainer documentation using public Race terminology. | README, CHANGELOG, ROADMAP, named `docs/` files | documentation | link/static tests | Implemented |
 | D05 | Produce 0.6.1 ZIP, checksum and manifest pointing to the final commit. | `tools/package.py`, `tools/package_mod.py`, `dist/` | packaging | package suite and asset audit | Pending |
 | D06 | Push directly to `origin/main`, without PR, public branch or force push. | Git/GitHub | delivery | remote SHA audit | Pending |
 | D07 | Wait for green CI before creating the annotated v0.6.1 tag. | GitHub Actions | CI/release gate | checks URL and tag timestamps | Pending |

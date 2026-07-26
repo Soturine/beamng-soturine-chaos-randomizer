@@ -1,5 +1,39 @@
 # Troubleshooting
 
+## An operation progresses only after pause or remains Busy
+
+v0.6.1 moves target polling, lifecycle housekeeping, bounded read retry and
+deadlines to real-time update processing. Pause or frame-step must not be used
+as a workaround. Leave the simulation state unchanged, open **Details**, then
+use **Cancel safely** and **Copy diagnostics** if the phase stalls. A terminal
+timeout must release Busy and identify the wait/read phase.
+
+If this occurs with a third-party vehicle, record its version, the operation
+seed, operation/phase/target generations, target ID chain and whether its parts
+tree was temporarily unavailable. An unrelated mod Lua error is not by itself
+proof that the Randomizer-selected configuration is faulty.
+
+## The same clean and randomized vehicles alternate
+
+Stop retrying and copy diagnostics. v0.6.1 invalidates old selection, parts,
+tuning and paint plans before recovery and quarantines the failed candidate.
+Recovery is terminal and must not start a new randomization automatically. A
+new click receives new entropy unless **Fixed manual seed** is explicitly active.
+
+## Locks or a fixed seed unexpectedly remain active
+
+Open **Settings**. v0.6.1 migrates pre-schema-6 settings to zero locks and
+Random every run. Locks persist only when **Remember locks between sessions** is
+enabled. **Unlock All** clears active session locks; **Clear fixed seed** returns
+to random mode.
+
+## Race cannot open Placement or Drive
+
+This is deliberate gating. Cars must first finish as Ready/Ready with warnings
+before Placement becomes available. Drive requires confirmed managed cars from
+Placement. Failed or Partial competitors show their status and bounded actions;
+they must never remain Pending indefinitely.
+
 ## The app does not appear
 
 1. Install the versioned mod ZIP, not a GitHub source archive.
@@ -10,7 +44,7 @@
 
 ## One or more actions are disabled
 
-Open Advanced and read **Capability notes**.
+Open Settings/Details and read the capability notes.
 
 - Random Car needs registry, spawn/replace, and lifecycle confirmation. Its internal operation remains `randomConfig`.
 - Scramble needs hierarchical parts read/write and lifecycle confirmation.

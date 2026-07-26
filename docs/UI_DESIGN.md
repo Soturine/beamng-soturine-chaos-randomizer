@@ -1,44 +1,55 @@
 # UI Design and Accessibility
 
-The 0.6.0 UI keeps **Randomize**, **Locks**, **Garage**, **Compare**, and
-**Share**, and adds production destinations for **Chaos Lineup**, **Spawn
-Director**, and **AI Director**. Compatibility remains a read-only report inside
-Garage details. The visual system is graphite/black with restrained orange
-emphasis, soft card borders, and no debug-console presentation.
+The v0.6.1 UI has exactly four top-level destinations: **Chaos**, **Garage**,
+**Race**, and **Settings**. The graphite/black visual system uses restrained
+orange emphasis and a lightweight local fox SVG in another orange tone. The fox
+is decorative, subtle, and cannot consume the title's flexible text width.
 
-- Randomize keeps **Random Car**, **Scramble**, and **Full Random** as the three direct actions. Random Car maps to `randomConfig`. Reroll Unlocked and mutation strengths are contextual secondary tools under Advanced and remain absent without selected DNA.
-- Locks exposes vehicle/configuration toggles, four presets, lock/unlock/invert tools, evidence categories, composite wheel/tire and engine/drivetrain controls, current-part locking, slot search, counts, paths, and unresolved evidence.
-- Garage provides debounced search, filters, sort, grid/list, paginated lazy cards, storage meter, metadata, lineage, capture/remove image, restore/replay/reroll/mutate/compare/share/duplicate/rename/favorite/delete actions, and explicit replay lock policy.
-- Compare renders bounded field differences by category and supports using or mutating the left base.
-- Share separates JSON preparation/file export, ZIP export, parsed JSON import, fixed-inbox ZIP preview, dependency/privacy/checksum feedback, and final confirmation.
-- Chaos Lineup exposes only three presets, explicit partial/metadata/drivability
-  acceptance, verified-metadata variety rules, failure limits/actions, and
-  eight-card pagination.
-- Spawn Director exposes bounded layouts/custom point, heading evidence,
-  spacing/ground/clearance/interval, preview, sequential start/cancel, and one
-  managed-vehicle row per handle with generation/status/respawn/remove.
-- AI Director exposes capability-honest modes, NavGraph explanation,
-  destination exact/snap, route editing, audited speed/aggression, stagger,
-  finish/stuck policy, group controls, and per-vehicle recording commands.
+## Information architecture
 
-The app defaults to 330×430 with a 300×340 minimum. Collapsed shows the
-identity/status strip. Compact becomes a recording-friendly **CHAOS DIRECTOR**
-view with ready count, destination, speed/aggression, managed-vehicle stepper,
-and Start/Stop. Standard and expanded reveal progressively more context;
-production screens may scroll without permanently resizing the main panel.
-Recovery cards expose safe spawn, retry/quarantine, and inert diagnostics copy
-when appropriate.
+- **Chaos** contains Random Car, Scramble, Full Random, the Chaos slider,
+  conditional fixed-seed/active-lock warnings, and operation status. It does
+  not contain seed input or category lock chips.
+- **Garage** contains **Saved**, **Compare**, and **Share**. Existing Vehicle DNA
+  schema, restore, replay, mutation and inert transfer behavior is unchanged.
+- **Race** is a single Cars → Placement → Drive workflow. Cars owns count,
+  preset and competitor statuses; Placement owns formation/spacing/heading and
+  spawn; Drive owns AI mode/destination or route/speed/aggression/stagger.
+- **Settings** owns seed mode, fixed seed, lock persistence/categories, content
+  policy, diagnostics, Undo and Reindex.
 
-Controls have visible `:focus-visible` treatment, labels, tooltips for every
-navigation destination, polite live regions, a progressbar, confirmation before
-destructive operations, and cancel/rollback feedback. While Busy, concurrent
-destructive actions are disabled but Cancel, Copy diagnostics, phase details,
-and recovery information remain available. Concrete lifecycle phase,
-pause/resume wait, operation/phase/target generations, stale callbacks, and
-stalled warning are shown instead of a bare Busy label. Layouts reflow below
-390 and 320 pixels, preserve minimum hit sizes, wrap long content, bound scroll
-areas, and honor reduced-motion preferences. Keyboard, 125–200% scaling,
-controller integration, screen-reader output, and real UI overflow remain
-Pending until observed in BeamNG.
+The internal names `lineup`, Spawn Director and AI Director remain where needed
+for saved-data and API compatibility. Public controls and documentation use
+Race/Race Cars.
 
-Only fixed method names cross the UI bridge. Settings and Garage search use separate cancelled debounces. Full DNA, export text, thumbnail bytes, and full details are delivered only by explicit one-off events, not normal state refreshes.
+## Size and modes
+
+Expanded defaults to **340×320 px**, with a **300×220 px** minimum. Chaos is
+designed to fit the default without normal scrolling; Garage and Race may use
+contextual internal scrolling. Essential text is at least 12 px, ordinary
+buttons have at least 32 px hit height, and primary actions are at least 44 px.
+
+Only two semantic modes exist:
+
+- **Expanded** exposes navigation and the selected workflow.
+- **Collapsed** reduces height to roughly 120–150 px and retains identity,
+  action/status/progress and Cancel while Busy.
+
+The ambiguous C/S header controls and the near-duplicate compact/standard modes
+were removed. Normal BeamNG app resizing remains available.
+
+## Slider and operation feedback
+
+The Chaos input has zero horizontal padding, a separate labels wrapper, and
+explicit Chromium `::-webkit-slider-runnable-track` and
+`::-webkit-slider-thumb` geometry. The 0/50/100 labels and thumb centers must be
+verified at 100%, 125%, 150% and 200% display scale in BeamNG.
+
+Busy status shows the phase, progress, safe Cancel, Details and diagnostic copy.
+A stalled warning remains visible and actionable. Destructive concurrent
+actions are disabled while cancellation and diagnostics remain available.
+
+Controls retain labels, `:focus-visible` treatment, polite live regions,
+progressbar semantics, bounded scroll areas, confirmations, and a fixed
+allowlisted Lua bridge. Actual rendering, scaling, gamepad/screen-reader
+behavior and fox appearance remain Pending in the v0.6.1 interactive plan.

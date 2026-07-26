@@ -2,6 +2,19 @@
 
 The roadmap is evidence-driven. A feature is not considered stable until it has been exercised against representative official and third-party content in the target BeamNG version.
 
+## 0.6.1 — Runtime Lifecycle, Race Workflow & Compact UI Hotfix
+
+Implemented on `main`: pause-independent target/reload housekeeping, wall-clock
+deadlines, bounded missing-tree reads, recovery-only plan invalidation, fresh
+automatic entropy and anti-repeat windows, schema-6 lock/seed defaults, explicit
+Race competitor phases and real presets, four-destination compact navigation,
+corrected range geometry, and a lightweight fox identity.
+
+Vehicle DNA schema 1, generator 6, `SCR6` seeds and saved Lineup data remain
+compatible. The public name is now Race/Race Cars. Automated evidence is green;
+the exact 50-case v0.6.1 gameplay/UI plan remains entirely Pending, so this
+hotfix stays Experimental and pre-1.0.
+
 ## 0.6.0 — Full Coverage, Tuning Integrity, Chaos Lineup & AI Director
 
 Implemented in the 0.6.0 release: Chaos-100 coverage ledgers, generic

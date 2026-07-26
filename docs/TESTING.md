@@ -6,7 +6,7 @@ Automated and installed-source evidence is kept separate from interactive BeamNG
 
 | Item | Value |
 | --- | --- |
-| Date | 2026-07-24 |
+| Date | 2026-07-26 |
 | Operating system | Windows 10 build 19045 |
 | BeamNG executable | `0.38.6.0.19963` |
 | Steam build | `23007233` |
@@ -15,9 +15,9 @@ Automated and installed-source evidence is kept separate from interactive BeamNG
 | Node.js | local 24.11.1; CI 24 |
 | Interactive 0.38 profile/world | unavailable |
 
-No 0.6.0 0.38 world/UI session was launched. Historical observations are
-recorded separately and do not count as 0.6.0 passes. The combined master and
-pause-lifecycle plan remains **0 Passed / 0 Failed / 60 Pending**.
+No v0.6.1 0.38 world/UI session was launched. Historical v0.6.0 observations
+are recorded separately and do not count as v0.6.1 passes. The exact v0.6.1
+plan remains **0 Passed / 0 Failed / 50 Pending / 0 Blocked**.
 
 ## Automated commands
 
@@ -37,15 +37,15 @@ find lua -type f -name '*.lua' -print0 | xargs -0 luac5.1 -p
 
 On 2026-07-23, every workflow SHA was resolved again through the official `actions/checkout`, `actions/setup-python`, `actions/setup-node`, and `actions/upload-artifact` GitHub repositories. Each pinned SHA matched its commented tag, and those tags were the repositories' latest releases at inspection time.
 
-Current suite structure for the `0.6.0` implementation candidate:
+Current suite structure for the `0.6.1` implementation candidate:
 
 - **44 unique Python `unittest` methods**: 1 Lua-suite wrapper, 32
   repository/static methods, and 11 package methods;
-- the Lua wrapper runs **294 unique Lua test functions / 294 executed cases**
+- the Lua wrapper runs **304 unique Lua test functions / 304 executed cases**
   against BeamNG's shipped Lua 5.1 console when no standalone Lua is
   available;
-- the Lua manifest records **269 requirement mappings** separately from test
-  functions, including the 104 master and 52 pause-lifecycle mappings;
+- the Lua manifest includes all **76 v0.6.1 mandatory requirement mappings**
+  separately from test functions, in addition to earlier-version mappings;
 - the latest full Lua execution recorded **3,290 assertions**;
 - repository/static methods include real `node --check`, JSON/YAML parsing,
   links, versions, API boundaries, action allowlists, lifecycle controls,

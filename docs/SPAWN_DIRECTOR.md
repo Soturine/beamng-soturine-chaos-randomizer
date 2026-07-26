@@ -1,8 +1,13 @@
 # Spawn Director
 
-Spawn Director places accepted Lineup competitors or a selected Vehicle DNA
+Spawn Director is the internal placement engine for **Race → Placement**. It
+places accepted Race Cars (legacy Lineup competitors) or a selected Vehicle DNA
 without issuing multiple concurrent loads. The fixed initial bound is
 `maxConcurrentLoads = 1`.
+
+Placement stays disabled, with an explanation, until at least one Race Car is
+Ready. This gating prevents an empty or failed generation from looking like a
+usable spawn workflow.
 
 ## Placement modes
 

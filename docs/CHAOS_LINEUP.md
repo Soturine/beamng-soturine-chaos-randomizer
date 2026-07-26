@@ -1,13 +1,17 @@
-# Chaos Lineup
+# Race Cars
 
-Chaos Lineup creates a bounded production collection of 2–16 competitors. An
+Race Cars creates a bounded production collection of 2–16 competitors. An
 advanced data/API option can allow one competitor for testing. Each competitor
 runs the complete central Full Random pipeline sequentially; concurrent vehicle
 loads are not used.
 
+The saved schema and internal API retain the legacy `lineup` name so existing
+`.lineup.json` data remains readable. The public v0.6.1 UI and documentation use
+**Race** and **Race Cars**; no destructive migration is required.
+
 ## Generation and acceptance
 
-The flow for each slot is: checkpoint the lineup, derive its independent seed,
+The flow for each slot is: checkpoint the Race collection, derive its independent seed,
 run Full Random, classify all three ledgers, perform final read-back and safety
 validation, create Vehicle DNA, then checkpoint the accepted result.
 
@@ -26,6 +30,10 @@ Metadata is evidence, never proof of drivability. Accepting uncertainty keeps a
 warning. Other generation states are `Failed`, `Skipped`, or a recorded
 quarantined-candidate replacement.
 
+During work, a competitor leaves Pending and reports `Selecting`, `Loading`,
+`Randomizing`, or `Verifying`. Success/failure/cancel always produces a terminal
+status. A pause toggle is neither a phase nor a completion trigger.
+
 ## Seeds and variety
 
 An episode seed has the form `RACE-XXXX-XXXX`. Competitor index, retry attempt,
@@ -37,7 +45,9 @@ Variety options cover duplicate model/configuration/family avoidance, maximum
 same family, class/propulsion/drivetrain/source/wheel/body preferences, and
 official/mod/Automation/trailer/prop allow rules. Hard rules and preferences
 use only verified current metadata. Missing evidence stays unknown and is not
-invented. Presets are limited to Balanced, Maximum Chaos, and Mods Showcase.
+invented. Presets are limited to Balanced, Maximum Chaos, and Mods Showcase;
+each applies real content, randomization, safety and acceptance values. Editing
+policy manually marks the selection Custom.
 
 ## Failure handling
 

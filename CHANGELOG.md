@@ -2,6 +2,47 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-07-26
+
+Runtime Lifecycle, Race Workflow & Compact UI Hotfix. Experimental pre-1.0
+release with best-effort mod support. Automated validation passes; live v0.6.1
+gameplay/UI validation remains 0 Passed / 0 Failed / 50 Pending / 0 Blocked.
+
+### Fixed
+
+- Decouple target identity, reload polling, bounded part-tree reads and
+  wall-clock deadlines from simulation pause/`dtSim`, while keeping Busy,
+  cancellation, stale-callback rejection and recovery generations terminal.
+- Prevent recovery from promoting clean/intermediate snapshots, replaying old
+  tuning/paint plans, cycling automatically, or writing to another vehicle.
+- Refresh entropy for automatic clicks, retain fixed-seed reproducibility,
+  avoid immediate Random Car repeats when alternatives exist, and quarantine
+  failed candidates without counting recovery as a new result.
+- Move Race competitors through explicit Selecting, Loading, Randomizing and
+  Verifying phases into bounded terminal states; make all three presets apply
+  real policies.
+- Reset legacy persistent locks, default Remember locks to Off, and default to
+  Random every run unless a fixed seed is explicitly selected.
+- Correct the Chromium Chaos range track/thumb geometry and minimum control
+  sizing for the compact panel.
+
+### Changed
+
+- Consolidate public navigation into Chaos, Garage, Race and Settings. Garage
+  contains Saved/Compare/Share; Race contains Cars/Placement/Drive.
+- Move seed and lock controls out of Chaos; remove ambiguous C/S header buttons;
+  use only materially distinct Collapsed and Expanded layouts at 340×320.
+- Add a lightweight, local, decorative fox SVG to the orange header.
+- Keep schema-1 Vehicle DNA, generator 6, `SCR6` seeds and legacy Lineup data
+  compatibility; public documentation now calls that workflow Race/Race Cars.
+
+### Tests
+
+- Register all 76 mandatory v0.6.1 mappings and expand the Lua suite to 304
+  cases. The local suite is 44/44 Python tests, including 304/304 Lua cases.
+- Publish an exact 50-case interactive plan and report all 50 as Pending; no
+  harness result is promoted to gameplay evidence.
+
 ## [0.6.0] - 2026-07-24
 
 Experimental pre-1.0 release. Automated validation passes; real BeamNG gameplay
