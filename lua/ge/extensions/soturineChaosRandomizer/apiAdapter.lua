@@ -20,6 +20,8 @@ local LINEUP_EXPORT_PATH = "/settings/soturineChaosRandomizer/lineups/export.lin
 local LINEUP_IMPORT_PATH = "/settings/soturineChaosRandomizer/lineups/inbox.lineup.json"
 
 local jbeamIO
+local entropySequence = 0
+local entropySession = tostring({}):gsub("table: ", "")
 local okJbeam, loadedJbeam = pcall(require, "jbeam/io")
 if okJbeam then jbeamIO = loadedJbeam end
 
@@ -914,10 +916,17 @@ local function getSimulationSpeed()
 end
 
 local function entropy()
+  entropySequence = entropySequence + 1
   local vehicleId = -1
   local ok, id = getCurrentVehicleId()
   if ok and id then vehicleId = id end
-  return table.concat({tostring(os.time()), tostring(clock()), tostring(vehicleId)}, ":")
+  return table.concat({
+    tostring(os.time()),
+    string.format("%.9f", clock()),
+    tostring(vehicleId),
+    tostring(entropySequence),
+    entropySession,
+  }, ":")
 end
 
 local function getGameVersion()

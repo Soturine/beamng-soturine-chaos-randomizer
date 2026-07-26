@@ -89,6 +89,9 @@ local runtime = {
   progress = {label = "Ready", value = 0},
   recentModels = {},
   recentConfigs = {},
+  recentRandomCarResults = {},
+  recentFullRandomBaseResults = {},
+  recentCompletedDNA = {},
   capabilities = {},
   recovery = vehicleRecovery.create(),
   lineup = {
@@ -167,6 +170,33 @@ local function pushRecent(list, value)
   end
   list[#list + 1] = value
   while #list > RECENT_LIMIT do table.remove(list, 1) end
+end
+
+local function selectionIdentity(modelKey, configKey)
+  if not modelKey or not configKey then return nil end
+  return tostring(modelKey) .. "/" .. tostring(configVerification.stableKey(configKey) or configKey)
+end
+
+local function withoutRecentPairs(models, recentPairs)
+  local recent = {}
+  for _, value in ipairs(recentPairs or {}) do recent[value] = true end
+  if next(recent) == nil then return models, false end
+  local total = 0
+  for _, model in ipairs(models or {}) do total = total + #(model.configs or {}) end
+  if total <= 1 then return models, false end
+  local filtered, remaining = {}, 0
+  for _, model in ipairs(models or {}) do
+    local copy = util.deepCopy(model)
+    copy.configs = {}
+    for _, config in ipairs(model.configs or {}) do
+      if not recent[selectionIdentity(config.modelKey or model.key, config.path or config.key)] then
+        copy.configs[#copy.configs + 1] = util.deepCopy(config)
+        remaining = remaining + 1
+      end
+    end
+    if #copy.configs > 0 then filtered[#filtered + 1] = copy end
+  end
+  return remaining > 0 and filtered or models, remaining > 0
 end
 
 local function sourceCounts()
@@ -715,9 +745,11 @@ end
 
 local function operationSeed()
   local source = runtime.settings.manualSeed
-  if type(source) ~= "string" or source == "" then source = adapter.entropy() end
+  local fixed = runtime.settings.seedMode == "fixed"
+    or (runtime.settings.seedMode == nil and type(source) == "string" and source ~= "")
+  if not fixed or type(source) ~= "string" or source == "" then source = adapter.entropy() end
   local generator = rngModule.new(source)
-  return generator.seed, generator
+  return generator.seed, generator, fixed and "fixed_manual_seed" or "automatic_entropy"
 end
 
 local function beginOperation(kind, context)
@@ -734,16 +766,23 @@ local function beginOperation(kind, context)
     return false, adapter.errorValue("no_active_vehicle", "Scramble requires an active vehicle. Use Random Car or Spawn Safe Vehicle.")
   end
   if not okId then vehicleId = nil end
-  local seed, generator = operationSeed()
+  local seed, generator, seedSource = operationSeed()
   runtime.lastSeed = seed
   local timeout = context.operationTimeout or WAIT_TIMEOUT
   local ok, token = operationState.begin(runtime.state, kind, vehicleId, timeout)
   if not ok then return false, adapter.errorValue("busy", "Another operation is already running") end
+  local previousDetails = runtime.lastResult and runtime.lastResult.details or nil
   runtime.active = {
     token = token,
     kind = kind,
     seed = seed,
     rng = generator,
+    seedSource = seedSource,
+    selectionSubstream = "vehicle_selection:operation:" .. tostring(runtime.state.operationGeneration),
+    previousResultIdentity = previousDetails and selectionIdentity(
+      previousDetails.model,
+      previousDetails.configuration or (previousDetails.baseConfiguration and previousDetails.baseConfiguration.path)
+    ) or nil,
     settings = util.deepCopy(runtime.settings),
     policy = mutationPolicy.fromSettings(runtime.settings),
     originalVehicleId = vehicleId,
@@ -900,7 +939,13 @@ local function chooseConfiguration(active)
     if #alternatives > 0 then models = alternatives end
   end
   if #models == 0 then return nil, nil, adapter.errorValue("no_eligible_vehicles", "No vehicles match the current content filters") end
-  local manualSeed = type(runtime.settings.manualSeed) == "string" and runtime.settings.manualSeed ~= ""
+  local manualSeed = active.seedSource == "fixed_manual_seed"
+  local recentPairs = active.kind == "randomConfig" and runtime.recentRandomCarResults
+    or active.kind == "fullRandom" and runtime.recentFullRandomBaseResults or {}
+  local recentPairFilterApplied = false
+  if not manualSeed and not active.replayGeneration and not active.lineupRules then
+    models, recentPairFilterApplied = withoutRecentPairs(models, recentPairs)
+  end
   local recentModels = active.lineupExcludedModels or (manualSeed and {} or runtime.recentModels)
   local recentConfigs = active.lineupExcludedConfigurations or (manualSeed and {} or runtime.recentConfigs)
   active.selectionContext = {
@@ -910,6 +955,8 @@ local function chooseConfiguration(active)
     recentPolicy = manualSeed and "ignored_for_manual_seed" or "bounded_session_recent",
     eligibleModels = #models,
     vehicleLock = vehicleLocked,
+    recentPairFilterApplied = recentPairFilterApplied,
+    selectionSubstream = active.selectionSubstream,
   }
   if runtime.settings.selectionFairness == "configuration" then
     local configs = contentIndex.eligibleConfigs(runtime.index, runtime.settings)
@@ -1639,6 +1686,14 @@ local function completeChaos(active)
       sourceKind = active.selectedConfig.sourceKind,
       sourceLabel = active.selectedConfig.sourceLabel,
     } or nil,
+    selection = {
+      kind = "new_selection",
+      substream = active.selectionSubstream,
+      seedSource = active.seedSource,
+      reusedFromRetry = active.lineupAttempt and active.lineupAttempt > 1 or false,
+      restoredFromRecovery = false,
+      previousResultIdentity = active.previousResultIdentity,
+    },
     partsChanged = #active.changes,
     partsRemoved = removed,
     nestedPasses = active.partPassesApplied or 0,
@@ -1693,6 +1748,13 @@ local function completeChaos(active)
   end
   local creativeMessage = active.creativeOperation == "reroll_unlocked" and "Reroll Unlocked complete"
     or active.creativeOperation == "mutation" and "Vehicle DNA mutation complete" or nil
+  if active.kind == "fullRandom" and active.selectedConfig then
+    pushRecent(runtime.recentFullRandomBaseResults, selectionIdentity(
+      active.selectedModel and active.selectedModel.key or active.modelKey,
+      active.selectedConfig.path or active.selectedConfig.key
+    ))
+  end
+  if dnaReady and not partial then pushRecent(runtime.recentCompletedDNA, dnaOrError.id) end
   finishOperation(true, completionCode, creativeMessage or completionMessage or string.format(
     "%s: %d parts, %d tuning values, %d paints",
     partial and "Chaos partial result" or "Chaos complete",
@@ -3912,8 +3974,6 @@ local function completeStableTarget(vehicleId, verificationState, verificationDe
       active.operationCandidateBase = util.deepCopy(baseSnapshot)
       vehicleRecovery.rememberReadable(runtime.recovery, baseSnapshot)
     end
-    pushRecent(runtime.recentModels, active.selectedModel.key)
-    pushRecent(runtime.recentConfigs, configSelector.identifier(active.selectedConfig))
     if afterReload == "randomConfig" then
       local message = "Loaded " .. tostring(active.selectedConfig.name)
       local warnings = {}
@@ -3931,6 +3991,14 @@ local function completeStableTarget(vehicleId, verificationState, verificationDe
         verifiedTraits = productionModules.lineupManager.verifiedTraits(active.selectedModel, active.selectedConfig),
         verificationStrategy = verificationDetails and verificationDetails.strategy,
         warnings = warnings,
+        selection = {
+          kind = "new_selection",
+          substream = active.selectionSubstream,
+          seedSource = active.seedSource,
+          reusedFromRetry = false,
+          restoredFromRecovery = false,
+          previousResultIdentity = active.previousResultIdentity,
+        },
       }
       operationState.transition(runtime.state, "validating", false)
       local dnaSafe, dnaSafety = validateFinalVehicle(active)
@@ -3942,6 +4010,12 @@ local function completeStableTarget(vehicleId, verificationState, verificationDe
         details.warnings[#details.warnings + 1] = "Vehicle DNA capture was unavailable because final validation or capture did not complete."
         diagnosticsModule.write(runtime.diagnostics, "W", "dna_capture_failed", dnaOrError, true)
       end
+      pushRecent(runtime.recentModels, active.selectedModel.key)
+      pushRecent(runtime.recentConfigs, configSelector.identifier(active.selectedConfig))
+      pushRecent(runtime.recentRandomCarResults, selectionIdentity(
+        active.selectedModel.key, active.selectedConfig.path or active.selectedConfig.key
+      ))
+      if dnaReady then pushRecent(runtime.recentCompletedDNA, dnaOrError.id) end
       finishOperation(true, "random_config_loaded", message, details)
     else
       operationState.transition(runtime.state, "scanning", false)
