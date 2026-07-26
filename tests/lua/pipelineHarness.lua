@@ -121,7 +121,10 @@ local function new(options)
   function adapter.exportDNAFile() return true, {path = "/settings/fixture/export.json"} end
   adapter.DNA_LIBRARY_PATH = "/settings/fixture/library.json"
   function adapter.getGameVersion() return "fixture" end
-  function adapter.entropy() return "fixture-entropy" end
+  function adapter.entropy()
+    harness.entropyCount = (harness.entropyCount or 0) + 1
+    return "fixture-entropy:" .. tostring(harness.entropyCount)
+  end
   function adapter.emit(name, payload)
     harness.emitted[#harness.emitted + 1] = {name = name, payload = util.deepCopy(payload)}
     harness.lastState = util.deepCopy(payload)
@@ -216,6 +219,12 @@ local function new(options)
   function adapter.getCurrentSlotSnapshot()
     harness.calls[#harness.calls + 1] = "scan"
     harness.scanCount = (harness.scanCount or 0) + 1
+    if harness.scanCount <= math.max(0, math.floor(tonumber(options.partsReadUnavailable) or 0)) then
+      return false, adapter.errorValue("missing_parts_tree", "fixture parts tree temporarily unavailable")
+    end
+    if options.partsReadAlwaysUnavailable then
+      return false, adapter.errorValue("missing_parts_tree", "fixture parts tree unavailable")
+    end
     if type(options.treeSequence) == "table" and #options.treeSequence > 0 then
       local index = math.min(harness.scanCount, #options.treeSequence)
       harness.tree = util.deepCopy(options.treeSequence[index])
@@ -387,6 +396,7 @@ end
 
 local function driveSuccess(harness, action, overrides)
   local actionSettings = {
+    schemaVersion = 6,
     chaos = 100,
     allowMissingParts = false,
     protectCriticalParts = true,
@@ -396,6 +406,7 @@ local function driveSuccess(harness, action, overrides)
     includeProps = true,
     selectionFairness = "vehicle",
     manualSeed = "pipeline-seed",
+    seedMode = "fixed",
   }
   for key, value in pairs(type(overrides) == "table" and overrides or {}) do actionSettings[key] = value end
   local started = harness.main.runAction(action, actionSettings)

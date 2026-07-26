@@ -13,7 +13,7 @@ class LuaLogicTests(unittest.TestCase):
         output, metrics = run_lua_suite(ROOT)
         self.assertRegex(output, re.compile(r"^SCR_TESTS_OK \d+\s*$", re.MULTILINE), msg=output)
         self.assertEqual(metrics["luaTestFunctionsUnique"], metrics["luaExecutedCases"])
-        self.assertGreaterEqual(metrics["luaRequirementMappings"], 217)
+        self.assertGreaterEqual(metrics["luaRequirementMappings"], 345)
         self.assertGreater(metrics["luaAssertions"], metrics["luaExecutedCases"])
 
 

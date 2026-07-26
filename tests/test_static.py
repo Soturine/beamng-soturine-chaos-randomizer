@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import unittest
+import xml.etree.ElementTree as ET
 
 from tools import validate_package
 
@@ -121,11 +122,14 @@ class StaticValidationTests(unittest.TestCase):
         self.assertNotIn("updateSettings", apply_state)
         self.assertNotIn("scheduleSettings", apply_state)
 
-    def test_vehicle_dna_navigation_is_compact(self) -> None:
+    def test_v061_navigation_is_exact_and_compact(self) -> None:
         html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
         source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
-        for label in ("Randomize", "Locks", "Garage", "Compare", "Share"):
-            self.assertIn(f"label: '{label}'", source)
+        navigation_start = source.index("navigation: [")
+        navigation = source[navigation_start:source.index("],", navigation_start) + 2]
+        self.assertEqual(re.findall(r"label: '([^']+)'", navigation), ["CHAOS", "GARAGE", "RACE", "SETTINGS"])
+        for label in ("Saved", "Compare", "Share", "Cars", "Placement", "Drive"):
+            self.assertIn(f">{label}<", html)
         self.assertIn("scr-nav", html)
 
     def test_ui_bridge_has_a_fixed_public_method_allowlist(self) -> None:
@@ -139,59 +143,54 @@ class StaticValidationTests(unittest.TestCase):
         ):
             self.assertIn(f"{method}: true", source)
 
-    def test_ui_exposes_accessible_responsive_operation_feedback(self) -> None:
+    def test_v061_ui_exposes_accessible_responsive_operation_feedback(self) -> None:
         html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
         css = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.css").read_text(encoding="utf-8")
-        for fragment in ('aria-live="polite"', 'role="progressbar"', "Cancel and roll back", "scr-storage"):
+        for fragment in ('aria-live="polite"', 'role="progressbar"', "Cancel safely", "Copy diagnostics"):
             self.assertIn(fragment, html)
-        for fragment in (":focus-visible", "@media (max-width:", "prefers-reduced-motion", "overflow-y: auto"):
+        for fragment in (":focus-visible", "@media (max-width:", "overflow: auto", "min-height: 32px"):
             self.assertIn(fragment, css)
 
-    def test_v060_lifecycle_controls_remain_available(self) -> None:
+    def test_v061_lifecycle_controls_remain_available(self) -> None:
         html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
         source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
         self.assertIn("Phase: {{chaos.state.lifecyclePhase", html)
-        self.assertIn("Operation stalled", html)
-        self.assertIn("Cancel and roll back", html)
+        self.assertIn("Operation appears stalled", html)
+        self.assertIn("Cancel safely", html)
         self.assertIn("Copy diagnostics", html)
-        progress = html[html.index('<div class="scr-progress"'):]
-        self.assertNotIn('ng-disabled=', progress.split("</div>\n  </main>", 1)[0].split("scr-progress-actions", 1)[1])
         self.assertIn("cancelCurrentOperation: true", source)
         self.assertIn("copyDiagnostics: true", source)
 
-    def test_v060_production_navigation_and_tooltips(self) -> None:
+    def test_v061_race_workflow_and_presets_are_visible(self) -> None:
         html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
         source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
-        for label in ("Lineup", "Spawn", "AI"):
-            self.assertIn(f"label: '{label}'", source)
-        for tooltip in (
-            "loads a normal configuration", "Generate a reusable roster",
-            "Drive confirmed managed vehicles",
-        ):
-            self.assertIn(tooltip, source)
-        self.assertIn("limitTo:8:(chaos.lineupPage * 8)", html)
-        self.assertIn("lineupPageCount", source)
+        for label in ("Cars", "Placement", "Drive"):
+            self.assertIn(f">{label}<", html)
+        for preset in ("Balanced", "Maximum Chaos", "Mods Showcase"):
+            self.assertIn(f"'{preset}'", source)
+        self.assertIn("GENERATE CARS", html)
+        self.assertIn("No race cars are ready yet", html)
+        navigation = source[source.index("navigation: ["):source.index("racePresets:")]
+        for legacy in ("Lineup", "Spawn", "AI"):
+            self.assertNotIn(f"label: '{legacy}'", navigation)
 
-    def test_v060_compact_director_and_size_contract(self) -> None:
+    def test_v061_compact_size_and_mode_contract(self) -> None:
         app = json.loads((ROOT / "ui/modules/apps/soturineChaosRandomizer/app.json").read_text(encoding="utf-8"))
         html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
         css = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.css").read_text(encoding="utf-8")
-        self.assertEqual(app["css"]["min-width"], "300px")
-        self.assertEqual(app["css"]["min-height"], "340px")
-        for fragment in ("CHAOS DIRECTOR", "vehicles ready", "START ALL", "STOP ALL"):
-            self.assertIn(fragment, html)
-        self.assertIn(".scr-mode-compact .scr-body > .scr-director-compact", css)
-        self.assertIn("overflow-y: auto", css)
+        self.assertEqual((app["css"]["width"], app["css"]["height"]), ("340px", "320px"))
+        self.assertEqual((app["css"]["min-width"], app["css"]["min-height"]), ("300px", "220px"))
+        self.assertIn("scr-collapsed-actions", html)
+        self.assertIn(".scr-mode-collapsed", css)
+        self.assertNotIn(".scr-mode-compact", css)
+        self.assertIn("overflow: auto", css)
 
-    def test_v060_spawn_and_ai_controls_are_capability_honest(self) -> None:
+    def test_v061_placement_and_drive_controls_are_capability_honest(self) -> None:
         html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
         source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
         for fragment in (
-            "Same as player vehicle", "Road direction", "Face destination", "Custom yaw",
-            "Spawn all sequentially", "Use next unspawned competitor", "Selected DNA",
-            "Use exact point", "Snap to NavGraph", "Add route point", "Remove last", "Reverse",
-            "Target speed (km/h)", "Recovery when stuck", "Allow damaged vehicles to continue",
-            "Recorded (unavailable)", "Scripted (unavailable)",
+            "Formation", "Spacing", "Heading", "Preview", "Spawn all",
+            "AI mode", "Destination", "Route", "Speed km/h", "Aggression", "Stagger", "Start", "Stop",
         ):
             self.assertIn(fragment, html)
         self.assertIn("options.speedKph", source)
@@ -204,8 +203,9 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("/settings/soturineChaosRandomizer/vehicleDNA/thumbnails/", source)
         self.assertIn("/^[A-Za-z0-9_-]{1,96}$/", source)
         self.assertIn("scr-image-fallback", html)
-        self.assertIn("sharePreview", html)
-        self.assertIn("packageSha256", html)
+        self.assertIn("Prepare JSON", html)
+        self.assertIn("Export package", html)
+        self.assertIn("Validate import", html)
 
     def test_vehicle_dna_save_is_explicit(self) -> None:
         html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
@@ -250,22 +250,32 @@ class StaticValidationTests(unittest.TestCase):
         self.assertEqual((width, height), (250, 120))
         self.assertLess(size, 100_000)
 
-    def test_alpha2_compact_ui_contract(self) -> None:
+    def test_v061_chaos_seed_slider_and_brand_contract(self) -> None:
         app = json.loads((ROOT / "ui/modules/apps/soturineChaosRandomizer/app.json").read_text(encoding="utf-8"))
         html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
         css = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.css").read_text(encoding="utf-8")
         source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
-        self.assertEqual((app["css"]["width"], app["css"]["height"]), ("330px", "430px"))
-        self.assertEqual((app["css"]["min-width"], app["css"]["min-height"]), ("300px", "340px"))
+        fox_path = ROOT / "ui/modules/apps/soturineChaosRandomizer/assets/fox-mark.svg"
+        fox = fox_path.read_text(encoding="utf-8")
+        self.assertEqual((app["css"]["width"], app["css"]["height"]), ("340px", "320px"))
+        self.assertEqual((app["css"]["min-width"], app["css"]["min-height"]), ("300px", "220px"))
         self.assertIn("RANDOM CAR", html)
         self.assertNotIn("RANDOM CONFIG", html)
-        self.assertIn("ng-if=\"chaos.state.garage.selectedId\"", html)
-        self.assertIn("advancedOpen: false", source)
-        for mode in ("collapsed", "compact", "expanded"):
-            self.assertIn("scr-mode-" + mode, css)
-        self.assertIn("@media (max-width: 310px), (max-height: 350px)", css)
+        chaos_panel = html[html.index("scr-chaos-view"):html.index("chaos.view === 'garage'")]
+        settings_panel = html[html.index("chaos.view === 'settings'"):]
+        self.assertNotIn("scr-manual-seed", chaos_panel)
+        self.assertIn("scr-manual-seed", settings_panel)
+        self.assertIn("scr-mode-collapsed", css)
+        self.assertIn("'expanded'", source)
+        self.assertNotIn("scr-mode-compact", css)
         self.assertIn(":focus-visible", css)
         self.assertIn("setUICompactMode", source)
+        self.assertIn("::-webkit-slider-runnable-track", css)
+        self.assertIn("::-webkit-slider-thumb", css)
+        self.assertRegex(css, r"scr-chaos-control input\[type=range\][^{]*\{[^}]*padding:\s*0")
+        self.assertLess(fox_path.stat().st_size, 2048)
+        self.assertNotRegex(fox.lower(), r"<script|base64|https?://(?!www\.w3\.org/2000/svg)")
+        ET.fromstring(fox)
         self.assertIn("var allowed =", source)
 
     def test_workflow_yaml_parses(self) -> None:

@@ -3619,7 +3619,7 @@ tests.v060_runner_counting_contract = function()
   local functionCount = 0
   for _ in pairs(unique) do functionCount = functionCount + 1 end
   truthy(functionCount > 250)
-  truthy(#requirementMappings >= 217)
+  truthy(#requirementMappings >= 345)
   local names = {}
   for _, mapping in ipairs(requirementMappings) do
     truthy(type(mapping[1]) == "string" and mapping[1] ~= "")
@@ -3627,6 +3627,149 @@ tests.v060_runner_counting_contract = function()
     truthy(not names[mapping[1]], "duplicate requirement mapping: " .. mapping[1])
     names[mapping[1]] = true
   end
+end
+
+tests.v061_paused_pipeline_finishes_without_toggle = function()
+  for _, action in ipairs({"randomConfig", "scramble", "fullRandom"}) do
+    local harness = pipelineHarness.new({paused = true, deferredPaint = true})
+    truthy(pipelineHarness.driveSuccess(harness, action, {
+      manualSeed = "paused-v061-" .. action, seedMode = "fixed",
+    }))
+    local state = pipelineHarness.driveActive(harness, 192)
+    truthy(not state.busy, action .. " remained Busy while paused")
+    truthy(state.lastResult and state.lastResult.success, action .. " failed while paused")
+    truthy(state.clocks.paused)
+  end
+end
+
+tests.v061_bounded_parts_read_recovers = function()
+  local harness = pipelineHarness.new({partsReadUnavailable = 3})
+  truthy(harness.main.scramble({chaos = 100, manualSeed = "temporary-nil", seedMode = "fixed"}))
+  local state = pipelineHarness.driveActive(harness, 192)
+  truthy(not state.busy)
+  truthy(state.lastResult and state.lastResult.success)
+  truthy((harness.scanCount or 0) > 3)
+end
+
+tests.v061_persistent_parts_read_fails_terminally = function()
+  local harness = pipelineHarness.new({partsReadAlwaysUnavailable = true})
+  truthy(harness.main.scramble({chaos = 100, manualSeed = "persistent-nil", seedMode = "fixed"}))
+  local state = pipelineHarness.driveActive(harness, 256)
+  truthy(not state.busy)
+  truthy(state.lastResult and not state.lastResult.success)
+  equal(state.lastFailure.code, "parts_read_unavailable")
+end
+
+tests.v061_settings_locks_and_seed_migration = function()
+  local legacyLocks = vehicleDNALocks.applyPatch(vehicleDNALocks.empty(), {vehicle = true, categories = {body = true}})
+  local migrated = settings.validate({schemaVersion = 5, manualSeed = "legacy", lockProfile = legacyLocks})
+  equal(migrated.schemaVersion, 6)
+  equal(migrated.seedMode, "random")
+  truthy(not migrated.rememberLocks)
+  equal(vehicleDNALocks.summary(migrated.lockProfile).locked, 0)
+  local session = settings.update(migrated, {lockProfile = legacyLocks})
+  truthy(vehicleDNALocks.summary(session.lockProfile).locked > 0)
+  equal(vehicleDNALocks.summary(settings.forPersistence(session).lockProfile).locked, 0)
+  session.rememberLocks = true
+  truthy(vehicleDNALocks.summary(settings.forPersistence(session).lockProfile).locked > 0)
+end
+
+tests.v061_seed_modes_refresh_or_reproduce = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "randomConfig", {manualSeed = "", seedMode = "random"}))
+  local first = harness.main.requestState().seed
+  truthy(pipelineHarness.driveSuccess(harness, "randomConfig", {manualSeed = "", seedMode = "random"}))
+  local second = harness.main.requestState().seed
+  truthy(first ~= second)
+  truthy(pipelineHarness.driveSuccess(harness, "randomConfig", {manualSeed = "fixed-v061", seedMode = "fixed"}))
+  local fixedA = harness.main.requestState().seed
+  truthy(pipelineHarness.driveSuccess(harness, "randomConfig", {manualSeed = "fixed-v061", seedMode = "fixed"}))
+  equal(harness.main.requestState().seed, fixedA)
+end
+
+tests.v061_race_presets_apply_real_policy = function()
+  local balanced = lineupManager.presetOptions("Balanced", {})
+  equal(balanced.chaos, 65)
+  truthy(balanced.protectCriticalParts and not balanced.allowMissingParts and not balanced.extremeTuning)
+  truthy(not balanced.acceptPartial and not balanced.acceptMetadataUncertain)
+  local maximum = lineupManager.presetOptions("Maximum Chaos", {})
+  equal(maximum.chaos, 100)
+  truthy(maximum.allowMissingParts and maximum.extremeTuning and maximum.acceptPartial)
+  truthy(maximum.diversifyVehicleClasses and maximum.diversifyBodyTypes)
+  local mods = lineupManager.presetOptions("Mods Showcase", {})
+  equal(mods.contentFilter, "mods")
+  truthy(not mods.allowOfficialVehicles and mods.allowModVehicles)
+  truthy(mods.protectCriticalParts and mods.acceptMetadataUncertain)
+end
+
+tests.v061_race_statuses_and_cancel_are_terminal = function()
+  local lineup = assert(lineupManager.create({count = 3, preset = "Balanced", episodeSeed = "v061-race"}))
+  local competitor = assert(lineupManager.nextCompetitor(lineup))
+  equal(competitor.status, "Selecting")
+  truthy(lineupManager.setPhase(lineup, 1, "Loading", "Loading target"))
+  truthy(lineupManager.setPhase(lineup, 1, "Randomizing", "Applying parts"))
+  truthy(lineupManager.setPhase(lineup, 1, "Verifying", "Final validation"))
+  truthy(lineupManager.cancel(lineup, "fixture cancel"))
+  truthy(not lineup.active)
+  for _, entry in ipairs(lineup.competitors) do equal(entry.status, "Cancelled") end
+  equal(lineupManager.summary(lineup).pending, 0)
+end
+
+tests.v061_recovery_invalidation_drops_all_old_plans = function()
+  local operation = {
+    selectedModel = {key = "old"}, selectedConfig = {key = "old"},
+    operationMutationPlan = {}, currentBatch = {}, batchRollbackDecisions = {}, afterReload = "mutation",
+    pendingTuningChanges = {}, pendingTuningPlan = {}, pendingPaintPlan = {}, paintConfirmation = {},
+    targetTracker = {}, treeRescanAt = 4, readRetry = {}, readUnavailable = {},
+    slotLedger = {}, tuningLedger = {}, paintLedger = {}, batchRecovery = {currentBatch = {}},
+  }
+  truthy(vehicleRecovery.invalidateForRecovery(operation))
+  truthy(operation.recoveryOnly)
+  for _, key in ipairs({"selectedModel", "selectedConfig", "operationMutationPlan", "currentBatch", "afterReload",
+    "pendingTuningChanges", "pendingTuningPlan", "pendingPaintPlan", "paintConfirmation", "targetTracker",
+    "treeRescanAt", "readRetry", "readUnavailable"}) do
+    equal(operation[key], nil, key .. " survived recovery invalidation")
+  end
+end
+
+tests.v061_target_deadline_uses_wall_clock_while_paused = function()
+  local tracker = vehicleTargetTracker.create({
+    token = "wall", operationId = "SCR-wall", operationGeneration = 1,
+    phaseGeneration = 1, targetGeneration = 1, modelKey = "fixture", startedAt = 0, timeout = 1,
+  })
+  local status, reason = vehicleTargetTracker.observe(tracker, "wall", nil, 1.1, {
+    operationId = "SCR-wall", operationGeneration = 1, phaseGeneration = 1,
+    targetGeneration = 1, waitingForSimulation = true,
+  })
+  equal(status, "failed")
+  equal(reason, "vehicle_target_timeout")
+end
+
+tests.v061_compact_ui_contract = function()
+  local function read(path)
+    local file = assert(io.open(root .. path, "rb"))
+    local value = file:read("*a")
+    file:close()
+    return value
+  end
+  local html = read("/ui/modules/apps/soturineChaosRandomizer/app.html")
+  local css = read("/ui/modules/apps/soturineChaosRandomizer/app.css")
+  local js = read("/ui/modules/apps/soturineChaosRandomizer/app.js")
+  local fox = read("/ui/modules/apps/soturineChaosRandomizer/assets/fox-mark.svg")
+  for _, label in ipairs({"CHAOS", "GARAGE", "RACE", "SETTINGS", "Saved", "Compare", "Share", "Cars", "Placement", "Drive"}) do
+    truthy(html:find(label, 1, true) or js:find("label: '" .. label .. "'", 1, true), label)
+  end
+  local chaosStart = assert(html:find([[ng-if="chaos.view === 'chaos'"]], 1, true))
+  local garageStart = assert(html:find([[ng-if="chaos.view === 'garage'"]], chaosStart, true))
+  local chaosPanel = html:sub(chaosStart, garageStart - 1)
+  truthy(not chaosPanel:find("scr-manual-seed", 1, true))
+  truthy(html:find('aria%-hidden="true"') ~= nil)
+  truthy(css:find("::-webkit-slider-runnable-track", 1, true) ~= nil)
+  truthy(css:find("::-webkit-slider-thumb", 1, true) ~= nil)
+  truthy(css:find("padding: 0", 1, true) ~= nil)
+  truthy(css:find("scr-mode-collapsed", 1, true) ~= nil)
+  truthy(not js:find("compact: true", 1, true) and not js:find("standard: true", 1, true))
+  truthy(#fox < 2048 and not fox:lower():find("script", 1, true) and not fox:lower():find("base64", 1, true))
 end
 
 tests.all_lua_sources_compile = function()
@@ -3982,9 +4125,89 @@ local v060PauseLifecycleRequired = {
   {"52_no_pause_toggle_is_required", tests.v060_actions_complete_without_pause_toggle},
 }
 
+local v061Required = {
+  {"01_random_car_without_pause", tests.v061_paused_pipeline_finishes_without_toggle},
+  {"02_scramble_without_pause", tests.v061_paused_pipeline_finishes_without_toggle},
+  {"03_full_random_without_pause", tests.v061_paused_pipeline_finishes_without_toggle},
+  {"04_started_paused_no_deadlock", tests.v061_paused_pipeline_finishes_without_toggle},
+  {"05_pause_toggle_preserves_target", tests.v060_pause_mid_pipeline_and_frame_step_contract},
+  {"06_pause_toggle_not_required", tests.v061_paused_pipeline_finishes_without_toggle},
+  {"07_identity_stable_while_tree_changes", tests.v060_target_identity_tree_separation_contract},
+  {"08_housekeeping_during_tracker", tests.v060_onupdate_housekeeping_contract},
+  {"09_cancel_during_wait", tests.v060_busy_cancel_and_diagnostics_contract},
+  {"10_busy_released_all_terminals", tests.v060_busy_cancel_and_diagnostics_contract},
+  {"11_zero_sim_delta_preserves_target", tests.v061_paused_pipeline_finishes_without_toggle},
+  {"12_wall_clock_deadline_continues", tests.v061_target_deadline_uses_wall_clock_while_paused},
+  {"13_old_callback_rejected", tests.v060_explicit_lifecycle_generations_contract},
+  {"14_recovery_generation_blocks_old_write", tests.v060_recovery_stale_callback_isolation_contract},
+  {"15_timeout_does_not_auto_cycle", tests.v061_persistent_parts_read_fails_terminally},
+  {"16_new_click_new_rng", tests.v061_seed_modes_refresh_or_reproduce},
+  {"17_empty_manual_seed_new_entropy", tests.v061_seed_modes_refresh_or_reproduce},
+  {"18_fixed_seed_reproduces", tests.v061_seed_modes_refresh_or_reproduce},
+  {"19_random_car_avoids_immediate_repeat", tests.anti_repeat_selection},
+  {"20_recovery_not_new_result", tests.v060_recovery_snapshot_roles_contract},
+  {"21_retry_uses_own_substream", tests.v060_lineup_variety_substreams_and_failure_actions},
+  {"22_previous_operation_plan_cleared", tests.v061_recovery_invalidation_drops_all_old_plans},
+  {"23_same_selection_has_reason", tests.v061_seed_modes_refresh_or_reproduce},
+  {"24_recent_window_manual_seed_exception", tests.v061_seed_modes_refresh_or_reproduce},
+  {"25_clean_spawn_not_completed_good", tests.v060_recovery_snapshot_roles_contract},
+  {"26_unaccepted_partial_not_completed_good", tests.v060_recovery_snapshot_roles_contract},
+  {"27_final_completed_is_completed_good", tests.v060_recovery_snapshot_roles_contract},
+  {"28_recovery_finishes_operation", tests.v060_recovery_stale_callback_isolation_contract},
+  {"29_recovery_drops_old_tuning", tests.v061_recovery_invalidation_drops_all_old_plans},
+  {"30_recovery_drops_old_paint", tests.v061_recovery_invalidation_drops_all_old_plans},
+  {"31_recovery_loop_is_bounded", tests.v061_persistent_parts_read_fails_terminally},
+  {"32_failed_candidate_quarantined", tests.alpha2_recovery_contract},
+  {"33_migration_clears_old_locks", tests.v061_settings_locks_and_seed_migration},
+  {"34_new_session_unlocked", tests.v061_settings_locks_and_seed_migration},
+  {"35_remember_locks_defaults_off", tests.v061_settings_locks_and_seed_migration},
+  {"36_lock_warning_only_when_active", tests.v061_compact_ui_contract},
+  {"37_unlock_all_available", tests.v061_compact_ui_contract},
+  {"38_fixed_seed_warning", tests.v061_compact_ui_contract},
+  {"39_clear_fixed_seed_restores_random", tests.v061_settings_locks_and_seed_migration},
+  {"40_balanced_applies_values", tests.v061_race_presets_apply_real_policy},
+  {"41_maximum_chaos_applies_values", tests.v061_race_presets_apply_real_policy},
+  {"42_mods_showcase_applies_values", tests.v061_race_presets_apply_real_policy},
+  {"43_manual_change_marks_custom", tests.v061_compact_ui_contract},
+  {"44_competitor_leaves_pending", tests.v061_race_statuses_and_cancel_are_terminal},
+  {"45_timeout_finishes_failed", tests.v061_persistent_parts_read_fails_terminally},
+  {"46_cancel_finishes_competitors", tests.v061_race_statuses_and_cancel_are_terminal},
+  {"47_competitor_pause_independent", tests.v061_paused_pipeline_finishes_without_toggle},
+  {"48_failure_does_not_contaminate_next", tests.v060_lineup_variety_substreams_and_failure_actions},
+  {"49_no_ready_blocks_placement_with_reason", tests.v061_compact_ui_contract},
+  {"50_no_managed_blocks_drive_with_reason", tests.v061_compact_ui_contract},
+  {"51_race_seed_independent_substreams", tests.v060_lineup_variety_substreams_and_failure_actions},
+  {"52_recovery_not_accepted_as_competitor", tests.v060_recovery_snapshot_roles_contract},
+  {"53_exactly_four_top_tabs", tests.v061_compact_ui_contract},
+  {"54_chaos_has_no_seed_input", tests.v061_compact_ui_contract},
+  {"55_chaos_has_no_lock_chips", tests.v061_compact_ui_contract},
+  {"56_garage_has_compare_share", tests.v061_compact_ui_contract},
+  {"57_race_has_cars_placement_drive", tests.v061_compact_ui_contract},
+  {"58_header_c_s_removed", tests.v061_compact_ui_contract},
+  {"59_collapsed_reduces_height", tests.v061_compact_ui_contract},
+  {"60_expanded_340x320_no_normal_scroll", tests.v061_compact_ui_contract},
+  {"61_essential_text_at_least_12px", tests.v061_compact_ui_contract},
+  {"62_primary_buttons_at_least_44px", tests.v061_compact_ui_contract},
+  {"63_slider_zero_aligned", tests.v061_compact_ui_contract},
+  {"64_slider_fifty_aligned", tests.v061_compact_ui_contract},
+  {"65_slider_hundred_aligned", tests.v061_compact_ui_contract},
+  {"66_slider_scaled_layout", tests.v061_compact_ui_contract},
+  {"67_fox_asset_loads", tests.v061_compact_ui_contract},
+  {"68_fox_does_not_block_title", tests.v061_compact_ui_contract},
+  {"69_fox_is_decorative", tests.v061_compact_ui_contract},
+  {"70_status_shows_phase", tests.v061_compact_ui_contract},
+  {"71_cancel_visible_while_busy", tests.v061_compact_ui_contract},
+  {"72_details_visible_on_failure", tests.v061_compact_ui_contract},
+  {"73_temporary_nil_parts_recovers", tests.v061_bounded_parts_read_recovers},
+  {"74_persistent_nil_parts_fails_with_reason", tests.v061_persistent_parts_read_fails_terminally},
+  {"75_external_error_preserves_target_ownership", tests.v060_target_identity_tree_separation_contract},
+  {"76_missing_callback_cannot_leave_busy", tests.v061_target_deadline_uses_wall_clock_while_paused},
+}
+
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")
 equal(#v060Required, 104, "0.6.0 required scenario registry")
 equal(#v060PauseLifecycleRequired, 52, "0.6.0 pause lifecycle scenario registry")
+equal(#v061Required, 76, "0.6.1 required scenario registry")
 for _, scenario in ipairs(alpha2Required) do
   requirementMappings[#requirementMappings + 1] = {"0.5.0-alpha.2:" .. scenario[1], scenario[2]}
 end
@@ -3993,6 +4216,9 @@ for _, scenario in ipairs(v060Required) do
 end
 for _, scenario in ipairs(v060PauseLifecycleRequired) do
   requirementMappings[#requirementMappings + 1] = {"0.6.0-pause-lifecycle:" .. scenario[1], scenario[2]}
+end
+for _, scenario in ipairs(v061Required) do
+  requirementMappings[#requirementMappings + 1] = {"0.6.1:" .. scenario[1], scenario[2]}
 end
 
 local canonicalByFunction = {}
