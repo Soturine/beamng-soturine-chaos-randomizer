@@ -1,7 +1,7 @@
 # Spawn Director
 
 Spawn Director is the internal placement engine for **Race → Placement**. It
-places accepted Race Cars (legacy Lineup competitors) or a selected Vehicle DNA
+places accepted Race Cars (legacy `lineup` records) or a selected Vehicle DNA
 without issuing multiple concurrent loads. The fixed initial bound is
 `maxConcurrentLoads = 1`.
 
@@ -14,7 +14,7 @@ usable spawn workflow.
 Supported layouts are Front, Behind, Left, Right, four diagonals, Line, Grid,
 Circle, and one Custom world point. Options include count, spacing, rows,
 columns, radius, interval, ground offset, minimum clearance, spawn-one versus
-spawn-all, next Lineup competitor, and selected DNA.
+spawn-all, next Race Car, and selected DNA.
 
 Heading modes are camera, current player vehicle, nearest road direction,
 confirmed destination, and custom yaw. Player and road directions are read
@@ -55,7 +55,7 @@ pending target failed/DNS; it never promotes it to Ready.
 
 ## Managed vehicles
 
-The registry stores runtime ID, Lineup competitor, DNA ID, model/configuration,
+The registry stores runtime ID, Race Car/legacy competitor reference, DNA ID, model/configuration,
 spawn transform, target generation, AI state, last known state, status, ID
 history, and proven auxiliary IDs. Destroyed entries remain visible. Respawn
 creates a new generation and updates the ID only after verification. Remove

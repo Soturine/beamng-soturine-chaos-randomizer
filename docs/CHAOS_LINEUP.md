@@ -6,7 +6,7 @@ runs the complete central Full Random pipeline sequentially; concurrent vehicle
 loads are not used.
 
 The saved schema and internal API retain the legacy `lineup` name so existing
-`.lineup.json` data remains readable. The public v0.6.1 UI and documentation use
+`.lineup.json` data remains readable. The public v0.6.2 UI and documentation use
 **Race** and **Race Cars**; no destructive migration is required.
 
 ## Generation and acceptance

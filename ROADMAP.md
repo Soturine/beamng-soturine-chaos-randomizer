@@ -2,6 +2,14 @@
 
 The roadmap is evidence-driven. A feature is not considered stable until it has been exercised against representative official and third-party content in the target BeamNG version.
 
+## 0.6.2 — Gameplay Lifecycle, Recovery Integrity & UI Polish Hotfix
+
+- **Implemented:** coherent exact-target reads, ownership-before-tree convergence, always-active housekeeping, monotonic deadlines, generation-bound callbacks/timers/writes, explicit six-tier recovery, completed-good promotion gates, state-cycle termination, and isolated operation/retry RNG domains.
+- **Implemented:** full public feature/capability audit across Chaos, Garage, Vehicle DNA, Race Cars, Placement, Drive/AI Director, Settings, adapters, and degradation states.
+- **Static validated:** 95 mandatory v0.6.2 mappings plus the retained earlier regression suite, documentation contracts, responsive height/slider geometry, and the local symmetric fox SVG.
+- **Interactive Pending:** the exact 80-case final-ZIP plan is 0 Passed / 0 Failed / 80 Pending / 0 Blocked. This release remains Experimental pre-1.0 and does not claim the reproduced v0.6.1 gameplay failures are fixed in a real BeamNG world.
+- **Planned:** execute the controlled/mod-group matrix, capture UI evidence, and fix any observed regression in a later patch without rewriting historical results.
+
 ## 0.6.1 — Runtime Lifecycle, Race Workflow & Compact UI Hotfix
 
 Implemented on `main`: pause-independent target/reload housekeeping, wall-clock
@@ -10,7 +18,7 @@ automatic entropy and anti-repeat windows, schema-6 lock/seed defaults, explicit
 Race competitor phases and real presets, four-destination compact navigation,
 corrected range geometry, and a lightweight fox identity.
 
-Vehicle DNA schema 1, generator 6, `SCR6` seeds and saved Lineup data remain
+Vehicle DNA schema 1, generator 6, `SCR6` seeds and saved legacy lineup data remain
 compatible. The public name is now Race/Race Cars. Automated evidence is green;
 the exact 50-case v0.6.1 gameplay/UI plan remains entirely Pending, so this
 hotfix stays Experimental and pre-1.0.

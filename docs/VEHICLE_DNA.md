@@ -31,11 +31,11 @@ Replay Generation freezes the saved base model and normalized configuration, res
 
 ### Pure Seed Replay
 
-Pure Seed Replay is a separate advanced operation that reruns the original top-level generator action, including model/configuration selection. It can differ if BeamNG, enabled content, algorithms, filters, or other environment inputs changed. v0.6.1 continues to use generator 6 and `SCR6-XXXX-XXXX`. Generator-4/5 `SCR4-...`/`SCR5-...`/legacy text keeps its recorded version and is not silently replayed through generator 6; snapshot restore remains supported without RNG replay.
+Pure Seed Replay is a separate advanced operation that reruns the original top-level generator action, including model/configuration selection. It can differ if BeamNG, enabled content, algorithms, filters, or other environment inputs changed. v0.6.2 continues to use generator 6 and `SCR6-XXXX-XXXX`. Generator-4/5 `SCR4-...`/`SCR5-...`/legacy text keeps its recorded version and is not silently replayed through generator 6; snapshot restore remains supported without RNG replay.
 
-Chaos Lineup stores or embeds the same portable schema-1 DNA metadata after a
+Race Cars stores or embeds the same portable schema-1 DNA metadata after a
 competitor completes the central Full Random pipeline. A competitor cannot be
-Ready without a final DNA read-back. Renaming a Lineup competitor changes only
+Ready without a final DNA read-back. Renaming a Race Car changes only
 display metadata and never mutates the referenced DNA.
 
 ## Persistence

@@ -2,11 +2,11 @@
 
 Soturine's Chaos Randomizer is a BeamNG.drive UI App and GE Lua extension for seeded, bounded randomization of complete vehicle configurations, compatible hierarchical parts, tuning values, and paint layers.
 
-Current version: **0.6.1 — Runtime Lifecycle, Race Workflow & Compact UI Hotfix**
+Current version: **0.6.2 — Gameplay Lifecycle, Recovery Integrity, Full Feature Audit & UI Polish Hotfix**
 Inspected target: **BeamNG.drive 0.38.6.0.19963** (Steam build 23007233)
 
-This is an Experimental pre-1.0 release with best-effort mod support. The 0.6.1
-implementation has automated and installed-console evidence, but its 50-case
+This is an Experimental pre-1.0 release with best-effort mod support. The 0.6.2
+implementation has automated and installed-source evidence, but its 80-case
 BeamNG world/UI plan remains Pending. Publication does not claim real gameplay
 validation.
 
@@ -26,30 +26,34 @@ For example, you may start in an Ibishu Covet, press **Full Random** once, and f
 
 The randomizer never opens installed mod ZIPs, never forces a part that BeamNG did not report for the exact loaded slot, and never calls or reseeds global `math.random`.
 
-Version 0.6.1 keeps the v0.6.0 systems and hotfixes their live workflow:
+Version 0.6.2 keeps the v0.6.1 systems and repairs their target/recovery contracts:
 
-- lifecycle/target tracking advances independently from pause state and uses
-  wall-clock deadlines, generation guards, bounded reads, and terminal Busy
-  cleanup;
+- exact-ID observations bind target ownership before mutable parts-tree
+  convergence; all later parts, tuning, paint, DNA, and completion reads remain
+  tied to the same operation/target generation;
+- housekeeping, cancellation, watchdogs, stale callback/timer cleanup and Busy
+  release use monotonic wall time even when `dtSim` is zero;
+- recovery invalidates mutation plans and uses six bounded tiers, explicit
+  snapshot roles, generation/fingerprint guards, and a terminal cycle detector;
 - every automatic click gets fresh entropy and bounded anti-repeat history;
   fixed manual seeds remain reproducible;
 - the public workflow is **Chaos**, **Garage**, **Race**, **Settings**, with
   Saved/Compare/Share inside Garage and Cars/Placement/Drive inside Race;
 - Race presets apply real policies and every competitor progresses through
   explicit phases to a terminal status;
-- locks start cleared, lock persistence is opt-in, seed and locks live in
-  Settings, and the compact 340×320 UI has true Collapsed/Expanded layouts;
-- the Chaos slider has explicit Chromium track/thumb styling and the header
-  uses a small local decorative fox SVG.
+- locks start cleared, lock persistence is opt-in, and seed/locks live in
+  Settings;
+- the app uses 140 px collapsed, 270 px Chaos-ready and 330 px contextual host
+  heights, a percentage-driven Chaos slider, and a compact symmetric fox mark.
 
 The retained v0.6.0 foundation includes:
 
 - **Full Coverage:** Chaos 100 attempts and terminally classifies every eligible
   unlocked slot, public tuning variable, and supported paint field. Completed
   does not mean every value changed.
-- **Race Cars** (internally backward-compatible with Lineup): sequential 2–16 competitor generation through the central
+- **Race Cars** (internally backward-compatible with legacy lineup storage): sequential 2–16 competitor generation through the central
   Full Random pipeline, independent substreams, acceptance policies,
-  checkpoints, and portable data-only Lineup JSON.
+  checkpoints, and portable data-only race JSON.
 - **Spawn Director:** deterministic formations/custom points, spatial preview,
   stable DNA read-back, and generation-bound managed vehicle IDs.
 - **AI Director:** capability-gated NavGraph Destination/Route and real-target
@@ -58,7 +62,7 @@ The retained v0.6.0 foundation includes:
   GPS line.
 
 See [Full Coverage](docs/FULL_COVERAGE.md), [Tuning Integrity](docs/TUNING_INTEGRITY.md),
-[Race Cars](docs/CHAOS_LINEUP.md), [Spawn Director](docs/SPAWN_DIRECTOR.md),
+[Race Cars](docs/RACE.md), [Spawn Director](docs/SPAWN_DIRECTOR.md),
 [AI Director](docs/AI_DIRECTOR.md), and [NavGraph and Routes](docs/NAVGRAPH_AND_ROUTES.md).
 
 ## Safety and compatibility behavior
@@ -103,9 +107,9 @@ Advanced UI shows compact blacklist/suspect counts and the latest records; detai
 
 ### Stabilized lifecycle and tolerant verification
 
-Replacement/reload callbacks are candidate evidence, not immediate success. A bounded tracker combines the returned ID, callbacks, the current player vehicle, model/configuration read-back, and part read-back; it accepts the final target only after five stable frames and two coherent scans. Legitimate `A → B → C` mod lifecycles, auxiliary vehicles, trailers, destroyed intermediates, and reload-time ID changes can rebind without being mistaken for a manual switch. A truly unrelated player switch still cancels safely.
+Replacement/reload callbacks are candidate evidence, not immediate success. A bounded tracker combines the returned object/ID, player index, callbacks, current player ID, and exact-ID model/configuration read-back. Ownership is confirmed before parts-tree convergence; the mutable tree then needs its own coherent scans. Legitimate `A → B → C` mod lifecycles, auxiliary vehicles, trailers, destroyed intermediates, and reload-time ID changes can rebind only while the active generation permits it. A truly unrelated player switch still cancels safely.
 
-Transient part-tree gaps are rescanned. A persistent structural failure rolls back only the failing batch, quarantines the model/configuration/slot/candidate combination, and tries a bounded alternative. Failed configuration loads recover through the previous snapshot, last-known-good vehicle, then a safe official fallback; cleanup always releases busy/token/timer state. Random Car and Full Random can start with no active vehicle, while Scramble explains that it needs an active target.
+Transient part-tree gaps are rescanned. A persistent structural failure rolls back only the failing batch, quarantines the model/configuration/slot/candidate combination, and tries a bounded alternative. Recovery explicitly selects current-target continuation, local rollback, candidate abort, safe baseline restore, official fallback, or hard failure; repeated state cycles terminate. Cleanup always releases Busy/token/timer state. Random Car and Full Random can start with no active vehicle, while Scramble explains that it needs an active target.
 
 ### Granular capabilities
 
@@ -113,7 +117,7 @@ The adapter reports registry, replace, parts read/write, tuning read/write, pain
 
 ## Installation
 
-1. Download the attached `soturine_chaos_randomizer_0.6.1.zip` release asset, or build that filename locally.
+1. Download the attached `soturine_chaos_randomizer_0.6.2.zip` release asset, or build that filename locally.
 2. Copy the ZIP, without extracting it, into the active BeamNG user folder's `mods` directory.
 3. Enable it in Mod Manager.
 4. Enter Freeroam, open UI Apps, and add **Soturine's Chaos Randomizer**.
@@ -184,8 +188,8 @@ The package builder fixes entry order, timestamps, permissions, path separators,
 Expected release files:
 
 ```text
-dist/soturine_chaos_randomizer_0.6.1.zip
-dist/soturine_chaos_randomizer_0.6.1.sha256
+dist/soturine_chaos_randomizer_0.6.2.zip
+dist/soturine_chaos_randomizer_0.6.2.sha256
 dist/release-manifest.json
 ```
 
@@ -199,13 +203,14 @@ dist/release-manifest.json
 - Synthetic registry/config-pack/full-mod/part-pack/wheel-pack/user/unknown fixtures: automated.
 - Clean-profile ZIP install, UI rendering/resizing, gameplay operations, representative third-party mods, and bounded stress inside a world: **Pending**.
 - Vehicle DNA exact/compatible restore, creative locks/mutations, managed capture, corruption recovery, restart persistence, and cross-PC package import inside the game: **Pending**.
-- Runtime lifecycle, representative mods, Race presets/competitors, compact UI, slider scaling, and fox rendering in a BeamNG world: **Pending (0 Passed / 0 Failed / 50 Pending / 0 Blocked)**.
+- Runtime lifecycle, representative mods, Race presets/competitors, compact UI, slider scaling, and fox rendering in a BeamNG world: **Pending (0 Passed / 0 Failed / 80 Pending / 0 Blocked)**.
 
-See [Testing](docs/TESTING.md), [0.6.1 Interactive Plan](docs/INTERACTIVE_TEST_PLAN_0.6.1.md), [0.6.1 Interactive Report](docs/INTERACTIVE_TEST_REPORT_0.6.1.md), [Requirements Matrix](docs/REQUIREMENTS_MATRIX_0.6.1.md), [Compatibility](docs/COMPATIBILITY.md), [Compatibility Matrix](docs/COMPATIBILITY_MATRIX.md), [Safety Model](docs/SAFETY_MODEL.md), [Performance](docs/PERFORMANCE.md), and [Troubleshooting](docs/TROUBLESHOOTING.md).
+See [Testing](docs/TESTING.md), [0.6.2 Interactive Plan](docs/INTERACTIVE_TEST_PLAN_0.6.2.md), [0.6.2 Interactive Report](docs/INTERACTIVE_TEST_REPORT_0.6.2.md), [Requirements Matrix](docs/REQUIREMENTS_MATRIX_0.6.2.md), [Feature Audit](docs/FEATURE_AUDIT_0.6.2.md), [Compatibility](docs/COMPATIBILITY.md), [Safety Model](docs/SAFETY_MODEL.md), and [Troubleshooting](docs/TROUBLESHOOTING.md).
 
 ## Known limitations
 
-- No 0.6.1 interactive gameplay result or universal third-party mod compatibility is claimed. Earlier v0.6.0 observations are historical evidence, not v0.6.1 passes.
+- No 0.6.2 interactive gameplay result or universal third-party mod compatibility is claimed. The eight reproduced v0.6.1 lifecycle failures remain historical Failed evidence, not v0.6.2 passes.
+- External vehicle mods may contain their own Lua errors. The randomizer provides best-effort recovery but cannot repair third-party mods.
 - `onVehicleSpawned` is the installed 0.38.6 reload hook for replace, parts, and tuning writes; phase and post-event state verification distinguish them. Paint writes use immediate or bounded deferred read-back because `respawn=false` emits no reload hook.
 - Tuning metadata exposes display category/subcategory but no proven correlation-group contract. The normalizer supports only an explicit `correlationGroup` plus `shared_normalized_sample`; current installed metadata therefore remains independently sampled.
 - Safety is metadata-based and cannot prove generic drivability; unknown/special layouts can remain `uncertain` without being destructively rejected.

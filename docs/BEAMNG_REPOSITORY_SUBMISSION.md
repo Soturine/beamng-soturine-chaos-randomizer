@@ -1,13 +1,13 @@
 # BeamNG Repository Submission Preparation
 
-This is a preparation checklist, not evidence of submission or approval. A GitHub alpha prerelease is not BeamNG Repository approval or a stable-support claim.
+This is a preparation checklist, not evidence of submission or approval. A GitHub Experimental prerelease is not BeamNG Repository approval or a stable-support claim.
 
 ## Proposed listing
 
 - **Title:** Soturine's Chaos Randomizer
 - **Short name:** Chaos Randomizer
 - **Author:** Soturine
-- **Version candidate:** later than `0.5.0-alpha.2`, only after the beta interactive gate
+- **Version candidate:** later than `0.6.2`, only after the interactive promotion gate
 - **Tagline:** Seeded vehicle randomization with bounded Vehicle DNA capture, compatibility reports, and restoration.
 - **Category:** UI Apps / Gameplay (choose the closest current Repository category at submission time)
 - **License:** Apache License 2.0
@@ -26,7 +26,7 @@ Suggested description:
 - Confirm the supported BeamNG version immediately before upload.
 - Pass the restart persistence, corruption recovery, Exact/Compatible restore, import/export, and multi-PC beta gate in [Multi-PC Testing](MULTI_PC_TESTING.md).
 - Review current Repository rules, allowed categories/tags, image dimensions, file-size limits, and moderation requirements.
-- Do not submit `0.5.0-alpha.2`; it deliberately retains 50 Pending interactive cases.
+- Do not submit `0.6.2`; it deliberately retains 80 Pending interactive cases and is an Experimental prerelease.
 
 ## Package checklist
 
@@ -48,7 +48,7 @@ BeamNG's Mod Manager/Repository pipeline owns outer package listing metadata. Th
 - [ ] Advanced screenshot shows filters, seed, Undo, and index state.
 - [ ] Gameplay screenshots show both plausible and high-Chaos outcomes.
 - [ ] Images contain no copied artwork, brand impersonation, or unlicensed private mod content.
-- [ ] Captions accurately label Alpha limitations.
+- [ ] Captions accurately label Experimental pre-1.0 limitations.
 
 ## Description accuracy checklist
 

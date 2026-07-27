@@ -12,7 +12,7 @@ promise that every eligible value changes.
   read-back, and validation on that target.
 - **Full Random** loads a new model/configuration and then runs the same central
   Scramble pipeline. It cannot complete after the base spawn alone.
-- **Chaos Lineup** invokes Full Random sequentially; it does not contain a
+- **Race Cars** invokes Full Random sequentially; it does not contain a
   reduced mutation algorithm.
 
 ## Chaos and coverage

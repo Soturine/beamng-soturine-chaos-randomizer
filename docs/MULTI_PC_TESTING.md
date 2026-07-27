@@ -1,12 +1,12 @@
 # Multi-PC and Beta Gate Testing
 
-This checklist prepares a possible future `0.5.0-beta.1`; it is not evidence that the beta gate passed. Do not change VERSION, create a beta tag, or publish a beta prerelease until the exact alpha ZIP has real results.
+This checklist prepares a possible future stable/beta gate; it is not evidence that the gate passed. Do not promote a later release until the exact candidate ZIP has real results.
 
 ## Required machines
 
 - PC A and PC B with documented OS, BeamNG full build, active user folder, enabled-mod inventory, and randomizer commit.
 - At least one clean 0.38.6 profile.
-- The exact attached `soturine_chaos_randomizer_0.5.0-alpha.2.zip`, verified against its attached `.sha256` on both machines.
+- The exact attached `soturine_chaos_randomizer_0.6.2.zip`, verified against its attached `.sha256` on both machines.
 
 ## Required evidence
 
@@ -24,6 +24,6 @@ This checklist prepares a possible future `0.5.0-beta.1`; it is not evidence tha
 
 ## Beta publication gate
 
-The gate requires all applicable alpha interactive cases Passed, exact attached-asset hash verification, at least one successful cross-PC Exact and `.vdna.zip` case with matching content, compatible/partial evidence with changed content, restart/corruption recovery evidence, UI scaling/input evidence, repeated-operation stress, and a documented clean log. Any Pending blocker forbids a beta tag/release. Published alpha artifacts remain evidence-gathering software and are not promoted in place.
+The gate requires all applicable v0.6.2 interactive cases Passed, exact attached-asset hash verification, at least one successful cross-PC Exact and `.vdna.zip` case with matching content, compatible/partial evidence with changed content, restart/corruption recovery evidence, UI scaling/input evidence, repeated-operation stress, and a documented clean log. Any Pending blocker forbids promotion. Published Experimental artifacts remain evidence-gathering software and are not promoted in place.
 
-The alpha release workflow validates tag/VERSION identity, package/checksum/manifest consistency, and refuses release overwrite. `.github/workflows/beta-readiness.yml` is manual and non-publishing: it runs the full Ubuntu suite, portable Windows static/package checks, builds both artifacts, and requires byte-identical ZIP/checksum/manifest outputs. A green run still does not satisfy this interactive gate. Cross-platform artifact comparison and beta notes must be recorded from the actual final beta commit—not inferred from alpha builds.
+The release workflow validates tag/VERSION identity, package/checksum/manifest consistency, and refuses release overwrite. `.github/workflows/beta-readiness.yml` is manual and non-publishing: it runs the full Ubuntu suite, portable Windows static/package checks, builds both artifacts, and requires byte-identical ZIP/checksum/manifest outputs. A green run still does not satisfy this interactive gate. Cross-platform artifact comparison and promotion notes must be recorded from the actual candidate commit—not inferred from earlier builds.

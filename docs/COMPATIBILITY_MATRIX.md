@@ -2,20 +2,22 @@
 
 This matrix separates installed-source inspection, license-safe automated evidence, mocked pipeline evidence, and real interactive evidence. `Automated` never means gameplay-validated.
 
-Target: Soturine's Chaos Randomizer `0.5.0-alpha.2`; BeamNG.drive `0.38.6.0.19963`; Steam build `23007233`. Alpha.2 interactive total: **0 Passed / 0 Failed / 50 Pending**.
+Target: Soturine's Chaos Randomizer `0.6.2`; BeamNG.drive `0.38.6.0.19963`; Steam build `23007233`. v0.6.2 interactive total: **0 Passed / 0 Failed / 80 Pending / 0 Blocked**.
 
-| 0.5 boundary | Automated/source evidence | Live status |
+| 0.6.2 boundary | Automated/source evidence | Live status |
 | --- | --- | --- |
 | Locks and independent creative substreams | Pure + mocked Lua cases | Pending |
 | Deterministic mutation lineage | Pure + mocked Lua cases | Pending |
 | Gallery fallback and PNG bounds | Pure/static + installed screenshot source | Pending |
 | JSON/ZIP sharing safety | Pure Lua, static boundary, deterministic package fixtures | Pending |
-| Five-view UI, focus, responsive overflow | Node/static CSS/HTML assertions | Pending |
+| Four-destination UI, focus, dynamic height and responsive overflow | Node/static CSS/HTML assertions | Pending |
 | Cross-PC package dependency/restore behavior | Documented procedure only | Pending |
-| Multi-ID target tracking and stable rebind | Returned/callback/player/model/config/part fixtures, limits, stale-token and manual-switch cases | Pending |
+| Exact-ID target ownership before tree convergence | Returned/callback/player/model/config fixtures, coherent-read, stale-generation and tree-change cases | Pending |
 | Localized part rollback/retry/quarantine | Pure + mocked deep-tree/structural failure cases | Pending |
-| Failed-load recovery and no-active-vehicle entry | Previous/LKG/official ladder, circuit breaker, cleanup fixtures | Pending |
-| Compact UI modes and contextual controls | Static HTML/CSS/JS contract and syntax checks | Pending |
+| Six-tier recovery and cycle termination | Snapshot promotion, generation invalidation, candidate/recovery fingerprints, circuit breaker and cleanup fixtures | Pending |
+| Pause-independent housekeeping and terminal Busy | Wall/simulation/frame clocks, deadline/cancel/unload/player-loss fixtures | Pending |
+| Race Cars, Placement and Drive | Terminal competitors, policy, managed-generation and AI capability fixtures | Pending |
+| Slider/fox and contextual controls | Static HTML/CSS/JS/SVG contract and syntax checks | Pending |
 
 | Content class | Registry/source evidence | Safety behavior | Automated evidence | Interactive evidence |
 | --- | --- | --- | --- | --- |
@@ -51,7 +53,7 @@ Target: Soturine's Chaos Randomizer `0.5.0-alpha.2`; BeamNG.drive `0.38.6.0.1996
 
 | Operation | Installed source | Automated orchestration | Interactive observation |
 | --- | --- | --- | --- |
-| Replace/spawn | object/ID and spawned/switch hooks are candidate sources; player target is authoritative | multi-ID chain, returned non-final ID, auxiliary target rejection, stable rebind, manual-switch cancellation | Pending |
+| Replace/spawn | object/ID and spawned/switch hooks are candidate sources; player target is authoritative | exact-ID coherent observation, ownership-before-tree, multi-ID chain, auxiliary rejection, stale generation, manual-switch cancellation | Pending |
 | Parts | normal `nil`, respawn, spawned hook | phase read-back, timeout attribution, suspects, safety rollback | Pending |
 | Tuning | normal `nil`, respawn, spawned hook | phase read-back, optional skip, rollback | Pending |
 | Paint | normal `nil`, live update, no spawn | normalized immediate/deferred read-back and rollback | Pending |

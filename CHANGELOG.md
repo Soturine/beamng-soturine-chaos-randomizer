@@ -2,6 +2,49 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-07-27
+
+Gameplay Lifecycle, Recovery Integrity, Full Feature Audit & UI Polish Hotfix.
+This remains an Experimental pre-1.0 prerelease with best-effort mod support.
+Automated/installed-source evidence passes; the exact 80-case live BeamNG plan
+is 0 Passed / 0 Failed / 80 Pending / 0 Blocked, so gameplay fixes are not
+claimed as interactively validated.
+
+### Fixed
+
+- Build one coherent exact-ID verification observation and reject a target that
+  changes during the read instead of mixing player/object/global-config views.
+- Confirm operation ownership before mutable parts-tree convergence and bind all
+  parts, tuning, paint, DNA and completion work to operation/phase/target/
+  recovery generations.
+- Keep wall-clock housekeeping, Cancel, deadlines, watchdog, diagnostics, stale
+  callback/timer cleanup, player-loss handling and Busy release active in every
+  phase, including `dtSim == 0`.
+- Separate original/candidate/readable/completed-good/recovery snapshots; gate
+  completed-good promotion on final readback, closed ledgers and zero pending
+  work; invalidate every old plan before recovery.
+- Add six bounded recovery tiers, candidate/state fingerprints and terminal
+  cycle detection so old clean/randomized states cannot be restored forever.
+- Isolate operation and retry entropy domains while preserving fixed seed,
+  replay, restore and single-option behavior.
+- Expose terminal Race Cars, Placement and Drive controls plus honest available,
+  degraded, unavailable and unsupported capability reasons.
+- Remove Chaos dead space, dynamically size the host, bind slider fill/endpoint
+  geometry to its exact percentage and replace the fox with a compact symmetric
+  local SVG.
+
+### Audited
+
+- Audit every public Chaos, Garage, Vehicle DNA, Compare, Share, Race Cars,
+  Placement, Drive/AI Director and Settings action, including adapter and
+  capability dependencies.
+- Register all 95 mandatory v0.6.2 mappings; the suite contains 319 unique Lua
+  functions/executed cases and 4,031 Lua assertions before final packaging.
+- Record 80 exact live-game cases separately and preserve the eight reproduced
+  v0.6.1 lifecycle regressions as historical Failed evidence.
+- Preserve Vehicle DNA schema 1, generator 6, `SCR6` seeds, v0.6.0/v0.6.1 saved
+  data and legacy `lineup` storage/API reads.
+
 ## [0.6.1] - 2026-07-26
 
 Runtime Lifecycle, Race Workflow & Compact UI Hotfix. Experimental pre-1.0

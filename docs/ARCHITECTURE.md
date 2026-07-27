@@ -24,8 +24,8 @@ Repository documentation, tools, tests, workflows, and fixtures do not enter the
 | `apiAdapter.lua` | Only boundary for BeamNG registry, vehicle, JBeam, parts, tuning, paint, VFS, log, and UI calls |
 | `capabilities.lua` | Derive actions and user-visible warnings from granular API capabilities |
 | `lifecycle.lua` | Phase-specific wait expectations and post-event state verification |
-| `vehicleTargetTracker.lua` / `vehicleStabilizer.lua` | Bounded multi-candidate target binding, rebind, player polling, stable-frame/scan proof |
-| `partBatchRecovery.lua` / `vehicleRecovery.lua` | Localized part rollback/quarantine and failed-load recovery ladder/circuit breaker |
+| `vehicleTargetTracker.lua` / `vehicleStabilizer.lua` | Bounded multi-candidate ownership proof separated from mutable-tree convergence |
+| `partBatchRecovery.lua` / `vehicleRecovery.lua` | Localized rollback/quarantine, six recovery tiers, generation/snapshot guards, cycle detection |
 | `configVerification.lua` | Layered model/path/registry/signature configuration identity proof |
 | `contentIndex.lua` | Normalize mounted registry content, evidence-based source/type classes, filters, separated session blacklists |
 | `slotScanner.lua` | Copy/flatten hierarchical trees, stable depth/path/ID order, signatures, changed paths |
@@ -83,7 +83,7 @@ Adapter calls use explicit contracts rather than interpreting `pcall` alone as s
 
 | Write | Synchronous contract | Completion contract |
 | --- | --- | --- |
-| `replaceVehicle` / spawn | `false` rejects; a returned ID/object is candidate evidence and replacement can begin without a previous active vehicle | callbacks, player-0 polling, model/config/part evidence, then five stable frames and two coherent scans on the final target |
+| `replaceVehicle` / spawn | `false` rejects; a returned ID/object is candidate evidence and replacement can begin without a previous active vehicle | returned object/ID, player-0 ownership and exact-ID model/config proof first; mutable tree converges separately |
 | `setPartsTreeConfig` | installed API normally returns `nil`; `false` rejects | `onVehicleSpawned`, expected path/candidate read-back |
 | `setConfigVars` | installed API normally returns `nil`; `false` rejects | `onVehicleSpawned`, expected tuning values read-back |
 | `setConfigPaints(..., false)` | installed API normally returns `nil`; `false` rejects | requested-field read-back immediately or through a two-second bounded update retry; no reload event |
@@ -92,7 +92,7 @@ Thrown exceptions retain their detail. Phase-specific codes include `vehicle_rep
 
 ## Operation and lifecycle model
 
-Version 0.6.0 adds an explicit authoritative lifecycle above the legacy engine
+Version 0.6.2 maintains an explicit authoritative lifecycle above the legacy engine
 transition names. Phases cover capture, selection, spawn issue, target identity,
 simulation-resume wait, tree stabilization, parts plan/write/reload/verify and
 isolation, tuning plan/write/reload/verify, paint write/verify, final validation,
@@ -106,23 +106,36 @@ mutation write validates that context plus its expected vehicle ID/model/config
 immediately before acting. Cancel, recovery, phase replacement, and new targets
 invalidate the relevant generation. Stale work is ignored and counted.
 
-The transaction keeps independent values for `operationOriginalSnapshot`,
-`operationCandidateBase`, `operationMutationPlan`, `operationCurrentTarget`,
-`operationRecoveryTarget`, `lastReadableSnapshot`, and
-`lastCompletedGoodSnapshot`. Recovery deletes the old mutation plan and pending
-parts/tuning/paint work, closes ledgers, creates a recovery-only target, and can
-never transition back into Scramble. Completed-good is committed only after
-successful final validation and Busy release; an original, base spawn,
-unaccepted Partial, or recovery-in-progress is not automatically good.
+The transaction keeps independent values for `operationOriginalVehicle`,
+`operationOriginalSnapshot`, `selectedCandidate`, `spawnRequestedTarget`,
+`confirmedTarget`, `currentTarget`, `lastReadableTarget`,
+`candidateBaseSnapshot`, `lastReadableSnapshot`,
+`lastCompletedGoodSnapshot`, and `recoveryTarget`. Recovery invalidates callback
+and timer owners, deletes selection/mutation/current-batch/tuning/paint plans,
+closes or discards ledgers, increments recovery generation, and creates a
+recovery-only target that can never transition back into Scramble.
+Completed-good is promoted only after final target/parts/tuning/paint readback,
+closed ledgers, zero pending work, and a clean terminal result; an original,
+clean base spawn, rejected Partial, timeout, or recovery is never promoted.
 
-`timeSource.lua` exposes real monotonic time, simulation time, both deltas, raw
-delta, frame counter, pause state, and slow-motion ratio. Real deadlines and
-polls share the monotonic source. A phase that requires Vehicle-Lua/physics
-progress enters `waiting_for_simulation_resume` without a false timeout or
-automatic pause change. `progressWatchdog.lua` counts only phase, target, tree,
-and confirmed-write evidence. The update scheduler always continues pause
-observation, timeout/watchdog, Spawn/AI housekeeping, UI publication, and
-recovery bookkeeping while target tracking is active.
+`timeSource.lua` exposes monotonic wall time, simulation time, real/simulation/
+raw deltas, frame counter, pause state, and slow-motion ratio. Operation/phase
+deadlines, callback age, retry interval, watchdog, UI elapsed, and recovery use
+the monotonic source even when simulation time is zero. Simulation time is only
+evidence for phases whose BeamNG contract genuinely needs it; the extension
+never toggles pause or changes a generation because pause changed.
+`progressWatchdog.lua` counts only phase, target, tree, and confirmed-write
+evidence. `onUpdate` always performs clocks, stale-work cleanup, cancel,
+deadline/watchdog, recovery, target tracking, active pipeline, Spawn/AI
+housekeeping, and UI publication; phase work cannot suppress those services.
+
+Target verification is a coherent exact-ID observation. Player ID is sampled
+before and after the ID-specific object/config read and must remain the expected
+player-0 target. Ownership is proven from operation/generation, returned object,
+ID, player index, model and configuration; it does not wait for a stable parts
+tree. Tree/config convergence starts only after ownership and can legitimately
+change without clearing that ownership. Every write and readback repeats the
+same operation/phase/target/recovery-generation precondition.
 
 The state machine keeps generic engine states (`spawning`, `waitingForVehicle`, `mutating`, `waitingForReload`, and so on), while each active wait carries a specific reason:
 
@@ -137,7 +150,7 @@ waitingForDNAPartsReload
 waitingForDNATuningReload
 ```
 
-An expectation stores operation token, phase, expected hook, original player vehicle, model/config evidence, requested parts/tuning values, and start time. The target tracker treats returned IDs, synchronous/asynchronous callbacks, and player-0 polls as bounded candidates. It can rebind from destroyed/intermediate IDs to the final matching player vehicle; no single callback is success. Model/config/part state must remain coherent for five frames and two scans. Candidate/event limits, stale tokens, and the normal phase timeout prevent indefinite tracking.
+An expectation stores operation token/generation, phase generation, target and recovery generations, expected hook, original player vehicle, model/config evidence, requested parts/tuning values, and wall start/deadline. The target tracker treats returned IDs, synchronous/asynchronous callbacks, and player-0 polls as bounded candidates. It can rebind from destroyed/intermediate IDs to the final matching player vehicle only inside the same active generation; no single callback is success. Identity stability and tree stability are separate counters. Candidate/event limits, stale-owner rejection, no-progress detection, and wall deadlines prevent indefinite tracking.
 
 Config verification applies layers: exact model, normalized path, model-scoped registry key, minimal loaded-state signature, then explicit failure as `config_identity_unverified`. A registry-only cross-model check can return `target_inspection_required`; the orchestrator loads the saved base within the existing transaction and repeats preflight against the confirmed target before any final claim. Paint confirmation is update-driven, interval-limited, attempt-limited, and does not use `onVehicleSpawned`.
 
@@ -221,13 +234,16 @@ Only an unconfirmed base spawn can penalize its configuration. A parts failure a
 
 Part-batch recovery adds session-only quarantine keyed by model/configuration/slot/candidate. It keeps a pre-batch snapshot, permits at most two retries per slot, eight per pass, four localized rollbacks, twelve operation retries, and 128 quarantined candidates. A verified localized rollback continues with an alternative; rollback failure enters total transaction rollback.
 
-Vehicle-load recovery first tries the previous full snapshot, then the session
-`lastCompletedGoodSnapshot`, then ranked safe official configurations. The
-separate `lastReadableSnapshot` is diagnostic evidence and is not automatically
-a recovery candidate. Three consecutive failures open an official-only circuit
-breaker. Locks do not constrain recovery. Every terminal path clears the
-tracker, timers, pending writes, and transient recovery/creative fields and
-releases derived Busy state.
+Recovery is a bounded decision ladder: continue the owned target for a temporary
+read gap; roll back the local batch; abort the candidate; restore one explicitly
+chosen operation-original or completed-good baseline; load a ranked safe
+official fallback; or hard-fail and release Busy. `lastReadableSnapshot` is
+diagnostic evidence and is not automatically a recovery candidate. Every step
+records a target-state fingerprint and recovery generation; repeated candidates
+or state sequences terminate with `candidate_cycle_detected` or
+`recovery_loop_detected`. Three consecutive load failures open an official-only
+circuit breaker. Locks do not constrain recovery. Every terminal path clears
+the tracker, callbacks, timers, pending writes, plans and transient fields.
 
 ## Full Random transaction
 
@@ -281,11 +297,11 @@ algorithm: `lineupManager`/`lineupSchema`/`lineupStorage` own inert sequential
 collections; `spawnDirector` plus `spawnApiAdapter` own placements/read-back;
 `managedVehicleRegistry` owns multi-target generations; and `aiAdapter`,
 `aiDirector`, `routePlanner`, and `destinationMarker` own capability-gated
-in-game driving. Lineup invokes the existing Full Random orchestrator rather
+in-game driving. Race Cars invokes the existing Full Random orchestrator rather
 than duplicating parts/tuning/paint logic. Spawn and AI accept only Ready
 managed generations.
 
-The UI has fixed Randomize, Locks, Garage, Compare, and Share destinations and calls only allowlisted public extension methods. Random Car is presentation for the unchanged `randomConfig` enum. Collapsed/compact/standard/expanded modes affect layout only; contextual creative buttons are absent when no DNA is selected. An action click cancels the pending settings timer and sends `runAction(action, currentSettings)` as one serialized Lua call. Lua validates/applies the snapshot before beginning the operation. Pasted DNA is length-checked and parsed with `JSON.parse` before `serializeToLua`; raw import text never becomes Lua source or a method name. Exact/Compatible buttons run preflight first, and Garage compatibility owns the separate destructive confirmation. Server state events assign scope state without scheduling another settings write. Destroy cancels both settings and search timers.
+The UI has exactly four destinations: Chaos, Garage, Race, and Settings. Garage owns Saved/Compare/Share; Race owns Cars/Placement/Drive. It calls only allowlisted public extension methods. Random Car is presentation for the unchanged `randomConfig` enum. Collapsed/expanded modes affect layout only; dynamic host heights are 140 px collapsed, 270 px Chaos-ready, and 330 px for Busy/details/other views. An action click cancels the pending settings timer and sends `runAction(action, currentSettings)` as one serialized Lua call. Lua validates/applies the snapshot before beginning the operation. Pasted DNA is length-checked and parsed with `JSON.parse` before `serializeToLua`; raw import text never becomes Lua source or a method name. Exact/Compatible buttons run preflight first, and Garage compatibility owns the separate destructive confirmation. Server state events assign scope state without scheduling another settings write. Destroy cancels both settings and search timers.
 
 Periodic public state contains paginated summaries, bounded reports, metrics, and lock counts—not full DNA, export text, thumbnail bytes, or full details. Explicit details, comparison, lock resolution, and JSON export use dedicated one-off events.
 
@@ -295,7 +311,7 @@ The custom-element host is explicitly block-sized to 100% width/height because t
 
 Random choices use operation, pass, variable, group, retry, competitor, spawn,
 AI, and creative substreams. Maps are sorted before choices. Generator 6 uses
-`SCR6-...` seeds because 0.6.0 coverage/Lineup decisions change output. Schema 1
+`SCR6-...` seeds because 0.6.0 coverage/race-generation decisions change output. Schema 1
 generator-4/5 snapshots remain restorable and retain their version; they are
 never reinterpreted as generator 6. Results require identical
 game/content/settings/starting state/quarantine inputs.

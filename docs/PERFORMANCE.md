@@ -48,7 +48,7 @@ The final 0.5 candidate rerun reported `index_seconds=0.034`, `scan_seconds=0.00
 - Only one primary library and one last-known-good copy are retained. No per-entry backup directory can grow without bound.
 - Full Coverage ledgers are operation/target-bound and closed at terminal or
   recovery; they do not accumulate across operations.
-- Chaos Lineup is capped at 16 competitors, checkpoints incrementally, and
+- Race Cars is capped at 16 competitors, checkpoints incrementally, and
   invokes only one central Full Random operation at a time. The UI renders at
   most eight competitor cards per page.
 - Spawn Director is capped at 16 planned positions and exactly one concurrent

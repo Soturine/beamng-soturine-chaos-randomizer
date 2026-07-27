@@ -2,7 +2,7 @@
 
 ## Current target
 
-Version `0.6.1` targets the currently installed BeamNG.drive
+Version `0.6.2` targets the currently installed BeamNG.drive
 `0.38.6.0.19963`, Steam build `23007233`. It remains Experimental, pre-1.0,
 and best-effort with mods even without a prerelease suffix.
 
@@ -89,7 +89,7 @@ External mod scripts, physics timing, and changed mounted content are outside th
 Vehicle DNA separates two different contracts:
 
 - Restore Exact applies a saved snapshot without RNG/recent/blacklist fallback and reports exact only after full slot/tuning/paint/topology read-back.
-- Replay Generation freezes the saved base and reruns a supported matching generator's parts/tuning/paint stages. v0.6.1 continues to use generator 6; generator-4/5 snapshots remain restorable, but old seeds are never silently replayed as generator 6. Pure Seed Replay is explicitly separate and can reselect the base.
+- Replay Generation freezes the saved base and reruns a supported matching generator's parts/tuning/paint stages. v0.6.2 continues to use generator 6; generator-4/5 snapshots remain restorable, but old seeds are never silently replayed as generator 6. Pure Seed Replay is explicitly separate and can reselect the base.
 
 Restore Compatible never chooses a random substitute. It reports missing/ambiguous slots, absent parts/dependencies, clamps, paint-layer omissions, and environment differences before the user can confirm a partial application. A cross-model registry preflight reports `target_inspection_required`; after the saved base loads, target inspection decides Exact, Compatible, or rollback.
 
@@ -99,6 +99,6 @@ Include BeamNG build, randomizer commit/version, content name/version/source/lic
 
 See [Compatibility Matrix](COMPATIBILITY_MATRIX.md) for per-class automated and interactive evidence.
 
-Earlier maintainer observations are retained separately and do not promote any
-v0.6.1 row. The current v0.6.1 interactive matrix is **0 Passed / 0 Failed /
-50 Pending / 0 Blocked**.
+The eight reproduced v0.6.1 lifecycle failures are retained separately as
+historical Failed evidence and do not promote any v0.6.2 row. The current
+v0.6.2 interactive matrix is **0 Passed / 0 Failed / 80 Pending / 0 Blocked**.
