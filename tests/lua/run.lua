@@ -4490,6 +4490,7 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/capabilities.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/configSelector.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/configVerification.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/coverageContext.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/coverageLimits.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/contentIndex.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/compat/legacyLineupFacade.lua",

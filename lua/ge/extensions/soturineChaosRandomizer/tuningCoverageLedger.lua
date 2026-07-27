@@ -1,4 +1,5 @@
 local util = require("ge/extensions/soturineChaosRandomizer/util")
+local coverageContext = require("ge/extensions/soturineChaosRandomizer/coverageContext")
 
 local M = {}
 
@@ -13,24 +14,14 @@ local TERMINAL = {
 }
 
 local function create(context)
-  return {
-    entries = {}, order = {}, pass = 0, finalReadBack = false, unsupported = false,
-    operationId = context and context.operationId,
-    targetGeneration = context and context.targetGeneration,
-    modelKey = context and context.modelKey,
-    configIdentity = util.deepCopy(context and context.configIdentity),
-  }
+  local state = coverageContext.create(context)
+  state.entries, state.order, state.pass = {}, {}, 0
+  state.finalReadBack, state.unsupported = false, false
+  return state
 end
 
 local function bindContext(state, context)
-  context = type(context) == "table" and context or {}
-  if state.operationId ~= nil and context.operationId ~= nil and state.operationId ~= context.operationId then return false, "coverage_operation_mismatch" end
-  if state.targetGeneration ~= nil and context.targetGeneration ~= nil and state.targetGeneration ~= context.targetGeneration then return false, "coverage_target_generation_mismatch" end
-  state.operationId = state.operationId or context.operationId
-  state.targetGeneration = state.targetGeneration or context.targetGeneration
-  state.modelKey = state.modelKey or context.modelKey
-  state.configIdentity = state.configIdentity or util.deepCopy(context.configIdentity)
-  return true
+  return coverageContext.bind(state, context)
 end
 
 local function identity(variable)

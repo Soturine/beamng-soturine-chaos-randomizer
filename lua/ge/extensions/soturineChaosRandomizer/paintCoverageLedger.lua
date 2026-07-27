@@ -1,3 +1,5 @@
+local coverageContext = require("ge/extensions/soturineChaosRandomizer/coverageContext")
+
 local M = {}
 
 local TERMINAL = {
@@ -8,13 +10,8 @@ local TERMINAL = {
 local FIELDS = {"baseColor", "metallic", "roughness", "clearcoat", "clearcoatRoughness"}
 
 local function create(paints, isLocked, supported, context)
-  local state = {
-    entries = {}, order = {}, finalReadBack = false,
-    operationId = context and context.operationId,
-    targetGeneration = context and context.targetGeneration,
-    modelKey = context and context.modelKey,
-    configIdentity = context and context.configIdentity,
-  }
+  local state = coverageContext.create(context)
+  state.entries, state.order, state.finalReadBack = {}, {}, false
   if supported == false then
     state.entries.unsupported = {identity = "unsupported", status = "unsupported", reason = "paint_capability_unavailable"}
     state.order[1] = "unsupported"
@@ -36,14 +33,7 @@ local function create(paints, isLocked, supported, context)
 end
 
 local function bindContext(state, context)
-  context = type(context) == "table" and context or {}
-  if state.operationId ~= nil and context.operationId ~= nil and state.operationId ~= context.operationId then return false, "coverage_operation_mismatch" end
-  if state.targetGeneration ~= nil and context.targetGeneration ~= nil and state.targetGeneration ~= context.targetGeneration then return false, "coverage_target_generation_mismatch" end
-  state.operationId = state.operationId or context.operationId
-  state.targetGeneration = state.targetGeneration or context.targetGeneration
-  state.modelKey = state.modelKey or context.modelKey
-  state.configIdentity = state.configIdentity or context.configIdentity
-  return true
+  return coverageContext.bind(state, context)
 end
 
 local function requested(state, before, after, selectedLayers)
