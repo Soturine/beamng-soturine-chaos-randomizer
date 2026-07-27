@@ -2,7 +2,7 @@
 
 ## An operation progresses only after pause or remains Busy
 
-v0.6.2 keeps target polling, lifecycle housekeeping, bounded read retry and
+The current lifecycle keeps target polling, housekeeping, bounded read retry and
 deadlines to real-time update processing. Pause or frame-step must not be used
 as a workaround. Leave the simulation state unchanged, open **Details**, then
 use **Cancel safely** and **Copy diagnostics** if the phase stalls. A terminal
@@ -15,7 +15,7 @@ proof that the Randomizer-selected configuration is faulty.
 
 ## The same clean and randomized vehicles alternate
 
-Stop retrying and copy diagnostics. v0.6.2 invalidates old selection, parts,
+Stop retrying and copy diagnostics. The runtime invalidates old selection, parts,
 tuning and paint plans before recovery and quarantines the failed candidate.
 Recovery is generation-isolated and must not start the failed randomization
 again. Its candidate/recovery fingerprints terminate repeated cycles. A new
@@ -23,7 +23,7 @@ click receives new entropy unless **Fixed manual seed** is explicitly active.
 
 ## Locks or a fixed seed unexpectedly remain active
 
-Open **Settings**. v0.6.2 retains the migration to zero locks and
+Open **Settings**. Current defaults use zero locks and
 Random every run. Locks persist only when **Remember locks between sessions** is
 enabled. **Unlock All** clears active session locks; **Clear fixed seed** returns
 to random mode.
@@ -127,7 +127,7 @@ A safe zero-change result is valid and does not create an Undo entry unless anot
 
 ## A part failed after reload
 
-One transient incomplete tree is rescanned. When the same structural absence persists across coherent scans, v0.6.2 restores the pre-batch snapshot, verifies that rollback, quarantines the model/configuration/slot/candidate combination, and tries a bounded alternative. Look for `part_batch_rollback`, `part_candidate_quarantined`, and retry-budget diagnostics.
+One transient incomplete tree is rescanned. When the same structural absence persists across coherent scans, the parts pipeline restores the pre-batch snapshot, verifies that rollback, quarantines the model/configuration/slot/candidate combination, and tries a bounded alternative. Look for `part_batch_rollback`, `part_candidate_quarantined`, and retry-budget diagnostics.
 
 If localized rollback itself fails or the bounded budget is exhausted, the full operation rolls back. Reindex clears session quarantine; do not repeatedly select a known broken part while BeamNG is still reloading.
 
@@ -159,7 +159,7 @@ If a write began, the entry is retained unless automatic rollback succeeds. Succ
 
 ## Immediate click used the wrong setting
 
-Version `0.6.2` sends the displayed action and complete settings snapshot in one Lua call. If the result reports a different manual seed/filter/Chaos value, collect the UI state and JavaScript log because that is a regression. Settings/search timers are cancelled on action or app destroy.
+The UI sends the displayed action and complete settings snapshot in one Lua call. If the result reports a different manual seed/filter/Chaos value, collect the UI state and JavaScript log because that is a regression. Settings/search timers are cancelled on action or app destroy.
 
 For `.vdna.zip`, place exactly one package at `/settings/soturineChaosRandomizer/vehicleDNA/inbox/import.vdna.zip`. General-purpose compressed ZIPs are intentionally unsupported; export a package from this mod. A validation error should identify archive, directory, entry, checksum, manifest, schema, or thumbnail bounds before confirmation becomes available.
 
@@ -241,7 +241,7 @@ Open operation details and record phase, operation/phase/target generations,
 target/tree status, clocks, pending counts, and stale callback count. A warning
 does not trigger early rollback while the phase is legitimately waiting for
 simulation. Use Copy diagnostics, then Cancel and roll back. If Cancel or Copy
-is unavailable, treat that as a v0.6.2 lifecycle regression.
+is unavailable, treat that as a lifecycle regression.
 
 ## A recovered or previous vehicle changed unexpectedly
 

@@ -32,10 +32,20 @@ are treated as reproduced failures, not pending cases:
 | Empty combustion fuel | Failed | Every identified fuel tank has at least 10% capacity after final tuning and before DNA capture |
 | Slider, fox, and Chaos sizing | Failed | Real orange fill, exact 0.6.1 fox, content-measured height, and live DPI checks |
 
+## Documents
+
+- [Requirements matrix](REQUIREMENTS_MATRIX.md)
+- [Automated test report](AUTOMATED_TEST_REPORT.md)
+- [Live test plan](LIVE_TEST_PLAN.md)
+- [Live test report](LIVE_TEST_REPORT.md)
+- [Regression matrix](REGRESSION_MATRIX.md)
+- [Performance report](PERFORMANCE_REPORT.md)
+- [Release audit](RELEASE_AUDIT.md)
+- [Research notes](RESEARCH_NOTES.md)
+
 ## Evidence policy
 
 - Automated results are reported by category and executed-case count.
 - Live cases remain `Pending` until performed in BeamNG with the exact final ZIP.
 - The release tag and prerelease are blocked until the live test plan passes.
 - An artifact candidate may be produced while that gate remains blocked.
-

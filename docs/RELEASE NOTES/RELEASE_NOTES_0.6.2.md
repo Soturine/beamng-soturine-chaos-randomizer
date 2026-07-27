@@ -47,7 +47,7 @@ The eight actually reproduced v0.6.1 results remain historical **Failed** eviden
 - recovery-loop prevention;
 - Full Random complete pipeline (Failed/Partial observation).
 
-See the exact [v0.6.2 plan](../INTERACTIVE_TEST_PLAN_0.6.2.md), [v0.6.2 report](../INTERACTIVE_TEST_REPORT_0.6.2.md), [requirements matrix](../REQUIREMENTS_MATRIX_0.6.2.md), and preserved [v0.6.1 report](../INTERACTIVE_TEST_REPORT_0.6.1.md).
+See the exact [v0.6.2 plan](../archive/releases/0.6.2/LIVE_TEST_PLAN.md), [v0.6.2 report](../archive/releases/0.6.2/LIVE_TEST_REPORT.md), [requirements matrix](../archive/releases/0.6.2/REQUIREMENTS_MATRIX_0.6.2.md), and preserved [v0.6.1 report](../archive/releases/0.6.1/LIVE_TEST_REPORT.md).
 
 ## Known limitations
 

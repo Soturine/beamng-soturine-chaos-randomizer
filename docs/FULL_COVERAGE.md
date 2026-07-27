@@ -78,5 +78,5 @@ validated partial vehicle can remain, and its status stays Partial.
 
 Automated Lua/mocked coverage is recorded in [Testing](TESTING.md). Real
 BeamNG vehicle/mod coverage remains Pending in the
-[0.6.0 interactive plan](INTERACTIVE_TEST_PLAN_0.6.0.md); no static test proves
+[0.6.0 interactive plan](archive/releases/0.6.0/LIVE_TEST_PLAN.md); no static test proves
 generic gameplay compatibility.

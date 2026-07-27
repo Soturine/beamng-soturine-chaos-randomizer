@@ -32,4 +32,4 @@ The alpha.1 maintainer observations—104 enabled mods, 212 vehicles, 5,681 conf
 - Undo, lifecycle quarantine, and the load-failure circuit breaker are session state.
 - No beta, release candidate, stable release, `1.0`, or BeamNG Repository submission is part of this release.
 
-See [Mod Vehicle Lifecycle](../MOD_VEHICLE_LIFECYCLE.md), [alpha.1 maintainer observations](../INTERACTIVE_TEST_REPORT_0.5.0-alpha.1.md), and [the alpha.2 interactive plan](../INTERACTIVE_TEST_PLAN_0.5.0-alpha.2.md).
+See [Mod Vehicle Lifecycle](../MOD_VEHICLE_LIFECYCLE.md), [alpha.1 maintainer observations](../archive/releases/0.5.0-alpha.1/LIVE_TEST_REPORT.md), and [the alpha.2 interactive plan](../archive/releases/0.5.0-alpha.2/LIVE_TEST_PLAN.md).

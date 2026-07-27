@@ -86,7 +86,7 @@ This is the public-surface audit for the final v0.6.2 source. “Automated” me
 
 ## Audit result
 
-All named public entry points exported by `main.lua` are covered above. Automated fixtures and static contracts pass for the implementation surface; the audited gameplay/UI status is **partial (implemented and automated, live Pending)** rather than “functional”. No row is Failed or Blocked by current v0.6.2 execution evidence because no v0.6.2 live execution occurred. Historical v0.6.1 failures remain in the separate [v0.6.1 report](INTERACTIVE_TEST_REPORT_0.6.1.md).
+All named public entry points exported by `main.lua` are covered above. Automated fixtures and static contracts pass for the implementation surface; the audited gameplay/UI status is **partial (implemented and automated, live Pending)** rather than “functional”. No row is Failed or Blocked by current v0.6.2 execution evidence because no v0.6.2 live execution occurred. Historical v0.6.1 failures remain in the separate [v0.6.1 report](archive/releases/0.6.1/LIVE_TEST_REPORT.md).
 
 The mechanically checked export inventory is:
 

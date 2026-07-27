@@ -60,4 +60,4 @@ alpha.2 Interactive failed: 0
 alpha.2 Interactive pending: 50
 ```
 
-The alpha.2 cases must be executed again using [the dedicated plan](INTERACTIVE_TEST_PLAN_0.5.0-alpha.2.md).
+The alpha.2 cases must be executed again using [the dedicated plan](../0.5.0-alpha.2/LIVE_TEST_PLAN.md).

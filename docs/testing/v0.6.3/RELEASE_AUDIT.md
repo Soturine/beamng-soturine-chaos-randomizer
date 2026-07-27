@@ -1,101 +1,64 @@
-# v0.6.3 release audit
+# Release audit — 0.6.3
 
-Status: implementation audit in progress. This document is updated as evidence
-is produced; it is not a release approval.
+Status: **candidate preparation in progress; tag and release blocked by live validation**.
 
-## Git and historical preservation
+## Historical preservation
 
-| Item | Initial audit |
+| Item | Audit result |
 | --- | --- |
-| Local `main` | `6907473205decf71433a24d72075358011e0da24` |
-| `origin/main` | `6907473205decf71433a24d72075358011e0da24` |
-| Worktree | clean before the 0.6.3 branch was created |
-| Working branch | `fix/v0.6.3-live-lifecycle` |
-| `v0.6.2` object type | annotated tag |
-| `v0.6.2^{}` | `6907473205decf71433a24d72075358011e0da24` |
-| 0.6.2 release | existing experimental prerelease; untouched |
+| Baseline/current original `main` | `6907473205decf71433a24d72075358011e0da24` |
+| `origin/main` at branch creation | same baseline |
+| `v0.6.2` | annotated tag resolving to baseline; untouched |
+| 0.6.2 GitHub release/assets | existing experimental prerelease; untouched |
+| History policy | no force push, tag move, release overwrite, or public rewrite |
 
-## Initial inventory
+## Inventory and boundaries
 
-The baseline contains 134 tracked production, documentation, test, workflow,
-and tooling files, totalling 26,012 text lines and 1,606,612 bytes in the local
-inventory. Generated `dist/`, Python cache, and test cache content is ignored.
+- 76 current production files across `lua/`, `ui/`, and `settings/`.
+- 68 implementation Lua modules below the extension directory.
+- `main.lua`: 5,935 lines and 88 public exports at this audit point.
+- Direct unstable BeamNG access is restricted to `apiAdapter.lua`, `spawnApiAdapter.lua`, `aiAdapter.lua`, and `destinationMarker.lua`; `main.lua` was removed from the exception.
+- Production require reachability is tested from the BeamNG entrypoint and the documented legacy Lineup entrypoint.
+- No secrets, credentials, or packaged absolute machine paths are permitted.
 
-### Production surfaces
+## Root cause and implementation
 
-| Surface | Inventory |
+The 0.6.2 failure was confirmed structurally: replacement-return IDs were promoted before coherent player/model/config validation, then fixed-ID polling rejected legitimate object recreation. Reload phases also retained concrete ownership, and timeout recovery lacked a final unbound read.
+
+The candidate now:
+
+- separates logical target intent from bounded concrete candidates;
+- treats returned IDs and callbacks as evidence, not authority;
+- discovers player 0 coherently and rechecks the player ID after exact-ID data reads;
+- atomically rebinds only current, stable, coherent, model/config-compatible candidates;
+- releases concrete ownership for spawn/reload/rollback/DNA waits;
+- performs final unbound parts/tuning verification before recovery;
+- rejects stale generations and repeated recovery fingerprints;
+- prevents terminal phases from becoming Busy again;
+- discovers tuning until fixed point/cycle/limit;
+- verifies a 10% floor only for classified combustion fuel storages;
+- restores real slider fill, the v0.6.1 fox bytes, and content-based UI sizing.
+
+## Architecture audit
+
+- Removed dead `tuningRandomizer.lua`; its useful explicit correlation behavior moved into `tuningPipeline.lua` and tests now exercise production code.
+- Extracted shared `crc32.lua` with standard vectors.
+- Extracted only common coverage target binding into `coverageContext.lua`; slot/tuning/paint classifications remain separate.
+- Made `raceManager.lua` canonical with `compat/legacyLineupFacade.lua` preserving historical imports.
+- Added bounded performance percentile collection.
+- Retained `main.lua` orchestration to avoid a high-risk broad controller rewrite during a P0 lifecycle release.
+
+## Validation gates
+
+| Gate | Status |
 | --- | --- |
-| GELua entry point | `lua/ge/extensions/soturineChaosRandomizer.lua` |
-| GELua implementation modules | 62 files under `lua/ge/extensions/soturineChaosRandomizer/` |
-| Main orchestrator | `main.lua`: 5,615 lines, 88 public exports |
-| BeamNG adapter | `apiAdapter.lua`: 1,004 lines, 58 public exports |
-| UI | `app.js` 668 lines; `app.css` 112 lines; `app.html`; `app.json`; PNG and SVG assets |
-| Settings | defaults JSON, settings schema 6 |
-| Vehicle DNA | schema 1 plus storage, package, gallery, compatibility, restore, mutation, import, locks, compare, and fingerprint modules |
-| Packaging | deterministic Python packager, validator, SHA-256, and release manifest |
-| Workflows | CI, package/prerelease, and cross-platform beta-readiness |
+| Automated source/Lua/JS/schema/workflow suites | Must pass again on final candidate |
+| Orphan and BeamNG boundary gates | Implemented |
+| Version/app/release-note consistency | Pending 0.6.3 release-prep commit |
+| Reproducible ZIP, manifest, SHA-256 | Pending final candidate build |
+| Exact-ZIP clean-profile install | Pending |
+| 110-case live plan | 0 executed / 110 Pending |
+| Tag `v0.6.3` | Not created; blocked |
+| GitHub prerelease | Not created; blocked |
 
-### Module dependency findings
-
-- The entry point requires `main.lua`; `main.lua` composes the gameplay modules.
-- 61 of 62 implementation modules have a production require path.
-- `tuningRandomizer.lua` has no production consumer. Production uses
-  `tuningPipeline.lua`; the orphan is retained only by tests and must be removed
-  or made the pipeline sampler before packaging.
-- BeamNG-internal calls are concentrated in `apiAdapter.lua`,
-  `spawnApiAdapter.lua`, `aiAdapter.lua`, and `destinationMarker.lua`.
-- `main.lua` declares extension dependencies but has no direct BeamNG API call;
-  it should not need a source-contract exception.
-
-### Main public domains
-
-The 88 `main.lua` exports cover operation lifecycle, Random Car, Scramble, Full
-Random, Undo, settings and locks, diagnostics and stress, legacy lineup/Race,
-managed vehicle spawning, placement, AI, and Vehicle DNA/Garage operations.
-The legacy `lineup*` names are a compatibility surface that must be preserved
-while new internal documentation uses Race terminology.
-
-### API boundary finding
-
-`apiAdapter.getCurrentVehicleData()` incorrectly requires
-`getPlayerVehicleData` before it can use the independent
-`getVehicleData(vehicleId)` capability. `processTargetTracking()` also passes
-the returned replacement ID into `getVerificationState()`, even before a
-concrete target has been confirmed. This turns a candidate ID into immutable
-ownership and reproduces the structural failure described in the 0.6.2 live
-report.
-
-### Baseline tests by category
-
-| Category | Executed | Passed | Failed | Notes |
-| --- | ---: | ---: | ---: | --- |
-| Behavioral and mocked Lua | 319 | 319 | 0 | 4,031 assertions; includes mocked pipeline and state contracts |
-| Lua requirement mappings | 440 | 440 | 0 | mappings, not independent executions |
-| Python host wrappers | 50 | 50 | 0 | includes Lua launcher, static, JSON, workflow, and package checks |
-| JavaScript syntax | 1 | 1 | 0 | `node --check`; not a rendered UI test |
-| Lua compiler syntax | 0 | 0 | 0 | blocked locally: no `luac`; CI installs Lua 5.1 |
-| Live BeamNG | 0 | 0 | 0 | pending; mandatory release gate |
-
-## Initial root-cause conclusion
-
-The probable root cause is confirmed and refined:
-
-1. `bindReplacementTarget()` writes the returned ID into `active.vehicleId`,
-   `runtime.state.vehicleId`, `active.wait.vehicleId`, the operation target,
-   and expected continuation context before validating the logical target.
-2. `vehicleTargetTracker.verifyIdentity()` then rejects any different player ID
-   before model/config correlation.
-3. `processTargetTracking()` reads only that fixed ID, preventing discovery of
-   a legitimate recreated player object.
-4. `onVehicleSpawned` is already represented as a candidate in parts of the
-   tracker, but the early authoritative writes negate that design.
-5. Parts/tuning reload waits reuse concrete ownership instead of explicitly
-   releasing it and rebinding the same logical target.
-6. Timeout handling enters recovery without one final unbound, coherent player
-   read, allowing a correct visible target to be discarded.
-
-The 0.6.3 fix therefore needs an explicit logical target, bounded candidate
-records, atomic validated rebind, ownership reset for every reload, and a final
-pre-recovery convergence read. Longer timeouts or pause manipulation are not
-acceptable fixes.
-
+The candidate may be committed, pushed, and handed off with an artifact. It must stop before tag/release until [LIVE_TEST_REPORT.md](LIVE_TEST_REPORT.md) records the exact artifact passing mandatory cases.
