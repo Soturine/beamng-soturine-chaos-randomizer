@@ -35,6 +35,7 @@ local tuningPipeline = require("ge/extensions/soturineChaosRandomizer/tuningPipe
 local paintCoverageLedger = require("ge/extensions/soturineChaosRandomizer/paintCoverageLedger")
 local lineupSchema = require("ge/extensions/soturineChaosRandomizer/lineupSchema")
 local lineupManager = require("ge/extensions/soturineChaosRandomizer/lineupManager")
+local raceManager = require("ge/extensions/soturineChaosRandomizer/raceManager")
 local lineupStorage = require("ge/extensions/soturineChaosRandomizer/lineupStorage")
 local managedVehicleRegistry = require("ge/extensions/soturineChaosRandomizer/managedVehicleRegistry")
 local spawnDirector = require("ge/extensions/soturineChaosRandomizer/spawnDirector")
@@ -304,6 +305,11 @@ tests.tuning_clamping_and_quantization = function()
   }, scriptedGenerator({false}, {0.37}), false)
   truthy(value >= 10 and value <= 20)
   equal((value - 10) % 2, 0)
+end
+
+tests.legacy_lineup_facade_preserves_race_manager_contract = function()
+  equal(lineupManager, raceManager)
+  equal(lineupManager.create, raceManager.create)
 end
 
 tests.crc32_canonical_vectors = function()
@@ -4486,6 +4492,7 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/configVerification.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/coverageLimits.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/contentIndex.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/compat/legacyLineupFacade.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/crc32.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/candidateIsolation.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/diagnostics.lua",
@@ -4494,6 +4501,7 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/historyTransaction.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/lifecycle.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/lineupManager.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/raceManager.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/lineupSchema.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/lineupStorage.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/main.lua",

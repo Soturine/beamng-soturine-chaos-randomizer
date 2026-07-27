@@ -10,6 +10,11 @@ ROOT = Path(__file__).resolve().parents[1]
 ENTRYPOINT = ROOT / "lua/ge/extensions/soturineChaosRandomizer.lua"
 MODULE_ROOT = ROOT / "lua/ge/extensions/soturineChaosRandomizer"
 MODULE_PREFIX = "ge/extensions/soturineChaosRandomizer"
+ENTRYPOINT_MODULES = (
+    MODULE_PREFIX,
+    # Deliberate compatibility entrypoint for historical third-party imports.
+    f"{MODULE_PREFIX}/lineupManager",
+)
 REQUIRE_PATTERN = re.compile(
     r'''\brequire\s*\(?\s*["'](ge/extensions/soturineChaosRandomizer(?:/[A-Za-z0-9_./-]+)?)["']'''
 )
@@ -39,7 +44,7 @@ class ProductionModuleGraphTests(unittest.TestCase):
         self.assertEqual(unresolved, [], "internal require(s) without a production module")
 
         reachable: set[str] = set()
-        pending = deque([MODULE_PREFIX])
+        pending = deque(ENTRYPOINT_MODULES)
         while pending:
             current = pending.popleft()
             if current in reachable:

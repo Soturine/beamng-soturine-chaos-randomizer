@@ -47,7 +47,7 @@ local vehicleRecovery = require("ge/extensions/soturineChaosRandomizer/vehicleRe
 local vehicleTargetTracker = require("ge/extensions/soturineChaosRandomizer/vehicleTargetTracker")
 local vehicleStabilizer = require("ge/extensions/soturineChaosRandomizer/vehicleStabilizer")
 local productionModules = {
-  lineupManager = require("ge/extensions/soturineChaosRandomizer/lineupManager"),
+  raceManager = require("ge/extensions/soturineChaosRandomizer/raceManager"),
   lineupSchema = require("ge/extensions/soturineChaosRandomizer/lineupSchema"),
   lineupStorage = require("ge/extensions/soturineChaosRandomizer/lineupStorage"),
   managedRegistry = require("ge/extensions/soturineChaosRandomizer/managedVehicleRegistry"),
@@ -264,7 +264,7 @@ local function publicState()
       id = runtime.lineup.current.id, name = runtime.lineup.current.name,
       episodeSeed = runtime.lineup.current.episodeSeed, preset = runtime.lineup.current.preset,
       active = runtime.lineup.current.active == true,
-      summary = productionModules.lineupManager.summary(runtime.lineup.current), competitors = {},
+      summary = productionModules.raceManager.summary(runtime.lineup.current), competitors = {},
     }
     for _, competitor in ipairs(runtime.lineup.current.competitors or {}) do
       publicLineup.competitors[#publicLineup.competitors + 1] = {
@@ -506,7 +506,7 @@ local function setLifecyclePhase(active, phase, timeout, reason)
             or phase == "planning_tuning" or phase == "applying_tuning" or phase == "waiting_tuning_reload"
             or phase == "applying_paint" or phase == "verifying_paint") and "Randomizing"
         if racePhase then
-          productionModules.lineupManager.setPhase(
+          productionModules.raceManager.setPhase(
             runtime.lineup.current, active.lineupIndex, racePhase, runtime.progress.label
           )
         end
@@ -733,7 +733,7 @@ local function finishOperation(success, code, message, details, terminalState)
   if active and active.lineupIndex and runtime.lineup.current then
     local dna = runtime.dna.pending and util.deepCopy(runtime.dna.pending) or nil
     local okSnapshot, spawnSnapshot = adapter.captureCurrentState("lineup", active.seed, active.vehicleId)
-    productionModules.lineupManager.record(
+    productionModules.raceManager.record(
       runtime.lineup.current, active.lineupIndex, runtime.lastResult, dna, active.lineupTargetGeneration
     )
     local competitor = runtime.lineup.current.competitors[active.lineupIndex]
@@ -747,7 +747,7 @@ local function finishOperation(success, code, message, details, terminalState)
     end
     local lineup = runtime.lineup.current
     if terminalState == "cancelled" then
-      productionModules.lineupManager.cancel(lineup, "Race generation cancelled by user")
+      productionModules.raceManager.cancel(lineup, "Race generation cancelled by user")
     elseif success then
       lineup.consecutiveFailures = 0
     else
@@ -1062,7 +1062,7 @@ local function chooseConfiguration(active)
   end
   models = availableModels
   if active.lineupRules then
-    local filtered, variety = productionModules.lineupManager.filterModels(
+    local filtered, variety = productionModules.raceManager.filterModels(
       models, active.lineupRules, active.lineupAcceptedCompetitors
     )
     models = filtered
@@ -1998,7 +1998,7 @@ production.completeRandomConfig = function(active, verificationDetails)
     configurationName = active.selectedConfig.name,
     sourceKind = active.selectedConfig.sourceKind,
     sourceLabel = active.selectedConfig.sourceLabel,
-    verifiedTraits = productionModules.lineupManager.verifiedTraits(active.selectedModel, active.selectedConfig),
+    verifiedTraits = productionModules.raceManager.verifiedTraits(active.selectedModel, active.selectedConfig),
     verificationStrategy = verificationDetails and verificationDetails.strategy,
     warnings = warnings,
     energyStorages = util.deepCopy(active.energyGuardReport),
@@ -2049,13 +2049,13 @@ local function completeChaos(active)
   local slotSummary = active.slotLedger and slotCoverageLedger.summary(active.slotLedger) or nil
   local tuningSummary = active.tuningLedger and tuningCoverageLedger.summary(active.tuningLedger) or nil
   local paintSummary = active.paintLedger and paintCoverageLedger.summary(active.paintLedger) or nil
-  local verifiedTraits = productionModules.lineupManager.verifiedTraits(active.selectedModel, active.selectedConfig)
+  local verifiedTraits = productionModules.raceManager.verifiedTraits(active.selectedModel, active.selectedConfig)
   local details = {
     seed = active.seed,
     model = active.selectedModel and active.selectedModel.key or active.modelKey,
     configuration = active.selectedConfig and active.selectedConfig.key,
     verifiedTraits = verifiedTraits,
-    metadataUncertain = productionModules.lineupManager.metadataUncertain(verifiedTraits)
+    metadataUncertain = productionModules.raceManager.metadataUncertain(verifiedTraits)
       or safetyOrError.status == "uncertain",
     potentiallyUndrivable = safetyOrError.status == "uncertain"
       or safetyOrError.status == "not_applicable"
@@ -4973,7 +4973,7 @@ function production.createChaosLineup(options)
   if runtime.state.busy or (runtime.lineup.current and runtime.lineup.current.active) then
     setResult(false, "lineup_busy", "A lineup or vehicle operation is already running"); publishState(); return false
   end
-  local lineup, reason = productionModules.lineupManager.create(options)
+  local lineup, reason = productionModules.raceManager.create(options)
   if not lineup then setResult(false, reason, "Chaos Lineup options are invalid"); publishState(); return false end
   runtime.lineup.current = lineup
   runtime.lineup.pendingNext = true
@@ -4992,11 +4992,11 @@ end
 function production.startNextLineupCompetitor()
   if runtime.state.busy or not runtime.lineup.pendingNext or not runtime.lineup.current then return false end
   runtime.lineup.pendingNext = false
-  local competitor = productionModules.lineupManager.nextCompetitor(runtime.lineup.current)
+  local competitor = productionModules.raceManager.nextCompetitor(runtime.lineup.current)
   if not competitor then
     local saved, reason = production.persistCurrentLineup()
     setResult(saved, saved and "lineup_ready" or "lineup_storage_failed", saved and "Chaos Lineup generation finished" or "Lineup finished but storage verification failed", {
-      summary = productionModules.lineupManager.summary(runtime.lineup.current), reason = reason,
+      summary = productionModules.raceManager.summary(runtime.lineup.current), reason = reason,
     })
     publishState()
     return false
@@ -5017,7 +5017,7 @@ function production.startNextLineupCompetitor()
   local previousSettings = util.deepCopy(runtime.settings)
   local settings = util.deepCopy(runtime.settings)
   local attemptNumber = (competitor.attemptCount or 0) + 1
-  settings.manualSeed = productionModules.lineupManager.domainSeed(
+  settings.manualSeed = productionModules.raceManager.domainSeed(
     runtime.lineup.current, competitor, "operation", attemptNumber
   ) or competitor.seed
   settings.seedMode = "fixed"
@@ -5055,13 +5055,13 @@ function production.startNextLineupCompetitor()
     runtime.active.lineupPreviousSettings = previousSettings
     runtime.active.captureOperation = "fullRandom"
     competitor.forceOfficialFallback = nil
-    productionModules.lineupManager.setPhase(
+    productionModules.raceManager.setPhase(
       runtime.lineup.current, competitor.index,
       runtime.state.phase == "selecting" and "Selecting" or "Loading",
       runtime.progress.label
     )
   else
-    productionModules.lineupManager.record(
+    productionModules.raceManager.record(
       runtime.lineup.current, competitor.index, runtime.lastResult, nil, competitor.targetGeneration
     )
     runtime.lineup.pendingNext = true
@@ -5073,7 +5073,7 @@ end
 function production.resolveLineupFailure(index, action)
   local lineup = runtime.lineup.current
   index = math.floor(tonumber(index) or -1)
-  local ok, reason = productionModules.lineupManager.resolveFailure(lineup, index, action)
+  local ok, reason = productionModules.raceManager.resolveFailure(lineup, index, action)
   if not ok then
     setResult(false, reason, "Lineup failure action was rejected")
     publishState()

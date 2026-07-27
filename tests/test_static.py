@@ -58,10 +58,12 @@ class StaticValidationTests(unittest.TestCase):
                     self.assertTrue((document.parent / relative).resolve().exists())
 
     def test_beamng_api_boundary(self) -> None:
-        unstable = re.compile(r"\b(?:core_[a-zA-Z_]+|guihooks|jsonReadFile|jsonWriteFile|getPlayerVehicle|\bbe:)")
+        unstable = re.compile(
+            r"\b(?:core_[a-zA-Z_]+\s*[.:]|guihooks\s*[.:]|jsonReadFile\s*\(|"
+            r"jsonWriteFile\s*\(|getPlayerVehicle\s*\(|be\s*:)"
+        )
         allowed = {
             ROOT / "lua" / "ge" / "extensions" / "soturineChaosRandomizer" / "apiAdapter.lua",
-            ROOT / "lua" / "ge" / "extensions" / "soturineChaosRandomizer" / "main.lua",
             ROOT / "lua" / "ge" / "extensions" / "soturineChaosRandomizer" / "spawnApiAdapter.lua",
             ROOT / "lua" / "ge" / "extensions" / "soturineChaosRandomizer" / "aiAdapter.lua",
             ROOT / "lua" / "ge" / "extensions" / "soturineChaosRandomizer" / "destinationMarker.lua",
