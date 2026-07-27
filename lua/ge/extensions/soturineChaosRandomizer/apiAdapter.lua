@@ -127,27 +127,64 @@ local function getCurrentVehicleId()
   end)
 end
 
-local function getCurrentVehicleObject()
+local function targetError(expectedVehicleId, currentVehicleId, source)
+  return errorValue("target_id_changed", "The active player vehicle no longer matches the operation target", {
+    expectedVehicleId = expectedVehicleId,
+    currentVehicleId = currentVehicleId,
+    source = source,
+  })
+end
+
+local function resolveTargetVehicleId(expectedVehicleId, source)
+  local okId, currentVehicleId = getCurrentVehicleId()
+  if not okId then return false, currentVehicleId end
+  if type(expectedVehicleId) == "number" and currentVehicleId ~= expectedVehicleId then
+    return false, targetError(expectedVehicleId, currentVehicleId, source)
+  end
+  return true, expectedVehicleId or currentVehicleId
+end
+
+local function getCurrentVehicleObject(expectedVehicleId)
+  local okTarget, vehicleId = resolveTargetVehicleId(expectedVehicleId, "vehicle_object")
+  if not okTarget then return false, vehicleId end
+  if type(vehicleId) ~= "number" then
+    return false, errorValue("no_active_vehicle", "No active player vehicle was found")
+  end
+  if type(getObjectByID) == "function" then
+    local ok, vehicle = safeCall("getObjectByID", function() return getObjectByID(vehicleId) end)
+    if not ok then return false, vehicle end
+    if vehicle ~= nil then return true, vehicle end
+  end
   if type(getPlayerVehicle) ~= "function" then
     return false, errorValue("unsupported_api", "The active vehicle function is unavailable")
   end
   return safeCall("getPlayerVehicle", function() return getPlayerVehicle(0) end)
 end
 
-local function getCurrentVehicleData()
+local function getCurrentVehicleData(expectedVehicleId)
   if type(core_vehicle_manager) ~= "table" or type(core_vehicle_manager.getPlayerVehicleData) ~= "function" then
     return false, errorValue("unsupported_api", "The current vehicle manager is unavailable")
   end
-  local ok, data = safeCall("core_vehicle_manager.getPlayerVehicleData", function()
+  local okTarget, vehicleId = resolveTargetVehicleId(expectedVehicleId, "vehicle_data")
+  if not okTarget then return false, vehicleId end
+  local idSpecific = type(vehicleId) == "number" and type(core_vehicle_manager.getVehicleData) == "function"
+  local callName = idSpecific and "core_vehicle_manager.getVehicleData" or "core_vehicle_manager.getPlayerVehicleData"
+  local ok, data = safeCall(callName, function()
+    if idSpecific then return core_vehicle_manager.getVehicleData(vehicleId) end
     return core_vehicle_manager.getPlayerVehicleData()
   end)
   if not ok then return false, data end
-  if type(data) ~= "table" then return false, errorValue("no_active_vehicle", "No active player vehicle was found") end
+  if type(data) ~= "table" then
+    return false, errorValue("tree_unavailable", "The target vehicle data is not readable yet", {
+      expectedVehicleId = vehicleId,
+      source = callName,
+    })
+  end
   return true, data
 end
 
-local function getCurrentModelKey()
-  local ok, vehicle = getCurrentVehicleObject()
+local function getCurrentModelKey(expectedVehicleId)
+  local ok, vehicle = getCurrentVehicleObject(expectedVehicleId)
   if not ok then return false, vehicle end
   if not vehicle then return false, errorValue("no_active_vehicle", "No active player vehicle was found") end
   local success, model = safeCall("vehicle model key", function()
@@ -161,7 +198,17 @@ local function getCurrentModelKey()
   return true, model
 end
 
-local function getCurrentConfig()
+local function getCurrentConfig(expectedVehicleId)
+  if type(expectedVehicleId) == "number" then
+    local okData, data = getCurrentVehicleData(expectedVehicleId)
+    if not okData then return false, data end
+    if type(data.config) ~= "table" then
+      return false, errorValue("tree_unavailable", "The target configuration is not readable yet", {
+        expectedVehicleId = expectedVehicleId,
+      })
+    end
+    return true, util.deepCopy(data.config)
+  end
   if type(core_vehicle_partmgmt) ~= "table" or type(core_vehicle_partmgmt.getConfig) ~= "function" then
     return false, errorValue("unsupported_api", "The current configuration API is unavailable")
   end
@@ -173,14 +220,17 @@ local function getCurrentConfig()
   return true, util.deepCopy(config)
 end
 
-local function captureCurrentState(operationType, seed)
-  local okId, vehicleId = getCurrentVehicleId()
-  if not okId then return false, vehicleId end
+local function captureCurrentState(operationType, seed, expectedVehicleId)
+  local okTarget, vehicleId = resolveTargetVehicleId(expectedVehicleId, "capture_current_state")
+  if not okTarget then return false, vehicleId end
   if vehicleId == nil then return false, errorValue("no_active_vehicle", "No active player vehicle was found") end
-  local okModel, modelKey = getCurrentModelKey()
+  local okModel, modelKey = getCurrentModelKey(vehicleId)
   if not okModel then return false, modelKey end
-  local okConfig, config = getCurrentConfig()
+  local okConfig, config = getCurrentConfig(vehicleId)
   if not okConfig then return false, config end
+  local okFinal, finalVehicleId = getCurrentVehicleId()
+  if not okFinal then return false, finalVehicleId end
+  if finalVehicleId ~= vehicleId then return false, targetError(vehicleId, finalVehicleId, "capture_readback") end
   return true, {
     modelKey = modelKey,
     selectedConfiguration = configVerification.normalizePath(config.partConfigFilename),
@@ -190,6 +240,7 @@ local function captureCurrentState(operationType, seed)
     paints = util.deepCopy(config.paints or {}),
     seed = seed,
     vehicleId = vehicleId,
+    coherentTargetRead = true,
     timestamp = os.time(),
     operationType = operationType,
   }
@@ -297,11 +348,20 @@ local function replaceVehicle(modelKey, config, targetVehicleId)
   return true, result
 end
 
-local function applyPartsTree(tree)
+local function ensureWriteTarget(expectedVehicleId, source)
+  if type(expectedVehicleId) ~= "number" then return true end
+  local okTarget, value = resolveTargetVehicleId(expectedVehicleId, source)
+  if not okTarget then return false, value end
+  return true
+end
+
+local function applyPartsTree(tree, expectedVehicleId)
   if type(core_vehicle_partmgmt) ~= "table" or type(core_vehicle_partmgmt.setPartsTreeConfig) ~= "function" then
     return false, errorValue("unsupported_api", "Hierarchical part configuration is unavailable")
   end
   if type(tree) ~= "table" then return false, errorValue("invalid_parts_tree", "A valid parts tree is required") end
+  local targetOk, targetFailure = ensureWriteTarget(expectedVehicleId, "parts_write")
+  if not targetOk then return false, targetFailure end
   local ok, result = callContract("core_vehicle_partmgmt.setPartsTreeConfig", "parts_apply_rejected", "nil_then_event", function()
     return core_vehicle_partmgmt.setPartsTreeConfig(util.deepCopy(tree), true)
   end)
@@ -309,10 +369,12 @@ local function applyPartsTree(tree)
   return true, result
 end
 
-local function applyTuning(values)
+local function applyTuning(values, expectedVehicleId)
   if type(core_vehicle_partmgmt) ~= "table" or type(core_vehicle_partmgmt.setConfigVars) ~= "function" then
     return false, errorValue("unsupported_api", "Tuning application is unavailable")
   end
+  local targetOk, targetFailure = ensureWriteTarget(expectedVehicleId, "tuning_write")
+  if not targetOk then return false, targetFailure end
   local ok, result = callContract("core_vehicle_partmgmt.setConfigVars", "tuning_apply_rejected", "nil_then_event", function()
     return core_vehicle_partmgmt.setConfigVars(util.deepCopy(values or {}), true)
   end)
@@ -320,7 +382,7 @@ local function applyTuning(values)
   return true, result
 end
 
-local function applyPaints(paints)
+local function applyPaints(paints, expectedVehicleId)
   if type(core_vehicle_partmgmt) ~= "table" or type(core_vehicle_partmgmt.setConfigPaints) ~= "function" then
     return false, errorValue("unsupported_api", "Paint application is unavailable")
   end
@@ -328,12 +390,14 @@ local function applyPaints(paints)
   if not expected then
     return false, errorValue("paint_data_invalid", "Paint data could not be normalized", {reason = normalizationError})
   end
+  local targetOk, targetFailure = ensureWriteTarget(expectedVehicleId, "paint_write")
+  if not targetOk then return false, targetFailure end
   local payload = util.deepCopy(paints or {})
   local ok, result = callContract("core_vehicle_partmgmt.setConfigPaints", "paint_apply_rejected", "nil_then_readback", function()
     return core_vehicle_partmgmt.setConfigPaints(payload, false)
   end)
   if not ok then return false, result end
-  local okConfig, config = getCurrentConfig()
+  local okConfig, config = getCurrentConfig(expectedVehicleId)
   if not okConfig then
     result.confirmationRequired = true
     result.verified = false
@@ -357,8 +421,8 @@ local function applyPaints(paints)
   return true, result
 end
 
-local function verifyPaints(expected)
-  local okConfig, config = getCurrentConfig()
+local function verifyPaints(expected, expectedVehicleId)
+  local okConfig, config = getCurrentConfig(expectedVehicleId)
   if not okConfig then return false, "paint_readback_unavailable", config end
   local matches, reason = paintVerification.compare(expected or {}, config.paints or {})
   return matches, reason, util.deepCopy(config.paints or {})
@@ -379,13 +443,18 @@ local function flattenChosenParts(tree)
   return result
 end
 
-local function getVerificationState()
-  local okId, vehicleId = getCurrentVehicleId()
-  if not okId then return false, vehicleId end
-  local okModel, modelKey = getCurrentModelKey()
+local function getVerificationState(expectedVehicleId)
+  local okTarget, vehicleId = resolveTargetVehicleId(expectedVehicleId, "verification_start")
+  if not okTarget then return false, vehicleId end
+  local okModel, modelKey = getCurrentModelKey(vehicleId)
   if not okModel then return false, modelKey end
-  local okConfig, config = getCurrentConfig()
+  local okConfig, config = getCurrentConfig(vehicleId)
   if not okConfig then return false, config end
+  local okFinal, finalVehicleId = getCurrentVehicleId()
+  if not okFinal then return false, finalVehicleId end
+  if finalVehicleId ~= vehicleId then
+    return false, targetError(vehicleId, finalVehicleId, "verification_readback")
+  end
   local partsAvailable = type(config.partsTree) == "table"
   return true, {
     vehicleId = vehicleId,
@@ -401,6 +470,7 @@ local function getVerificationState()
     readStatus = partsAvailable and "ready" or "parts_read_unavailable",
     tuning = util.deepCopy(config.vars or {}),
     paints = util.deepCopy(config.paints or {}),
+    coherentTargetRead = true,
   }
 end
 
@@ -413,11 +483,11 @@ local function getSlotDefinition(parentPart, slotId)
   return nil
 end
 
-local function getCurrentSlotSnapshot()
+local function getCurrentSlotSnapshot(expectedVehicleId)
   if type(jbeamIO) ~= "table" or type(jbeamIO.getPart) ~= "function" then
     return false, errorValue("unsupported_api", "The current JBeam slot API is unavailable")
   end
-  local okData, vehicleData = getCurrentVehicleData()
+  local okData, vehicleData = getCurrentVehicleData(expectedVehicleId)
   if not okData then return false, vehicleData end
   local tree = vehicleData.config and vehicleData.config.partsTree
   if type(tree) ~= "table" then return false, errorValue("missing_parts_tree", "The active vehicle has no hierarchical parts tree") end
@@ -533,8 +603,8 @@ local function prepareConfigExpectation(configRecord)
   return configVerification.expectation(configRecord, loadedConfig)
 end
 
-local function getTuningSnapshot()
-  local ok, data = getCurrentVehicleData()
+local function getTuningSnapshot(expectedVehicleId)
+  local ok, data = getCurrentVehicleData(expectedVehicleId)
   if not ok then return false, data end
   return true, {
     variables = util.deepCopy(data.vdata and data.vdata.variables or {}),
@@ -542,8 +612,8 @@ local function getTuningSnapshot()
   }
 end
 
-local function getPaints()
-  local ok, config = getCurrentConfig()
+local function getPaints(expectedVehicleId)
+  local ok, config = getCurrentConfig(expectedVehicleId)
   if not ok then return false, config end
   return true, util.deepCopy(config.paints or {})
 end

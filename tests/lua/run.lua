@@ -496,6 +496,86 @@ tests.adapter_passes_exact_replacement_target = function()
   equal(result.requestedTargetVehicleId, 42)
 end
 
+tests.v062_adapter_reads_one_id_specific_target_snapshot = function()
+  local originalBe = be
+  local originalGetObjectByID = getObjectByID
+  local originalManager = core_vehicle_manager
+  local originalParts = core_vehicle_partmgmt
+  local playerId = 42
+  local managerReads = {}
+  be = {getPlayerVehicleID = function() return playerId end}
+  getObjectByID = function(id)
+    if id == 42 then return {getJBeamFilename = function() return "target_model" end} end
+  end
+  core_vehicle_manager = {
+    getPlayerVehicleData = function() error("global player data must not be used") end,
+    getVehicleData = function(id)
+      managerReads[#managerReads + 1] = id
+      return {config = {
+        partConfigFilename = "/vehicles/target_model/target.pc",
+        partsTree = {chosenPartName = "target_body", children = {}},
+        vars = {boost = 2},
+        paints = {},
+      }}
+    end,
+  }
+  core_vehicle_partmgmt = {getConfig = function() error("global config must not be used") end}
+  local ok, state = adapter.getVerificationState(42)
+  be = originalBe
+  getObjectByID = originalGetObjectByID
+  core_vehicle_manager = originalManager
+  core_vehicle_partmgmt = originalParts
+  truthy(ok)
+  equal(state.vehicleId, 42)
+  equal(state.modelKey, "target_model")
+  equal(state.configIdentity.key, "target")
+  truthy(state.coherentTargetRead)
+  equal(#managerReads, 1)
+  equal(managerReads[1], 42)
+end
+
+tests.v062_adapter_rejects_target_change_during_readback = function()
+  local originalBe = be
+  local originalGetObjectByID = getObjectByID
+  local originalManager = core_vehicle_manager
+  local idReads = 0
+  be = {getPlayerVehicleID = function()
+    idReads = idReads + 1
+    return idReads >= 4 and 99 or 42
+  end}
+  getObjectByID = function(id)
+    if id == 42 then return {getJBeamFilename = function() return "target_model" end} end
+  end
+  core_vehicle_manager = {
+    getPlayerVehicleData = function() return nil end,
+    getVehicleData = function()
+      return {config = {partConfigFilename = "/vehicles/target_model/target.pc", partsTree = {children = {}}}}
+    end,
+  }
+  local ok, err = adapter.getVerificationState(42)
+  be = originalBe
+  getObjectByID = originalGetObjectByID
+  core_vehicle_manager = originalManager
+  equal(ok, false)
+  equal(err.code, "target_id_changed")
+  equal(err.context.expectedVehicleId, 42)
+  equal(err.context.currentVehicleId, 99)
+end
+
+tests.v062_adapter_rejects_write_to_wrong_player_target = function()
+  local originalBe = be
+  local originalParts = core_vehicle_partmgmt
+  local writeCalled = false
+  be = {getPlayerVehicleID = function() return 99 end}
+  core_vehicle_partmgmt = {setPartsTreeConfig = function() writeCalled = true end}
+  local ok, err = adapter.applyPartsTree({}, 42)
+  be = originalBe
+  core_vehicle_partmgmt = originalParts
+  equal(ok, false)
+  equal(err.code, "target_id_changed")
+  truthy(not writeCalled)
+end
+
 tests.changing_parent_defers_descendant_mutation = function()
   local scan = assert(slotScanner.scan(fixtures.nestedTree, {}))
   local eligible = {["/engine/"] = true, ["/engine/intake/"] = true}
