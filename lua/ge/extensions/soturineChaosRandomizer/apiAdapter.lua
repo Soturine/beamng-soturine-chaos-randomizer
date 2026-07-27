@@ -534,7 +534,8 @@ local function getVerificationState(expectedVehicleId)
   for _, candidate in ipairs(candidates) do
     if candidate.partsAvailable then anyParts = true; break end
   end
-  return true, util.shallowMerge({
+  local observation = util.shallowMerge({}, primary)
+  observation = util.shallowMerge(observation, {
     vehicleId = vehicleId,
     playerIndex = 0,
     modelKey = modelKey,
@@ -548,7 +549,8 @@ local function getVerificationState(expectedVehicleId)
     readErrors = readErrors,
     readStatus = anyParts and "ready" or (#candidates > 0 and "config_readable" or "identity_only"),
     coherentTargetRead = true,
-  }, primary)
+  })
+  return true, observation
 end
 
 local function getSlotDefinition(parentPart, slotId)
