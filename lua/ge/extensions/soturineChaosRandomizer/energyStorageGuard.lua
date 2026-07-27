@@ -33,7 +33,7 @@ local function classifyStorage(storage)
   local storageType = lower(storage.type)
   local energyType = lower(storage.energyType)
   local evidence = textEvidence(storage)
-  if storageType == "fueltank" then return "fuel", "storage_type:fueltank" end
+  if storageType == "fueltank" then return "combustion_fuel", "storage_type:fueltank" end
   if storageType == "n2otank" then return "nitrous", "storage_type:n2otank" end
   if storageType == "electricbattery" then return "electric_energy", "storage_type:electricbattery" end
   if storageType == "pressuretank" then
@@ -46,7 +46,7 @@ local function classifyStorage(storage)
   end
   if energyType == "gasoline" or energyType == "diesel" or energyType == "kerosene"
     or util.isFinite(tonumber(storage.fuelCapacity))
-  then return "fuel", "fuel_capacity_or_energy_type" end
+  then return "combustion_fuel", "fuel_capacity_or_energy_type" end
   return "unknown_storage", "storage_metadata_unclassified"
 end
 
@@ -66,7 +66,7 @@ local function classifyVariable(variable)
   if unit == "l" or unit == "liter" or unit == "liters" or unit == "litre" or unit == "litres" then
     score = score + 1; reasons[#reasons + 1] = "volume_unit"
   end
-  if score >= 4 then return "fuel", reasons end
+  if score >= 4 then return "combustion_fuel", reasons end
   return "normal_tuning", reasons
 end
 
@@ -108,7 +108,7 @@ local function resolveVariable(storage, candidates)
   local capacity = tonumber(storage.fuelCapacity or storage.capacity)
   local best, bestScore, bestEvidence
   for _, variable in ipairs(candidates) do
-    if variable.classification == "fuel" or variable.classification == "normal_tuning" then
+    if variable.classification == "combustion_fuel" or variable.classification == "normal_tuning" then
       local score, evidence = 0, {}
       local variableName = normalizedName(variable.name)
       if normalizedReference ~= "" and variableName == normalizedReference then score = score + 100; evidence[#evidence + 1] = "storage_reference" end
@@ -125,7 +125,7 @@ local function resolveVariable(storage, candidates)
       if best == nil or score > bestScore then best, bestScore, bestEvidence = variable, score, evidence end
     end
   end
-  local threshold = best and best.classification == "fuel" and 4 or 10
+  local threshold = best and best.classification == "combustion_fuel" and 4 or 10
   if best and bestScore >= threshold then return best, bestEvidence, bestScore end
   return nil, {}, bestScore or 0
 end
@@ -138,13 +138,13 @@ local function analyze(snapshot, ratio)
   local requiredByVariable = {}
   for _, storage in ipairs(storageList(snapshot.energyStorages)) do
     local classification, storageEvidence = classifyStorage(storage)
-    local capacity = tonumber(storage.fuelCapacity or (classification == "fuel" and storage.capacity or nil))
+    local capacity = tonumber(storage.fuelCapacity or (classification == "combustion_fuel" and storage.capacity or nil))
     local entry = {
       name = storage.name, type = storage.type, energyType = storage.energyType,
       classification = classification, classificationEvidence = storageEvidence,
-      capacity = capacity, status = classification == "fuel" and "pending" or "excluded_non_fuel",
+      capacity = capacity, status = classification == "combustion_fuel" and "pending" or "excluded_non_fuel",
     }
-    if classification == "fuel" then
+    if classification == "combustion_fuel" then
       report.fuelStorageCount = report.fuelStorageCount + 1
       if not util.isFinite(capacity) or capacity <= 0 then
         entry.status = "invalid_capacity"
@@ -178,7 +178,13 @@ local function analyze(snapshot, ratio)
     report.storages[#report.storages + 1] = entry
   end
   report.notApplicable = report.fuelStorageCount == 0
+  report.confirmed = report.unresolved == 0
   report.compliant = report.belowFloor == 0 and report.unresolved == 0
+  report.safeToContinue = report.belowFloor == 0
+  report.status = report.notApplicable and "not_applicable"
+    or report.belowFloor > 0 and "confirmed_below_floor"
+    or report.unresolved > 0 and "uncertain"
+    or "confirmed"
   return report, requiredByVariable
 end
 

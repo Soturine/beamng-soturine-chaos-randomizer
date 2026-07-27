@@ -25,10 +25,21 @@ var SoturineChaosUiMath = (function () {
     return Math.ceil(clamp(content, minimum, maximum))
   }
 
-  function manualHeight(current, lastApplied, previousManual) {
-    current = finite(current, 0)
-    if (lastApplied !== null && lastApplied !== undefined && Math.abs(current - lastApplied) > 3) return current
-    return finite(previousManual, 0) || null
+  function resizeMode(event) {
+    event = event || {}
+    var current = event.currentMode === 'user' ? 'user' : 'auto'
+    if (event.source === 'content' || event.source === 'programmatic') return current
+    if (finite(event.elapsedSinceProgrammatic, 0) <= 120) return current
+    return Math.abs(finite(event.currentHeight, 0) - finite(event.lastAppliedHeight, 0)) > 3 ? 'user' : current
+  }
+
+  function resolvedHeight(metrics, sizing) {
+    metrics = metrics || {}
+    sizing = sizing || {}
+    var automatic = contentHeight(metrics)
+    if (metrics.mode === 'collapsed' || sizing.mode !== 'user') return automatic
+    return Math.ceil(clamp(sizing.userHeight, metrics.mode === 'collapsed' ? 120 : 240,
+      clamp(metrics.maximum, 320, 720)))
   }
 
   function shouldApplyResize(current, target) {
@@ -39,7 +50,8 @@ var SoturineChaosUiMath = (function () {
     clamp: clamp,
     sliderPercent: sliderPercent,
     contentHeight: contentHeight,
-    manualHeight: manualHeight,
+    resizeMode: resizeMode,
+    resolvedHeight: resolvedHeight,
     shouldApplyResize: shouldApplyResize
   }
 }())
@@ -75,7 +87,9 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
         var resizeTimer = null
         var contentObserver = null
         var lastAppliedHeight = null
-        var manualHeight = null
+        var sizeMode = 'auto'
+        var userHeight = null
+        var lastProgrammaticResizeAt = -Infinity
 
         scope.chaos = {
           view: 'chaos',
@@ -262,10 +276,9 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
           var body = root && root.querySelector('.scr-body')
           var collapsed = root && root.querySelector('.scr-collapsed')
           var currentHeight = host.offsetHeight
-          manualHeight = SoturineChaosUiMath.manualHeight(currentHeight, lastAppliedHeight, manualHeight)
           var viewportMaximum = window.screen && window.screen.availHeight
             ? Math.max(320, window.screen.availHeight - 80) : 720
-          var height = SoturineChaosUiMath.contentHeight({
+          var metrics = {
             mode: mode,
             header: header ? header.offsetHeight : 0,
             navigation: mode === 'collapsed' ? 0 : (navigation ? navigation.offsetHeight : 0),
@@ -274,13 +287,16 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
               ? (header ? header.offsetHeight : 0) + (collapsed ? collapsed.scrollHeight : 0) + 4 : 0,
             frame: 4,
             maximum: Math.min(720, viewportMaximum)
+          }
+          var height = SoturineChaosUiMath.resolvedHeight(metrics, {
+            mode: sizeMode, userHeight: userHeight
           })
-          if (mode !== 'collapsed' && manualHeight) height = Math.max(height, Math.min(manualHeight, viewportMaximum))
           if (!SoturineChaosUiMath.shouldApplyResize(currentHeight, height)) {
             lastAppliedHeight = currentHeight
             return
           }
           lastAppliedHeight = height
+          lastProgrammaticResizeAt = Date.now()
           host.style.height = height + 'px'
           if (scope.entry && scope.entry.css) scope.entry.css.height = height + 'px'
           scope.$broadcast('app:resized', {width: host.offsetWidth, height: height, source: 'content'})
@@ -288,7 +304,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
 
         function scheduleWindowHeight() {
           if (resizeTimer) return
-          resizeTimer = $timeout(updateWindowHeight, 0, false)
+          resizeTimer = $timeout(updateWindowHeight, 16, false)
         }
 
         function applyState(data) {
@@ -822,7 +838,22 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
         })
         scope.$on('VehicleFocusChanged', function () { $timeout(requestState, 250) })
         scope.$on('app:resized', function (event, data) {
-          if (!data || data.source !== 'content') scheduleWindowHeight()
+          if (!data || data.source === 'content') return
+          var host = element && element[0]
+          while (host && (!host.classList || !host.classList.contains('bng-app'))) host = host.parentNode
+          var observedHeight = Number(data.height) || (host && host.offsetHeight) || 0
+          var nextMode = SoturineChaosUiMath.resizeMode({
+            currentMode: sizeMode,
+            source: data.source || 'external',
+            currentHeight: observedHeight,
+            lastAppliedHeight: lastAppliedHeight,
+            elapsedSinceProgrammatic: Date.now() - lastProgrammaticResizeAt
+          })
+          if (nextMode === 'user') {
+            sizeMode = 'user'
+            userHeight = observedHeight
+          }
+          scheduleWindowHeight()
         })
         scope.$on('$destroy', function () {
           cancelSettingsTimer()

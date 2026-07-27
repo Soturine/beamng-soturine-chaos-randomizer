@@ -75,17 +75,22 @@ Phase-specific codes include:
 
 These mean the synchronous call returned an explicit rejection or threw. A missing/changed intermediate ID alone is not rejection; the tracker can bind a later stable player target. The randomizer does not wait 25 seconds after a known rejection. Diagnostic context retains the thrown detail when available.
 
-## A reload event arrived but the operation failed
+## A reload event arrived but the operation still waits
 
-`post_event_state_unconfirmed` means `onVehicleSpawned` arrived but the current model/config/parts/tuning did not match the active phase's request. A spawn hook alone is not success. The operation rolls back when a destructive write had begun.
+`onVehicleSpawned` is only a candidate hint. v0.6.4 completes from coherent
+current-player read-back, even with no callback, and ignores early/late/
+duplicate/stale callbacks that cannot prove the active phase. Inspect
+`configCandidates`, `evidenceSource`, readiness, player/model/config, parts/tree
+status, and generation IDs. A fresh player part-manager view may legitimately
+win over a stale ID-manager bundle, but evidence is never mixed across views.
 
-Check the `lifecycle_event_received` record for expected event, phase, verification reason, and elapsed time.
-
-`config_identity_unverified` is narrower: the model loaded, but the selected configuration could not be proved by normalized path, model-scoped registry key, or its minimal part/tuning signature. Model identity alone is deliberately insufficient.
+`config_identity_unverified` means none of the coherent candidates proved the
+selected configuration by normalized path, scoped key, or minimal signature.
+Model identity alone remains insufficient for a selected-config claim.
 
 ## Vehicle replacement could not be correlated
 
-Replacement callbacks nominate candidates; they do not force success or cancellation. The tracker accepts a returned ID, callback IDs, and player-0 observations, rejects auxiliary/wrong candidates, and waits for five stable frames plus two coherent scans. `vehicle_stabilization_timeout` means the final model/configuration/parts never became coherent in time. A real unrelated player switch still cancels safely.
+Replacement callbacks nominate candidates; they do not force success or cancellation. The tracker accepts returned/callback/player-0 candidates, rejects auxiliary/wrong/stale/destroyed candidates, and waits for stable phase-specific evidence. `operation_deadline_exceeded` means no candidate satisfied that evidence before the real deadline. A real unrelated player switch still cancels safely.
 
 Wait for BeamNG to settle, inspect `vehicle_target_candidate`, `vehicle_target_rebound`, `vehicle_target_stable`, and lifecycle diagnostics, and retry with no simultaneous vehicle-manager action. Undo is intentionally refused outside the vehicle context that created its history entry.
 
@@ -129,7 +134,12 @@ A safe zero-change result is valid and does not create an Undo entry unless anot
 
 One transient incomplete tree is rescanned. When the same structural absence persists across coherent scans, the parts pipeline restores the pre-batch snapshot, verifies that rollback, quarantines the model/configuration/slot/candidate combination, and tries a bounded alternative. Look for `part_batch_rollback`, `part_candidate_quarantined`, and retry-budget diagnostics.
 
-If localized rollback itself fails or the bounded budget is exhausted, the full operation rolls back. Reindex clears session quarantine; do not repeatedly select a known broken part while BeamNG is still reloading.
+If localized rollback itself fails or the bounded budget is exhausted after a
+confirmed incompatible write, the full operation may roll back. An optional
+empty slot, non-standard mod `required` hint, or persistently unreadable tree is
+classified separately; public Chaos preserves a stable partial result rather
+than restoring stock solely for that uncertainty. Reindex clears session
+quarantine; do not repeatedly select a known broken part while BeamNG reloads.
 
 ## A broken configuration left no active vehicle
 
@@ -227,13 +237,12 @@ Copy JSON is independent of file export. Optional file export always writes the 
 
 ## Operation waits while the game is paused
 
-A phase that genuinely needs Vehicle Lua or physics progression shows **Waiting
-for the simulation to resume so the vehicle can finish loading**. This is not a
-timeout and the mod never changes pause state itself. Cancel, Copy diagnostics,
-and operation details must remain available. If progress occurs only after
-pausing rather than after resuming, copy diagnostics and report
-`pause_toggle_unblocked_operation`; do not use pause toggling as a workaround
-to certify the result.
+GE polling, callbacks, deadlines, Cancel, Copy diagnostics, and operation
+details remain active while paused. A genuinely physics-dependent phase may
+say that simulation progress is required, but target/config/parts read-back
+must not require toggling pause. If pause/unpause changes a stuck outcome,
+capture diagnostics and report `pause_toggle_unblocked_operation`; never use
+the toggle as a workaround to certify the result.
 
 ## Operation appears stalled or remains Busy
 

@@ -47,6 +47,21 @@ local function partsFingerprint(state)
   return stableTable(type(state) == "table" and state.parts or {})
 end
 
+local function evidenceStates(state)
+  if type(state) ~= "table" then return {} end
+  local result = {}
+  for _, candidate in ipairs(state.configCandidates or {}) do
+    if type(candidate) == "table" then
+      local merged = util.shallowMerge(state, candidate)
+      merged.configCandidates = nil
+      merged.evidenceSource = candidate.source or "config_candidate"
+      result[#result + 1] = merged
+    end
+  end
+  if #result == 0 then result[1] = state end
+  return result
+end
+
 local function create(options)
   options = type(options) == "table" and options or {}
   local now = tonumber(options.startedAt) or 0
@@ -193,25 +208,42 @@ local function verifyIdentity(tracker, state)
   if tracker.expectedModelKey and state.modelKey ~= tracker.expectedModelKey then
     return false, "target_model_mismatch"
   end
+  local views = evidenceStates(state)
   if tracker.expectedConfigIdentity then
-    local ok, reason, details = configVerification.verify(tracker.expectedConfigIdentity, state)
-    if not ok then return false, "target_config_mismatch", {
-      verificationReason = reason, verification = details,
-    } end
-    return true, nil, details
+    local lastReason, lastDetails
+    for _, view in ipairs(views) do
+      local ok, reason, details = configVerification.verify(tracker.expectedConfigIdentity, view)
+      if ok then
+        details = util.shallowMerge(details or {}, {evidenceSource = view.evidenceSource or "primary"})
+        return true, nil, details, view
+      end
+      lastReason, lastDetails = reason, details
+    end
+    return false, "target_config_mismatch", {
+      verificationReason = lastReason, verification = lastDetails,
+      evidenceCount = #views,
+    }
   elseif tracker.expectedConfigKey then
     local expected = configVerification.expectation({
       modelKey = tracker.expectedModelKey,
       key = configVerification.stableKey(tracker.expectedConfigKey),
       path = tracker.expectedConfigKey,
     })
-    local ok, reason, details = configVerification.verify(expected, state)
-    if not ok then return false, "target_config_mismatch", {
-      verificationReason = reason, verification = details,
-    } end
-    return true, nil, details
+    local lastReason, lastDetails
+    for _, view in ipairs(views) do
+      local ok, reason, details = configVerification.verify(expected, view)
+      if ok then
+        details = util.shallowMerge(details or {}, {evidenceSource = view.evidenceSource or "primary"})
+        return true, nil, details, view
+      end
+      lastReason, lastDetails = reason, details
+    end
+    return false, "target_config_mismatch", {
+      verificationReason = lastReason, verification = lastDetails,
+      evidenceCount = #views,
+    }
   end
-  return true
+  return true, nil, {strategy = "model_identity", evidenceSource = "identity"}, state
 end
 
 local function verifyTree(tracker, state)
@@ -251,11 +283,13 @@ local function verifyTuning(tracker, state)
 end
 
 local function verifyExpected(tracker, state)
-  local identity, reason, details = verifyIdentity(tracker, state)
+  local identity, reason, details, resolved = verifyIdentity(tracker, state)
   if not identity then return false, reason, details end
-  local tree, treeReason, treeDetails = verifyTree(tracker, state)
+  resolved = resolved or state
+  local tree, treeReason, treeDetails = verifyTree(tracker, resolved)
   if not tree then return false, treeReason, treeDetails end
-  return verifyTuning(tracker, state)
+  local tuning, tuningReason, tuningDetails = verifyTuning(tracker, resolved)
+  return tuning, tuningReason, tuningDetails or details, resolved
 end
 
 local function generationsMatch(tracker, context)
@@ -291,7 +325,7 @@ local function observe(tracker, token, state, now, context)
     playerIndex = state.playerIndex, readStatus = state.readStatus,
   })
 
-  local expected, reason, verificationDetails = verifyIdentity(tracker, state)
+  local expected, reason, verificationDetails, resolvedState = verifyIdentity(tracker, state)
   if not expected then
     tracker.rejected[tostring(state.vehicleId)] = reason
     if tracker.suspectSwitchId == state.vehicleId
@@ -316,7 +350,7 @@ local function observe(tracker, token, state, now, context)
 
   if deadlineReached then
     tracker.finalReadAttempted = true
-    local finalVerified, finalReason, finalDetails = verifyExpected(tracker, state)
+    local finalVerified, finalReason, finalDetails, finalState = verifyExpected(tracker, state)
     local coherent = state.playerIndex == 0 and state.coherentTargetRead == true
     if not finalVerified or not coherent then
       tracker.status = "operation_deadline_exceeded"
@@ -333,17 +367,19 @@ local function observe(tracker, token, state, now, context)
     tracker.identityStatus = "target_identity_confirmed"
     tracker.treeStatus = (next(tracker.expectedParts or {}) ~= nil or tracker.requirePartsReadable)
       and "parts_tree_converged" or "not_required"
-    tracker.currentCandidateId = state.vehicleId
-    tracker.lastState = util.deepCopy(state)
+    finalState = finalState or resolvedState or state
+    tracker.currentCandidateId = finalState.vehicleId
+    tracker.lastState = util.deepCopy(finalState)
     tracker.status = "vehicle_target_stable"
     tracker.lastReason = "final_read_accepted"
     return "stable", "final_read_accepted", {
-      vehicleId = state.vehicleId, state = util.deepCopy(state), verification = finalDetails,
+      vehicleId = finalState.vehicleId, state = util.deepCopy(finalState), verification = finalDetails,
       identityConfirmed = true, treeStatus = tracker.treeStatus, finalReadAccepted = true,
     }
   end
 
   tracker.suspectSwitchId = nil
+  state = resolvedState or state
   tracker.currentCandidateId = state.vehicleId
   tracker.lastState = util.deepCopy(state)
   if not tracker.identityConfirmed then

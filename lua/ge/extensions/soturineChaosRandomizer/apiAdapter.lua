@@ -482,23 +482,11 @@ local function flattenChosenParts(tree)
   return result
 end
 
-local function getVerificationState(expectedVehicleId)
-  local okTarget, vehicleId = resolveTargetVehicleId(expectedVehicleId, "verification_start")
-  if not okTarget then return false, vehicleId end
-  local okModel, modelKey = getCurrentModelKey(vehicleId)
-  if not okModel then return false, modelKey end
-  local okConfig, config = getCurrentConfig(vehicleId)
-  if not okConfig then return false, config end
-  local okFinal, finalVehicleId = getCurrentVehicleId()
-  if not okFinal then return false, finalVehicleId end
-  if finalVehicleId ~= vehicleId then
-    return false, targetError(vehicleId, finalVehicleId, "verification_readback")
-  end
+local function verificationCandidate(source, config)
+  if type(config) ~= "table" then return nil end
   local partsAvailable = type(config.partsTree) == "table"
-  return true, {
-    vehicleId = vehicleId,
-    playerIndex = 0,
-    modelKey = modelKey,
+  return {
+    source = source,
     configKey = config.partConfigFilename,
     configIdentity = {
       path = configVerification.normalizePath(config.partConfigFilename),
@@ -507,11 +495,62 @@ local function getVerificationState(expectedVehicleId)
     },
     parts = partsAvailable and flattenChosenParts(config.partsTree) or nil,
     partsAvailable = partsAvailable,
-    readStatus = partsAvailable and "ready" or "parts_read_unavailable",
     tuning = util.deepCopy(config.vars or {}),
     paints = util.deepCopy(config.paints or {}),
-    coherentTargetRead = true,
+    readStatus = partsAvailable and "ready" or "config_readable",
   }
+end
+
+local function getVerificationState(expectedVehicleId)
+  local okTarget, vehicleId = resolveTargetVehicleId(expectedVehicleId, "verification_start")
+  if not okTarget then return false, vehicleId end
+  local okModel, modelKey = getCurrentModelKey(vehicleId)
+  if not okModel then return false, modelKey end
+
+  -- BeamNG rebuilds the ID-specific manager bundle and the player part-manager
+  -- view at different lifecycle moments. Observe both independently: neither
+  -- cache is allowed to veto a coherent, already-applied state in the other.
+  local candidates, readErrors = {}, {}
+  local okPlayerConfig, playerConfig = getCurrentConfig(nil)
+  if okPlayerConfig then
+    candidates[#candidates + 1] = verificationCandidate("player_partmgmt", playerConfig)
+  else
+    readErrors.playerPartmgmt = util.deepCopy(playerConfig)
+  end
+  local okManagerConfig, managerConfig = getCurrentConfig(vehicleId)
+  if okManagerConfig then
+    candidates[#candidates + 1] = verificationCandidate("manager_by_id", managerConfig)
+  else
+    readErrors.managerById = util.deepCopy(managerConfig)
+  end
+  local okFinal, finalVehicleId = getCurrentVehicleId()
+  if not okFinal then return false, finalVehicleId end
+  if finalVehicleId ~= vehicleId then
+    return false, targetError(vehicleId, finalVehicleId, "verification_readback")
+  end
+
+  local primary = candidates[1] or {}
+  local anyParts = false
+  for _, candidate in ipairs(candidates) do
+    if candidate.partsAvailable then anyParts = true; break end
+  end
+  local observation = util.shallowMerge({}, primary)
+  observation = util.shallowMerge(observation, {
+    vehicleId = vehicleId,
+    playerIndex = 0,
+    modelKey = modelKey,
+    configCandidates = candidates,
+    readiness = {
+      player = true,
+      model = true,
+      config = #candidates > 0,
+      parts = anyParts,
+    },
+    readErrors = readErrors,
+    readStatus = anyParts and "ready" or (#candidates > 0 and "config_readable" or "identity_only"),
+    coherentTargetRead = true,
+  })
+  return true, observation
 end
 
 local function getSlotDefinition(parentPart, slotId)
@@ -594,7 +633,8 @@ local function getCurrentSlotSnapshot(expectedVehicleId)
           end
           metadataByPath[child.path] = {
             coreSlot = definition.coreSlot == true,
-            required = definition.required == true or definition.coreSlot == true,
+            required = definition.coreSlot == true,
+            declaredRequired = definition.required == true and definition.coreSlot ~= true,
             defaultPart = definition.default,
             description = definition.description,
             allowTypes = allowTypes,

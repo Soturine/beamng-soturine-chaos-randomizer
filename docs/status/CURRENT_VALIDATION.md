@@ -1,15 +1,22 @@
 # Current validation
 
-Current source: 0.6.3 Experimental prerelease prepared on `release/v0.6.3-prerelease`.
+Current source: **0.6.4 Experimental prerelease candidate** on
+`fix/v0.6.4-live-lifecycle`, based exactly on published v0.6.3 commit
+`ef0cf1a258a234a4ef8f8808e59ae983a0c162a6`.
 
-Automated lifecycle, adapter, dynamic tuning, energy storage, UI math, package, workflow, source-contract, and architecture tests are implemented. Exact final counts and commands are recorded in [AUTOMATED_TEST_REPORT.md](../testing/v0.6.3/AUTOMATED_TEST_REPORT.md).
+Automated lifecycle, adapter, recovery, fuel/parts policy, dynamic convergence,
+UI math/assets, architecture, security, package, workflow, and release-gate
+coverage passes locally. Exact categories and distinct counts are in the
+[automated report](../testing/v0.6.4/AUTOMATED_TEST_REPORT.md).
 
-Live BeamNG status: **Pending owner validation — not executed**. The reproducible candidate is
-`soturine_chaos_randomizer_0.6.3.zip`, 241,492 bytes, SHA-256
-`486a66da60bfac75d08f1a9584568142846074c110996962e99af2e610d4e9c7`.
-The live report is 0 executed / 0 Passed / 0 Failed / 110 Pending / 0 Blocked.
-The Experimental prerelease publishes this exact build for owner testing. The
-separate live-validated status continues to require completion of the mandatory
-live plan.
+Live BeamNG status: **Pending owner validation — not executed**. The required
+report is 0 executed / 0 Passed / 0 Failed / 110 Pending / 0 Blocked. The
+installed build/source `0.38.6.0.19963` was inspected, but no interactive world,
+UI, vehicle, physics, performance, or representative-mod run occurred in this
+workspace.
 
-Owner-observed 0.6.2 failures at 22%, 57%, wrong-vehicle recovery, recovery repetition, empty combustion fuel, and UI regressions remain reproduced historical failures. The 0.6.3 code paths have automated regression evidence only.
+The published v0.6.3 live candidate is historically Failed from owner-
+reproduced 22%/57% stalls, pause-toggle dependence, wrong fallback, fuel/parts
+uncertainty, sticky height, rejected fox, and insufficient README. v0.6.4 has
+automated regressions for each but is not labeled fixed in gameplay until the
+owner executes the exact downloaded prerelease asset.

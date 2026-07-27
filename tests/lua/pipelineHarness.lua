@@ -263,6 +263,9 @@ local function new(options)
   end
   function adapter.getTuningSnapshot()
     harness.tuningSnapshotCount = (harness.tuningSnapshotCount or 0) + 1
+    if options.energyReadFailure and harness.tuningSnapshotCount >= (options.energyReadFailureAfter or 1) then
+      return false, adapter.errorValue("temporarily_unreadable", "fixture energy metadata unavailable")
+    end
     local waves = options.tuningWaves
     if type(waves) == "table" and #waves > 0 then
       local wave = waves[math.min(harness.tuningSnapshotCount, #waves)] or {}

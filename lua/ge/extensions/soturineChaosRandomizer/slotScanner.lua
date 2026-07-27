@@ -11,6 +11,7 @@ local function slotSignature(slot)
     tostring(slot.currentPart or ""),
     slot.coreSlot and "1" or "0",
     slot.required and "1" or "0",
+    slot.declaredRequired and "1" or "0",
     tostring(slot.defaultPart or ""),
     table.concat(candidates, ","),
   }, "|")
@@ -39,7 +40,11 @@ local function scan(tree, metadataByPath)
           currentPart = child.chosenPartName or "",
           candidates = util.copyArray(child.suitablePartNames or metadata.candidates or {}),
           coreSlot = metadata.coreSlot == true,
-          required = metadata.required == true or metadata.coreSlot == true,
+          -- BeamNG's documented hard requirement is coreSlot. Some mods expose
+          -- a non-standard `required` hint; preserve it as uncertain metadata
+          -- instead of upgrading it silently to a fatal invariant.
+          required = metadata.coreSlot == true,
+          declaredRequired = metadata.required == true and metadata.coreSlot ~= true,
           defaultPart = metadata.defaultPart,
           description = metadata.description,
           allowTypes = util.copyArray(metadata.allowTypes or {}),

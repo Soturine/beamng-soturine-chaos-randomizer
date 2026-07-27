@@ -28,7 +28,13 @@ The Python Lua wrapper uses a local Lua 5.1-compatible interpreter when availabl
 | Requirement mappings | traceability to executed tests | additional executions |
 | Live BeamNG tests | actual packaged gameplay/UI/mod evidence | untested builds or content |
 
-Current exact automated results are recorded in [the 0.6.3 report](testing/v0.6.3/AUTOMATED_TEST_REPORT.md). The mandatory live plan and report remain separate.
+Current exact automated results are recorded in [the 0.6.4 report](testing/v0.6.4/AUTOMATED_TEST_REPORT.md). The mandatory live plan and report remain separate.
+
+v0.6.4 specifically covers independent configuration evidence, callback-free
+public flows, callback order/duplication, preserved uncertain fuel/parts
+results, explicit terminal outcomes, automatic/user/collapsed sizing, repeated
+tab cycles, and the shared fox identity. See the
+[requirements matrix](testing/v0.6.4/REQUIREMENTS_MATRIX.md).
 
 ## Honesty rules
 

@@ -235,13 +235,15 @@ local function explicitProfile(context, roles)
   return "unknown", "insufficient_metadata"
 end
 
-local function buildGraph(scan, context)
+local function buildGraph(scan, context, options)
+  options = type(options) == "table" and options or {}
   local graph = {
     nodes = {},
     edges = {},
     roles = {},
     requiredRoles = {},
     missingRequired = {},
+    missingParts = {},
     heuristicPaths = {},
     slotCount = 0,
     candidateCount = 0,
@@ -255,6 +257,7 @@ local function buildGraph(scan, context)
       part = slot.currentPart,
       required = slot.required == true,
       coreSlot = slot.coreSlot == true,
+      declaredRequired = slot.declaredRequired == true,
       roles = util.deepCopy(selected.roles),
       evidence = util.deepCopy(selected.evidence),
       heuristic = selected.heuristic,
@@ -264,8 +267,17 @@ local function buildGraph(scan, context)
     graph.candidateCount = graph.candidateCount + #(slot.candidates or {})
     graph.maxDepth = math.max(graph.maxDepth, tonumber(slot.depth) or 0)
     if slot.parentPath then graph.edges[#graph.edges + 1] = {from = slot.parentPath, to = slot.path, kind = "slot_parent"} end
-    if (slot.required or slot.coreSlot) and (slot.currentPart == nil or slot.currentPart == "") then
-      graph.missingRequired[#graph.missingRequired + 1] = slot.path
+    if slot.currentPart == nil or slot.currentPart == "" then
+      local classification = (slot.coreSlot or slot.required) and "core_infrastructure_missing"
+        or slot.declaredRequired and "mod_metadata_required_unproven"
+        or options.allowMissingParts == true and "optional_missing_allowed"
+        or "optional_missing"
+      local missing = {
+        slotPath = slot.path, classification = classification,
+        fatal = classification == "core_infrastructure_missing",
+      }
+      graph.missingParts[#graph.missingParts + 1] = missing
+      if missing.fatal then graph.missingRequired[#graph.missingRequired + 1] = slot.path end
     end
     for _, role in ipairs(selected.roles) do
       graph.roles[role] = (graph.roles[role] or 0) + 1
@@ -292,8 +304,16 @@ local function validateGraph(graph, baseline, protectCriticalParts)
   graph = type(graph) == "table" and graph or {}
   baseline = type(baseline) == "table" and baseline or graph
   local failures = {}
+  local warnings = {}
   for _, path in ipairs(graph.missingRequired or {}) do
-    failures[#failures + 1] = {slotPath = path, reason = "required_or_core_missing"}
+    failures[#failures + 1] = {slotPath = path, reason = "core_infrastructure_missing"}
+  end
+  for _, missing in ipairs(graph.missingParts or {}) do
+    if missing.fatal ~= true then
+      warnings[#warnings + 1] = {
+        slotPath = missing.slotPath, reason = missing.classification,
+      }
+    end
   end
   for _, role in ipairs(util.sortedKeys(baseline.requiredRoles or {})) do
     local requiredCount = baseline.requiredRoles[role]
@@ -310,13 +330,16 @@ local function validateGraph(graph, baseline, protectCriticalParts)
     end
   end
   if #failures > 0 then
-    return {status = "unsafe", valid = false, profile = baseline.profile, failures = failures}
+    return {status = "unsafe", valid = false, profile = baseline.profile, failures = failures,
+      warnings = warnings, missingParts = util.deepCopy(graph.missingParts or {})}
   end
   if baseline.profile == "prop" then
-    return {status = "not_applicable", valid = true, profile = baseline.profile, failures = {}}
+    return {status = "not_applicable", valid = true, profile = baseline.profile, failures = {},
+      warnings = warnings, missingParts = util.deepCopy(graph.missingParts or {})}
   end
   if baseline.profile == "unknown" or baseline.profile == "special" then
-    return {status = "uncertain", valid = true, profile = baseline.profile, failures = {}, reason = "insufficient_profile_evidence"}
+    return {status = "uncertain", valid = true, profile = baseline.profile, failures = {}, reason = "insufficient_profile_evidence",
+      warnings = warnings, missingParts = util.deepCopy(graph.missingParts or {})}
   end
   if baseline.profile == "standard_road" or baseline.profile == "automation" then
     local applicableEvidence = 0
@@ -324,14 +347,22 @@ local function validateGraph(graph, baseline, protectCriticalParts)
       applicableEvidence = applicableEvidence + (baseline.roles and baseline.roles[role] or 0)
     end
     if applicableEvidence == 0 then
-      return {status = "uncertain", valid = true, profile = baseline.profile, failures = {}, reason = "insufficient_functional_evidence"}
+      return {status = "uncertain", valid = true, profile = baseline.profile, failures = {}, reason = "insufficient_functional_evidence",
+        warnings = warnings, missingParts = util.deepCopy(graph.missingParts or {})}
     end
   end
-  return {status = "safe", valid = true, profile = baseline.profile, failures = {}}
+  local hasUnprovenMetadata = false
+  for _, warning in ipairs(warnings) do
+    if warning.reason == "mod_metadata_required_unproven" then hasUnprovenMetadata = true; break end
+  end
+  return {status = hasUnprovenMetadata and "uncertain" or "safe", valid = true,
+    profile = baseline.profile, failures = {}, warnings = warnings,
+    reason = hasUnprovenMetadata and "mod_metadata_incomplete" or nil,
+    missingParts = util.deepCopy(graph.missingParts or {})}
 end
 
-local function validateProtectedScan(scan, protectCriticalParts, context, baseline)
-  local graph = buildGraph(scan, context)
+local function validateProtectedScan(scan, protectCriticalParts, context, baseline, options)
+  local graph = buildGraph(scan, context, options)
   local result = validateGraph(graph, baseline or graph, protectCriticalParts)
   return result.valid, result.failures, result, graph
 end

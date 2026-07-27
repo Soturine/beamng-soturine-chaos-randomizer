@@ -572,6 +572,43 @@ tests.v062_adapter_reads_one_id_specific_target_snapshot = function()
   equal(managerReads[1], 42)
 end
 
+tests.v064_adapter_exposes_fresh_player_config_beside_stale_manager_bundle = function()
+  local originalBe = be
+  local originalGetObjectByID = getObjectByID
+  local originalManager = core_vehicle_manager
+  local originalParts = core_vehicle_partmgmt
+  be = {getPlayerVehicleID = function() return 42 end}
+  getObjectByID = function(id)
+    if id == 42 then return {getJBeamFilename = function() return "target_model" end} end
+  end
+  core_vehicle_partmgmt = {getConfig = function()
+    return {
+      partConfigFilename = "/vehicles/target_model/new.pc",
+      partsTree = {children = {body = {path = "/body/", chosenPartName = "body_new", children = {}}}},
+      vars = {boost = 0.8}, paints = {},
+    }
+  end}
+  core_vehicle_manager = {getVehicleData = function()
+    return {config = {
+      partConfigFilename = "/vehicles/target_model/old.pc",
+      partsTree = {children = {body = {path = "/body/", chosenPartName = "body_old", children = {}}}},
+      vars = {boost = 0.2}, paints = {},
+    }}
+  end}
+  local ok, state = adapter.getVerificationState(nil)
+  be = originalBe
+  getObjectByID = originalGetObjectByID
+  core_vehicle_manager = originalManager
+  core_vehicle_partmgmt = originalParts
+  truthy(ok)
+  equal(#state.configCandidates, 2)
+  equal(state.configCandidates[1].source, "player_partmgmt")
+  equal(state.configCandidates[1].parts["/body/"], "body_new")
+  equal(state.configCandidates[2].source, "manager_by_id")
+  equal(state.configCandidates[2].parts["/body/"], "body_old")
+  truthy(state.readiness.player and state.readiness.model and state.readiness.parts)
+end
+
 tests.v063_adapter_detects_id_specific_reads_independently = function()
   local originalBe = be
   local originalManager = core_vehicle_manager
@@ -2968,6 +3005,92 @@ tests.v063_reload_can_rebind_same_logical_target = function()
   equal(vehicleTargetTracker.summary(tracker, 0.3).currentCandidateId, 11)
 end
 
+tests.v064_optional_and_unproven_mod_absence_are_nonfatal = function()
+  local tree = {children = {
+    optional = {id = "optional", path = "/optional/", chosenPartName = "", children = {}},
+    modHint = {id = "modHint", path = "/modHint/", chosenPartName = "", children = {}},
+  }}
+  local scan = assert(slotScanner.scan(tree, {
+    ["/modHint/"] = {required = true, description = "non-standard mod hint"},
+  }))
+  local graph = validator.buildGraph(scan, {type = "Car"}, {allowMissingParts = true})
+  local result = validator.validateGraph(graph, graph, true)
+  truthy(result.valid)
+  equal(#result.missingParts, 2)
+  equal(result.missingParts[1].classification, "mod_metadata_required_unproven")
+  equal(result.missingParts[2].classification, "optional_missing_allowed")
+  equal(result.status, "uncertain")
+  equal(#result.failures, 0)
+end
+
+tests.v064_only_core_slot_absence_is_structurally_fatal = function()
+  local tree = {children = {
+    core = {id = "core", path = "/core/", chosenPartName = "", children = {}},
+  }}
+  local scan = assert(slotScanner.scan(tree, {["/core/"] = {coreSlot = true}}))
+  local graph = validator.buildGraph(scan, {type = "Car"}, {allowMissingParts = true})
+  local result = validator.validateGraph(graph, graph, true)
+  truthy(not result.valid)
+  equal(result.failures[1].reason, "core_infrastructure_missing")
+end
+
+tests.v064_tracker_accepts_applied_state_from_matching_evidence_without_callback = function()
+  local tracker = vehicleTargetTracker.create({
+    token = "evidence", operationId = "SCR-evidence", operationGeneration = 1,
+    phaseGeneration = 2, targetGeneration = 3, phase = "parts",
+    modelKey = "target_model", configKey = "/vehicles/target_model/new.pc",
+    parts = {["/body/"] = "body_new"}, requirePartsReadable = true,
+    startedAt = 0, timeout = 3,
+    stabilizer = {minimumFrames = 2, minimumScans = 2, pollInterval = 0},
+    treeStabilizer = {minimumFrames = 2, minimumScans = 2, pollInterval = 0},
+  })
+  local observation = {
+    vehicleId = 42, playerIndex = 0, modelKey = "target_model",
+    readStatus = "ready", coherentTargetRead = true,
+    configCandidates = {
+      {
+        source = "manager_by_id", configKey = "/vehicles/target_model/old.pc",
+        configIdentity = {path = "/vehicles/target_model/old.pc", key = "old"},
+        parts = {["/body/"] = "body_old"}, partsAvailable = true,
+      },
+      {
+        source = "player_partmgmt", configKey = "/vehicles/target_model/new.pc",
+        configIdentity = {path = "/vehicles/target_model/new.pc", key = "new"},
+        parts = {["/body/"] = "body_new"}, partsAvailable = true,
+      },
+    },
+  }
+  local context = {
+    operationId = "SCR-evidence", operationGeneration = 1,
+    phaseGeneration = 2, targetGeneration = 3,
+  }
+  local status
+  for frame = 1, 3 do
+    status = vehicleTargetTracker.observe(tracker, "evidence", observation, frame * 0.1, context)
+  end
+  equal(status, "stable")
+  local report = vehicleTargetTracker.summary(tracker, 0.3)
+  truthy(not report.callbackSeen)
+  equal(report.treeStatus, "vehicle_target_stable")
+  equal(tracker.lastState.evidenceSource, "player_partmgmt")
+end
+
+tests.v064_callback_order_is_advisory_and_duplicate_safe = function()
+  local tracker = alpha2Tracker({returnedVehicleId = 2})
+  vehicleTargetTracker.onSpawned(tracker, 2)
+  vehicleTargetTracker.onSpawned(tracker, 2)
+  vehicleTargetTracker.onSwitched(tracker, 1, 2, 0, true)
+  local status
+  for frame = 1, 5 do
+    status = vehicleTargetTracker.observe(tracker, "alpha2-token", alpha2State(2), frame * 0.1)
+  end
+  equal(status, "stable")
+  vehicleTargetTracker.onSpawned(tracker, 2)
+  local report = vehicleTargetTracker.summary(tracker, 0.6)
+  equal(report.candidateCount, 1)
+  truthy(report.callbackSeen)
+end
+
 tests.v063_random_car_accepts_recreated_player_target_without_pause = function()
   local harness = pipelineHarness.new({vehicleId = 1, returnedVehicleId = 2})
   truthy(harness.main.randomConfig({manualSeed = "candidate-rebind", seedMode = "fixed"}))
@@ -2978,6 +3101,49 @@ tests.v063_random_car_accepts_recreated_player_target_without_pause = function()
   truthy(not state.busy, "recreated target remained Busy at " .. tostring(state.lifecyclePhase))
   equal(state.lastResult.code, "random_config_loaded")
   equal(state.lastResult.details.model, "fixture_new")
+end
+
+tests.v064_public_random_car_completes_without_any_lifecycle_callback = function()
+  local harness = pipelineHarness.new({vehicleId = 1, returnedVehicleId = 2})
+  truthy(harness.main.randomConfig({manualSeed = "no-callback-random-car", seedMode = "fixed"}))
+  pipelineHarness.applyPendingReplacement(harness, false)
+  pipelineHarness.advance(harness, 0.06, 0.06, 16)
+  local state = harness.main.requestState()
+  truthy(not state.busy, "Random Car remained Busy at " .. tostring(state.lifecyclePhase))
+  equal(state.lastResult.code, "random_config_loaded")
+end
+
+local function driveAppliedStatesWithoutCallbacks(harness, maxSteps)
+  for _ = 1, maxSteps or 160 do
+    local state = harness.main.requestState()
+    if not state.busy then return state end
+    if harness.pendingReplacement then
+      pipelineHarness.applyPendingReplacement(harness, false)
+    elseif harness.pendingParts then
+      harness.tree = util.deepCopy(harness.pendingParts)
+      harness.pendingParts = nil
+    elseif harness.pendingTuning then
+      harness.tuning = util.deepCopy(harness.pendingTuning)
+      harness.pendingTuning = nil
+    end
+    pipelineHarness.advance(harness, 0.06, harness.paused and 0 or 0.06, 1)
+  end
+  return harness.main.requestState()
+end
+
+tests.v064_full_random_and_scramble_accept_readback_without_callbacks = function()
+  for _, action in ipairs({"fullRandom", "scramble"}) do
+    local harness = pipelineHarness.new()
+    truthy(harness.main.runAction(action, {
+      chaos = 100, allowMissingParts = false, protectCriticalParts = true,
+      manualSeed = "no-callback-" .. action, seedMode = "fixed",
+      includeAutomation = true, includeTrailers = true, includeProps = true,
+    }))
+    local state = driveAppliedStatesWithoutCallbacks(harness, 220)
+    truthy(not state.busy, action .. " remained Busy at " .. tostring(state.lifecyclePhase))
+    truthy(state.lastResult and state.lastResult.success, action .. " did not succeed")
+    equal(state.lastResult.details.lifecycleAcceptance.pendingCallbacks, 0)
+  end
 end
 
 tests.v063_operation_context_rebind_requires_current_stable_player = function()
@@ -3530,7 +3696,7 @@ tests.v063_combustion_fuel_floor_single_and_multiple_tanks = function()
   })
   equal(#single.changes, 1)
   near(single.values['$fuel'], 6)
-  equal(single.report.storages[1].classification, 'fuel')
+  equal(single.report.storages[1].classification, 'combustion_fuel')
 
   local multiple = energyStorageGuard.plan({
     variables = {
@@ -3639,6 +3805,37 @@ tests.v063_random_car_applies_fuel_floor_before_completion = function()
   equal(state.lastResult.code, 'random_config_loaded')
   near(harness.tuning['$fuel'], 5)
   equal(state.lastResult.details.energyStorages.status, 'readback_confirmed')
+end
+
+tests.v064_uncertain_fuel_metadata_preserves_randomized_result = function()
+  local harness = pipelineHarness.new({
+    energyStorages = {{name = 'mysteryTank', type = 'fuelTank', energyType = 'gasoline',
+      fuelCapacity = 60, startingFuelCapacity = '$modSpecificFuel'}},
+  })
+  truthy(harness.main.randomConfig({manualSeed = 'uncertain-fuel'}))
+  pipelineHarness.confirmReplacement(harness)
+  pipelineHarness.driveActive(harness, 128)
+  local state = harness.main.requestState()
+  truthy(not state.busy)
+  equal(state.lastResult.success, true)
+  equal(state.lastResult.code, 'random_config_partial')
+  equal(state.lastResult.details.terminalOutcome, 'partial_success')
+  equal(state.lastResult.details.energyStorages.status, 'uncertain_warning')
+  truthy(#state.lastResult.details.warnings > 0)
+  equal(harness.modelKey, 'fixture_new')
+end
+
+tests.v064_unavailable_fuel_readback_is_warning_not_rollback = function()
+  local harness = pipelineHarness.new({energyReadFailure = true})
+  truthy(harness.main.randomConfig({manualSeed = 'fuel-read-unavailable'}))
+  pipelineHarness.confirmReplacement(harness)
+  pipelineHarness.driveActive(harness, 128)
+  local state = harness.main.requestState()
+  truthy(not state.busy)
+  equal(state.lastResult.success, true)
+  equal(state.lastResult.code, 'random_config_partial')
+  equal(state.lastResult.details.energyStorages.status, 'unavailable_warning')
+  equal(harness.modelKey, 'fixture_new')
 end
 
 tests.v060_paint_coverage_confirms_supported_fields = function()
@@ -4345,8 +4542,11 @@ tests.v061_persistent_parts_read_fails_terminally = function()
   truthy(harness.main.scramble({chaos = 100, manualSeed = "persistent-nil", seedMode = "fixed"}))
   local state = pipelineHarness.driveActive(harness, 256)
   truthy(not state.busy)
-  truthy(state.lastResult and not state.lastResult.success)
-  equal(state.lastFailure.code, "parts_read_unavailable")
+  truthy(state.lastResult and state.lastResult.success)
+  equal(state.lastResult.code, "scramble_partial")
+  equal(state.lastResult.details.terminalOutcome, "partial_success")
+  equal(state.lastResult.details.stageReasons.parts, "parts_tree_unavailable_warning")
+  equal(harness.modelKey, "fixture_old")
 end
 
 tests.v061_settings_locks_and_seed_migration = function()
