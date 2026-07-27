@@ -176,7 +176,7 @@ class StaticValidationTests(unittest.TestCase):
         for preset in ("Balanced", "Maximum Chaos", "Mods Showcase"):
             self.assertIn(f"'{preset}'", source)
         self.assertIn("GENERATE CARS", html)
-        self.assertIn("No race cars are ready yet", html)
+        self.assertIn("No retained managed competitors are ready", source)
         navigation = source[source.index("navigation: ["):source.index("racePresets:")]
         for legacy in ("Lineup", "Spawn", "AI"):
             self.assertNotIn(f"label: '{legacy}'", navigation)
@@ -196,7 +196,7 @@ class StaticValidationTests(unittest.TestCase):
         html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
         source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
         for fragment in (
-            "Formation", "Spacing", "Heading", "Preview", "Spawn all",
+            "Formation", "Spacing", "Heading", "Preview", "Place all",
             "AI mode", "Destination", "Route", "Speed km/h", "Aggression", "Stagger", "Start", "Stop",
         ):
             self.assertIn(fragment, html)
@@ -364,7 +364,7 @@ class StaticValidationTests(unittest.TestCase):
             "Restore exact", "Restore compatible", "Replay generation", "Pure seed replay",
             "Small mutation", "Medium mutation", "Wild mutation", "Reroll unlocked",
             "Capture thumbnail", "Compatibility:", "lineage depth",
-            "Cancel generation", "Fallback", "Spawn one", "Spawn next", "Spawn all",
+            "Cancel generation", "Fallback", "Place first", "Place next", "Place all",
             "Front Left", "Behind Right", "Custom point", "Collision",
             "Start all", "Pause all", "Resume all", "Stop all", "Reset all", "Respawn damaged",
             "Speed mode", "Drive in lane", "Avoid vehicles", "Finish action", "Stuck action",
@@ -373,6 +373,26 @@ class StaticValidationTests(unittest.TestCase):
             self.assertIn(label.lower(), html.lower())
         self.assertIn("startSpawnVariant", source)
         self.assertIn("options.spawnAll = variant === 'all'", source)
+
+    def test_v066_fox_png_variants_are_transparent_and_exact(self) -> None:
+        assets = ROOT / "ui/modules/apps/soturineChaosRandomizer/assets"
+        expected = {
+            "fox-mark-24.png": (24, 24),
+            "fox-mark-32.png": (32, 32),
+            "fox-mark-48.png": (48, 48),
+            "app-icon-250x120.png": (250, 120),
+        }
+        for name, dimensions in expected.items():
+            with self.subTest(asset=name):
+                data = (assets / name).read_bytes()
+                self.assertEqual(validate_package.png_dimensions(data), dimensions)
+                self.assertEqual(data[25], 6, "PNG must use RGBA color type")
+        self.assertEqual(
+            validate_package.png_dimensions(
+                (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.png").read_bytes()
+            ),
+            (250, 120),
+        )
 
     def test_v062_evidence_documents_are_exact_and_feature_audit_is_complete(self) -> None:
         archive = ROOT / "docs/archive/releases/0.6.2"

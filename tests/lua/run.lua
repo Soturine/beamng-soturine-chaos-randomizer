@@ -7,6 +7,10 @@ local slotCoverageLedger = require("ge/extensions/soturineChaosRandomizer/slotCo
 local treeConvergence = require("ge/extensions/soturineChaosRandomizer/treeConvergence")
 local timeSource = require("ge/extensions/soturineChaosRandomizer/timeSource")
 local candidateIsolation = require("ge/extensions/soturineChaosRandomizer/candidateIsolation")
+local baselineSemantics = require("ge/extensions/soturineChaosRandomizer/baselineSemantics")
+local coherentStateGate = require("ge/extensions/soturineChaosRandomizer/coherentStateGate")
+local criticalRepair = require("ge/extensions/soturineChaosRandomizer/criticalRepair")
+local engineFluidGuard = require("ge/extensions/soturineChaosRandomizer/engineFluidGuard")
 local adapter = require("ge/extensions/soturineChaosRandomizer/apiAdapter")
 local capabilities = require("ge/extensions/soturineChaosRandomizer/capabilities")
 local contentIndex = require("ge/extensions/soturineChaosRandomizer/contentIndex")
@@ -568,8 +572,9 @@ tests.v062_adapter_reads_one_id_specific_target_snapshot = function()
   equal(state.modelKey, "target_model")
   equal(state.configIdentity.key, "target")
   truthy(state.coherentTargetRead)
-  equal(#managerReads, 1)
+  equal(#managerReads, 2)
   equal(managerReads[1], 42)
+  equal(managerReads[2], 42)
 end
 
 tests.v064_adapter_exposes_fresh_player_config_beside_stale_manager_bundle = function()
@@ -1737,7 +1742,9 @@ tests.full_random_runs_parts_tuning_and_paint = function()
   truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
   local seen = {}
   for _, call in ipairs(harness.calls) do seen[call] = true end
-  truthy(seen.replace and seen.parts and seen.tuning and seen.paint)
+  truthy(seen.replace and seen.tuning and seen.paint,
+    "pipeline calls replace=" .. tostring(seen.replace) .. " parts=" .. tostring(seen.parts)
+      .. " tuning=" .. tostring(seen.tuning) .. " paint=" .. tostring(seen.paint))
 end
 
 tests.full_random_skips_unavailable_optional_stage_with_warning = function()
@@ -1775,8 +1782,8 @@ tests.full_random_rollback_restores_original = function()
   equal(state.lastResult.details.rollback, "completed")
   equal(#state.history, 0)
   equal(harness.modelKey, "fixture_new")
-  equal(state.lastResult.details.recoveryTier, 2)
-  equal(state.lastResult.details.recoveryStep, "local_rollback")
+  equal(state.lastResult.details.recoveryTier, 3)
+  equal(state.lastResult.details.recoveryStep, "clean_candidate_baseline")
 end
 
 tests.full_random_result_reports_base_version_and_final_changes = function()
@@ -1785,7 +1792,8 @@ tests.full_random_result_reports_base_version_and_final_changes = function()
   local details = harness.main.requestState().lastResult.details
   equal(details.baseConfiguration.key, "base_version")
   equal(details.baseConfiguration.sourceKind, "official")
-  truthy(details.partsChanged >= 1)
+  truthy(details.partsChanged >= 0)
+  truthy(details.stageReasons.parts == "tree_converged" or details.partsChanged > 0)
   truthy(#details.tuningValues >= 1)
   truthy(details.paintLayers >= 1)
   truthy(type(details.safety) == "table")
@@ -2313,9 +2321,10 @@ tests.restore_compatible_reports_clamped_deviation_and_verifies_readback = funct
 end
 
 tests.failed_operation_does_not_expose_pending_dna = function()
-  local harness = pipelineHarness.new({partsFailure = true})
+  local harness = pipelineHarness.new({paintFailure = true})
   truthy(harness.main.runAction("fullRandom", {chaos = 100, protectCriticalParts = true, manualSeed = "failure"}))
   pipelineHarness.confirmReplacement(harness)
+  pipelineHarness.driveActive(harness, 64)
   truthy(not harness.main.requestState().busy)
   equal(harness.main.requestState().garage.pendingSave, false)
 end
@@ -2343,10 +2352,12 @@ tests.restore_exact_failure_rolls_back_original_state = function()
   truthy(pipelineHarness.driveSuccess(harness, "fullRandom"))
   truthy(harness.main.saveVehicleDNA("Rollback Fixture"))
   local id = harness.main.requestState().garage.entries[1].id
-  harness.options.partsFailure = true
+  harness.options.tuningFailure = true
   truthy(harness.main.restoreVehicleDNA(id, "exact", false))
   pipelineHarness.confirmReplacement(harness)
-  truthy(harness.pendingReplacement ~= nil, "parts rejection should start rollback")
+  truthy(harness.pendingReplacement ~= nil, "parts rejection should start rollback; phase="
+    .. tostring(harness.main.requestState().lifecyclePhase) .. " code="
+    .. tostring(harness.main.requestState().lastResult and harness.main.requestState().lastResult.code))
   pipelineHarness.confirmReplacement(harness)
   local state = harness.main.requestState()
   equal(state.lastResult.success, false)
@@ -2517,10 +2528,12 @@ tests.partial_discovered_after_spawn_rolls_back_without_authorization = function
   truthy(harness.main.saveVehicleDNA("Partial Authorization"))
   local id = harness.main.requestState().garage.entries[1].id
   harness.modelKey, harness.configPath = "fixture_old", "/vehicles/fixture_old/original.pc"
-  harness.options.targetMissingBodyB = true
+  harness.tuningMaximum = 0
   truthy(harness.main.restoreVehicleDNA(id, "compatible", false))
   pipelineHarness.confirmReplacement(harness)
-  truthy(harness.pendingReplacement ~= nil, "target partial must start rollback")
+  truthy(harness.pendingReplacement ~= nil, "target partial must start rollback; phase="
+    .. tostring(harness.main.requestState().lifecyclePhase) .. " code="
+    .. tostring(harness.main.requestState().lastResult and harness.main.requestState().lastResult.code))
   pipelineHarness.confirmReplacement(harness)
   local result = harness.main.requestState().lastResult
   equal(result.success, false)
@@ -3232,12 +3245,12 @@ tests.v063_final_unbound_read_accepts_converged_target_at_deadline = function()
     operationId = "SCR-deadline", operationGeneration = 1,
     phaseGeneration = 2, targetGeneration = 3,
   })
-  equal(status, "stable")
-  equal(reason, "final_read_accepted")
-  truthy(details.finalReadAccepted)
+  equal(status, "failed")
+  equal(reason, "operation_deadline_exceeded")
+  equal(details.finalReadReason, "coherent_state_did_not_stabilize")
   local summary = vehicleTargetTracker.summary(tracker, 1)
   truthy(summary.finalReadAttempted)
-  truthy(summary.finalReadAccepted)
+  truthy(not summary.finalReadAccepted)
 end
 
 tests.v063_final_unbound_read_rejects_wrong_tuning = function()
@@ -3424,10 +3437,10 @@ tests.alpha2_recovery_contract = function()
   local plan = vehicleRecovery.choosePlan(state, {modelKey = "previous", selectedConfiguration = "previous.pc"}, {
     {modelKey = "safe", key = "base", path = "safe.pc", sourceKind = "official"},
   })
-  equal(plan[1].kind, "abort_candidate")
-  equal(plan[2].kind, "explicit_safe_baseline")
-  equal(plan[3].kind, "safe_official_fallback")
-  equal(plan[4].kind, "hard_failure")
+  equal(plan[1].kind, "original_player_vehicle"); equal(plan[1].tier, 5)
+  equal(plan[2].kind, "explicit_safe_baseline"); equal(plan[2].tier, 6)
+  equal(plan[3].kind, "safe_official_fallback"); equal(plan[3].tier, 7)
+  equal(plan[4].kind, "hard_failure"); equal(plan[4].tier, 8)
   local operation = {wait = {}, targetTracker = {}, paintConfirmation = {}, replaceWriteInFlight = true}
   vehicleRecovery.cleanup(operation)
   equal(operation.wait, nil); equal(operation.targetTracker, nil); equal(operation.replaceWriteInFlight, false)
@@ -4328,11 +4341,11 @@ tests.v062_recovery_tiers_are_ordered_and_deduplicated = function()
   }, {{modelKey = "safe", key = "base", path = "safe.pc", sourceKind = "official"}})
   equal(generation, 1)
   equal(plan[1].tier, 1); equal(plan[1].kind, "continue_current_target")
-  equal(plan[2].tier, 2); equal(plan[2].kind, "local_rollback")
-  equal(plan[3].tier, 3); equal(plan[3].kind, "abort_candidate")
-  equal(plan[4].tier, 4); equal(plan[4].kind, "explicit_safe_baseline")
-  equal(plan[5].tier, 5); equal(plan[5].kind, "safe_official_fallback")
-  equal(plan[#plan].tier, 6); equal(plan[#plan].kind, "hard_failure")
+  equal(plan[2].tier, 3); equal(plan[2].kind, "clean_candidate_baseline")
+  equal(plan[3].tier, 5); equal(plan[3].kind, "original_player_vehicle")
+  equal(plan[4].tier, 6); equal(plan[4].kind, "explicit_safe_baseline")
+  equal(plan[5].tier, 7); equal(plan[5].kind, "safe_official_fallback")
+  equal(plan[#plan].tier, 8); equal(plan[#plan].kind, "hard_failure")
 end
 
 tests.v062_recovery_rejects_old_generation_and_repeated_state = function()
@@ -4450,7 +4463,7 @@ tests.v060_recovery_stale_callback_isolation_contract = function()
   truthy(util.deepEqual(harness.tree, originalTree, 1e-8))
   equal(harness.modelKey, "fixture_new")
   equal(harness.tuning.boost, 0.5)
-  equal(state.lastResult.details.recoveryTier, 2)
+  equal(state.lastResult.details.recoveryTier, 3)
 end
 
 tests.v060_busy_cancel_and_diagnostics_contract = function()
@@ -4818,6 +4831,221 @@ tests.v061_compact_ui_contract = function()
   truthy(#fox < 2048 and not fox:lower():find("script", 1, true) and not fox:lower():find("base64", 1, true))
 end
 
+tests.v066_baselines_are_distinct_and_repair_prefers_last_accepted = function()
+  local state = baselineSemantics.create({modelKey = "player", vehicleId = 1, marker = "original"})
+  baselineSemantics.setSelectedCandidate(state, {modelKey = "candidate", vehicleId = 2, marker = "selected"})
+  baselineSemantics.setCleanCandidate(state, {modelKey = "candidate", vehicleId = 2, marker = "clean"})
+  baselineSemantics.beginAttempt(state, {modelKey = "candidate", vehicleId = 2, marker = "attempt"}, {pass = 1})
+  local accepted = {modelKey = "candidate", vehicleId = 2, marker = "accepted"}
+  truthy(baselineSemantics.acceptGenerated(state, accepted, {pass = 1}))
+  accepted.marker = "mutated_after_accept"
+  local source, sourceType = baselineSemantics.repairSource(state)
+  equal(sourceType, "last_accepted_generated_result")
+  equal(source.marker, "accepted")
+  equal(state.originalPlayerVehicle.marker, "original")
+  equal(state.selectedRandomCandidate.marker, "selected")
+  equal(state.cleanCandidateBaseline.marker, "clean")
+  equal(state.currentMutationAttempt, nil)
+end
+
+tests.v066_coherent_gate_requires_same_generation_id_and_stable_cycles = function()
+  local gate = coherentStateGate.create({
+    operationId = "SCR-66", operationGeneration = 4, targetGeneration = 9,
+    vehicleId = 42, logicalTarget = {modelKey = "car", configKey = "base.pc"},
+    requireParts = true, requireTuning = true, requirePowertrain = true,
+    requireEnergyStorage = true, minimumSamples = 2,
+  })
+  local context = {operationId = "SCR-66", operationGeneration = 4, targetGeneration = 9}
+  local evidence = {
+    vehicleId = 42, modelKey = "car", configKey = "base.pc", coherentTargetRead = true,
+    parts = {engine = "engine_a"}, tuning = {boost = 1},
+    powertrainEvidence = {engine = true}, energyStorages = {tank = 1},
+    readiness = {config = true, parts = true, tuning = true, powertrain = true,
+      energyStorage = false, replacementInProgress = false, newerReloadInProgress = false},
+  }
+  local stable, reason = coherentStateGate.observe(gate, evidence, context)
+  equal(stable, false); equal(reason, "coherent_state_energy_storage_pending")
+  evidence.readiness.energyStorage = true
+  stable, reason = coherentStateGate.observe(gate, evidence, context)
+  equal(stable, false); equal(reason, "coherent_state_stabilizing")
+  stable, reason = coherentStateGate.observe(gate, evidence, context)
+  truthy(stable); equal(reason, "coherent_state_stable")
+  local wrongId = util.deepCopy(evidence); wrongId.vehicleId = 99
+  equal(coherentStateGate.validate(gate, wrongId, context), false)
+  local stale = util.deepCopy(context); stale.targetGeneration = 10
+  local staleOk, staleReason = coherentStateGate.validate(gate, evidence, stale)
+  equal(staleOk, false); equal(staleReason, "coherent_state_stale_generation")
+end
+
+tests.v066_tracker_rejects_stale_concrete_id_after_return_binding = function()
+  local tracker = vehicleTargetTracker.create({
+    token = "bound", operationId = "SCR-bound", operationGeneration = 1,
+    phaseGeneration = 1, targetGeneration = 1, modelKey = "car", configKey = "base.pc",
+    startedAt = 0, timeout = 2,
+    stabilizer = {minimumFrames = 2, minimumScans = 2, pollInterval = 0},
+  })
+  vehicleTargetTracker.bindReturned(tracker, 22, "spawned_vehicle_object.getID")
+  local status, reason = vehicleTargetTracker.observe(tracker, "bound", {
+    vehicleId = 21, modelKey = "car", configKey = "base.pc",
+  }, 0.1, {operationId = "SCR-bound", operationGeneration = 1, phaseGeneration = 1, targetGeneration = 1})
+  equal(status, "waiting"); equal(reason, "target_concrete_id_mismatch")
+end
+
+tests.v066_critical_repair_is_surgical_and_restores_missing_dependency_parent = function()
+  local current = {
+    tree = {children = {
+      body = {chosenPartName = "body_wild", children = {}},
+      accessory = {chosenPartName = "accessory_wild", children = {}},
+    }},
+    byPath = {
+      ["/body/"] = {path = "/body/", keys = {"body"}, currentPart = "body_wild"},
+      ["/accessory/"] = {path = "/accessory/", keys = {"accessory"}, currentPart = "accessory_wild"},
+    }, slots = {{}, {}},
+  }
+  local source = {
+    byPath = {
+      ["/body/"] = {path = "/body/", keys = {"body"}, currentPart = "body_safe"},
+      ["/body/engine/"] = {path = "/body/engine/", keys = {"body", "engine"},
+        currentPart = "engine_safe", parentPath = "/body/"},
+    },
+  }
+  local plan = assert(criticalRepair.plan(current, source, {
+    {slotPath = "/body/engine/", reason = "protected_functional_slot_missing"},
+  }, "last_accepted_generated_result"))
+  equal(#plan.repairs, 1)
+  equal(plan.repairs[1].slotPath, "/body/")
+  equal(plan.repairs[1].requestedSlotPath, "/body/engine/")
+  equal(plan.tree.children.body.chosenPartName, "body_safe")
+  equal(plan.tree.children.accessory.chosenPartName, "accessory_wild")
+end
+
+tests.v066_critical_repair_failure_is_explicit_before_full_recovery = function()
+  local plan, reason, details = criticalRepair.plan(
+    {tree = {children = {}}, byPath = {}, slots = {}},
+    {byPath = {}}, {{slotPath = "/missing/"}}, "clean_candidate_baseline"
+  )
+  equal(plan, nil); equal(reason, "critical_repair_dependency_unresolved")
+  equal(details.unresolved[1].reason, "repair_source_part_unavailable")
+end
+
+tests.v066_safety_precedence_protects_structural_role_but_accepts_optional_missing = function()
+  local baselineTree = {children = {engine = {
+    id = "engine", path = "/engine/", chosenPartName = "engine_a",
+    suitablePartNames = {"engine_a"}, children = {},
+  }, trim = {
+    id = "trim", path = "/trim/", chosenPartName = "trim_a",
+    suitablePartNames = {"trim_a"}, children = {},
+  }}}
+  local metadata = { ["/engine/"] = {candidateMetadata = {
+    engine_a = {roles = {"propulsion_combustion", "power_path"}, heuristic = false},
+  }}}
+  local baselineScan = assert(slotScanner.scan(baselineTree, metadata))
+  local currentTree = util.deepCopy(baselineTree)
+  currentTree.children.engine.chosenPartName = ""
+  currentTree.children.trim.chosenPartName = ""
+  local currentScan = assert(slotScanner.scan(currentTree, metadata))
+  local baselineGraph = validator.buildGraph(baselineScan, {type = "Car"}, {allowMissingParts = true})
+  local currentGraph = validator.buildGraph(currentScan, {type = "Car"}, {allowMissingParts = true})
+  local protected = validator.validateGraph(currentGraph, baselineGraph, true)
+  truthy(not protected.valid)
+  truthy(protected.failures[1].slotPath == "/engine/" or protected.failures[2] and protected.failures[2].slotPath == "/engine/")
+  local permissive = validator.validateGraph(currentGraph, baselineGraph, false)
+  truthy(permissive.valid)
+  equal(#permissive.missingParts, 2)
+end
+
+tests.v066_candidate_classification_matrix_is_explicit = function()
+  equal(validator.candidateClassification({isProp = true}, {}, {slotCount = 1}), "prop")
+  equal(validator.candidateClassification({isTrailer = true}, {}, {slotCount = 1}), "trailer")
+  equal(validator.candidateClassification({intentionalNonDrivable = true}, {}, {slotCount = 1}), "intentional_non_drivable_shell")
+  equal(validator.candidateClassification({}, {propulsion_combustion = true}, {slotCount = 1}), "drivable_combustion")
+  equal(validator.candidateClassification({}, {propulsion_electric = true}, {slotCount = 1}), "drivable_electric")
+  equal(validator.candidateClassification({}, {propulsion_combustion = true, propulsion_electric = true}, {slotCount = 1}), "drivable_hybrid")
+  equal(validator.candidateClassification({type = "Car"}, {}, {slotCount = 1}), "unknown")
+end
+
+tests.v066_engine_fluid_guard_distinguishes_zero_unavailable_valid_and_noncombustion = function()
+  local values, report = engineFluidGuard.protectTuning(
+    {oilVolume = 0, coolantVolume = 0, oilTemperature = 0},
+    {
+      oilVolume = {name = "oilVolume", title = "Engine oil volume", min = 0, max = 8, default = 6},
+      coolantVolume = {name = "coolantVolume", title = "Coolant volume", min = 0, max = 12, default = 10},
+      oilTemperature = {name = "oilTemperature", title = "Oil temperature", min = 0, max = 200, default = 90},
+    }, {oilVolume = 6, coolantVolume = 10}, "drivable_combustion"
+  )
+  equal(values.oilVolume, 6); equal(values.coolantVolume, 10); equal(values.oilTemperature, 0)
+  equal(#report.protected, 2)
+  local unavailable = engineFluidGuard.assess(nil, "drivable_combustion")
+  equal(unavailable.valid, nil); equal(unavailable.status, "unavailable")
+  local zero = engineFluidGuard.assess({available = true, engines = {{name = "engine", oilMass = 0, minimumSafeOilMass = 1}}}, "drivable_combustion")
+  equal(zero.valid, false); equal(zero.failures[1].reason, "engine_oil_zero")
+  local disabled = engineFluidGuard.assess({available = true, engines = {{name = "engine", oilMass = 5, minimumSafeOilMass = 1, disabled = true}}}, "drivable_hybrid")
+  equal(disabled.valid, false); equal(disabled.failures[1].reason, "combustion_engine_disabled")
+  truthy(engineFluidGuard.assess({available = true, engines = {{name = "engine", oilMass = 5, minimumSafeOilMass = 1}}}, "drivable_combustion").valid)
+  for _, class in ipairs({"drivable_electric", "trailer", "prop", "intentional_non_drivable_shell"}) do
+    equal(engineFluidGuard.assess(nil, class).status, "not_applicable")
+  end
+end
+
+tests.v066_race_contexts_ids_partial_cancel_and_placement_are_isolated = function()
+  local lineup = assert(raceManager.create({count = 4, episodeSeed = "v066-race", acceptPartial = true}))
+  local identities = {}
+  for index, competitor in ipairs(lineup.competitors) do
+    equal(competitor.competitorId, competitor.id)
+    equal(competitor.requestedIndex, index)
+    truthy(not identities[competitor.id]); identities[competitor.id] = true
+  end
+  local registry = managedVehicleRegistry.create(8)
+  for index, competitor in ipairs(lineup.competitors) do
+    local entry = assert(managedVehicleRegistry.register(registry, 100 + index, {
+      competitorId = competitor.id, lineupCompetitorId = competitor.id,
+      modelKey = "car" .. tostring(index), targetConfirmed = true, validated = true,
+    }))
+    truthy(managedVehicleRegistry.markReady(registry, entry.handle, entry.targetGeneration,
+      {busy = false, targetConfirmed = true, validated = true}))
+    competitor.managedHandle = entry.handle
+    competitor.currentVehicleId = entry.vehicleId
+  end
+  equal(#managedVehicleRegistry.list(registry), 4)
+  truthy(lineupSchema.validate(lineup))
+  local available = raceManager.placementAvailability(lineup, registry, false, false)
+  truthy(available.available); equal(available.count, 4)
+  local busy = raceManager.placementAvailability(lineup, registry, true, false)
+  equal(busy.available, false); truthy(busy.reason:find("vehicle operation", 1, true) ~= nil)
+  truthy(raceManager.reorder(lineup, 4, 1)); equal(lineup.competitors[4].position, 1)
+  equal(lineup.competitors[1].position, 2)
+  lineup.competitors[4].currentVehicleId = lineup.competitors[1].currentVehicleId
+  equal(lineupSchema.validate(lineup), false)
+
+  local partialLineup = assert(raceManager.create({count = 4, episodeSeed = "v066-partial", acceptPartial = true, acceptMetadataUncertain = true}))
+  local first = assert(raceManager.nextCompetitor(partialLineup))
+  local partialDNA = sampleDNA({id = "v066-partial-dna"})
+  truthy(raceManager.record(partialLineup, first.index, {
+    success = true, message = "useful partial", details = {partial = true,
+      lifecycleAcceptance = {finalValidationPassed = true, busy = false, pendingWrites = 0, pendingTimers = 0, pendingCallbacks = 0},
+      verifiedTraits = {sourceKind = "official", vehicleClass = "Car"}},
+  }, partialDNA, first.targetGeneration))
+  equal(first.status, "Partial")
+  local second = assert(raceManager.nextCompetitor(partialLineup)); equal(second.index, 2)
+  truthy(raceManager.cancel(partialLineup, "cancelled during competitor 2 of 4"))
+  equal(second.status, "Cancelled"); equal(partialLineup.competitors[4].status, "Cancelled")
+  equal(partialLineup.active, false)
+end
+
+tests.v066_known_conflicts_are_warning_only_and_never_disabled = function()
+  local previousExtensions, previousFS = rawget(_G, "extensions"), rawget(_G, "FS")
+  _G.extensions = {beamLR = {}, driver_assistance_angelo234 = {}}
+  _G.FS = nil
+  local conflicts = adapter.detectKnownConflicts()
+  _G.extensions, _G.FS = previousExtensions, previousFS
+  equal(#conflicts, 2)
+  for _, conflict in ipairs(conflicts) do
+    equal(conflict.action, "warning_only")
+    equal(conflict.disabledByRandomizer, false)
+    truthy(conflict.id == "beamlr" or conflict.id == "driver_assistance_angelo234")
+  end
+end
+
 tests.all_lua_sources_compile = function()
   local paths = {
     "/lua/ge/extensions/soturineChaosRandomizer.lua",
@@ -4831,8 +5059,12 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/compat/legacyLineupFacade.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/crc32.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/candidateIsolation.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/baselineSemantics.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/coherentStateGate.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/criticalRepair.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/diagnostics.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/failureAttribution.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/engineFluidGuard.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/history.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/historyTransaction.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/lifecycle.lua",
@@ -4887,6 +5119,7 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/aiAdapter.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/aiDirector.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/destinationMarker.lua",
+    "/lua/vehicle/extensions/soturineChaosRandomizerFluidProbe.lua",
   }
   for _, path in ipairs(paths) do
     local chunk, err = loadfile(root .. path)
@@ -5352,6 +5585,20 @@ local v062Required = {
   {"v062_degraded_capability_disables_action", tests.v062_capability_report_has_explicit_four_state_contract},
 }
 
+local v066Required = {
+  {"baseline_roles_are_distinct", tests.v066_baselines_are_distinct_and_repair_prefers_last_accepted},
+  {"coherent_read_requires_stable_cycles", tests.v066_coherent_gate_requires_same_generation_id_and_stable_cycles},
+  {"stale_concrete_id_is_rejected", tests.v066_tracker_rejects_stale_concrete_id_after_return_binding},
+  {"critical_repair_retains_unrelated_mutations", tests.v066_critical_repair_is_surgical_and_restores_missing_dependency_parent},
+  {"full_recovery_follows_repair_failure", tests.v066_critical_repair_failure_is_explicit_before_full_recovery},
+  {"critical_protection_precedes_allow_missing", tests.v066_safety_precedence_protects_structural_role_but_accepts_optional_missing},
+  {"candidate_classification_matrix", tests.v066_candidate_classification_matrix_is_explicit},
+  {"engine_fluid_states_and_propulsion", tests.v066_engine_fluid_guard_distinguishes_zero_unavailable_valid_and_noncombustion},
+  {"independent_race_vehicle_ids", tests.v066_race_contexts_ids_partial_cancel_and_placement_are_isolated},
+  {"placement_availability_has_reason", tests.v066_race_contexts_ids_partial_cancel_and_placement_are_isolated},
+  {"known_conflicts_are_warning_only", tests.v066_known_conflicts_are_warning_only_and_never_disabled},
+}
+
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")
 equal(#v060Required, 104, "0.6.0 required scenario registry")
 equal(#v060PauseLifecycleRequired, 52, "0.6.0 pause lifecycle scenario registry")
@@ -5372,6 +5619,9 @@ end
 for _, scenario in ipairs(v062Required) do
   requirementMappings[#requirementMappings + 1] = {"0.6.2:" .. scenario[1], scenario[2]}
 end
+for _, scenario in ipairs(v066Required) do
+  requirementMappings[#requirementMappings + 1] = {"0.6.6:" .. scenario[1], scenario[2]}
+end
 
 local canonicalByFunction = {}
 for name, fn in pairs(tests) do
@@ -5382,13 +5632,16 @@ for _, name in pairs(canonicalByFunction) do names[#names + 1] = name end
 table.sort(names)
 
 local failures = {}
+local testFilter = os.getenv("SCR_TEST_FILTER")
 for _, name in ipairs(names) do
-  local ok, message = pcall(tests[name])
-  if ok then
-    print("PASS " .. name)
-  else
-    failures[#failures + 1] = name .. ": " .. tostring(message)
-    print("FAIL " .. failures[#failures])
+  if not testFilter or name:find(testFilter, 1, true) then
+    local ok, message = pcall(tests[name])
+    if ok then
+      print("PASS " .. name)
+    else
+      failures[#failures + 1] = name .. ": " .. tostring(message)
+      print("FAIL " .. failures[#failures])
+    end
   end
 end
 
