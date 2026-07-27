@@ -1,22 +1,37 @@
 # Interactive Test Report 0.6.1
 
-No v0.6.1 live BeamNG gameplay or UI execution has been performed in this delivery environment. The exact candidate has automated coverage and installed BeamNG Lua-console execution, but those are not interactive gameplay evidence.
+Post-release live BeamNG gameplay was performed by the project owner against v0.6.1 and reproduced eight release-blocking lifecycle failures. The delivery environment itself did not perform the complete 50-case candidate plan. Automated coverage and installed BeamNG Lua-console execution are not interactive gameplay evidence.
 
 ## v0.6.1 result
 
 | Status | Count |
 |---|---:|
 | Passed | 0 |
-| Failed | 0 |
+| Failed | 8 |
 | Pending | 50 |
 | Blocked | 0 |
-| Total | 50 |
+| Total | 58 |
 
-The 50 Pending cases are enumerated in [Interactive Test Plan 0.6.1](INTERACTIVE_TEST_PLAN_0.6.1.md). No screenshot was reused and no harness result was promoted to Passed.
+The eight Failed rows below are post-release regression evidence supplied by the project owner. The separate 50-case release-candidate plan remains Pending because it was not executed and recorded case by case. No screenshot was reused and no harness result was promoted to Passed.
 
-## Historical observations that motivated the hotfix
+## Post-release v0.6.1 gameplay failures
 
-These are v0.6.0 observations supplied with the v0.6.1 brief, not v0.6.1 executions. They therefore remain separate from the totals above.
+| Observed requirement | Status | Evidence |
+|---|---|---|
+| Pause-independent Random Car | Failed | Buttons remained unavailable; phase stopped at `tracking_target_identity` around 22%; pausing was required for progress. |
+| Pause-independent Scramble | Failed | The same Busy/stall behavior required a pause transition. |
+| Pause-independent Full Random | Failed | The operation stalled and could recover only after a pause transition. |
+| Target ownership after spawn | Failed | A visually selected replacement did not remain the authoritative mutation/recovery target. |
+| No return to previous vehicle | Failed | Resuming or recovery could restore the prior vehicle instead of completing on the selected target. |
+| Busy/stall recovery | Failed | `Operation appears stalled` remained visible and actions stayed unavailable until a pause transition or timeout/recovery. |
+| Recovery loop prevention | Failed | Clean/new and prior-randomized states alternated across attempts, including reuse of an old randomized state. |
+| Full Random complete pipeline | Failed / Partial | A new vehicle could load without a verified Parts -> Tuning -> Paint -> final-readback completion on that same target. |
+
+Representative observed content included Wigeon, Jetta Taxi, Golf, Focus, Duster, Peugeot 2008, and other mod vehicles/configurations. Actual messages included target stabilization timeout, critical/required parts missing after reload, partial coverage rejected, and vehicle recovery completed. These outcomes remain historical failures even if v0.6.2 later passes its own separate plan.
+
+## Earlier v0.6.0 observations that also motivated v0.6.1
+
+These are older v0.6.0 observations supplied with the v0.6.1 brief, not the v0.6.1 executions listed above. They remain separate from the totals above.
 
 | Historical workflow | Status on observed v0.6.0 behavior | v0.6.1 verification |
 |---|---|---|
