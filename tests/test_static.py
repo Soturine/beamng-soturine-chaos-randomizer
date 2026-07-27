@@ -84,8 +84,13 @@ class StaticValidationTests(unittest.TestCase):
         version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
         app = json.loads((ROOT / "ui/modules/apps/soturineChaosRandomizer/app.json").read_text(encoding="utf-8"))
         main = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/main.lua").read_text(encoding="utf-8")
+        html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
+        notes = ROOT / "docs" / "RELEASE NOTES" / f"RELEASE_NOTES_{version}.md"
         self.assertEqual(app["version"], version)
         self.assertIn(f'EXTENSION_VERSION = "{version}"', main)
+        self.assertIn(f"extensionVersion || '{version}'", html)
+        self.assertTrue(notes.is_file())
+        self.assertIn(f"Soturine's Chaos Randomizer {version}", notes.read_text(encoding="utf-8"))
 
     def test_ui_identity_is_unique(self) -> None:
         manifests = [json.loads(path.read_text(encoding="utf-8")) for path in (ROOT / "ui").rglob("app.json")]

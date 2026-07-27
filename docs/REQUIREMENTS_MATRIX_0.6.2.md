@@ -113,9 +113,9 @@ This matrix traces the v0.6.2 master prompt to implementation and evidence. `Aut
 | X05 | Audit every public Chaos, Garage, Race, Placement, Drive, Settings action and adapter/capability. | `FEATURE_AUDIT_0.6.2.md` | feature audit | documentation/static audit | Automated verified; Interactive Pending |
 | X06 | Create an exact enumerated v0.6.2 interactive plan and separate honest report. | `INTERACTIVE_TEST_PLAN_0.6.2.md`, `INTERACTIVE_TEST_REPORT_0.6.2.md` | live evidence | document totals test | 80 enumerated; Interactive Pending |
 | X07 | Preserve schema 1, generator 6, SCR6, v0.6.0/v0.6.1 data and legacy lineup/race reads. | schemas, loaders, migrations | compatibility | full suite/package validation | Automated verified |
-| X08 | Update and audit all named documentation; obsolete Lineup/Roster terms remain historical only. | README, CHANGELOG, ROADMAP, named `docs/` files | documentation | static/link/package tests | Pending |
-| X09 | Produce 10-20 real logical commits directly on local `main`; no PR/public branch/force push. | Git history | delivery | final log audit | In progress |
-| X10 | Package exact v0.6.2 ZIP, checksum, and manifest from the final commit. | `tools/package_mod.py`, `dist/` | packaging | package suite/manifest audit | Pending |
+| X08 | Update and audit all named documentation; obsolete Lineup/Roster terms remain historical only. | README, CHANGELOG, ROADMAP, named `docs/` files | documentation | static/link/package tests | Automated verified |
+| X09 | Produce 10-20 real logical commits directly on local `main`; no PR/public branch/force push. | Git history | delivery | final log audit | 16 logical v0.6.2 commits on local `main` |
+| X10 | Package exact v0.6.2 ZIP, checksum, and manifest from the final commit. | `tools/package_mod.py`, `dist/` | packaging | package suite/manifest audit | Automated verified; exact final-commit build follows this commit |
 | X11 | Push final `main`, wait for green CI, then create annotated `v0.6.2`. | Git/GitHub Actions | release gate | remote SHA/check runs/tag object | Pending |
 | X12 | Publish exact prerelease with three assets, redownload, hash, layout, manifest, and byte-compare validation. | GitHub Release | release audit | downloaded asset report | Pending |
 | X13 | Preserve v0.6.1 and all earlier tag objects, releases, and asset bytes. | Git/GitHub | historical integrity | before/after audit | Baseline verified; final audit Pending |
