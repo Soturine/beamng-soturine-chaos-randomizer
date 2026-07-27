@@ -1,6 +1,6 @@
 # Feature Audit 0.6.2
 
-This is the public-surface audit for the final v0.6.2 source. “Automated” means a Lua fixture or static contract passed; it is not a live BeamNG gameplay result. Every gameplay/UI row remains **Pending** until it is executed against the exact release ZIP. Internal `lineup*` names are retained only for schema, storage, and API compatibility; the public workflow is **Race Cars → Placement → Drive**.
+This document is the public-surface audit for the final v0.6.2 source. “Automated” means a Lua fixture or static contract passed; it is not a live BeamNG gameplay result. Every gameplay/UI row remains **Pending** until it is executed against the exact release ZIP. Internal `lineup*` names are retained only for schema, storage, and API compatibility; the public workflow is **Race Cars → Placement → Drive**.
 
 ## Chaos and operation controls
 
@@ -92,8 +92,8 @@ The mechanically checked export inventory is:
 
 `runAction`, `randomConfig`, `scramble`, `fullRandom`, `undo`, `reindex`, `updateSettings`, `updateLockProfile`, `getVehicleDNALocks`, `lockVehicle`, `lockConfiguration`, `lockCategory`, `lockSlot`, `unlockSlot`, `lockPart`, `lockCurrentParts`, `lockTuning`, `lockPaint`, `applyLockPreset`, `rerollUnlocked`, `requestState`, `setUICompactMode`, `copyDiagnostics`, `spawnSafeVehicle`, `retryQuarantinedConfigurations`, `runDeveloperStress`, `cancelDeveloperStress`, `cancelCurrentOperation`, `getDeveloperStressState`.
 
-`createChaosLineup`, `renameLineupCompetitor`, `resolveLineupFailure`, `exportChaosLineup`, `importChaosLineup`, `previewLineupSpawn`, `startLineupSpawn`, `cancelLineupSpawn`, `removeManagedVehicle`, `respawnManagedVehicle`, `placeAIDestination`, `confirmAIDestination`, `clearAIDestination`, `addAIRoutePoint`, `editAIRoute`, `startManagedAI`, `pauseManagedAI`, `resumeManagedAI`, `stopManagedAI`, `resetManagedAI`, `setAIRecording`.
+`createChaosLineup`, `renameLineupCompetitor`, `reorderLineupCompetitor`, `resolveLineupFailure`, `exportChaosLineup`, `importChaosLineup`, `previewLineupSpawn`, `startLineupSpawn`, `cancelLineupSpawn`, `removeManagedVehicle`, `respawnManagedVehicle`, `placeAIDestination`, `confirmAIDestination`, `clearAIDestination`, `addAIRoutePoint`, `editAIRoute`, `startManagedAI`, `pauseManagedAI`, `resumeManagedAI`, `stopManagedAI`, `resetManagedAI`, `setAIRecording`.
 
 `saveVehicleDNA`, `setVehicleDNAPage`, `deleteVehicleDNA`, `renameVehicleDNA`, `setVehicleDNAFavorite`, `setVehicleDNAPinned`, `setVehicleDNARating`, `setVehicleDNATags`, `setVehicleDNACollection`, `setVehicleDNANotes`, `duplicateVehicleDNA`, `setVehicleDNAQuery`, `getVehicleDNADetails`, `compareVehicleDNA`, `importVehicleDNA`, `exportVehicleDNA`, `exportVehicleDNAJson`, `exportVehicleDNAPackage`, `importVehicleDNAPackage`, `confirmVehicleDNAPackageImport`, `captureVehicleDNAThumbnail`, `removeVehicleDNAThumbnail`, `preflightVehicleDNA`, `replayVehicleDNA`, `replayVehicleDNAGeneration`, `pureSeedReplayVehicleDNA`, `mutateVehicleDNA`, `restoreVehicleDNA`.
 
-`onExtensionLoaded`, `onVehicleSpawned`, `onVehicleSwitched`, `onVehicleDestroyed`, `onClientEndMission`, `onModActivated`, `onModDeactivated`, `onUpdate`, `onExtensionUnloaded`.
+`onExtensionLoaded`, `onVehicleSpawned`, `onVehicleSwitched`, `onVehicleDestroyed`, `onFluidProbe`, `onClientEndMission`, `onModActivated`, `onModDeactivated`, `onUpdate`, `onExtensionUnloaded`.

@@ -30,10 +30,34 @@ to random mode.
 
 ## Race cannot open Placement or Drive
 
-This is deliberate gating. Cars must first finish as Ready/Ready with warnings
-before Placement becomes available. Drive requires confirmed managed cars from
-Placement. Failed or Partial competitors show their status and bounded actions;
-they must never remain Pending indefinitely.
+Placement requires at least one retained, ready managed competitor and no
+active generation/placement operation. Hover/read the displayed reason: no
+lineup, current vehicle operation, current Placement operation, or no retained
+targets are distinct states. Generate Cars must leave one simultaneous unique
+vehicle ID per accepted card and preserve the original player vehicle. Applying
+Placement moves those same IDs; it must not create duplicates. Drive requires
+confirmed managed cars. Failed or Partial competitors show bounded retry,
+fallback, skip and stop actions and must never remain Pending indefinitely.
+
+## BeamLR or Driver Assistance warning appears
+
+The owner found that removing BeamLR and the hidden
+`scripts/driver_assistance_angelo234` scripts stopped the old 22%/57% hard
+freeze. The Randomizer only warns when it can safely detect those loaded
+extensions or mounted paths. It does not disable, delete or modify either mod,
+and it does not claim to fix their Lua. Reproduce Randomizer lifecycle issues
+first in a clean profile, then re-enable third-party content one item at a time
+and attach both the warning and `beamng.log`.
+
+## Combustion vehicle reports no oil or disabled engine
+
+Fuel-tank evidence is not engine-oil evidence. Details should show the direct
+vehicle-VM probe source, confidence, oil mass/minimum, stable samples and any
+oil-critical/disabled state. A proven zero/below-safe/disabled combustion
+engine must not be accepted. If evidence remains unavailable after the bounded
+requests, the result is partial and makes no oil-safety claim. No unsupported
+runtime oil setter is fabricated; capture diagnostics and use the verified
+accepted/recovery baseline.
 
 ## The app does not appear
 

@@ -6,9 +6,10 @@ a random vehicle/configuration, scramble the active vehicle's parts, tuning and
 paint, or run the complete pipeline as one bounded transaction. It also
 includes Vehicle DNA, a local Garage, and Race/Placement/AI workflows.
 
-Current version: **0.6.4 Experimental prerelease**. Automated and installed-
-source validation passes; live BeamNG validation is **Pending owner
-validation** (0 executed / 0 passed / 0 failed / 110 pending / 0 blocked).
+Current development version: **0.6.6-live-fix-candidate**. It is an unpublished
+Stage A artifact, not `v0.6.6`. Automated validation is recorded separately;
+live BeamNG validation is **Pending owner validation** (0 executed / 0 passed /
+0 failed / 99 pending / 0 blocked).
 That wording matters: mocked pipelines and source inspection are not gameplay,
 physics, rendering, performance, or mod-compatibility proof.
 
@@ -27,14 +28,16 @@ or part catalog.
 
 ## Install or update
 
-1. Download `soturine_chaos_randomizer_0.6.4.zip` from the v0.6.4 GitHub
-   release Assets. Do not use GitHub's automatic source archive.
+1. For owner validation, use the exact local Stage A artifact
+   `soturine_chaos_randomizer_0.6.6-live-fix-candidate.zip`. No `v0.6.6`
+   release exists until the owner approves the live matrix. Do not use
+   GitHub's automatic source archive.
 2. Copy the ZIP, without extracting it, into your BeamNG user folder's
    `mods` directory.
 3. Remove or disable older Chaos Randomizer ZIPs so only one version is active.
 4. Start BeamNG, enable the mod, open UI Apps, and add
    **Soturine's Chaos Randomizer**.
-5. Confirm `0.6.4` appears in the orange header.
+5. Confirm `0.6.6-live-fix-candidate` appears in the orange header.
 
 A valid ZIP has `lua/`, `ui/`, `settings/`, `LICENSE`, `NOTICE`, and `VERSION`
 at its root. If the app does not appear, clear BeamNG's UI cache, reload the UI,
@@ -146,10 +149,13 @@ non-finite values, and excessive depth/size are rejected.
 
 ## Race, Placement, and AI
 
-Race creates competitors sequentially with independent seeds and terminal
-Ready, Ready with warnings, Partial, Failed, Cancelled, or DNS behavior.
-Placement owns only vehicles it created and verifies every returned/recreated
-ID before management. Drive/AI operates only on confirmed managed targets.
+Race creates competitors sequentially with independent seeds, operation
+contexts and physical targets. Generate Cars spawns a new vehicle at a safe
+staging transform, temporarily focuses that owned target for player-global
+part APIs, retains its unique managed ID, restores the original player focus,
+and advances only after a terminal result. Placement reorders and repositions
+those existing managed IDs; it does not duplicate them. Drive/AI operates only
+on confirmed managed targets.
 Destination and Route require a reachable NavGraph; Chase/Follow require a real
 distinct target. Unsupported Scripted playback remains disabled with a reason.
 
@@ -172,7 +178,7 @@ invalidates old plans/timers/callbacks before using its bounded ladder. Unknown
 fuel metadata, optional missing parts, or a temporarily unreadable final tree
 does not by itself justify restoring stock or the previous vehicle.
 
-## Fuel and missing-parts policy
+## Fuel, engine fluids, and missing-parts policy
 
 Only `combustion_fuel` receives the 10% minimum guard. Electric energy,
 nitrous, air pressure, hydraulic storage, unknown storage, and normal tuning are
@@ -186,6 +192,14 @@ is allowed state, including an intentional Allow Missing choice. A third-party
 `required` hint that is not a documented core slot is incomplete mod metadata,
 so it becomes an uncertain warning rather than invented proof. Proven loss of a
 baseline functional role can still be fatal when critical protection is on.
+
+Combustion oil is separate from fuel. The candidate blocks exposed oil/coolant
+volume tuning from reaching zero and uses a generation-bound vehicle-VM probe
+to read combustion engine thermal `oilMass`, safe-minimum metadata, coolant,
+disabled state and oil-critical damage. Two stable samples are required.
+Unavailable evidence produces a visible partial result without an oil-safety
+claim; proven zero/below-safe/disabled state is not accepted. EVs, trailers,
+props and explicit shells do not receive a combustion-oil requirement.
 
 ## Diagnostics and troubleshooting
 
@@ -224,14 +238,13 @@ See [Compatibility](docs/COMPATIBILITY.md) and the
 
 ## Validation evidence
 
-- [v0.6.4 evidence index](docs/testing/v0.6.4/README.md)
-- [automated report](docs/testing/v0.6.4/AUTOMATED_TEST_REPORT.md)
-- [110-case live plan](docs/testing/v0.6.4/LIVE_TEST_PLAN.md)
-- [live report](docs/testing/v0.6.4/LIVE_TEST_REPORT.md)
-- [lifecycle investigation](docs/testing/v0.6.4/LIFECYCLE_INVESTIGATION.md)
-- [fuel and parts policy](docs/testing/v0.6.4/FUEL_AND_PARTS_POLICY.md)
-- [UI validation](docs/testing/v0.6.4/UI_VALIDATION.md)
-- [research notes](docs/testing/v0.6.4/RESEARCH_NOTES.md)
+- [v0.6.6 evidence index](docs/testing/v0.6.6/README.md)
+- [root-cause analysis](docs/testing/v0.6.6/ROOT_CAUSE_ANALYSIS.md)
+- [safety precedence](docs/testing/v0.6.6/SAFETY_PRECEDENCE.md)
+- [automated report](docs/testing/v0.6.6/AUTOMATED_TEST_REPORT.md)
+- [99-case live plan](docs/testing/v0.6.6/LIVE_TEST_PLAN.md)
+- [live report](docs/testing/v0.6.6/LIVE_TEST_REPORT.md)
+- [owner checklist](docs/testing/v0.6.6/OWNER_TEST_CHECKLIST.md)
 
 Automated tests include real production Lua executed by BeamNG's console, a
 mocked BeamNG adapter pipeline, property/state-machine cases, JavaScript sizing

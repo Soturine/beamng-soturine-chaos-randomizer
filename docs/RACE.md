@@ -4,15 +4,14 @@ Race is the public three-stage workflow: **Cars → Placement → Drive**. Older
 
 ## Cars
 
-Balanced, Maximum Chaos, Mods Showcase, and Custom policies feed the same Full Random pipeline used by Chaos. Each competitor owns a target generation and must close as Ready, Ready with warnings, Partial, Failed, Skipped, or Cancelled. Selecting, Loading, Randomizing, and Verifying are bounded non-terminal phases. Retry derives an attempt-specific seed domain; fallback, skip, and stop are explicit user actions.
+Balanced, Maximum Chaos, Mods Showcase, and Custom policies feed the same Full Random pipeline used by Chaos. Generate Cars reserves one immutable competitor identity, spawns a new physical target at its own staging transform, binds and randomizes that exact ID, retains it in the managed registry, restores player focus, and only then advances. It never counts a failed/nonexistent ID. Each competitor owns its own operation/generation/current-ID/spawn/randomization/validation/placement/terminal state. Retry derives an attempt-specific seed domain; fallback, skip, cancel and stop are explicit actions.
 
 ## Placement
 
-Only accepted Ready cars (or explicitly accepted Partial cars) are eligible. Front, Behind, Left, Right, diagonal, Line, Grid, Circle, and Custom point plans use ground raycast, slope limits, heading validation, collision spacing, and one-at-a-time spawn verification. A spawned vehicle is not Ready until its exact managed handle/generation has stable model/config readback.
+Only retained Ready cars (or explicitly accepted Partial cars) are eligible. The tab reports why it is unavailable. Front, Behind, Left, Right, diagonal, Line, Grid, Circle, and Custom point plans use ground raycast, slope limits, heading validation and collision spacing. Reordering assigns unique positions. Applying Placement teleports the already managed concrete IDs through BeamNG's safe placement path and requires two position read-backs; it does not spawn duplicates.
 
 ## Drive
 
 AI commands operate only on confirmed managed vehicles. Destination and Route require a reachable NavGraph; Chase and Follow require a distinct existing target; Traffic requires Vehicle Lua queue support. Scripted mode is visibly unsupported because no bounded portable path-transfer contract is enabled. Start, pause, resume, stop, reset, and damaged respawn are bounded and do not rely on simulation pause toggles.
 
 Capabilities are reported as `available`, `degraded`, `unavailable`, or `unsupported`. A disabled control includes a reason rather than claiming an API exists.
-

@@ -2,6 +2,24 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.6-live-fix-candidate] - 2026-07-27
+
+Unpublished Stage A candidate. Automated validation is separate from the 99
+Pending owner live cases; no `v0.6.6` tag or release is authorized.
+
+### Fixed
+
+- Separate five baseline meanings and prefer the last accepted generated state.
+- Require stable generation/ID-bound parts, tuning, powertrain and energy reads.
+- Give evidence-backed critical protection precedence and surgically repair
+  exact dependency paths before full rollback.
+- Guard exposed engine-fluid tuning and verify real combustion thermal oil
+  evidence with a bounded vehicle-VM probe.
+- Generate persistent independent Race targets, preserve the player vehicle,
+  validate unique IDs, and make Placement reorder/reposition retained vehicles.
+- Warn about detected BeamLR/Driver Assistance conflicts without disabling them.
+- Replace the ambiguous mark with an original fox SVG and transparent raster set.
+
 ## [0.6.4] - 2026-07-27
 
 Live Lifecycle, Read-back Convergence, Safety Policy, Responsive UI, and
