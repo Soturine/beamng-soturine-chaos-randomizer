@@ -370,9 +370,10 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("options.spawnAll = variant === 'all'", source)
 
     def test_v062_evidence_documents_are_exact_and_feature_audit_is_complete(self) -> None:
-        plan = (ROOT / "docs/INTERACTIVE_TEST_PLAN_0.6.2.md").read_text(encoding="utf-8")
-        report = (ROOT / "docs/INTERACTIVE_TEST_REPORT_0.6.2.md").read_text(encoding="utf-8")
-        matrix = (ROOT / "docs/REQUIREMENTS_MATRIX_0.6.2.md").read_text(encoding="utf-8")
+        archive = ROOT / "docs/archive/releases/0.6.2"
+        plan = (archive / "LIVE_TEST_PLAN.md").read_text(encoding="utf-8")
+        report = (archive / "LIVE_TEST_REPORT.md").read_text(encoding="utf-8")
+        matrix = (archive / "REQUIREMENTS_MATRIX_0.6.2.md").read_text(encoding="utf-8")
         audit = (ROOT / "docs/FEATURE_AUDIT_0.6.2.md").read_text(encoding="utf-8")
         required_columns = (
             "Feature", "Public action", "Backend entry point", "Dependencies",
@@ -409,6 +410,7 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn('expected="v$(tr -d \'\\r\\n\' < VERSION)"', package)
         self.assertIn('notes="docs/RELEASE NOTES/RELEASE_NOTES_${version}.md"', package)
         self.assertIn("Refuse to overwrite an existing release", package)
+        self.assertIn("python tools/validate_release_gate.py", package)
         self.assertIn("--verify-tag", package)
         self.assertIn("--prerelease", package)
 

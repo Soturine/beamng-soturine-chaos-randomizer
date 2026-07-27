@@ -29,6 +29,7 @@ TEXT_FILENAMES = {"LICENSE", "NOTICE", "VERSION"}
 TARGET_BEAMNG = "0.38.6.0.19963"
 GENERATOR_VERSION = 6
 DNA_SCHEMA_VERSION = 1
+LIVE_RESULTS = ("Executed", "Passed", "Failed", "Pending", "Blocked", "Not applicable")
 
 
 def get_commit_sha(root: Path = REPOSITORY_ROOT) -> str:
@@ -134,20 +135,29 @@ def build_report(archive: Path, root: Path = REPOSITORY_ROOT) -> dict[str, objec
     }
 
 
+def live_test_counts(root: Path = REPOSITORY_ROOT) -> dict[str, int]:
+    version = read_version(root)
+    candidates = (
+        root / "docs" / "testing" / f"v{version}" / "LIVE_TEST_REPORT.md",
+        root / "docs" / f"INTERACTIVE_TEST_REPORT_{version}.md",
+        root / "docs" / f"INTERACTIVE_TEST_PLAN_{version}.md",
+    )
+    source = next((path.read_text(encoding="utf-8") for path in candidates if path.is_file()), "")
+    counts = {status: 0 for status in LIVE_RESULTS}
+    for status in LIVE_RESULTS:
+        total = re.search(rf"\|\s*{re.escape(status)}\s*\|\s*(\d+)\s*\|", source)
+        counts[status] = int(total.group(1)) if total else 0
+    if counts["Executed"] == 0:
+        counts["Executed"] = counts["Passed"] + counts["Failed"] + counts["Blocked"]
+    return counts
+
+
 def test_counts(root: Path = REPOSITORY_ROOT) -> dict[str, int]:
     python_methods = 0
     for path in (root / "tests").glob("test_*.py"):
         python_methods += len(re.findall(r"^\s+def test_[A-Za-z0-9_]+\(", path.read_text(encoding="utf-8"), re.MULTILINE))
     _, lua_metrics = run_lua_suite(root.resolve())
-    interactive = {"Passed": 0, "Failed": 0, "Pending": 0, "Blocked": 0, "Not applicable": 0}
-    interactive_plan = root / "docs" / f"INTERACTIVE_TEST_PLAN_{read_version(root)}.md"
-    if interactive_plan.is_file():
-        source = interactive_plan.read_text(encoding="utf-8")
-        for status in interactive:
-            total = re.search(rf"\|\s*{re.escape(status)}\s*\|\s*(\d+)\s*\|", source)
-            interactive[status] = int(total.group(1)) if total else len(
-                re.findall(rf"\|\s*{re.escape(status)}\s*\|", source)
-            )
+    interactive = live_test_counts(root)
     result = {
         "pythonTestMethodsUnique": python_methods,
         **lua_metrics,
@@ -162,6 +172,7 @@ def test_counts(root: Path = REPOSITORY_ROOT) -> dict[str, int]:
             (root / "tests" / "test_package.py").read_text(encoding="utf-8"),
             re.MULTILINE,
         )),
+        "interactiveExecuted": interactive["Executed"],
         "interactivePassed": interactive["Passed"],
         "interactiveFailed": interactive["Failed"],
         "interactivePending": interactive["Pending"],
@@ -174,7 +185,7 @@ def test_counts(root: Path = REPOSITORY_ROOT) -> dict[str, int]:
 def write_release_manifest(archive: Path, output: Path | None = None, root: Path = REPOSITORY_ROOT) -> Path:
     report = build_report(archive, root)
     manifest = {
-        "manifestVersion": 2,
+        "manifestVersion": 3,
         "version": report["version"],
         "tag": f"v{report['version']}",
         "commit": report["commit"],

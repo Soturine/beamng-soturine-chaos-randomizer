@@ -7,7 +7,7 @@ import tempfile
 import unittest
 import zipfile
 
-from tools import package_mod, validate_package
+from tools import package_mod, validate_package, validate_release_gate
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -105,10 +105,11 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(manifest["tests"]["luaTestFunctionsUnique"], manifest["tests"]["luaExecutedCases"])
             self.assertEqual(manifest["tests"]["luaRequirementMappings"], 440)
             self.assertGreater(manifest["tests"]["luaAssertions"], manifest["tests"]["luaExecutedCases"])
+            self.assertEqual(manifest["tests"]["interactiveExecuted"], 0)
             self.assertEqual(manifest["tests"]["interactivePassed"], 0)
             self.assertEqual(manifest["tests"]["interactiveFailed"], 0)
-            if package_mod.read_version(ROOT) == "0.6.2":
-                self.assertEqual(manifest["tests"]["interactivePending"], 80)
+            if package_mod.read_version(ROOT) == "0.6.3":
+                self.assertEqual(manifest["tests"]["interactivePending"], 110)
             self.assertEqual(manifest["tests"]["interactiveBlocked"], 0)
 
     def test_release_manifest_is_reproducible(self) -> None:
@@ -120,6 +121,12 @@ class PackageTests(unittest.TestCase):
             first_manifest = package_mod.write_release_manifest(first, root=ROOT)
             second_manifest = package_mod.write_release_manifest(second, root=ROOT)
             self.assertEqual(first_manifest.read_bytes(), second_manifest.read_bytes())
+
+    def test_live_release_gate_rejects_pending_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            archive, _ = package_mod.package(Path(temporary), ROOT)
+            with self.assertRaises(validate_release_gate.ReleaseGateError):
+                validate_release_gate.validate_live_release(archive, ROOT)
 
 
 if __name__ == "__main__":
