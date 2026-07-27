@@ -206,12 +206,15 @@ local function new(options)
     if options.newTargetUnavailable and harness.modelKey == "fixture_new" then
       return false, adapter.errorValue("fixture_target_unavailable", "fixture new target unavailable")
     end
+    local partsAvailable = options.verificationTreeUnavailable ~= true
     return true, {
       vehicleId = harness.vehicleId,
       modelKey = harness.modelKey,
       configKey = harness.configPath,
       configIdentity = {path = harness.configPath, key = configVerification.stableKey(harness.configPath)},
-      parts = flatten(harness.tree),
+      parts = partsAvailable and flatten(harness.tree) or nil,
+      partsAvailable = partsAvailable,
+      readStatus = partsAvailable and "ready" or "tree_unavailable",
       tuning = util.deepCopy(harness.tuning),
       paints = util.deepCopy(harness.paints),
     }

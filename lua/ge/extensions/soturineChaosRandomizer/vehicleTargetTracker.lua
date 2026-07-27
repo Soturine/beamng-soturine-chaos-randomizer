@@ -59,6 +59,7 @@ local function create(options)
     phase = options.phase,
     expectedModelKey = options.modelKey,
     expectedConfigKey = options.configKey,
+    expectedVehicleId = options.vehicleId,
     expectedConfigIdentity = util.deepCopy(options.configIdentity),
     expectedParts = util.deepCopy(options.parts or {}),
     requirePartsReadable = options.requirePartsReadable == true,
@@ -77,6 +78,11 @@ local function create(options)
     destroyed = {},
     rejected = {},
     suspectSwitchId = nil,
+    callbackSeen = false,
+    spawnCallbackSeen = false,
+    switchCallbackSeen = false,
+    lastObservedAt = nil,
+    lastReason = "target_identity_unstable",
     lastState = nil,
     status = "vehicle_target_stabilizing",
     identityStatus = "tracking_target_identity",
@@ -119,7 +125,8 @@ end
 local function staleEvent(tracker, kind, details)
   tracker.staleCallbackCount = tracker.staleCallbackCount + 1
   addEvent(tracker, kind, details)
-  return false, "stale_callback_ignored"
+  tracker.lastReason = "stale_callback_rejected"
+  return false, tracker.lastReason
 end
 
 local function bindReturned(tracker, vehicleId, strategy)
@@ -129,6 +136,8 @@ local function bindReturned(tracker, vehicleId, strategy)
 end
 
 local function onSpawned(tracker, vehicleId)
+  tracker.callbackSeen = true
+  tracker.spawnCallbackSeen = true
   if tracker.recoveryOnly and tracker.returnedVehicleId and vehicleId ~= tracker.returnedVehicleId then
     return staleEvent(tracker, "stale_spawn", {
       vehicleId = vehicleId,
@@ -146,6 +155,8 @@ local function onSwitched(tracker, oldId, newId, player, replaceWriteInFlight)
     addEvent(tracker, "auxiliary_switch", {oldId = oldId, newId = newId, player = player})
     return true, "auxiliary_player_ignored"
   end
+  tracker.callbackSeen = true
+  tracker.switchCallbackSeen = true
   local priorCandidateId = tracker.currentCandidateId
   addCandidate(tracker, newId, replaceWriteInFlight and "switch_during_replace" or "player_switch")
   addEvent(tracker, "switch", {oldId = oldId, newId = newId, player = player})
@@ -163,16 +174,30 @@ local function onDestroyed(tracker, vehicleId)
     tracker.currentCandidateId = nil
     if not tracker.identityConfirmed then vehicleStabilizer.reset(tracker.stabilizer, "candidate_destroyed") end
   end
+  if tracker.returnedVehicleId == vehicleId then
+    tracker.returnedVehicleId = nil
+    tracker.expectedVehicleId = nil
+    tracker.lastReason = "target_id_changed"
+  end
   return true
 end
 
 local function verifyIdentity(tracker, state)
+  local expectedVehicleId = tracker.returnedVehicleId or tracker.expectedVehicleId
+  if expectedVehicleId and state.vehicleId ~= expectedVehicleId then
+    return false, "target_id_changed", {
+      expectedVehicleId = expectedVehicleId,
+      currentVehicleId = state.vehicleId,
+    }
+  end
   if tracker.expectedModelKey and state.modelKey ~= tracker.expectedModelKey then
-    return false, "model_mismatch"
+    return false, "target_model_mismatch"
   end
   if tracker.expectedConfigIdentity then
     local ok, reason, details = configVerification.verify(tracker.expectedConfigIdentity, state)
-    if not ok then return false, reason or "config_mismatch", details end
+    if not ok then return false, "target_config_mismatch", {
+      verificationReason = reason, verification = details,
+    } end
     return true, nil, details
   elseif tracker.expectedConfigKey then
     local expected = configVerification.expectation({
@@ -181,7 +206,9 @@ local function verifyIdentity(tracker, state)
       path = tracker.expectedConfigKey,
     })
     local ok, reason, details = configVerification.verify(expected, state)
-    if not ok then return false, reason or "config_mismatch", details end
+    if not ok then return false, "target_config_mismatch", {
+      verificationReason = reason, verification = details,
+    } end
     return true, nil, details
   end
   return true
@@ -189,11 +216,13 @@ end
 
 local function verifyTree(tracker, state)
   if tracker.requirePartsReadable and (state.partsAvailable == false or type(state.parts) ~= "table") then
-    return false, state.readStatus or "parts_read_unavailable"
+    return false, "tree_unavailable", {readStatus = state.readStatus}
   end
   for path, candidate in pairs(tracker.expectedParts or {}) do
     if type(state.parts) ~= "table" or state.parts[path] ~= candidate then
-      return false, "parts_state_mismatch:" .. tostring(path)
+      return false, "tree_changed_legitimately", {
+        path = path, expected = candidate, current = type(state.parts) == "table" and state.parts[path] or nil,
+      }
     end
   end
   return true
@@ -217,29 +246,35 @@ local function observe(tracker, token, state, now, context)
   now = tonumber(now) or 0
   if token ~= tracker.token or not generationsMatch(tracker, context) then
     tracker.staleCallbackCount = tracker.staleCallbackCount + 1
-    tracker.status = "stale_callback_ignored"
-    return "failed", "stale_callback_ignored"
+    tracker.status = "stale_callback_rejected"
+    tracker.lastReason = tracker.status
+    return "failed", tracker.status
   end
   if now >= tracker.deadline then
-    tracker.status = "vehicle_target_timeout"
-    return "failed", "vehicle_target_timeout"
+    tracker.status = tracker.callbackSeen and "operation_deadline_exceeded" or "target_callback_missing"
+    tracker.lastReason = tracker.status
+    return "failed", tracker.status
   end
   if type(state) ~= "table" or type(state.vehicleId) ~= "number" then
     tracker.status = "vehicle_target_stabilizing"
-    return "waiting", tracker.status
+    tracker.lastReason = "target_identity_unstable"
+    return "waiting", tracker.lastReason
   end
+  tracker.lastObservedAt = now
   addCandidate(tracker, state.vehicleId, "player_poll", {modelKey = state.modelKey, configKey = state.configKey})
 
   local expected, reason, verificationDetails = verifyIdentity(tracker, state)
   if not expected then
     tracker.rejected[tostring(state.vehicleId)] = reason
-    if tracker.suspectSwitchId == state.vehicleId and reason == "model_mismatch" then
+    if tracker.suspectSwitchId == state.vehicleId
+      and (reason == "target_model_mismatch" or reason == "target_id_changed") then
       tracker.status = "external_vehicle_switch"
       return "cancelled", "external_vehicle_switch", {vehicleId = state.vehicleId, reason = reason}
     end
     if not tracker.identityConfirmed then vehicleStabilizer.reset(tracker.stabilizer, reason) end
     tracker.identityStatus = "tracking_target_identity"
     tracker.fingerprintReason = reason
+    tracker.lastReason = reason
     tracker.status = "vehicle_target_stabilizing"
     return "waiting", reason, verificationDetails
   end
@@ -254,7 +289,8 @@ local function observe(tracker, token, state, now, context)
     tracker.identityStatus = stableReason
     tracker.fingerprintReason = "target_identity"
     tracker.status = stableReason
-    if not stable then return "waiting", stableReason end
+    tracker.lastReason = stable and "target_identity_confirmed" or "target_identity_unstable"
+    if not stable then return "waiting", tracker.lastReason end
     tracker.identityConfirmed = true
     tracker.identityConfirmedAt = now
     tracker.identityStatus = "target_identity_confirmed"
@@ -266,13 +302,16 @@ local function observe(tracker, token, state, now, context)
   if not tracker.identityReported then tracker.identityReported = true end
 
   if next(tracker.expectedParts or {}) or tracker.requirePartsReadable then
-    local treeMatches, treeReason = verifyTree(tracker, state)
+    local treeMatches, treeReason, treeDetails = verifyTree(tracker, state)
     if not treeMatches then
       vehicleStabilizer.reset(tracker.treeStabilizer, treeReason)
       tracker.treeStatus = "parts_tree_converging"
       tracker.fingerprintReason = "parts_tree_changed"
       tracker.status = tracker.treeStatus
-      return "waiting", tracker.treeStatus, {identityConfirmed = true, treeReason = treeReason}
+      tracker.lastReason = treeReason
+      return "waiting", treeReason, {
+        identityConfirmed = true, treeReason = treeReason, treeDetails = treeDetails,
+      }
     end
     local treeStable, treeStableReason = vehicleStabilizer.observe(
       tracker.treeStabilizer, state.vehicleId, partsFingerprint(state), true
@@ -281,13 +320,15 @@ local function observe(tracker, token, state, now, context)
     tracker.fingerprintReason = "parts_tree"
     tracker.status = treeStable and "parts_tree_converged" or "parts_tree_converging"
     if not treeStable then
-      return "waiting", tracker.status, {identityConfirmed = true}
+      tracker.lastReason = "parts_reload_pending"
+      return "waiting", tracker.lastReason, {identityConfirmed = true}
     end
   else
     tracker.treeStatus = "not_required"
   end
 
   tracker.status = "vehicle_target_stable"
+  tracker.lastReason = tracker.status
   return "stable", "vehicle_target_stable", {
     vehicleId = state.vehicleId,
     state = util.deepCopy(state),
@@ -316,11 +357,22 @@ local function summary(tracker, now)
   metrics.staleCallbackCount = tracker.staleCallbackCount
   metrics.stabilizationMs = math.max(0, ((tonumber(now) or tracker.startedAt) - tracker.startedAt) * 1000)
   metrics.currentCandidateId = tracker.currentCandidateId
+  metrics.expectedVehicleId = tracker.returnedVehicleId or tracker.expectedVehicleId
   metrics.returnedVehicleId = tracker.returnedVehicleId
   metrics.operationGeneration = tracker.operationGeneration
   metrics.phaseGeneration = tracker.phaseGeneration
   metrics.targetGeneration = tracker.targetGeneration
   metrics.recoveryOnly = tracker.recoveryOnly
+  metrics.callbackSeen = tracker.callbackSeen
+  metrics.spawnCallbackSeen = tracker.spawnCallbackSeen
+  metrics.switchCallbackSeen = tracker.switchCallbackSeen
+  metrics.lastObservedAt = tracker.lastObservedAt
+  metrics.lastReason = tracker.lastReason
+  metrics.expectedModelKey = tracker.expectedModelKey
+  metrics.expectedConfigKey = tracker.expectedConfigKey
+  metrics.candidateChain = util.deepCopy(tracker.candidates)
+  metrics.stateFingerprint = tracker.lastState and stateFingerprint(tracker.lastState) or nil
+  metrics.treeFingerprint = tracker.lastState and partsFingerprint(tracker.lastState) or nil
   return metrics
 end
 

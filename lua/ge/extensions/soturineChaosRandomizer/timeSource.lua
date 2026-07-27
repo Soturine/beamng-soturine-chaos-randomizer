@@ -20,6 +20,9 @@ local function create(clock)
     paused = false,
     pauseKnown = false,
     slowMotionRatio = 1,
+    pauseTransitions = 0,
+    lastPauseChangedAt = nil,
+    pausedRealDuration = 0,
     lastRealMonotonicTime = now,
     source = "clock_fallback",
   }
@@ -40,6 +43,7 @@ local function sample(state, dtReal, dtSim, dtRaw, paused, explicitNow)
     simulationDelta = pauseKnown and paused and 0 or realDelta
   end
 
+  local wasPaused = state.paused
   state.lastRealMonotonicTime = state.realMonotonicTime
   state.realMonotonicTime = clockNow
   state.realDelta = realDelta
@@ -49,6 +53,11 @@ local function sample(state, dtReal, dtSim, dtRaw, paused, explicitNow)
   state.frameCounter = state.frameCounter + 1
   state.pauseKnown = pauseKnown
   state.paused = pauseKnown and paused or (realDelta > 0 and simulationDelta <= 0)
+  if state.paused ~= wasPaused then
+    state.pauseTransitions = state.pauseTransitions + 1
+    state.lastPauseChangedAt = clockNow
+  end
+  if state.paused then state.pausedRealDuration = state.pausedRealDuration + measuredRealDelta end
   state.slowMotionRatio = realDelta > 0 and math.max(0, simulationDelta / realDelta) or 0
   state.source = finiteNumber(dtReal) ~= nil and finiteNumber(dtSim) ~= nil
     and "beamng_onUpdate_deltas" or "clock_fallback"
@@ -67,6 +76,9 @@ local function snapshot(state)
     pauseKnown = state.pauseKnown,
     slowMotionRatio = state.slowMotionRatio,
     source = state.source,
+    pauseTransitions = state.pauseTransitions,
+    lastPauseChangedAt = state.lastPauseChangedAt,
+    pausedRealDuration = state.pausedRealDuration,
   }
 end
 

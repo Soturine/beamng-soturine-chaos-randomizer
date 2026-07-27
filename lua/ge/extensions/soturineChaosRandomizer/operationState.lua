@@ -34,10 +34,10 @@ local PHASES = {
   partial = {terminal = true, pauseIndependent = true},
   cancelling = {pauseIndependent = true},
   cancelled = {terminal = true, pauseIndependent = true},
-  rolling_back_operation = {requiresSimulationProgress = true},
-  recovering_previous = {requiresSimulationProgress = true},
-  recovering_last_completed_good = {requiresSimulationProgress = true},
-  recovering_fallback = {requiresSimulationProgress = true},
+  rolling_back_operation = {pauseIndependent = true},
+  recovering_previous = {pauseIndependent = true},
+  recovering_last_completed_good = {pauseIndependent = true},
+  recovering_fallback = {pauseIndependent = true},
   failed = {terminal = true, pauseIndependent = true},
 }
 
@@ -205,7 +205,7 @@ local function captureContext(state, expectedTarget)
 end
 
 local function validateContinuation(state, context, observedTarget)
-  if type(context) ~= "table" then return false, "missing_callback_context" end
+  if type(context) ~= "table" then return false, "target_callback_missing" end
   if context.operationId ~= state.operationId
     or context.operationToken ~= state.operationToken
     or context.operationGeneration ~= state.operationGeneration
@@ -213,17 +213,23 @@ local function validateContinuation(state, context, observedTarget)
     or context.targetGeneration ~= state.targetGeneration
   then
     state.staleCallbackCount = state.staleCallbackCount + 1
-    return false, "stale_callback_ignored"
+    return false, "stale_callback_rejected"
   end
   local expected = context.expectedTarget
   if type(expected) == "table" and type(observedTarget) == "table" then
-    if expected.vehicleId and observedTarget.vehicleId ~= expected.vehicleId then return false, "wrong_vehicle_target" end
-    if expected.modelKey and observedTarget.modelKey ~= expected.modelKey then return false, "wrong_vehicle_target" end
+    if expected.vehicleId and observedTarget.vehicleId ~= expected.vehicleId then return false, "target_id_changed" end
+    if expected.modelKey and observedTarget.modelKey ~= expected.modelKey then return false, "target_model_mismatch" end
     if expected.configKey and observedTarget.configKey and expected.configKey ~= observedTarget.configKey then
-      return false, "wrong_vehicle_target"
+      return false, "target_config_mismatch"
     end
   end
   return true
+end
+
+local function validateTimer(state, context, observedTarget)
+  local ok, reason = validateContinuation(state, context, observedTarget)
+  if not ok and reason == "stale_callback_rejected" then return false, "stale_timer_rejected" end
+  return ok, reason
 end
 
 local function isCurrent(state, token, context)
@@ -243,6 +249,10 @@ end
 
 local function isExpired(state, now)
   return deriveBusy(state) and state.deadline ~= nil and (now or state.clock()) >= state.deadline
+end
+
+local function isOperationExpired(state, now)
+  return deriveBusy(state) and state.operationDeadline ~= nil and (now or state.clock()) >= state.operationDeadline
 end
 
 local function finish(state, terminalState, errorValue)
@@ -298,10 +308,12 @@ M.nextTarget = nextTarget
 M.invalidate = invalidate
 M.captureContext = captureContext
 M.validateContinuation = validateContinuation
+M.validateTimer = validateTimer
 M.isCurrent = isCurrent
 M.phasePolicy = phasePolicy
 M.deriveBusy = deriveBusy
 M.isExpired = isExpired
+M.isOperationExpired = isOperationExpired
 M.finish = finish
 M.reset = reset
 M.summary = summary

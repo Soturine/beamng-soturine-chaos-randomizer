@@ -3470,13 +3470,16 @@ tests.v060_explicit_lifecycle_generations_contract = function()
   truthy(operationState.setPhase(state, "stabilizing_tree", 5, "fixture_tree"))
   local current, reason = operationState.validateContinuation(state, context, {vehicleId = 2, modelKey = "B"})
   equal(current, false)
-  equal(reason, "stale_callback_ignored")
+  equal(reason, "stale_callback_rejected")
+  local timerCurrent, timerReason = operationState.validateTimer(state, context, {vehicleId = 2, modelKey = "B"})
+  equal(timerCurrent, false)
+  equal(timerReason, "stale_timer_rejected")
   truthy(operationState.nextTarget(state, {vehicleId = 3}) > context.targetGeneration)
   local replacement = operationState.invalidate(state, "recovery", {operation = true, target = true})
   truthy(replacement ~= token)
   truthy(state.operationGeneration > operationGeneration)
   truthy(operationState.setPhase(state, "recovering_previous", 5, "fixture_recovery"))
-  truthy(operationState.phasePolicy(state).requiresSimulationProgress)
+  truthy(operationState.phasePolicy(state).pauseIndependent)
   truthy(operationState.finish(state, "failed", "fixture"))
   truthy(not operationState.deriveBusy(state))
   equal(state.phase, "failed")
@@ -3822,7 +3825,52 @@ tests.v061_target_deadline_uses_wall_clock_while_paused = function()
     targetGeneration = 1, waitingForSimulation = true,
   })
   equal(status, "failed")
-  equal(reason, "vehicle_target_timeout")
+  equal(reason, "target_callback_missing")
+end
+
+tests.v062_target_ownership_precedes_tree_convergence = function()
+  local tracker = vehicleTargetTracker.create({
+    token = "ownership", operationId = "SCR-own", operationGeneration = 1,
+    phaseGeneration = 1, targetGeneration = 1, vehicleId = 42, modelKey = "fixture",
+    configKey = "/vehicles/fixture/base.pc", requirePartsReadable = true,
+    startedAt = 0, timeout = 5,
+    stabilizer = {minimumFrames = 1, minimumScans = 1, pollInterval = 0},
+  })
+  local status, reason, details = vehicleTargetTracker.observe(tracker, "ownership", {
+    vehicleId = 42, modelKey = "fixture", configKey = "/vehicles/fixture/base.pc",
+    configIdentity = {path = "/vehicles/fixture/base.pc", key = "base"},
+    partsAvailable = false, readStatus = "tree_unavailable",
+  }, 0.1, {operationId = "SCR-own", operationGeneration = 1, phaseGeneration = 1, targetGeneration = 1})
+  equal(status, "waiting")
+  equal(reason, "tree_unavailable")
+  truthy(details.identityConfirmed)
+  truthy(vehicleTargetTracker.summary(tracker, 0.1).identityConfirmed)
+end
+
+tests.v062_random_car_completion_does_not_require_parts_tree = function()
+  local harness = pipelineHarness.new({verificationTreeUnavailable = true})
+  truthy(harness.main.runAction("randomConfig", {manualSeed = "tree-free-random-car", seedMode = "fixed"}))
+  pipelineHarness.confirmReplacement(harness)
+  local state = harness.main.requestState()
+  truthy(not state.busy)
+  equal(state.lastResult.code, "random_config_loaded")
+  equal(state.lastResult.details.model, "fixture_new")
+end
+
+tests.v062_pause_transitions_are_diagnostic_only = function()
+  local now = 0
+  local clocks = timeSource.create(function() return now end)
+  local state = operationState.create(function() return now end, 10)
+  truthy(operationState.begin(state, "fullRandom", 1, 10))
+  local generation = state.operationGeneration
+  local targetGeneration = state.targetGeneration
+  now = 0.1
+  timeSource.sample(clocks, 0.1, 0, 0.1, true, now)
+  now = 0.2
+  timeSource.sample(clocks, 0.1, 0.1, 0.1, false, now)
+  equal(clocks.pauseTransitions, 2)
+  equal(state.operationGeneration, generation)
+  equal(state.targetGeneration, targetGeneration)
 end
 
 tests.v061_compact_ui_contract = function()
