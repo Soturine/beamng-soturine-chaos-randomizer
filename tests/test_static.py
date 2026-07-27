@@ -291,6 +291,22 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("classList.contains('bng-app')", source)
         self.assertIn("app:resized", source)
 
+    def test_v062_slider_fill_geometry_and_responsive_contract(self) -> None:
+        html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
+        css = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.css").read_text(encoding="utf-8")
+        source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        self.assertIn("ng-style=\"chaos.chaosSliderStyle", html)
+        self.assertIn("--chaos-percent", css)
+        self.assertIn("var(--chaos-percent)", css)
+        self.assertIn("#343941 var(--chaos-percent)", css)
+        self.assertRegex(source, r"Math\.max\(0, Math\.min\(100, Number\(value\)")
+        self.assertIn("percent + '%'", source)
+        self.assertIn("percent >= 75", source)
+        self.assertRegex(css, r"input\[type=range\][^{]*\{[^}]*width:\s*100%[^}]*padding:\s*0")
+        self.assertIn("@media (max-width: 319px)", css)
+        self.assertIn("@media (min-width: 320px) and (max-width: 359px)", css)
+        self.assertIn("@media (min-width: 360px)", css)
+
     def test_workflow_yaml_parses(self) -> None:
         try:
             import yaml

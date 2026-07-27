@@ -274,6 +274,14 @@
           settingsTimer = $timeout(persistSettings, 250)
         }
 
+        scope.chaos.chaosSliderStyle = function (value) {
+          var percent = Math.max(0, Math.min(100, Number(value) || 0))
+          return {
+            '--chaos-percent': percent + '%',
+            '--chaos-active-color': percent >= 75 ? '#e04a16' : '#f25a0a'
+          }
+        }
+
         scope.chaos.run = function (action) {
           if (scope.chaos.state.busy) return
           var allowed = {randomConfig: true, scramble: true, fullRandom: true, undo: true, reindex: true}

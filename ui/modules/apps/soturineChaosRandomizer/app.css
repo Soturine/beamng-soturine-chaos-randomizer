@@ -27,9 +27,9 @@ soturine-chaos-randomizer { display: block; width: 100%; height: 100%; min-width
 .scr-chaos-control { padding: 2px 2px 0; }
 .scr-chaos-control > div:first-child { display: flex; justify-content: space-between; align-items: center; font-size: 14px; font-weight: 700; }
 .scr-chaos-control output { color: #ff8b43; font-size: 14px; }
-.scr-chaos-control input[type=range] { display: block; width: 100%; height: 22px; margin: 0; padding: 0; overflow: visible; appearance: none; -webkit-appearance: none; background: transparent; }
-.scr-chaos-control input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 6px; background: linear-gradient(90deg, #8e2e00, #f25a0a); border: 1px solid #ff8a4d; border-radius: 4px; }
-.scr-chaos-control input[type=range]::-webkit-slider-thumb { width: 18px; height: 18px; margin-top: -7px; appearance: none; -webkit-appearance: none; background: #fff; border: 2px solid #f25a0a; border-radius: 50%; box-shadow: 0 1px 3px #000; }
+.scr-chaos-control input[type=range] { --chaos-percent: 0%; --chaos-active-color: #f25a0a; display: block; width: 100%; height: 22px; margin: 0; padding: 0; overflow: visible; appearance: none; -webkit-appearance: none; background: transparent; }
+.scr-chaos-control input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 6px; background: linear-gradient(to right, var(--chaos-active-color) 0%, var(--chaos-active-color) var(--chaos-percent), #343941 var(--chaos-percent), #343941 100%); border: 1px solid #606773; border-radius: 4px; }
+.scr-chaos-control input[type=range]::-webkit-slider-thumb { width: 16px; height: 16px; margin-top: -6px; appearance: none; -webkit-appearance: none; background: #f8f8f8; border: 1px solid #ffd0b5; border-radius: 50%; box-shadow: 0 1px 3px rgba(0, 0, 0, .75); }
 .scr-range-labels { display: flex !important; justify-content: space-between !important; color: var(--muted); font-size: 12px !important; font-weight: 400 !important; line-height: 1; }
 .scr-warning { display: flex; justify-content: space-between; align-items: center; min-height: 30px; padding: 4px 7px; color: #ffd3b8; background: #482009; border: 1px solid #a84b1c; border-radius: 4px; font-size: 12px; }
 .scr-warning.is-lock { color: #ffe69b; background: #46350a; border-color: #aa7d12; }
@@ -101,4 +101,14 @@ soturine-chaos-randomizer { display: block; width: 100%; height: 100%; min-width
   .scr-brand h1 { font-size: 16px; }
   .scr-nav button { font-size: 12px; }
   .scr-preset-buttons { grid-template-columns: 1fr; }
+}
+
+@media (min-width: 320px) and (max-width: 359px) {
+  .scr-body { padding-inline: 7px; }
+}
+
+@media (min-width: 360px) {
+  .scr-body { padding-inline: 10px; }
+  .scr-primary-actions { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); }
+  .scr-primary-actions > div { grid-template-columns: 1fr 1fr; }
 }
