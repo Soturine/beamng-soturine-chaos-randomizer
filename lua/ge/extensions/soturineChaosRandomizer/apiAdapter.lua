@@ -372,9 +372,14 @@ local function replaceVehicle(modelKey, config, targetVehicleId)
   if not ok then return false, result end
   local vehicleId, strategy = vehicleObjectId(result.value)
   if vehicleId == nil then
-    return false, errorValue("vehicle_replace_target_ambiguous", "BeamNG returned a vehicle without a usable target ID", {
-      contract = result.contract,
-    })
+    -- A replacement return value is only candidate evidence. Some BeamNG
+    -- builds expose the final player object after this call without exposing a
+    -- usable ID on the immediate return value; player-0 discovery performs the
+    -- authoritative correlation in the lifecycle tracker.
+    result.vehicleId = nil
+    result.correlationStrategy = "returned_vehicle_object.no_usable_id"
+    result.requestedTargetVehicleId = targetVehicleId
+    return true, result
   end
   result.vehicleId = vehicleId
   result.correlationStrategy = (targetVehicle == nil and canSpawn and "spawned_vehicle_object." or "returned_vehicle_object.") .. strategy
@@ -492,6 +497,7 @@ local function getVerificationState(expectedVehicleId)
   local partsAvailable = type(config.partsTree) == "table"
   return true, {
     vehicleId = vehicleId,
+    playerIndex = 0,
     modelKey = modelKey,
     configKey = config.partConfigFilename,
     configIdentity = {

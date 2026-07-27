@@ -209,6 +209,7 @@ local function new(options)
     local partsAvailable = options.verificationTreeUnavailable ~= true
     return true, {
       vehicleId = harness.vehicleId,
+      playerIndex = 0,
       modelKey = harness.modelKey,
       configKey = harness.configPath,
       configIdentity = {path = harness.configPath, key = configVerification.stableKey(harness.configPath)},
@@ -217,6 +218,7 @@ local function new(options)
       readStatus = partsAvailable and "ready" or "tree_unavailable",
       tuning = util.deepCopy(harness.tuning),
       paints = util.deepCopy(harness.paints),
+      coherentTargetRead = true,
     }
   end
   function adapter.getCurrentSlotSnapshot()

@@ -101,17 +101,26 @@ end
 local function addCandidate(tracker, vehicleId, source, details)
   if type(vehicleId) ~= "number" or vehicleId < 0 then return false end
   local key = tostring(vehicleId)
-  if not tracker.candidateSeen[key] then
+  local entry = tracker.candidateSeen[key]
+  if not entry then
     if #tracker.candidates >= LIMITS.candidates then
       tracker.candidateDrops = tracker.candidateDrops + 1
       return false
     end
-    tracker.candidateSeen[key] = true
-    tracker.candidates[#tracker.candidates + 1] = {
+    entry = {
       vehicleId = vehicleId,
       source = source,
+      sources = {[source or "unknown"] = true},
+      observedAt = details and details.observedAt,
       details = util.deepCopy(details),
     }
+    tracker.candidateSeen[key] = entry
+    tracker.candidates[#tracker.candidates + 1] = entry
+  else
+    entry.source = source or entry.source
+    entry.sources[source or "unknown"] = true
+    entry.observedAt = details and details.observedAt or entry.observedAt
+    entry.details = util.shallowMerge(entry.details or {}, util.deepCopy(details or {}))
   end
   tracker.currentCandidateId = vehicleId
   return true
@@ -138,13 +147,6 @@ end
 local function onSpawned(tracker, vehicleId)
   tracker.callbackSeen = true
   tracker.spawnCallbackSeen = true
-  if tracker.recoveryOnly and tracker.returnedVehicleId and vehicleId ~= tracker.returnedVehicleId then
-    return staleEvent(tracker, "stale_spawn", {
-      vehicleId = vehicleId,
-      expectedVehicleId = tracker.returnedVehicleId,
-      targetGeneration = tracker.targetGeneration,
-    })
-  end
   addCandidate(tracker, vehicleId, "spawn_callback")
   addEvent(tracker, "spawn", {vehicleId = vehicleId})
   return true, "candidate_recorded"
@@ -183,13 +185,7 @@ local function onDestroyed(tracker, vehicleId)
 end
 
 local function verifyIdentity(tracker, state)
-  local expectedVehicleId = tracker.returnedVehicleId or tracker.expectedVehicleId
-  if expectedVehicleId and state.vehicleId ~= expectedVehicleId then
-    return false, "target_id_changed", {
-      expectedVehicleId = expectedVehicleId,
-      currentVehicleId = state.vehicleId,
-    }
-  end
+  if tracker.destroyed[tostring(state.vehicleId)] then return false, "candidate_destroyed" end
   if tracker.expectedModelKey and state.modelKey ~= tracker.expectedModelKey then
     return false, "target_model_mismatch"
   end
@@ -261,13 +257,17 @@ local function observe(tracker, token, state, now, context)
     return "waiting", tracker.lastReason
   end
   tracker.lastObservedAt = now
-  addCandidate(tracker, state.vehicleId, "player_poll", {modelKey = state.modelKey, configKey = state.configKey})
+  addCandidate(tracker, state.vehicleId, "player_poll", {
+    observedAt = now, modelKey = state.modelKey, configKey = state.configKey,
+    playerIndex = state.playerIndex, readStatus = state.readStatus,
+  })
 
   local expected, reason, verificationDetails = verifyIdentity(tracker, state)
   if not expected then
     tracker.rejected[tostring(state.vehicleId)] = reason
     if tracker.suspectSwitchId == state.vehicleId
-      and (reason == "target_model_mismatch" or reason == "target_id_changed") then
+      and (reason == "target_model_mismatch" or reason == "target_config_mismatch")
+    then
       tracker.status = "external_vehicle_switch"
       return "cancelled", "external_vehicle_switch", {vehicleId = state.vehicleId, reason = reason}
     end

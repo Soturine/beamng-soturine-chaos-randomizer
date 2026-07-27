@@ -57,6 +57,7 @@ local productionModules = {
   aiDirector = require("ge/extensions/soturineChaosRandomizer/aiDirector"),
   destinationMarker = require("ge/extensions/soturineChaosRandomizer/destinationMarker"),
   routePlanner = require("ge/extensions/soturineChaosRandomizer/routePlanner"),
+  operationContext = require("ge/extensions/soturineChaosRandomizer/runtime/operationContext"),
 }
 
 local M = {}
@@ -153,6 +154,17 @@ local attemptPartBatchRollback
 local applyNextIsolationBatch
 local preflightVehicleDNA
 local startVehicleDNABaseOperation
+
+production.ensureOperationContext = function(active)
+  if not active.operationContext then
+    active.operationContext = productionModules.operationContext.create(
+      runtime.state, active.token, runtime.time.realMonotonicTime
+    )
+  else
+    productionModules.operationContext.sync(active.operationContext, runtime.state)
+  end
+  return active.operationContext
+end
 
 local function addDNADeviation(active, deviation)
   if type(deviation) ~= "table" then return end
@@ -295,8 +307,9 @@ local function publicState()
       recoveryGeneration = runtime.active.recoveryGeneration,
       recoveryOnly = runtime.active.recoveryOnly == true,
       expectedPlayerIndex = 0,
-      expectedVehicleId = runtime.active.operationCurrentTarget
-        and runtime.active.operationCurrentTarget.vehicleId or runtime.active.vehicleId,
+      expectedVehicleId = runtime.active.operationContext
+        and runtime.active.operationContext.concreteTarget
+        and runtime.active.operationContext.concreteTarget.vehicleId or nil,
       currentVehicleId = okActiveVehicle and activeVehicleId or nil,
       modelKey = runtime.active.modelKey or (runtime.active.selectedModel and runtime.active.selectedModel.key),
       configKey = runtime.active.selectedConfig and runtime.active.selectedConfig.key,
@@ -336,6 +349,8 @@ local function publicState()
       } or nil,
       currentTarget = util.deepCopy(runtime.active.operationCurrentTarget),
       recoveryTarget = util.deepCopy(runtime.active.operationRecoveryTarget),
+      operationContext = runtime.active.operationContext
+        and productionModules.operationContext.summary(runtime.active.operationContext) or nil,
       mutationPlan = runtime.active.operationMutationPlan and {
         stage = runtime.active.operationMutationPlan.stage,
         operationId = runtime.active.operationMutationPlan.operationId,
@@ -514,7 +529,7 @@ local function targetDescriptor(state)
 end
 
 local function bindMutationPlan(active, stage)
-  local expected = util.deepCopy(active.operationCurrentTarget or {
+  local expected = util.deepCopy(active.reloadWriteTarget or active.operationCurrentTarget or {
     vehicleId = active.vehicleId,
     modelKey = active.modelKey or (active.selectedModel and active.selectedModel.key),
   })
@@ -548,8 +563,8 @@ local function guardMutationWrite(active, stage)
   if type(plan) ~= "table" or plan.stage ~= stage then
     return false, adapter.errorValue("mutation_plan_unbound", "Mutation write has no current transaction binding", {stage = stage})
   end
-  local expectedVehicleId = active.operationCurrentTarget and active.operationCurrentTarget.vehicleId
-    or active.vehicleId
+  local expectedVehicleId = active.reloadWriteTarget and active.reloadWriteTarget.vehicleId
+    or active.operationCurrentTarget and active.operationCurrentTarget.vehicleId or active.vehicleId
   local okObserved, observedOrError = adapter.getVerificationState(expectedVehicleId)
   if not okObserved then return false, observedOrError end
   local observed = targetDescriptor(observedOrError)
@@ -946,6 +961,9 @@ local function beginOperation(kind, context)
     paintLedger = nil,
     convergence = treeConvergence.create(coverageLimits.copyDefaults(), adapter.clock()),
   }
+  runtime.active.operationContext = productionModules.operationContext.create(
+    runtime.state, token, runtime.time.realMonotonicTime
+  )
   diagnosticsModule.write(runtime.diagnostics, "D", "operation_started", {
     kind = kind,
     seed = seed,
@@ -988,9 +1006,21 @@ local function captureOriginal(active)
   if not ok then return false, snapshot end
   vehicleRecovery.rememberReadable(runtime.recovery, snapshot)
   active.operationOriginalSnapshot = util.deepCopy(snapshot)
-  active.operationCurrentTarget = targetDescriptor(snapshot)
-  operationState.nextTarget(runtime.state, active.operationCurrentTarget)
+  local logicalTarget = targetDescriptor(snapshot)
+  logicalTarget.vehicleId = nil
+  operationState.nextTarget(runtime.state, logicalTarget)
   active.targetGeneration = runtime.state.targetGeneration
+  local context = production.ensureOperationContext(active)
+  context.originalSnapshot = util.deepCopy(snapshot)
+  productionModules.operationContext.beginLogicalTarget(context, runtime.state, logicalTarget, runtime.time.realMonotonicTime)
+  active.operationCurrentTarget = util.deepCopy(productionModules.operationContext.bindInitial(
+    context, runtime.state, util.shallowMerge(targetDescriptor(snapshot), {
+      source = "captured_original", coherentTargetRead = snapshot.coherentTargetRead ~= false,
+    }), runtime.time.realMonotonicTime
+  ))
+  active.logicalTarget = util.deepCopy(context.logicalTarget)
+  active.targetOwnershipConfirmed = true
+  runtime.state.expectedTarget = util.deepCopy(logicalTarget)
   return historyTransaction.capture(active, snapshot)
 end
 
@@ -1154,8 +1184,8 @@ local function enterWaiting(active, phase, afterReload, expected, label, value)
   })
   local createsTarget = phase == "spawn" or phase == "rollback" or phase == "undo" or phase == "dna_base_spawn"
   local expectedTarget = {
-    vehicleId = expected.vehicleId,
     modelKey = expected.modelKey,
+    configIdentity = util.deepCopy(expected.configIdentity),
     configKey = configVerification.stableKey(
       expected.configKey or (expected.configIdentity and expected.configIdentity.path)
     ),
@@ -1165,7 +1195,23 @@ local function enterWaiting(active, phase, afterReload, expected, label, value)
     active.targetGeneration = runtime.state.targetGeneration
   end
   active.phaseGeneration = runtime.state.phaseGeneration
+  local context = production.ensureOperationContext(active)
+  if context.concreteTarget == nil and active.operationCurrentTarget then
+    productionModules.operationContext.bindInitial(context, runtime.state, active.operationCurrentTarget, runtime.time.realMonotonicTime)
+  end
+  local contextWait, logicalTarget = productionModules.operationContext.beginWait(
+    context, runtime.state, expectedTarget, phase, runtime.time.realMonotonicTime
+  )
+  active.reloadWriteTarget = util.deepCopy(contextWait.writeTarget or active.operationCurrentTarget)
+  active.logicalTarget = util.deepCopy(logicalTarget)
+  active.operationCurrentTarget = nil
+  active.operationRecoveryTarget = active.recoveryOnly and nil or active.operationRecoveryTarget
+  active.targetOwnershipConfirmed = false
+  active.vehicleId = nil
+  runtime.state.vehicleId = nil
+  runtime.state.expectedTarget = util.deepCopy(logicalTarget)
   active.waitContext = operationState.captureContext(runtime.state, expectedTarget)
+  expected.vehicleId = nil
   active.wait = lifecycle.createExpectation(expected)
   active.wait.context = util.deepCopy(active.waitContext)
   active.targetTracker = vehicleTargetTracker.create({
@@ -1175,12 +1221,12 @@ local function enterWaiting(active, phase, afterReload, expected, label, value)
     phaseGeneration = runtime.state.phaseGeneration,
     targetGeneration = runtime.state.targetGeneration,
     phase = phase,
-    vehicleId = active.wait.vehicleId,
+    vehicleId = nil,
     modelKey = active.wait.modelKey,
     configKey = active.wait.configKey,
     configIdentity = active.wait.configIdentity,
     parts = active.wait.parts,
-    originalVehicleId = active.vehicleId,
+    originalVehicleId = active.reloadWriteTarget and active.reloadWriteTarget.vehicleId,
     startedAt = active.wait.startedAt,
     timeout = active.waitTimeout or WAIT_TIMEOUT,
     recoveryOnly = active.recoveryOnly == true,
@@ -1189,6 +1235,13 @@ local function enterWaiting(active, phase, afterReload, expected, label, value)
     requirePartsReadable = next(active.wait.parts or {}) ~= nil
       or (createsTarget and afterReload ~= "randomConfig"),
   })
+  if active.reloadWriteTarget and active.reloadWriteTarget.vehicleId then
+    vehicleTargetTracker.addCandidate(active.targetTracker, active.reloadWriteTarget.vehicleId, "reload_origin", {
+      observedAt = runtime.time.realMonotonicTime,
+      modelKey = active.reloadWriteTarget.modelKey,
+      configKey = active.reloadWriteTarget.configKey,
+    })
+  end
   diagnosticsModule.write(runtime.diagnostics, "D", "lifecycle_wait_started", {
     phase = phase,
     waitReason = active.wait.reason,
@@ -1205,37 +1258,33 @@ local function enterWaiting(active, phase, afterReload, expected, label, value)
   return true
 end
 
-local function bindReplacementTarget(active, result, phase)
-  if type(result) ~= "table" or type(result.vehicleId) ~= "number" then
-    return false, adapter.errorValue("vehicle_replace_target_ambiguous", "The replacement target could not be correlated")
-  end
+local function recordReplacementCandidate(active, result, phase)
+  if type(result) ~= "table" then return false, adapter.errorValue("vehicle_replace_rejected", "The replacement request returned no result") end
   active.expectedReplacementVehicleId = result.vehicleId
   active.replaceRequestModel = active.wait and active.wait.modelKey
   active.replaceRequestConfig = active.wait and (active.wait.configIdentity or active.wait.configKey)
   active.replaceIssuedAt = adapter.clock()
   active.replaceCorrelationStrategy = result.correlationStrategy
-  active.vehicleId = result.vehicleId
-  runtime.state.vehicleId = result.vehicleId
-  if active.wait then active.wait.vehicleId = result.vehicleId end
-  local boundTarget = {
-    vehicleId = result.vehicleId,
-    modelKey = active.wait and active.wait.modelKey or active.modelKey,
-    configKey = configVerification.stableKey(active.wait and (
-      active.wait.configKey or (active.wait.configIdentity and active.wait.configIdentity.path)
-    )),
-  }
-  runtime.state.expectedTarget = util.deepCopy(boundTarget)
-  if active.waitContext then active.waitContext.expectedTarget = util.deepCopy(boundTarget) end
-  if active.recoveryOnly then
-    active.operationRecoveryTarget = util.deepCopy(boundTarget)
-  else
-    active.operationCurrentTarget = util.deepCopy(boundTarget)
-  end
-  if active.targetTracker then
+  if active.targetTracker and type(result.vehicleId) == "number" then
     vehicleTargetTracker.bindReturned(active.targetTracker, result.vehicleId, result.correlationStrategy)
   end
-  noteProgress(active, "target", "replacement_target_bound")
-  diagnosticsModule.write(runtime.diagnostics, "D", "replacement_target_bound", {
+  if type(result.vehicleId) == "number" then
+    productionModules.operationContext.recordCandidate(production.ensureOperationContext(active), runtime.state, {
+      vehicleId = result.vehicleId,
+      source = "replace_return",
+      observedAt = runtime.time.realMonotonicTime,
+      operationId = runtime.state.operationId,
+      operationGeneration = runtime.state.operationGeneration,
+      targetGeneration = runtime.state.targetGeneration,
+      modelKey = active.wait and active.wait.modelKey or active.modelKey,
+      configKey = active.wait and active.wait.configKey,
+      configIdentity = active.wait and active.wait.configIdentity,
+      readStatus = "candidate_only",
+      correlationEvidence = {strategy = result.correlationStrategy},
+    })
+  end
+  noteProgress(active, "target", "replacement_candidate_recorded")
+  diagnosticsModule.write(runtime.diagnostics, "D", "replacement_candidate_recorded", {
     phase = phase,
     requestedModel = active.replaceRequestModel,
     requestedConfig = active.replaceRequestConfig,
@@ -1250,13 +1299,14 @@ local function issueReplacement(active, modelKey, config, phase)
   active.replaceRequestModel = modelKey
   active.replaceRequestConfig = util.deepCopy(config)
   active.replaceIssuedAt = adapter.clock()
-  active.replaceTargetVehicleId = active.vehicleId
+  active.replaceTargetVehicleId = active.reloadWriteTarget and active.reloadWriteTarget.vehicleId
+    or active.vehicleId
   active.replaceWriteInFlight = true
   local ok, result = adapter.replaceVehicle(modelKey, config, active.replaceTargetVehicleId)
   active.replaceWriteInFlight = false
   if not ok then return false, result end
-  local bound, bindError = bindReplacementTarget(active, result, phase)
-  if not bound then return false, bindError end
+  local recorded, recordError = recordReplacementCandidate(active, result, phase)
+  if not recorded then return false, recordError end
   return true, result
 end
 
@@ -1522,7 +1572,9 @@ attemptPartBatchRollback = function(active, reason)
   bindMutationPlan(active, "part_batch_rollback")
   local guardOk, guardError = guardMutationWrite(active, "part_batch_rollback")
   if not guardOk then return false, guardError.code or "stale_callback_ignored" end
-  local okApply, applyError = adapter.applyPartsTree(treeOrReason, active.vehicleId)
+  local okApply, applyError = adapter.applyPartsTree(
+    treeOrReason, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId
+  )
   if not okApply then
     partBatchRecovery.finishRollback(active.batchRecovery, false)
     return false, applyError.code or "part_batch_rollback_failed"
@@ -1581,7 +1633,9 @@ applyNextIsolationBatch = function(active)
   bindMutationPlan(active, "part_isolation_test")
   local guardOk, guardError = guardMutationWrite(active, "part_isolation_test")
   if not guardOk then failActive(guardError, true, "parts"); return true end
-  local okApply, applyError = adapter.applyPartsTree(tree, active.vehicleId)
+  local okApply, applyError = adapter.applyPartsTree(
+    tree, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId
+  )
   if not okApply then failActive(applyError, true, "parts") end
   if okApply then noteSuccessfulWrite(active, "part_isolation_test") end
   return true
@@ -2062,7 +2116,9 @@ local function applyTuningPass(active, snapshot, pass, onlyNew)
   bindMutationPlan(active, "tuning")
   local guardOk, guardError = guardMutationWrite(active, "tuning")
   if not guardOk then failActive(guardError, true, "tuning"); return true end
-  local okApply, applyError = adapter.applyTuning(values, active.vehicleId)
+  local okApply, applyError = adapter.applyTuning(
+    values, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId
+  )
   if not okApply then failActive(applyError, true, "tuning") end
   if okApply then noteSuccessfulWrite(active, "tuning") end
   return true
@@ -2407,7 +2463,9 @@ processMutationPass = function(active)
   bindMutationPlan(active, "parts")
   local guardOk, guardError = guardMutationWrite(active, "parts")
   if not guardOk then failActive(guardError, true, "parts"); return end
-  local okApply, applyError = adapter.applyPartsTree(tree, active.vehicleId)
+  local okApply, applyError = adapter.applyPartsTree(
+    tree, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId
+  )
   if not okApply then failActive(applyError, true, "parts"); return end
   noteSuccessfulWrite(active, "parts")
   setProgress(string.format("Reloading after part pass %d", active.pass), 0.51 + math.min(active.pass, 5) * 0.06)
@@ -2525,7 +2583,34 @@ local function startUndo()
     destructiveStarted = true,
     startedAt = adapter.clock(),
     reloadCount = 0,
+    operationId = runtime.state.operationId,
+    operationGeneration = runtime.state.operationGeneration,
+    phaseGeneration = runtime.state.phaseGeneration,
+    targetGeneration = runtime.state.targetGeneration,
+    recoveryOnly = false,
+    lastAcceptedCheckpoint = "operation_started",
   }
+  runtime.active.operationContext = productionModules.operationContext.create(
+    runtime.state, token, runtime.time.realMonotonicTime
+  )
+  local undoLogicalTarget = {
+    modelKey = entry.modelKey,
+    configKey = configVerification.stableKey(entry.selectedConfiguration),
+  }
+  productionModules.operationContext.beginLogicalTarget(
+    runtime.active.operationContext, runtime.state, undoLogicalTarget, runtime.time.realMonotonicTime
+  )
+  runtime.active.operationCurrentTarget = util.deepCopy(productionModules.operationContext.bindInitial(
+    runtime.active.operationContext, runtime.state, {
+      vehicleId = entry.vehicleId,
+      modelKey = entry.modelKey,
+      configKey = entry.selectedConfiguration,
+      source = "undo_source",
+      coherentTargetRead = true,
+    }, runtime.time.realMonotonicTime
+  ))
+  runtime.active.logicalTarget = util.deepCopy(runtime.active.operationContext.logicalTarget)
+  runtime.active.targetOwnershipConfirmed = true
   runtime.lastSeed = entry.seed
   operationState.transition(runtime.state, "spawning", false)
   local okWait, waitError = enterWaiting(runtime.active, "undo", "undo", {
@@ -3914,7 +3999,9 @@ processDNAParts = function(active)
   bindMutationPlan(active, "dna_parts")
   local guardOk, guardError = guardMutationWrite(active, "dna_parts")
   if not guardOk then failActive(guardError, true, "dna_parts"); return end
-  local okApply, applyError = adapter.applyPartsTree(tree, active.vehicleId)
+  local okApply, applyError = adapter.applyPartsTree(
+    tree, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId
+  )
   if not okApply then failActive(applyError, true, "dna_parts"); return end
   noteSuccessfulWrite(active, "dna_parts")
   active.dnaPass = active.dnaPass + 1
@@ -3953,7 +4040,9 @@ startDNATuning = function(active)
   bindMutationPlan(active, "dna_tuning")
   local guardOk, guardError = guardMutationWrite(active, "dna_tuning")
   if not guardOk then failActive(guardError, true, "dna_tuning"); return end
-  local okApply, applyError = adapter.applyTuning(values, active.vehicleId)
+  local okApply, applyError = adapter.applyTuning(
+    values, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId
+  )
   if not okApply then failActive(applyError, true, "dna_tuning"); return end
   noteSuccessfulWrite(active, "dna_tuning")
 end
@@ -4340,6 +4429,15 @@ local function onVehicleSpawned(vehicleId)
   nominateSpawnDirectorCandidate(vehicleId, "spawn")
   if not runtime.state.busy or not runtime.active or not runtime.active.targetTracker then return end
   local active = runtime.active
+  productionModules.operationContext.recordCandidate(production.ensureOperationContext(active), runtime.state, {
+    vehicleId = vehicleId,
+    source = "onVehicleSpawned",
+    observedAt = runtime.time.realMonotonicTime,
+    operationId = runtime.state.operationId,
+    operationGeneration = runtime.state.operationGeneration,
+    targetGeneration = runtime.state.targetGeneration,
+    readStatus = "candidate_only",
+  })
   local accepted, reason = vehicleTargetTracker.onSpawned(active.targetTracker, vehicleId)
   if not accepted and reason == "stale_callback_rejected" then
     runtime.state.staleCallbackCount = runtime.state.staleCallbackCount + 1
@@ -4369,8 +4467,7 @@ local function processTargetTracking()
   if not runtime.state.busy or not active or not active.wait or not active.targetTracker then return false end
   local now = runtime.time.realMonotonicTime
   if not vehicleStabilizer.shouldPoll(active.targetTracker.stabilizer, now) then return true end
-  local expectedVehicleId = active.wait.vehicleId or active.targetTracker.returnedVehicleId
-  local okState, stateOrError = adapter.getVerificationState(expectedVehicleId)
+  local okState, stateOrError = adapter.getVerificationState(nil)
   local observed = okState and stateOrError or nil
   if okState then
     if observed.readStatus and observed.readStatus ~= "ready" then
@@ -4391,25 +4488,6 @@ local function processTargetTracking()
   local context = util.deepCopy(active.waitContext or {})
   local status, reason, details = vehicleTargetTracker.observe(active.targetTracker, active.token, observed, now, context)
   active.lastTargetMetrics = vehicleTargetTracker.summary(active.targetTracker, now)
-  if active.lastTargetMetrics.identityConfirmed and not active.targetOwnershipConfirmed and observed then
-    local confirmedTarget = targetDescriptor(observed)
-    confirmedTarget.vehicleId = observed.vehicleId
-    active.targetOwnershipConfirmed = true
-    active.targetOwnershipConfirmedAt = now
-    if active.recoveryOnly then active.operationRecoveryTarget = util.deepCopy(confirmedTarget)
-    else active.operationCurrentTarget = util.deepCopy(confirmedTarget) end
-    runtime.state.vehicleId = observed.vehicleId
-    runtime.state.expectedTarget = util.deepCopy(confirmedTarget)
-    noteProgress(active, "target", "target_identity_confirmed")
-    diagnosticsModule.write(runtime.diagnostics, "I", "target_identity_confirmed", {
-      target = confirmedTarget,
-      treeStatus = active.lastTargetMetrics.treeStatus,
-      clocks = timeSource.snapshot(runtime.time),
-      operationGeneration = runtime.state.operationGeneration,
-      phaseGeneration = runtime.state.phaseGeneration,
-      targetGeneration = runtime.state.targetGeneration,
-    }, true)
-  end
   if active.lastTargetMetrics.identityConfirmed and active.lastTargetMetrics.treeStatus ~= "not_required"
     and runtime.state.phase ~= "stabilizing_tree" then
     setLifecyclePhase(active, "stabilizing_tree", active.waitTimeout or WAIT_TIMEOUT, "target_identity_confirmed")
@@ -4418,6 +4496,55 @@ local function processTargetTracking()
     noteProgress(active, "target", "target_identity_confirmed")
   end
   if status == "stable" then
+    local rebound, concreteOrReason = productionModules.operationContext.rebindConcreteTarget(
+      production.ensureOperationContext(active), runtime.state, {
+        vehicleId = details.vehicleId,
+        source = "stable_player_read",
+        observedAt = now,
+        operationId = runtime.state.operationId,
+        operationGeneration = runtime.state.operationGeneration,
+        targetGeneration = runtime.state.targetGeneration,
+        modelKey = details.state.modelKey,
+        configKey = details.state.configKey,
+        configIdentity = details.state.configIdentity,
+        playerIndex = details.state.playerIndex or 0,
+        readStatus = details.state.readStatus,
+        coherentTargetRead = details.state.coherentTargetRead == true,
+        stable = true,
+        correlationEvidence = {
+          identityConfirmed = true,
+          treeStatus = active.lastTargetMetrics.treeStatus,
+          returnedVehicleId = active.targetTracker.returnedVehicleId,
+        },
+      }, now
+    )
+    if not rebound then
+      failActive(adapter.errorValue(concreteOrReason, "The stable player target could not be rebound", {
+        lifecycle = active.lastTargetMetrics,
+      }), true, active.wait and active.wait.phase or "lifecycle")
+      return true
+    end
+    local concrete = util.deepCopy(concreteOrReason)
+    active.targetOwnershipConfirmed = true
+    active.targetOwnershipConfirmedAt = now
+    active.vehicleId = concrete.vehicleId
+    active.reloadWriteTarget = nil
+    if active.recoveryOnly then active.operationRecoveryTarget = concrete
+    else active.operationCurrentTarget = concrete end
+    runtime.state.vehicleId = concrete.vehicleId
+    runtime.state.expectedTarget = util.deepCopy(active.logicalTarget)
+    active.lastAcceptedCheckpoint = "concrete_target_rebound"
+    noteProgress(active, "target", "concrete_target_rebound")
+    diagnosticsModule.write(runtime.diagnostics, "I", "concrete_target_rebound", {
+      target = concrete,
+      logicalTarget = util.deepCopy(active.logicalTarget),
+      treeStatus = active.lastTargetMetrics.treeStatus,
+      returnedVehicleId = active.targetTracker.returnedVehicleId,
+      clocks = timeSource.snapshot(runtime.time),
+      operationGeneration = runtime.state.operationGeneration,
+      phaseGeneration = runtime.state.phaseGeneration,
+      targetGeneration = runtime.state.targetGeneration,
+    }, true)
     noteProgress(active, "tree", "target_tree_converged")
     completeStableTarget(details.vehicleId, details.state, details.verification)
     return true
@@ -4523,18 +4650,18 @@ local function onVehicleSwitched(oldId, newId, player)
   if not runtime.state.busy or not runtime.active then return end
   local active = runtime.active
   if active.targetTracker then
-    if active.recoveryOnly and (player == nil or player == 0)
-      and active.targetTracker.returnedVehicleId
-      and newId ~= active.targetTracker.returnedVehicleId
-    then
-      diagnosticsModule.write(runtime.diagnostics, "E", "target_id_changed", {
+    if player == nil or player == 0 then
+      productionModules.operationContext.recordCandidate(production.ensureOperationContext(active), runtime.state, {
+        vehicleId = newId,
         source = "onVehicleSwitched",
-        expectedVehicleId = active.targetTracker.returnedVehicleId,
-        currentVehicleId = newId,
-        recoveryGeneration = active.recoveryGeneration,
-      }, true)
-      cancelOperation("vehicle_switched", "Recovery cancelled because the player selected an unrelated vehicle")
-      return
+        observedAt = runtime.time.realMonotonicTime,
+        operationId = runtime.state.operationId,
+        operationGeneration = runtime.state.operationGeneration,
+        targetGeneration = runtime.state.targetGeneration,
+        playerIndex = 0,
+        readStatus = "candidate_only",
+        correlationEvidence = {oldId = oldId},
+      })
     end
     local accepted, reason = vehicleTargetTracker.onSwitched(
       active.targetTracker, oldId, newId, player, active.replaceWriteInFlight == true
@@ -4592,6 +4719,9 @@ local function onVehicleDestroyed(vehicleId)
     local active = runtime.active
     if active.targetTracker then
       vehicleTargetTracker.onDestroyed(active.targetTracker, vehicleId)
+      if active.operationContext then
+        productionModules.operationContext.markDestroyed(active.operationContext, vehicleId)
+      end
       diagnosticsModule.write(runtime.diagnostics, "D", "vehicle_target_destroyed_observed", {
         phase = active.phase, vehicleId = vehicleId,
       })

@@ -18,6 +18,7 @@ local lifecycle = require("ge/extensions/soturineChaosRandomizer/lifecycle")
 local mutationEngine = require("ge/extensions/soturineChaosRandomizer/mutationEngine")
 local mutationPolicy = require("ge/extensions/soturineChaosRandomizer/mutationPolicy")
 local operationState = require("ge/extensions/soturineChaosRandomizer/operationState")
+local operationContext = require("ge/extensions/soturineChaosRandomizer/runtime/operationContext")
 local progressWatchdog = require("ge/extensions/soturineChaosRandomizer/progressWatchdog")
 local paintRandomizer = require("ge/extensions/soturineChaosRandomizer/paintRandomizer")
 local paintVerification = require("ge/extensions/soturineChaosRandomizer/paintVerification")
@@ -1232,9 +1233,14 @@ tests.manual_switch_does_not_retarget_rollback = function()
   equal(beforeSwitch.targetMetrics.returnedVehicleId, 2)
   harness.main.onVehicleSwitched(2, 77, 0)
   harness.vehicleId = 77
-  harness.now = harness.now + 0.06
-  harness.main.onUpdate()
-  equal(harness.main.requestState().lastResult.code, "vehicle_switched")
+  harness.modelKey = "fixture_unrelated"
+  harness.configPath = "/vehicles/fixture_unrelated/manual.pc"
+  pipelineHarness.advance(harness, 0.1, nil, 1)
+  local afterSwitch = harness.main.requestState()
+  truthy(afterSwitch.lastResult, "rollback switch remained busy: "
+    .. tostring(afterSwitch.lifecyclePhase) .. "/"
+    .. tostring(afterSwitch.targetMetrics and afterSwitch.targetMetrics.lastReason))
+  equal(afterSwitch.lastResult.code, "vehicle_switched")
 end
 
 tests.undo_wait_rejects_unrelated_vehicle = function()
@@ -1257,11 +1263,17 @@ tests.spawn_event_for_other_vehicle_is_ignored = function()
   truthy(harness.main.requestState().busy)
 end
 
-tests.ambiguous_replace_target_fails_safely = function()
+tests.replace_without_returned_id_uses_player_discovery = function()
   local harness = pipelineHarness.new({ambiguousReplace = true})
-  truthy(not harness.main.randomConfig({manualSeed = "ambiguous"}))
+  truthy(harness.main.randomConfig({manualSeed = "missing-return-id"}))
   equal(harness.pendingReplacement, nil)
-  equal(harness.main.requestState().lastResult.code, "vehicle_replace_target_ambiguous")
+  harness.vehicleId = 44
+  harness.modelKey = "fixture_new"
+  harness.configPath = "/vehicles/fixture_new/base_version.pc"
+  pipelineHarness.advance(harness, 0.06, nil, 6)
+  local state = harness.main.requestState()
+  truthy(not state.busy)
+  equal(state.lastResult.code, "random_config_loaded")
 end
 
 tests.synchronous_expected_switch_is_correlated = function()
@@ -2934,6 +2946,76 @@ tests.v063_random_car_accepts_recreated_player_target_without_pause = function()
   equal(state.lastResult.details.model, "fixture_new")
 end
 
+tests.v063_operation_context_rebind_requires_current_stable_player = function()
+  local state = {
+    operationId = "SCR-context", operationToken = "token", operationGeneration = 3,
+    phaseGeneration = 5, targetGeneration = 7,
+  }
+  local context = operationContext.create(state, "token", 1)
+  operationContext.beginLogicalTarget(context, state, {
+    modelKey = "target_model", configKey = "/vehicles/target_model/base.pc",
+  }, 1)
+  operationContext.bindInitial(context, state, {
+    vehicleId = 10, modelKey = "target_model", configKey = "/vehicles/target_model/base.pc",
+  }, 1)
+  local wait = operationContext.beginWait(context, state, {
+    modelKey = "target_model", configKey = "/vehicles/target_model/base.pc",
+  }, "parts", 2)
+  equal(wait.writeTarget.vehicleId, 10)
+  equal(context.concreteTarget, nil)
+
+  local candidate = {
+    vehicleId = 11, source = "player_poll", observedAt = 2.1,
+    operationId = "SCR-context", operationGeneration = 3, targetGeneration = 7,
+    modelKey = "target_model", configKey = "/vehicles/target_model/base.pc",
+    playerIndex = 0, readStatus = "ready", coherentTargetRead = true, stable = true,
+  }
+  local invalid = util.deepCopy(candidate)
+  invalid.playerIndex = 1
+  equal(select(2, operationContext.rebindConcreteTarget(context, state, invalid, 2.1)), "candidate_not_player_zero")
+  invalid = util.deepCopy(candidate)
+  invalid.observedAt = 1.9
+  equal(select(2, operationContext.rebindConcreteTarget(context, state, invalid, 2.1)), "candidate_before_current_wait")
+  invalid = util.deepCopy(candidate)
+  invalid.coherentTargetRead = false
+  equal(select(2, operationContext.rebindConcreteTarget(context, state, invalid, 2.1)), "candidate_read_incoherent")
+  invalid = util.deepCopy(candidate)
+  invalid.modelKey = "wrong_model"
+  equal(select(2, operationContext.rebindConcreteTarget(context, state, invalid, 2.1)), "target_model_mismatch")
+
+  local rebound, concrete = operationContext.rebindConcreteTarget(context, state, candidate, 2.1)
+  truthy(rebound)
+  equal(concrete.vehicleId, 11)
+  equal(context.logicalTarget.modelKey, "target_model")
+  equal(context.rebindCount, 1)
+end
+
+tests.v063_operation_context_rejects_stale_and_destroyed_candidates = function()
+  local state = {
+    operationId = "SCR-context", operationToken = "token", operationGeneration = 3,
+    phaseGeneration = 5, targetGeneration = 7,
+  }
+  local context = operationContext.create(state, "token", 1)
+  operationContext.beginLogicalTarget(context, state, {modelKey = "target_model"}, 1)
+  operationContext.beginWait(context, state, {modelKey = "target_model"}, "spawn", 2)
+  local recorded, reason = operationContext.recordCandidate(context, state, {
+    vehicleId = 20, operationId = "SCR-previous", operationGeneration = 2,
+    targetGeneration = 6, observedAt = 2.1,
+  })
+  truthy(not recorded)
+  equal(reason, "stale_callback_rejected")
+  operationContext.markDestroyed(context, 21)
+  local rebound, destroyedReason = operationContext.rebindConcreteTarget(context, state, {
+    vehicleId = 21, source = "player_poll", observedAt = 2.1,
+    operationId = "SCR-context", operationGeneration = 3, targetGeneration = 7,
+    modelKey = "target_model", playerIndex = 0, readStatus = "ready",
+    coherentTargetRead = true, stable = true,
+  }, 2.1)
+  truthy(not rebound)
+  equal(destroyedReason, "candidate_destroyed")
+  equal(context.staleCandidateCount, 1)
+end
+
 tests.alpha2_tracker_limits_contract = function()
   local tracker = alpha2Tracker()
   for id = 1, 40 do vehicleTargetTracker.onSpawned(tracker, id) end
@@ -4034,7 +4116,9 @@ tests.v062_runtime_instrumentation_is_bounded_and_complete = function()
   truthy(state.transaction.operationGeneration ~= nil)
   truthy(state.transaction.targetGeneration ~= nil)
   truthy(state.transaction.expectedPlayerIndex == 0)
-  truthy(state.transaction.expectedVehicleId == 1)
+  equal(state.transaction.expectedVehicleId, nil)
+  truthy(state.transaction.operationContext.logicalTarget ~= nil)
+  equal(state.transaction.operationContext.concreteTarget, nil)
   truthy(state.transaction.currentVehicleId == 1)
   truthy(state.transaction.phaseStartedAt ~= nil)
   truthy(state.transaction.wallElapsed >= state.transaction.simulationElapsed)
