@@ -1,34 +1,6 @@
+local crc32 = require("ge/extensions/soturineChaosRandomizer/crc32")
+
 local M = {}
-
-local function bxor(left, right)
-  local result, bit = 0, 1
-  left, right = math.floor(left), math.floor(right)
-  for _ = 1, 32 do
-    local a, b = left % 2, right % 2
-    if a ~= b then result = result + bit end
-    left, right, bit = math.floor(left / 2), math.floor(right / 2), bit * 2
-  end
-  return result
-end
-
-local CRC_TABLE = {}
-for index = 0, 255 do
-  local value = index
-  for _ = 1, 8 do
-    if value % 2 == 1 then value = bxor(math.floor(value / 2), 3988292384)
-    else value = math.floor(value / 2) end
-  end
-  CRC_TABLE[index] = value
-end
-
-local function crc32(data)
-  local crc = 4294967295
-  for index = 1, #data do
-    local lookup = bxor(crc % 256, data:byte(index))
-    crc = bxor(math.floor(crc / 256), CRC_TABLE[lookup])
-  end
-  return bxor(crc, 4294967295)
-end
 
 M.DEFAULT_LIMITS = {
   maxBytes = 262144,
@@ -67,7 +39,7 @@ local function validate(data, limits)
     local crcOffset = dataEnd + 1
     if dataEnd > #data or crcOffset + 3 > #data then return nil, "thumbnail_chunk_overflow" end
     local expectedCRC = u32(data, crcOffset)
-    local actualCRC = crc32(chunkType .. data:sub(dataStart, dataEnd))
+    local actualCRC = crc32.digest(chunkType .. data:sub(dataStart, dataEnd))
     if expectedCRC ~= actualCRC then return nil, "thumbnail_crc_invalid" end
     chunkCount = chunkCount + 1
     if chunkCount > (limits.maxChunks or M.DEFAULT_LIMITS.maxChunks) then return nil, "thumbnail_chunk_count_limit" end
@@ -109,7 +81,7 @@ local function validate(data, limits)
 end
 
 M.u32 = u32
-M.crc32 = crc32
+M.crc32 = crc32.digest
 M.validate = validate
 
 return M

@@ -1,5 +1,6 @@
 local gallery = require("ge/extensions/soturineChaosRandomizer/vehicleDNAGallery")
 local util = require("ge/extensions/soturineChaosRandomizer/util")
+local crc32 = require("ge/extensions/soturineChaosRandomizer/crc32")
 
 local M = {}
 
@@ -25,36 +26,6 @@ local ORDER = {
   ["thumbnail.png"] = 4,
   ["README.txt"] = 5,
 }
-
-local function bxor(left, right)
-  local result, bit = 0, 1
-  left, right = math.floor(left), math.floor(right)
-  for _ = 1, 32 do
-    local a, b = left % 2, right % 2
-    if a ~= b then result = result + bit end
-    left, right, bit = math.floor(left / 2), math.floor(right / 2), bit * 2
-  end
-  return result
-end
-
-local CRC_TABLE = {}
-for index = 0, 255 do
-  local value = index
-  for _ = 1, 8 do
-    if value % 2 == 1 then value = bxor(math.floor(value / 2), 3988292384)
-    else value = math.floor(value / 2) end
-  end
-  CRC_TABLE[index] = value
-end
-
-local function crc32(data)
-  local crc = 4294967295
-  for index = 1, #data do
-    local lookup = bxor(crc % 256, data:byte(index))
-    crc = bxor(math.floor(crc / 256), CRC_TABLE[lookup])
-  end
-  return bxor(crc, 4294967295)
-end
 
 local function le16(value)
   value = math.floor(value) % 65536
@@ -115,7 +86,7 @@ local function build(files)
       local dimensions, reason = gallery.pngDimensions(data)
       if not dimensions then return nil, reason end
     end
-    local crc = crc32(data)
+    local crc = crc32.digest(data)
     local localHeader = table.concat({
       le32(67324752), le16(20), le16(0), le16(0), le16(0), le16(33),
       le32(crc), le32(#data), le32(#data), le16(#name), le16(0), name,
@@ -212,7 +183,7 @@ local function inspect(data)
       or dataStart > centralOffset + 1 or dataEnd >= centralOffset + 1
     then return nil, "vdna_package_local_mismatch" end
     local content = data:sub(dataStart, dataEnd)
-    if #content ~= record.bytes or crc32(content) ~= record.crc then return nil, "vdna_package_checksum_mismatch" end
+    if #content ~= record.bytes or crc32.digest(content) ~= record.crc then return nil, "vdna_package_checksum_mismatch" end
     if name == "thumbnail.png" then
       local dimensions, reason = gallery.pngDimensions(content)
       if not dimensions then return nil, reason end
@@ -257,7 +228,7 @@ end
 M.build = build
 M.inspect = inspect
 M.validateManifest = validateManifest
-M.crc32 = crc32
+M.crc32 = crc32.digest
 M.envelope = envelope
 M.allowedEntry = safeName
 

@@ -15,7 +15,8 @@ local function snapshotSignature(variables)
     local raw = type(variables[name]) == "table" and variables[name] or {}
     fields[#fields + 1] = table.concat({
       scalar(name), scalar(raw.sourcePart), scalar(raw.category), scalar(raw.subCategory),
-      scalar(raw.correlationGroup), scalar(raw.min), scalar(raw.max),
+      scalar(raw.correlationGroup or raw.correlationGroupId), scalar(raw.correlationStrategy),
+      scalar(raw.min), scalar(raw.max),
       scalar(raw.step or raw.stepDis), scalar(raw.default), scalar(raw.hideInUI),
       scalar(raw.internal), scalar(raw.isInternal), scalar(raw.action),
     }, "\31")
@@ -32,7 +33,8 @@ local function normalize(name, raw, currentValues, isLocked)
   local variable = {
     name = tostring(name or ""), title = text(raw.title), description = text(raw.description),
     category = text(raw.category), subCategory = text(raw.subCategory), unit = text(raw.unit),
-    sourcePart = text(raw.sourcePart), correlationGroup = text(raw.correlationGroup),
+    sourcePart = text(raw.sourcePart), correlationGroup = text(raw.correlationGroup or raw.correlationGroupId),
+    correlationStrategy = text(raw.correlationStrategy),
     hidden = raw.hideInUI == true, internal = raw.internal == true or raw.isInternal == true or raw.action == true,
     minimum = tonumber(raw.min), maximum = tonumber(raw.max), default = tonumber(raw.default),
     step = tonumber(raw.step or raw.stepDis), current = tonumber(currentValues and currentValues[name]),
@@ -45,6 +47,7 @@ local function normalize(name, raw, currentValues, isLocked)
   then variable.status, variable.reason = "invalid_metadata", "invalid_range"
   else
     if not util.isFinite(variable.default) then variable.default = (variable.minimum + variable.maximum) * 0.5 end
+    variable.default = util.clamp(variable.default, variable.minimum, variable.maximum)
     if not util.isFinite(variable.current) then variable.current = variable.default end
     variable.current = util.clamp(variable.current, variable.minimum, variable.maximum)
     if not util.isFinite(variable.step) or variable.step <= 0 then variable.step = nil end
@@ -63,14 +66,17 @@ local function selected(variable, policy, generator)
   return generator:boolean(util.clamp(policy.chaos or 0, 0, 1))
 end
 
-local function choose(variable, policy, generator, extremeTuning)
+local function choose(variable, policy, generator, extremeTuning, normalizedSample)
   local minimum, maximum, current = variable.minimum, variable.maximum, variable.current
   if maximum == minimum then return current, "fixed_value", 0 end
   local range = maximum - minimum
-  local useExtreme = extremeTuning == true and tonumber(policy.slider) == 100
+  local useExtreme = normalizedSample == nil and (extremeTuning == true and tonumber(policy.slider) == 100
     or generator:boolean((policy.extremeTuningChance or 0) * (extremeTuning == false and 0 or 1))
+  )
   local value
-  if useExtreme then
+  if util.isFinite(normalizedSample) then
+    value = minimum + range * util.clamp(normalizedSample, 0, 1)
+  elseif useExtreme then
     local atMin = math.abs(current - minimum) <= variable.tolerance
     local atMax = math.abs(current - maximum) <= variable.tolerance
     if atMin and not atMax then value = maximum
@@ -98,7 +104,8 @@ local function choose(variable, policy, generator, extremeTuning)
     end
   end
   local status = math.abs(value - current) <= variable.tolerance and "same_value_unavoidable"
-    or (attempts > 0 and "same_value_retried" or "attempted")
+    or (util.isFinite(normalizedSample) and "group_shared_normalized"
+      or (attempts > 0 and "same_value_retried" or "attempted"))
   return value, status, attempts
 end
 
@@ -110,6 +117,7 @@ local function plan(variables, currentValues, policy, generator, options, state,
   local changes = {}
   local newly = {}
   local metadataChanged = {}
+  local groups, groupDiagnostics = {}, {}
   local names = util.sortedKeys(variables or {})
   local maxVariables = math.max(1, math.floor(tonumber(options.maxVariables) or #names))
   for index, name in ipairs(names) do
@@ -126,13 +134,32 @@ local function plan(variables, currentValues, policy, generator, options, state,
     elseif variable.status ~= "eligible" then
       tuningLedger.update(state, key, variable.status, {eligible = variable.eligible == true, tolerance = variable.tolerance})
     else
-      local variableGenerator = type(generator.fork) == "function" and generator:fork("tuning-variable:" .. name) or generator
+      local group
+      if variable.correlationGroup and variable.correlationStrategy == "shared_normalized_sample" then
+        group = groups[variable.correlationGroup]
+        if not group then
+          local groupGenerator = type(generator.fork) == "function"
+            and generator:fork("tuning-group:" .. variable.correlationGroup) or generator
+          group = {
+            groupId = variable.correlationGroup, strategy = variable.correlationStrategy,
+            sampledBase = groupGenerator:float(0, 1), memberCount = 0, values = {}, generator = groupGenerator,
+          }
+          groups[variable.correlationGroup] = group
+          groupDiagnostics[#groupDiagnostics + 1] = group
+        end
+        group.memberCount = group.memberCount + 1
+      end
+      local variableGenerator = group and group.generator
+        or (type(generator.fork) == "function" and generator:fork("tuning-variable:" .. name) or generator)
       local coverageGenerator = type(variableGenerator.fork) == "function"
         and variableGenerator:fork("coverage") or variableGenerator
       if not selected(variable, policy, coverageGenerator) then
         tuningLedger.update(state, key, "not_selected_by_chaos", {eligible = true})
       else
-        local value, status, attempts = choose(variable, policy, variableGenerator, options.extremeTuning)
+        local value, status, attempts = choose(
+          variable, policy, variableGenerator, options.extremeTuning, group and group.sampledBase or nil
+        )
+        if group then group.values[name] = value end
         if status == "same_value_unavoidable" then
           tuningLedger.update(state, key, status, {eligible = true, selectedByChaos = true, tolerance = variable.tolerance})
         else
@@ -154,7 +181,9 @@ local function plan(variables, currentValues, policy, generator, options, state,
   end
   state.lastVariableCount = math.min(#names, maxVariables)
   state.variableDrops = math.max(0, #names - maxVariables)
-  return values, changes, state, newly, metadataChanged
+  table.sort(groupDiagnostics, function(left, right) return left.groupId < right.groupId end)
+  for _, group in ipairs(groupDiagnostics) do group.generator = nil end
+  return values, changes, state, newly, metadataChanged, groupDiagnostics
 end
 
 M.normalize = normalize

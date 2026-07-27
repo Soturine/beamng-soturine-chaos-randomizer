@@ -11,6 +11,7 @@ local adapter = require("ge/extensions/soturineChaosRandomizer/apiAdapter")
 local capabilities = require("ge/extensions/soturineChaosRandomizer/capabilities")
 local contentIndex = require("ge/extensions/soturineChaosRandomizer/contentIndex")
 local configVerification = require("ge/extensions/soturineChaosRandomizer/configVerification")
+local crc32 = require("ge/extensions/soturineChaosRandomizer/crc32")
 local failureAttribution = require("ge/extensions/soturineChaosRandomizer/failureAttribution")
 local energyStorageGuard = require("ge/extensions/soturineChaosRandomizer/energyStorageGuard")
 local history = require("ge/extensions/soturineChaosRandomizer/history")
@@ -29,7 +30,6 @@ local rng = require("ge/extensions/soturineChaosRandomizer/rng")
 local settings = require("ge/extensions/soturineChaosRandomizer/settings")
 local slotScanner = require("ge/extensions/soturineChaosRandomizer/slotScanner")
 local stressRunner = require("ge/extensions/soturineChaosRandomizer/stressRunner")
-local tuning = require("ge/extensions/soturineChaosRandomizer/tuningRandomizer")
 local tuningCoverageLedger = require("ge/extensions/soturineChaosRandomizer/tuningCoverageLedger")
 local tuningPipeline = require("ge/extensions/soturineChaosRandomizer/tuningPipeline")
 local paintCoverageLedger = require("ge/extensions/soturineChaosRandomizer/paintCoverageLedger")
@@ -292,34 +292,47 @@ tests.nested_slot_change_detection = function()
 end
 
 tests.tuning_clamping_and_quantization = function()
-  local variable = assert(tuning.normalizeVariable("pressure", {
+  local variable = tuningPipeline.normalize("pressure", {
     min = 10, max = 20, default = 40, step = 2,
-  }, {pressure = -50}))
+  }, {pressure = -50})
   equal(variable.default, 20)
   equal(variable.current, 10)
   equal(util.roundToStep(15.1, 2, 10), 16)
 
-  local value = tuning.sample(variable, {
-    extremeTuningChance = 0, chaos = 1, tuningSpread = 1,
-  }, scriptedGenerator({false, true}, {0.37}))
+  local value = tuningPipeline.choose(variable, {
+    slider = 100, extremeTuningChance = 0, chaos = 1,
+  }, scriptedGenerator({false}, {0.37}), false)
   truthy(value >= 10 and value <= 20)
   equal((value - 10) % 2, 0)
 end
 
+tests.crc32_canonical_vectors = function()
+  equal(crc32.digest(""), 0)
+  equal(crc32.digest("123456789"), 3421780262)
+  equal(crc32.digest("The quick brown fox jumps over the lazy dog"), 1095738169)
+  equal(crc32.digest({}), nil)
+end
+
 tests.default_centered_tuning = function()
-  local value, distribution = tuning.sample({
-    minimum = 0, maximum = 100, default = 50, current = 50,
-  }, {extremeTuningChance = 0, chaos = 0, tuningSpread = 0.1}, scriptedGenerator({false, false}, {0.5, 0.5}))
+  local variable = tuningPipeline.normalize("spring", {
+    min = 0, max = 100, default = 50,
+  }, {spring = 25})
+  local value, distribution = tuningPipeline.choose(variable, {
+    slider = 0, extremeTuningChance = 0, chaos = 0,
+  }, scriptedGenerator({false}, {0.5}), false)
   near(value, 50)
-  equal(distribution, "default_centered")
+  equal(distribution, "attempted")
 end
 
 tests.extreme_biased_tuning = function()
-  local value, distribution = tuning.sample({
-    minimum = 0, maximum = 100, default = 50, current = 50,
-  }, {extremeTuningChance = 1, chaos = 1, tuningSpread = 1}, scriptedGenerator({true, true}))
+  local variable = tuningPipeline.normalize("spring", {
+    min = 0, max = 100, default = 50,
+  }, {spring = 50})
+  local value, distribution = tuningPipeline.choose(variable, {
+    slider = 100, extremeTuningChance = 1, chaos = 1,
+  }, scriptedGenerator({true}), true)
   equal(value, 0)
-  equal(distribution, "extreme")
+  equal(distribution, "attempted")
 end
 
 tests.operation_state_and_timeout = function()
@@ -895,18 +908,17 @@ tests.trailer_and_prop_classification_regression = function()
 end
 
 tests.uncorrelated_variables_remain_independent = function()
-  local _, changes, groups = tuning.randomize({
+  local _, changes, _, _, _, groups = tuningPipeline.plan({
     frontPressure = {min = 0, max = 10, default = 5},
     rearPressure = {min = 0, max = 10, default = 5},
-  }, {}, {extremeTuningChance = 0, chaos = 1, tuningSpread = 1}, rng.new("independent"))
+  }, {}, mutationPolicy.fromSettings({chaos = 100}), rng.new("independent"), {extremeTuning = false})
   equal(#groups, 0)
   truthy(#changes > 0)
 end
 
 tests.explicit_group_uses_shared_substream = function()
-  local _, _, groups = tuning.randomize(fixtures.variables, {}, {
-    extremeTuningChance = 0, chaos = 1, tuningSpread = 1,
-  }, rng.new("group"))
+  local _, _, _, _, _, groups = tuningPipeline.plan(fixtures.variables, {},
+    mutationPolicy.fromSettings({chaos = 100}), rng.new("group"), {extremeTuning = false})
   equal(#groups, 1)
   equal(groups[1].groupId, "explicit_axle")
   equal(groups[1].memberCount, 2)
@@ -914,34 +926,32 @@ tests.explicit_group_uses_shared_substream = function()
 end
 
 tests.group_members_remain_in_range = function()
-  local values = tuning.randomize(fixtures.variables, {}, {
-    extremeTuningChance = 0, chaos = 1, tuningSpread = 1,
-  }, rng.new("range"))
+  local values = tuningPipeline.plan(fixtures.variables, {},
+    mutationPolicy.fromSettings({chaos = 100}), rng.new("range"), {extremeTuning = false})
   truthy(values.groupedA >= 0 and values.groupedA <= 100)
   truthy(values.groupedB >= 10 and values.groupedB <= 20)
 end
 
 tests.group_members_keep_individual_steps = function()
-  local values = tuning.randomize(fixtures.variables, {}, {
-    extremeTuningChance = 0, chaos = 1, tuningSpread = 1,
-  }, rng.new("steps"))
+  local values = tuningPipeline.plan(fixtures.variables, {},
+    mutationPolicy.fromSettings({chaos = 100}), rng.new("steps"), {extremeTuning = false})
   equal(values.groupedA % 5, 0)
   equal((values.groupedB - 10) % 2, 0)
 end
 
 tests.missing_group_metadata_does_not_infer_relationship = function()
-  local _, groups, independent = tuning.normalizeGroups({
+  local _, changes, _, _, _, groups = tuningPipeline.plan({
     frontSpring = {min = 0, max = 1, default = 0.5, category = "alignment"},
     rearSpring = {min = 0, max = 1, default = 0.5, category = "alignment"},
-  }, {})
-  equal(next(groups), nil)
-  equal(#independent, 2)
+  }, {}, mutationPolicy.fromSettings({chaos = 100}), rng.new("no-inferred-group"), {extremeTuning = false})
+  equal(#groups, 0)
+  equal(#changes, 2)
 end
 
 tests.group_sampling_is_seed_deterministic = function()
-  local policy = {extremeTuningChance = 0, chaos = 1, tuningSpread = 1}
-  local left = tuning.randomize(fixtures.variables, {}, policy, rng.new("same-group-seed"))
-  local right = tuning.randomize(fixtures.variables, {}, policy, rng.new("same-group-seed"))
+  local policy = mutationPolicy.fromSettings({chaos = 100})
+  local left = tuningPipeline.plan(fixtures.variables, {}, policy, rng.new("same-group-seed"), {extremeTuning = false})
+  local right = tuningPipeline.plan(fixtures.variables, {}, policy, rng.new("same-group-seed"), {extremeTuning = false})
   truthy(util.deepEqual(left, right, 1e-10))
 end
 
@@ -2597,7 +2607,7 @@ end
 tests.reroll_tuning_and_paint_preserve_individual_locks = function()
   local values = {independentA = 5, independentB = 0}
   local policy = mutationPolicy.fromSettings({chaos = 100, allowMissingParts = false})
-  local randomized = tuning.randomize(fixtures.variables, values, policy, rng.new("tuning-lock"), {
+  local randomized = tuningPipeline.plan(fixtures.variables, values, policy, rng.new("tuning-lock"), {
     isLocked = function(name) return name == "independentA" end,
   })
   equal(randomized.independentA, 5)
@@ -4476,6 +4486,7 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/configVerification.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/coverageLimits.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/contentIndex.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/crc32.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/candidateIsolation.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/diagnostics.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/failureAttribution.lua",
@@ -4506,7 +4517,6 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/spawnDirector.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/slotCoverageLedger.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/treeConvergence.lua",
-    "/lua/ge/extensions/soturineChaosRandomizer/tuningRandomizer.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/tuningCoverageLedger.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/tuningPipeline.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/util.lua",
