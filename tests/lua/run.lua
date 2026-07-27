@@ -1031,6 +1031,28 @@ tests.capability_warning_is_exposed = function()
   truthy(#value.warnings >= 2)
 end
 
+tests.v062_capability_report_has_explicit_four_state_contract = function()
+  local value = capabilities.derive({
+    vehicleReplace = true, vehicleSpawn = false,
+    partsRead = true, partsWrite = true,
+    tuningRead = true, tuningWrite = false,
+    paintRead = false, paintWrite = false,
+    navgraph = false, vehicleLuaQueue = true,
+    managedMultiVehicle = true, raycast = false,
+    thumbnailCapture = false, uiEvents = true,
+    dnaPackageRead = true, dnaPackageWrite = true,
+  })
+  equal(value.report.vehicleReplaceSpawn.status, "degraded")
+  equal(value.report.partsReadWrite.status, "available")
+  equal(value.report.tuningReadWrite.status, "degraded")
+  equal(value.report.paintReadWrite.status, "unavailable")
+  equal(value.report.scriptAI.status, "unsupported")
+  equal(value.report.managedMultiVehicle.status, "available")
+  equal(value.report.raycastCustomPoint.status, "degraded")
+  equal(value.report.fileImportExport.status, "available")
+  truthy(type(value.report.aiDestination.reason) == "string")
+end
+
 tests.full_random_requires_replace_and_parts = function()
   local value = capabilities.derive({
     vehicleRegistry = true, vehicleReplace = true, partsRead = true, partsWrite = false,

@@ -112,6 +112,12 @@ local function getCapabilities()
     thumbnailDelete = FS ~= nil,
     uiEvents = type(guihooks) == "table" and type(guihooks.trigger) == "function",
     lifecycleConfirmation = type(extensions) == "table" and type(extensions.hook) == "function",
+    navgraph = type(map) == "table" and type(map.findClosestRoad) == "function"
+      and type(map.getPath) == "function",
+    vehicleLuaQueue = type(getObjectByID) == "function",
+    managedMultiVehicle = type(core_vehicles) == "table" and type(core_vehicles.spawnNewVehicle) == "function"
+      and type(getObjectByID) == "function" and vehicleManager,
+    raycast = type(Engine) == "table" and type(Engine.castRay) == "function",
   }
   return capabilityModel.derive(raw)
 end

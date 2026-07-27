@@ -322,6 +322,23 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn('class="scr-fox" aria-hidden="true"', html)
         self.assertRegex(css, r"\.scr-fox\s*\{[^}]*32px[^}]*opacity:\s*\.96")
 
+    def test_v062_capability_degradation_is_visible_and_disables_actions(self) -> None:
+        html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
+        source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        capabilities_source = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/capabilities.lua").read_text(encoding="utf-8")
+        for status in ("available", "unavailable", "degraded", "unsupported"):
+            self.assertIn(f'"{status}"', capabilities_source)
+        for name in (
+            "vehicleReplaceSpawn", "partsReadWrite", "tuningReadWrite", "paintReadWrite",
+            "navgraph", "aiDestination", "aiRoute", "managedMultiVehicle", "scriptAI",
+            "raycastCustomPoint", "thumbnail", "clipboard", "fileImportExport",
+        ):
+            self.assertIn(name, capabilities_source)
+        self.assertIn("chaos.capabilityReason('fileImportExport')", html)
+        self.assertIn("!chaos.aiModeAvailable(chaos.aiOptions.mode)", html)
+        self.assertIn("ng-disabled=\"!chaos.aiModeAvailable('Destination')\"", html)
+        self.assertIn("chaos.aiUnavailableReason", source)
+
     def test_workflow_yaml_parses(self) -> None:
         try:
             import yaml

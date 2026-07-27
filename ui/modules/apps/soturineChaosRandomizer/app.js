@@ -282,6 +282,30 @@
           }
         }
 
+        scope.chaos.capabilityReason = function (name) {
+          var report = scope.chaos.state.capabilities && scope.chaos.state.capabilities.report
+          var entry = report && report[name]
+          return entry && entry.status !== 'available' ? entry.reason : ''
+        }
+
+        scope.chaos.chaosUnavailableReason = function () {
+          var state = scope.chaos.state
+          if (state.capabilities.randomConfig && state.capabilities.scramble && state.capabilities.fullRandom) return ''
+          return (state.capabilities.warnings && state.capabilities.warnings[0]) || 'One or more Chaos actions are unavailable in this BeamNG build.'
+        }
+
+        scope.chaos.aiModeAvailable = function (mode) {
+          return scope.chaos.state.aiDirector && scope.chaos.state.aiDirector.capabilities
+            && scope.chaos.state.aiDirector.capabilities[mode] === true
+        }
+
+        scope.chaos.aiUnavailableReason = function (mode) {
+          var caps = scope.chaos.state.aiDirector && scope.chaos.state.aiDirector.capabilities || {}
+          if (mode === 'Destination' || mode === 'Route') return caps.navgraphReason || 'A usable NavGraph is required.'
+          if (mode === 'Scripted') return caps.scriptedReason || 'Scripted AI is unsupported in this build.'
+          return 'This AI mode is unavailable for the current build or vehicle.'
+        }
+
         scope.chaos.run = function (action) {
           if (scope.chaos.state.busy) return
           var allowed = {randomConfig: true, scramble: true, fullRandom: true, undo: true, reindex: true}
