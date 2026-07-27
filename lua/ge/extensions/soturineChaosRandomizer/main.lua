@@ -2156,6 +2156,7 @@ processMutationPass = function(active)
   if not okSnapshot then
     local readCode = type(snapshot) == "table" and snapshot.code or "parts_read_unavailable"
     local retryable = readCode == "missing_parts_tree" or readCode == "parts_read_unavailable"
+      or readCode == "temporarily_unreadable"
       or readCode == "config_read_unavailable" or readCode == "no_active_vehicle"
     if retryable then
       local now = runtime.time.realMonotonicTime

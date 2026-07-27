@@ -534,6 +534,42 @@ tests.v062_adapter_reads_one_id_specific_target_snapshot = function()
   equal(managerReads[1], 42)
 end
 
+tests.v063_adapter_detects_id_specific_reads_independently = function()
+  local originalBe = be
+  local originalManager = core_vehicle_manager
+  be = {getPlayerVehicleID = function() return 42 end}
+  local reads = {}
+  core_vehicle_manager = {
+    getVehicleData = function(id)
+      reads[#reads + 1] = id
+      return {config = {partsTree = {children = {}}, vars = {boost = 1}}}
+    end,
+  }
+  local ok, data = adapter.getCurrentVehicleData(42)
+  local capabilities = adapter.getCapabilities()
+  be = originalBe
+  core_vehicle_manager = originalManager
+  truthy(ok)
+  truthy(type(data.config) == "table")
+  equal(#reads, 1)
+  equal(reads[1], 42)
+  truthy(capabilities.vehicleDataById)
+  truthy(not capabilities.vehicleDataByPlayer)
+end
+
+tests.v063_adapter_distinguishes_temporary_read_failure = function()
+  local originalBe = be
+  local originalManager = core_vehicle_manager
+  be = {getPlayerVehicleID = function() return 42 end}
+  core_vehicle_manager = {getVehicleData = function() return nil end}
+  local ok, errorData = adapter.getCurrentVehicleData(42)
+  be = originalBe
+  core_vehicle_manager = originalManager
+  equal(ok, false)
+  equal(errorData.code, "temporarily_unreadable")
+  equal(errorData.context.capabilityState, "temporarily_unreadable")
+end
+
 tests.v062_adapter_rejects_target_change_during_readback = function()
   local originalBe = be
   local originalGetObjectByID = getObjectByID

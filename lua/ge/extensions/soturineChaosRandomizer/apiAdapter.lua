@@ -71,8 +71,11 @@ local function callContract(name, failureCode, contract, callback)
 end
 
 local function getCapabilities()
-  local vehicleManager = type(core_vehicle_manager) == "table"
+  local hasVehicleDataById = type(core_vehicle_manager) == "table"
+    and type(core_vehicle_manager.getVehicleData) == "function"
+  local hasPlayerVehicleData = type(core_vehicle_manager) == "table"
     and type(core_vehicle_manager.getPlayerVehicleData) == "function"
+  local vehicleManager = hasVehicleDataById or hasPlayerVehicleData
   local configRead = type(core_vehicle_partmgmt) == "table"
     and type(core_vehicle_partmgmt.getConfig) == "function"
   local hierarchicalRead = type(jbeamIO) == "table"
@@ -81,6 +84,8 @@ local function getCapabilities()
   local jsonRead = type(jsonReadFile) == "function"
   local jsonWrite = type(jsonWriteFile) == "function"
   local raw = {
+    vehicleDataById = hasVehicleDataById,
+    vehicleDataByPlayer = hasPlayerVehicleData,
     vehicleRegistry = type(core_vehicles) == "table"
       and type(core_vehicles.getModelList) == "function"
       and type(core_vehicles.getConfigList) == "function",
@@ -168,23 +173,46 @@ local function getCurrentVehicleObject(expectedVehicleId)
 end
 
 local function getCurrentVehicleData(expectedVehicleId)
-  if type(core_vehicle_manager) ~= "table" or type(core_vehicle_manager.getPlayerVehicleData) ~= "function" then
-    return false, errorValue("unsupported_api", "The current vehicle manager is unavailable")
+  local hasById = type(core_vehicle_manager) == "table"
+    and type(core_vehicle_manager.getVehicleData) == "function"
+  local hasPlayer = type(core_vehicle_manager) == "table"
+    and type(core_vehicle_manager.getPlayerVehicleData) == "function"
+  if not hasById and not hasPlayer then
+    return false, errorValue("unsupported_api", "The current vehicle manager is unavailable", {
+      capabilityState = "unsupported",
+      hasById = false,
+      hasPlayer = false,
+    })
   end
   local okTarget, vehicleId = resolveTargetVehicleId(expectedVehicleId, "vehicle_data")
   if not okTarget then return false, vehicleId end
-  local idSpecific = type(vehicleId) == "number" and type(core_vehicle_manager.getVehicleData) == "function"
-  local callName = idSpecific and "core_vehicle_manager.getVehicleData" or "core_vehicle_manager.getPlayerVehicleData"
+  local idSpecific = type(vehicleId) == "number" and hasById
+  if not idSpecific and not hasPlayer then
+    return false, errorValue("temporarily_unreadable", "No player vehicle ID is available for the ID-specific vehicle manager", {
+      capabilityState = "temporarily_unreadable",
+      expectedVehicleId = expectedVehicleId,
+      hasById = hasById,
+      hasPlayer = hasPlayer,
+    })
+  end
+  local callName = idSpecific and "core_vehicle_manager.getVehicleData"
+    or "core_vehicle_manager.getPlayerVehicleData"
   local ok, data = safeCall(callName, function()
     if idSpecific then return core_vehicle_manager.getVehicleData(vehicleId) end
     return core_vehicle_manager.getPlayerVehicleData()
   end)
   if not ok then return false, data end
   if type(data) ~= "table" then
-    return false, errorValue("tree_unavailable", "The target vehicle data is not readable yet", {
+    return false, errorValue("temporarily_unreadable", "The target vehicle data is not readable yet", {
+      capabilityState = "temporarily_unreadable",
       expectedVehicleId = vehicleId,
       source = callName,
     })
+  end
+  local okFinal, finalVehicleId = getCurrentVehicleId()
+  if not okFinal then return false, finalVehicleId end
+  if finalVehicleId ~= vehicleId then
+    return false, targetError(vehicleId, finalVehicleId, "vehicle_data_readback")
   end
   return true, data
 end
