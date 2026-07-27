@@ -283,7 +283,7 @@ class StaticValidationTests(unittest.TestCase):
         ET.fromstring(fox)
         self.assertIn("var allowed =", source)
 
-    def test_v062_responsive_height_and_natural_chaos_flow(self) -> None:
+    def test_v063_responsive_height_uses_rendered_content(self) -> None:
         html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
         css = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.css").read_text(encoding="utf-8")
         source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
@@ -291,28 +291,33 @@ class StaticValidationTests(unittest.TestCase):
         self.assertLess(panel.index("scr-chaos-control"), panel.index("scr-status"))
         self.assertLess(panel.index("scr-status"), panel.index("scr-warning"))
         self.assertNotRegex(css, r"\.scr-status\s*\{[^}]*margin-top:\s*auto")
-        for height in (140, 270, 330):
-            self.assertIn(f"{height}", source)
+        self.assertIn("body.scrollHeight", source)
+        self.assertIn("SoturineChaosUiMath.contentHeight", source)
+        self.assertIn("SoturineChaosUiMath.manualHeight", source)
+        self.assertIn("SoturineChaosUiMath.shouldApplyResize", source)
+        self.assertIn("window.MutationObserver", source)
+        self.assertNotRegex(source, r"view === 'chaos'\s*\?.*270")
         self.assertIn("classList.contains('bng-app')", source)
         self.assertIn("app:resized", source)
 
-    def test_v062_slider_fill_geometry_and_responsive_contract(self) -> None:
+    def test_v063_slider_uses_real_fill_track(self) -> None:
         html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
         css = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.css").read_text(encoding="utf-8")
         source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
-        self.assertIn("ng-style=\"chaos.chaosSliderStyle", html)
-        self.assertIn("--chaos-percent", css)
-        self.assertIn("var(--chaos-percent)", css)
-        self.assertIn("#343941 var(--chaos-percent)", css)
-        self.assertRegex(source, r"Math\.max\(0, Math\.min\(100, Number\(value\)")
-        self.assertIn("percent + '%'", source)
-        self.assertIn("percent >= 75", source)
+        self.assertIn('class="scr-slider-track"', html)
+        self.assertIn('class="scr-slider-fill"', html)
+        self.assertIn("chaos.sliderPercent", html)
+        self.assertNotIn("chaosSliderStyle", source)
+        self.assertNotIn("--chaos-percent", css)
+        self.assertRegex(css, r"\.scr-slider-fill\s*\{[^}]*pointer-events:\s*none")
+        self.assertRegex(css, r"::-webkit-slider-runnable-track\s*\{[^}]*background:\s*transparent")
+        self.assertIn("function sliderPercent", source)
         self.assertRegex(css, r"input\[type=range\][^{]*\{[^}]*width:\s*100%[^}]*padding:\s*0")
         self.assertIn("@media (max-width: 319px)", css)
         self.assertIn("@media (min-width: 320px) and (max-width: 359px)", css)
         self.assertIn("@media (min-width: 360px)", css)
 
-    def test_v062_fox_is_local_compact_and_visibly_symmetric(self) -> None:
+    def test_v063_fox_exactly_matches_v061_asset(self) -> None:
         fox_path = ROOT / "ui/modules/apps/soturineChaosRandomizer/assets/fox-mark.svg"
         fox = fox_path.read_text(encoding="utf-8")
         css = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.css").read_text(encoding="utf-8")
@@ -320,10 +325,11 @@ class StaticValidationTests(unittest.TestCase):
         ET.fromstring(fox)
         self.assertLess(fox_path.stat().st_size, 2048)
         self.assertNotRegex(fox.lower(), r"<script|<image|<filter|base64|https?://(?!www\.w3\.org/2000/svg)")
-        self.assertIn("M5 6", fox)
-        self.assertIn("L59 6", fox)
-        self.assertIn("M18 31", fox)
-        self.assertIn("m28 0", fox)
+        import hashlib
+        self.assertEqual(
+            hashlib.sha256(fox_path.read_bytes()).hexdigest(),
+            "22d0e8cba5878582879633c03158aa948388d02aaabe28f380c333f462b20040",
+        )
         self.assertIn('class="scr-fox" aria-hidden="true"', html)
         self.assertRegex(css, r"\.scr-fox\s*\{[^}]*32px[^}]*opacity:\s*\.96")
 
