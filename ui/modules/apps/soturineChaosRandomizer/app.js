@@ -389,6 +389,13 @@
         }
         scope.chaos.previewSpawn = function () { callWithArgs('previewLineupSpawn', [angular.copy(scope.chaos.spawnOptions)]) }
         scope.chaos.startSpawn = function () { callWithArgs('startLineupSpawn', [angular.copy(scope.chaos.spawnOptions)]) }
+        scope.chaos.startSpawnVariant = function (variant) {
+          var options = angular.copy(scope.chaos.spawnOptions)
+          options.spawnAll = variant === 'all'
+          if (variant === 'one') options.useNextLineupCompetitor = false
+          if (variant === 'next') options.useNextLineupCompetitor = true
+          callWithArgs('startLineupSpawn', [options])
+        }
         scope.chaos.cancelSpawn = function () { engineCall('cancelLineupSpawn') }
         scope.chaos.removeManaged = function (managed) {
           if (managed && window.confirm('Remove only this managed vehicle?')) callWithArgs('removeManagedVehicle', [managed.handle])

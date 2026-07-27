@@ -339,6 +339,23 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("ng-disabled=\"!chaos.aiModeAvailable('Destination')\"", html)
         self.assertIn("chaos.aiUnavailableReason", source)
 
+    def test_v062_public_feature_controls_cover_garage_race_and_settings(self) -> None:
+        html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
+        source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        for label in (
+            "Restore exact", "Restore compatible", "Replay generation", "Pure seed replay",
+            "Small mutation", "Medium mutation", "Wild mutation", "Reroll unlocked",
+            "Capture thumbnail", "Compatibility:", "lineage depth",
+            "Cancel generation", "Fallback", "Spawn one", "Spawn next", "Spawn all",
+            "Front Left", "Behind Right", "Custom point", "Collision",
+            "Start all", "Pause all", "Resume all", "Stop all", "Reset all", "Respawn damaged",
+            "Speed mode", "Drive in lane", "Avoid vehicles", "Finish action", "Stuck action",
+            "General", "Safety", "Seed &amp; Reproducibility", "Locks", "Advanced", "Diagnostics",
+        ):
+            self.assertIn(label.lower(), html.lower())
+        self.assertIn("startSpawnVariant", source)
+        self.assertIn("options.spawnAll = variant === 'all'", source)
+
     def test_workflow_yaml_parses(self) -> None:
         try:
             import yaml
