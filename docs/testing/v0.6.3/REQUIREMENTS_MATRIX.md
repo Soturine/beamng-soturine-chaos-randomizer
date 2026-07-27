@@ -31,8 +31,8 @@
 | P2-03 | Safe UI separation | exported pure UI math; gameplay remains Lua | Verified | Pending visual |
 | P2-04 | Performance instrumentation | bounded percentiles and UI event rate | Verified collector | Pending measurements |
 | REL-01 | Reproducible package/manifest/checksum | package workflow and two-build comparison | Pending final build | Pending install |
-| REL-02 | Version metadata synchronized | VERSION/app/main/HTML/release notes | Pending release-prep commit | Not applicable |
-| REL-03 | Tag/release only after live gate | CI/docs gate and operator policy | Pending final audit | Blocking |
+| REL-02 | Version metadata synchronized | VERSION/app/main/HTML/release notes | Verified | Not applicable |
+| REL-03 | Tag/release only after live gate | tag workflow runs exact-artifact live validator | Verified gate | Blocking |
 | HIST-01 | Preserve v0.6.2 tag/release/assets/history | initial Git/GitHub audit; no rewrite/force push | Verified audit | Not applicable |
 
 Detailed executed tests are listed in [AUTOMATED_TEST_REPORT.md](AUTOMATED_TEST_REPORT.md); row-level gameplay evidence belongs only in [LIVE_TEST_REPORT.md](LIVE_TEST_REPORT.md).

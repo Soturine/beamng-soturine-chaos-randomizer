@@ -52,9 +52,9 @@ The candidate now:
 
 | Gate | Status |
 | --- | --- |
-| Automated source/Lua/JS/schema/workflow suites | Must pass again on final candidate |
+| Automated source/Lua/JS/schema/workflow suites | Passed: 54 Python methods/808 subtests, 347 Lua cases/7,897 assertions, 17 JS cases |
 | Orphan and BeamNG boundary gates | Implemented |
-| Version/app/release-note consistency | Pending 0.6.3 release-prep commit |
+| Version/app/release-note consistency | Passed for 0.6.3 |
 | Reproducible ZIP, manifest, SHA-256 | Pending final candidate build |
 | Exact-ZIP clean-profile install | Pending |
 | 110-case live plan | 0 executed / 110 Pending |
