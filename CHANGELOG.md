@@ -2,6 +2,61 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3] - 2026-07-27
+
+Lifecycle identity, dynamic discovery, fuel safety, UI, architecture, and
+release-evidence candidate. This remains an Experimental pre-1.0 candidate.
+Automated tests pass, but live BeamNG validation is **0 executed / 0 passed /
+0 failed / 110 pending / 0 blocked**; tag and release are blocked.
+
+### Implemented
+
+- Separate the logical operation target from concrete vehicle candidates and
+  promote an ID only after coherent player/model/configuration validation.
+- Rebind recreated IDs atomically, reset concrete ownership at reload
+  boundaries, reject stale generations, and perform a final unbound read before
+  timeout recovery.
+- Discover tuning variables through bounded fixed-point rescans, including
+  metadata revisions, disappearing variables, clamps, malformed metadata, and
+  explicit correlation groups.
+- Classify energy storages from multiple metadata signals and enforce a
+  verified 10% floor only for combustion fuel before final validation and DNA
+  capture.
+- Collect bounded p50/p95/p99/max telemetry for runtime subsystems without
+  unbounded per-frame storage.
+- Add state-machine properties, lifecycle regressions, dynamic tuning, fuel,
+  UI calculation, architecture, orphan-module, CRC, and release-gate tests.
+
+### Changed
+
+- Restore the v0.6.1 fox asset, a real orange slider fill, and content-measured
+  app sizing protected from resize feedback loops.
+- Make Race the canonical manager behind a legacy Lineup facade.
+- Remove the unused tuning randomizer, share CRC32, and share only the common
+  operation/target binding context between coverage ledgers.
+- Reorganize usage documentation as evergreen guides and archive prior release
+  test evidence by version.
+- Bind release manifests to explicit live executed/passed/failed/pending counts
+  and make tag workflows reject incomplete or artifact-mismatched live reports.
+
+### Validation
+
+- Source behavior is covered by automated Lua, Python/static, JavaScript,
+  JSON/schema, architecture, workflow, and package checks.
+- The exact final counts, artifact bytes, checksum, and manifest are recorded in
+  the v0.6.3 validation documents when the candidate is built.
+- No v0.6.3 gameplay, rendering, physics, mod-compatibility, or performance run
+  has been executed in BeamNG in this workspace.
+
+### Known Issues
+
+- The owner-observed 0.6.2 failures at 22%, 57%, recovery to the previous car,
+  pause dependency, empty fuel, and UI rendering are not claimed resolved in
+  live gameplay until the exact candidate ZIP completes the 110-case plan.
+- Compatibility remains best effort for third-party content and future BeamNG
+  builds; malformed or insufficient metadata can yield an honest partial or
+  unsupported result.
+
 ## [0.6.2] - 2026-07-27
 
 Gameplay Lifecycle, Recovery Integrity, Full Feature Audit & UI Polish Hotfix.
