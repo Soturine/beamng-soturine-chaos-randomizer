@@ -72,6 +72,7 @@ local tests = {}
 local requirementMappings = {}
 local assertionCount = 0
 local builtinAssert = assert
+local assert
 assert = function(...)
   assertionCount = assertionCount + 1
   return builtinAssert(...)

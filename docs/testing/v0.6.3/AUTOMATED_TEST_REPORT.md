@@ -14,7 +14,7 @@ node --check ui/modules/apps/soturineChaosRandomizer/app.js
 | Category | Executed | Passed | Failed | Pending/blocked |
 | --- | ---: | ---: | ---: | ---: |
 | Behavioral + mocked BeamNG Lua cases | 347 | 347 | 0 | 0 |
-| Lua assertions evaluated | 7,897 | 7,897 | 0 | 0 |
+| Lua assertions evaluated | 7,712 | 7,712 | 0 | 0 |
 | Property/state-machine functions | 4 | 4 | 0 | 0 |
 | Static source-contract + architecture Python methods | 39 | 39 | 0 | 0 |
 | Lua host-runner Python method | 1 | 1 | 0 | 0 |
