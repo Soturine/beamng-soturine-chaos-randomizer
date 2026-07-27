@@ -3908,6 +3908,50 @@ tests.v062_pause_transitions_are_diagnostic_only = function()
   equal(state.targetGeneration, targetGeneration)
 end
 
+tests.v062_runtime_instrumentation_is_bounded_and_complete = function()
+  local harness = pipelineHarness.new({paused = true, deferredPaint = true})
+  truthy(harness.main.scramble({chaos = 100, manualSeed = "instrumentation", seedMode = "fixed"}))
+  pipelineHarness.advance(harness, 0.1, 0, 16)
+  local state = harness.main.requestState()
+  truthy(state.transaction.operationId ~= nil)
+  truthy(state.transaction.operationGeneration ~= nil)
+  truthy(state.transaction.targetGeneration ~= nil)
+  truthy(state.transaction.expectedPlayerIndex == 0)
+  truthy(state.transaction.expectedVehicleId == 1)
+  truthy(state.transaction.currentVehicleId == 1)
+  truthy(state.transaction.phaseStartedAt ~= nil)
+  truthy(state.transaction.wallElapsed >= state.transaction.simulationElapsed)
+  truthy(state.transaction.readBackStatus ~= nil)
+  truthy(state.transaction.lastProgressTimestamp ~= nil)
+  truthy(#state.clocks.recentSamples <= 12)
+  equal(state.clocks.recentSamples[#state.clocks.recentSamples].dtSim, 0)
+end
+
+tests.v062_player_vehicle_loss_is_bounded_and_recovers = function()
+  local harness = pipelineHarness.new()
+  truthy(harness.main.scramble({chaos = 100, manualSeed = "player-loss", seedMode = "fixed"}))
+  harness.vehicleId = nil
+  pipelineHarness.advance(harness, 0.1, 0.1, 22)
+  truthy(harness.pendingReplacement ~= nil, "player loss did not enter bounded recovery")
+  pipelineHarness.driveActive(harness, 256)
+  local state = harness.main.requestState()
+  truthy(not state.busy, "player-loss recovery remained busy in " .. tostring(state.lifecyclePhase)
+    .. " / " .. tostring(state.targetStatus))
+  equal(state.lastFailure.code, "target_id_changed")
+end
+
+tests.v062_diagnostics_redact_personal_paths = function()
+  local diagnostics = require("ge/extensions/soturineChaosRandomizer/diagnostics")
+  local state = diagnostics.create(function() end)
+  diagnostics.setEnabled(state, true)
+  diagnostics.write(state, "E", "fixture", {
+    path = "C:" .. [[\Users\private-name\Documents\secret.json]], nested = {safe = "/settings/mod.json"},
+  })
+  local records = diagnostics.snapshot(state)
+  equal(records[1].details.path, "<redacted-user-path>")
+  equal(records[1].details.nested.safe, "/settings/mod.json")
+end
+
 tests.v061_compact_ui_contract = function()
   local function read(path)
     local file = assert(io.open(root .. path, "rb"))

@@ -1,6 +1,19 @@
-local util = require("ge/extensions/soturineChaosRandomizer/util")
-
 local M = {}
+
+local function sanitized(value, seen, depth)
+  if type(value) == "string" then
+    if value:match("%a:[/\\][Uu]sers[/\\][^/\\]+") then return "<redacted-user-path>" end
+    return value
+  end
+  if type(value) ~= "table" then return value end
+  seen, depth = seen or {}, depth or 0
+  if seen[value] or depth > 16 then return "<cycle>" end
+  seen[value] = true
+  local result = {}
+  for key, item in pairs(value) do result[key] = sanitized(item, seen, depth + 1) end
+  seen[value] = nil
+  return result
+end
 
 local function create(logSink)
   return {
@@ -20,7 +33,7 @@ local function write(diagnostics, level, event, details, always)
   local record = {
     level = level or "D",
     event = tostring(event or "event"),
-    details = util.deepCopy(details or {}),
+    details = sanitized(details or {}),
   }
   diagnostics.records[#diagnostics.records + 1] = record
   while #diagnostics.records > diagnostics.limit do
@@ -30,12 +43,13 @@ local function write(diagnostics, level, event, details, always)
 end
 
 local function snapshot(diagnostics)
-  return util.deepCopy(diagnostics.records)
+  return sanitized(diagnostics.records)
 end
 
 M.create = create
 M.setEnabled = setEnabled
 M.write = write
 M.snapshot = snapshot
+M.sanitized = sanitized
 
 return M

@@ -288,7 +288,43 @@ local function publicState()
     recovery = recoveryMetrics,
     token = runtime.state.token,
     transaction = runtime.active and {
+      operationId = runtime.active.operationId,
+      operationGeneration = runtime.active.operationGeneration,
+      phaseGeneration = runtime.active.phaseGeneration,
+      targetGeneration = runtime.active.targetGeneration,
+      recoveryGeneration = runtime.active.recoveryGeneration,
       recoveryOnly = runtime.active.recoveryOnly == true,
+      expectedPlayerIndex = 0,
+      expectedVehicleId = runtime.active.operationCurrentTarget
+        and runtime.active.operationCurrentTarget.vehicleId or runtime.active.vehicleId,
+      currentVehicleId = okActiveVehicle and activeVehicleId or nil,
+      modelKey = runtime.active.modelKey or (runtime.active.selectedModel and runtime.active.selectedModel.key),
+      configKey = runtime.active.selectedConfig and runtime.active.selectedConfig.key,
+      configPath = runtime.active.selectedConfig and runtime.active.selectedConfig.path,
+      phase = runtime.state.phase,
+      phaseStartedAt = runtime.active.phaseStartedAt,
+      wallElapsed = math.max(0, clockMetrics.realMonotonicTime - runtime.active.startedAt),
+      simulationElapsed = math.max(0, clockMetrics.simulationTime - (runtime.active.startedSimulationAt or 0)),
+      phaseWallElapsed = runtime.active.phaseStartedAt
+        and math.max(0, clockMetrics.realMonotonicTime - runtime.active.phaseStartedAt) or nil,
+      phaseSimulationElapsed = runtime.active.phaseStartedSimulationAt
+        and math.max(0, clockMetrics.simulationTime - runtime.active.phaseStartedSimulationAt) or nil,
+      phaseTimings = util.deepCopy(runtime.active.phaseTimings),
+      readBackStatus = runtime.active.readBackStatus or (trackerMetrics and trackerMetrics.lastReason),
+      targetIdentityFingerprint = trackerMetrics and trackerMetrics.stateFingerprint,
+      treeFingerprint = trackerMetrics and trackerMetrics.treeFingerprint,
+      configFingerprint = trackerMetrics and trackerMetrics.expectedConfigKey,
+      callbackOwner = trackerMetrics and {
+        operationGeneration = trackerMetrics.operationGeneration,
+        phaseGeneration = trackerMetrics.phaseGeneration,
+        targetGeneration = trackerMetrics.targetGeneration,
+      } or nil,
+      candidateIdChain = trackerMetrics and util.deepCopy(trackerMetrics.candidateChain) or {},
+      lastProgressTimestamp = watchdogMetrics and watchdogMetrics.lastProgressAt,
+      lastProgressReason = watchdogMetrics and watchdogMetrics.lastProgressReason,
+      lastAcceptedCheckpoint = runtime.active.lastAcceptedCheckpoint,
+      recoveryTier = runtime.active.recoveryTier,
+      recoveryAttemptCount = recoveryMetrics.recoveryAttempts,
       originalSnapshot = runtime.active.operationOriginalSnapshot and {
         modelKey = runtime.active.operationOriginalSnapshot.modelKey,
         vehicleId = runtime.active.operationOriginalSnapshot.vehicleId,
@@ -310,6 +346,10 @@ local function publicState()
         tuning = runtime.active.pendingTuningChanges and #runtime.active.pendingTuningChanges or 0,
         paint = runtime.active.paintConfirmation and 1 or 0,
         treeTimer = runtime.active.treeRescanAt and 1 or 0,
+        callbacks = runtime.active.targetTracker and 1 or 0,
+        timers = (runtime.active.treeRescanAt and 1 or 0) + (runtime.active.paintConfirmation and 1 or 0),
+        tuningPlan = runtime.active.pendingTuningPlan and 1 or 0,
+        paintPlan = runtime.active.pendingPaintPlan and 1 or 0,
       },
     } or nil,
     progress = util.deepCopy(runtime.progress),
@@ -427,6 +467,15 @@ local function noteProgress(active, kind, reason)
 end
 
 local function setLifecyclePhase(active, phase, timeout, reason)
+  if active and active.lifecyclePhase ~= phase then
+    if active.lifecyclePhase and active.phaseStartedAt then
+      active.phaseTimings = active.phaseTimings or {}
+      active.phaseTimings[active.lifecyclePhase] = (active.phaseTimings[active.lifecyclePhase] or 0)
+        + math.max(0, runtime.time.realMonotonicTime - active.phaseStartedAt)
+    end
+    active.phaseStartedAt = runtime.time.realMonotonicTime
+    active.phaseStartedSimulationAt = runtime.time.simulationTime
+  end
   local ok, phaseError = operationState.setPhase(runtime.state, phase, timeout, reason)
   if ok then
     if active then
@@ -519,6 +568,7 @@ local function guardMutationWrite(active, stage)
 end
 
 local function noteSuccessfulWrite(active, stage)
+  active.lastAcceptedCheckpoint = stage .. "_write_confirmed"
   noteProgress(active, "write", stage .. "_write_confirmed")
 end
 
@@ -613,6 +663,8 @@ local function finishOperation(success, code, message, details, terminalState)
       targetOwnershipConfirmed = active.targetOwnershipConfirmed == true
         or active.operationCurrentTarget ~= nil,
     }
+    details.snapshotPromoted = false
+    details.snapshotSource = active.recoveryOnly and "recovery_target" or "operation_final"
   end
   if active and (success == true or details.rollback == "completed") then
     local readable, finalSnapshot = adapter.captureCurrentState("operation_final", active.seed, active.vehicleId)
@@ -626,12 +678,16 @@ local function finishOperation(success, code, message, details, terminalState)
         and details.lifecycleAcceptance.coverageLedgersClosed == true
         and details.lifecycleAcceptance.targetOwnershipConfirmed == true
         and active.recoveryOnly ~= true
-      if accepted then vehicleRecovery.rememberCompletedGood(runtime.recovery, finalSnapshot, false, {
-        operationId = active.operationId,
-        operationGeneration = active.operationGeneration,
-        targetGeneration = active.targetGeneration,
-        completedAt = adapter.clock(),
-      }) end
+      if accepted then
+        vehicleRecovery.rememberCompletedGood(runtime.recovery, finalSnapshot, false, {
+          operationId = active.operationId,
+          operationGeneration = active.operationGeneration,
+          targetGeneration = active.targetGeneration,
+          completedAt = adapter.clock(),
+        })
+        details.snapshotPromoted = true
+        details.snapshotSource = "completed_operation"
+      end
     end
   end
   setResult(success, code, message, details)
@@ -847,6 +903,10 @@ local function beginOperation(kind, context)
     historyCommitted = false,
     baseConfirmed = kind == "scramble",
     startedAt = adapter.clock(),
+    startedSimulationAt = runtime.time.simulationTime,
+    phaseStartedAt = runtime.time.realMonotonicTime,
+    phaseStartedSimulationAt = runtime.time.simulationTime,
+    lastAcceptedCheckpoint = "operation_started",
     operationId = runtime.state.operationId,
     operationGeneration = runtime.state.operationGeneration,
     phaseGeneration = runtime.state.phaseGeneration,
@@ -1070,6 +1130,13 @@ local function enterWaiting(active, phase, afterReload, expected, label, value)
     )
     or "tracking_target_identity"
   setLifecyclePhase(active, lifecyclePhase, active.waitTimeout or WAIT_TIMEOUT, "wait:" .. tostring(phase))
+  if phase == "parts" or phase == "part_isolation_test" or phase == "part_batch_rollback" or phase == "dna_parts" then
+    active.readBackStatus = "parts_reload_pending"
+  elseif phase == "tuning" or phase == "dna_tuning" then
+    active.readBackStatus = "tuning_reload_pending"
+  else
+    active.readBackStatus = "target_identity_unstable"
+  end
   expected = util.shallowMerge(expected or {}, {
     token = active.token,
     phase = phase,
@@ -1930,6 +1997,7 @@ startPaint = function(active)
         applyResult.expected, adapter.clock(), PAINT_CONFIRM_TIMEOUT, 0.1, 12
       )
       setLifecyclePhase(active, "verifying_paint", PAINT_CONFIRM_TIMEOUT, "paint_readback")
+      active.readBackStatus = "paint_readback_pending"
       active.paintConfirmation.context = operationState.captureContext(
         runtime.state, active.operationCurrentTarget
       )
@@ -1993,9 +2061,12 @@ end
 
 local function processTuningReadback(active)
   setLifecyclePhase(active, "verifying_tuning", false, "tuning_readback")
+  active.readBackStatus = "tuning_reload_pending"
   local okSnapshot, snapshot = adapter.getTuningSnapshot(active.vehicleId)
   if not okSnapshot then failActive(snapshot, true, "tuning_readback"); return end
   tuningCoverageLedger.readBack(active.tuningLedger, snapshot.values, active.tuningPass or 1)
+  active.readBackStatus = "ready"
+  active.lastAcceptedCheckpoint = "tuning_readback_confirmed"
   for _, change in ipairs(active.pendingTuningChanges or {}) do
     local entry = active.tuningLedger.entries[change.identity]
     if entry then
@@ -2830,7 +2901,12 @@ local function copyDiagnostics()
       simulationDelta = state.clocks.simulationDelta,
       frame = state.clocks.frameCounter,
       expectedTarget = util.deepCopy(runtime.state.expectedTarget),
-      currentPlayerVehicle = state.activeVehicleAvailable and runtime.state.vehicleId or nil,
+      expectedPlayerIndex = 0,
+      currentPlayerVehicle = state.transaction and state.transaction.currentVehicleId or nil,
+      candidateIdChain = tracker and util.deepCopy(tracker.candidateChain) or {},
+      modelKey = state.transaction and state.transaction.modelKey,
+      configKey = state.transaction and state.transaction.configKey,
+      configPath = state.transaction and state.transaction.configPath,
       targetIdentityStatus = tracker and tracker.identityStatus,
       treeConvergenceStatus = tracker and tracker.treeStatus,
       stableIdentityFrames = tracker and tracker.stabilizationFrames,
@@ -2844,6 +2920,27 @@ local function copyDiagnostics()
       pendingPartsCount = pending.currentBatch or 0,
       pendingTuningCount = pending.tuning or 0,
       pendingPaintCount = pending.paint or 0,
+      pendingCallbackCount = pending.callbacks or 0,
+      pendingTimerCount = pending.timers or 0,
+      currentBatchCount = pending.currentBatch or 0,
+      currentTuningPlan = pending.tuningPlan or 0,
+      currentPaintPlan = pending.paintPlan or 0,
+      readBackStatus = state.transaction and state.transaction.readBackStatus,
+      targetIdentityFingerprint = state.transaction and state.transaction.targetIdentityFingerprint,
+      treeFingerprint = state.transaction and state.transaction.treeFingerprint,
+      configFingerprint = state.transaction and state.transaction.configFingerprint,
+      callbackOwner = state.transaction and util.deepCopy(state.transaction.callbackOwner),
+      phaseStartedAt = state.transaction and state.transaction.phaseStartedAt,
+      phaseWallElapsed = state.transaction and state.transaction.phaseWallElapsed,
+      operationWallElapsed = state.transaction and state.transaction.wallElapsed,
+      operationSimulationElapsed = state.transaction and state.transaction.simulationElapsed,
+      lastProgressTimestamp = state.transaction and state.transaction.lastProgressTimestamp,
+      lastProgressReason = state.transaction and state.transaction.lastProgressReason,
+      lastAcceptedCheckpoint = state.transaction and state.transaction.lastAcceptedCheckpoint,
+      recoveryGeneration = state.transaction and state.transaction.recoveryGeneration,
+      recoveryTier = state.transaction and state.transaction.recoveryTier,
+      recoveryAttemptCount = state.transaction and state.transaction.recoveryAttemptCount,
+      recentClockSamples = util.deepCopy(state.clocks.recentSamples),
       watchdog = util.deepCopy(state.watchdog),
     },
     lastResult = util.deepCopy(runtime.lastResult),
@@ -4054,6 +4151,8 @@ local function completeStableTarget(vehicleId, verificationState, verificationDe
   if active.recoveryOnly then active.operationRecoveryTarget = util.deepCopy(stableTarget)
   else active.operationCurrentTarget = util.deepCopy(stableTarget) end
   runtime.state.expectedTarget = util.deepCopy(stableTarget)
+  active.readBackStatus = "ready"
+  active.lastAcceptedCheckpoint = completedPhase .. "_readback_confirmed"
   noteProgress(active, "target", "target_identity_and_tree_confirmed")
   active.wait = nil
   active.waitContext = nil
@@ -5432,6 +5531,8 @@ local function processPaintConfirmation()
     })
     if verified then
       active.paintConfirmation = nil
+      active.readBackStatus = "ready"
+      active.lastAcceptedCheckpoint = "paint_readback_confirmed"
       local okPaints, paints = adapter.getPaints(active.vehicleId)
       if okPaints and active.paintLedger then paintCoverageLedger.readBack(active.paintLedger, paints) end
       if active.kind == "dnaRestoreExact" or active.kind == "dnaRestoreCompatible" then
@@ -5467,6 +5568,28 @@ local function onUpdate(dtReal, dtSim, dtRaw)
     progressWatchdog.observePause(
       activeAtFrameStart.progressWatchdog, runtime.time.paused, runtime.time.realMonotonicTime
     )
+  end
+
+  if runtime.state.busy and runtime.active then
+    local active = runtime.active
+    local waitPhase = active.wait and active.wait.phase
+    local targetMayBeInTransit = waitPhase == "spawn" or waitPhase == "rollback"
+      or waitPhase == "undo" or waitPhase == "dna_base_spawn"
+      or (active.startedWithoutVehicle and active.operationCurrentTarget == nil)
+    local okPlayer, playerVehicleId = adapter.getCurrentVehicleId()
+    if not targetMayBeInTransit and (not okPlayer or playerVehicleId == nil) then
+      active.playerVehicleMissingSince = active.playerVehicleMissingSince or runtime.time.realMonotonicTime
+      active.readBackStatus = "target_identity_unstable"
+      if runtime.time.realMonotonicTime - active.playerVehicleMissingSince >= 2 then
+        failActive(adapter.errorValue("target_id_changed", "The player vehicle disappeared during the operation", {
+          expectedVehicleId = active.operationCurrentTarget and active.operationCurrentTarget.vehicleId or active.vehicleId,
+          currentVehicleId = playerVehicleId,
+          wallElapsed = runtime.time.realMonotonicTime - active.playerVehicleMissingSince,
+        }), true, runtime.state.phase or "lifecycle")
+      end
+    else
+      active.playerVehicleMissingSince = nil
+    end
   end
 
   if runtime.spawnDirector.preview then productionModules.spawnAdapter.drawPreview(runtime.spawnDirector.preview.placements) end

@@ -105,6 +105,7 @@ local function create(clock, defaultTimeout)
     phase = "idle",
     previousPhase = nil,
     phaseReason = nil,
+    phaseStartedAt = nil,
     busy = false,
     token = nil,
     kind = nil,
@@ -125,7 +126,10 @@ end
 local function setPhase(state, phase, timeout, reason)
   if not PHASES[phase] then return false, "unknown_phase:" .. tostring(phase) end
   state.previousPhase = state.phase
-  if state.phase ~= phase then state.phaseGeneration = state.phaseGeneration + 1 end
+  if state.phase ~= phase then
+    state.phaseGeneration = state.phaseGeneration + 1
+    state.phaseStartedAt = state.clock()
+  end
   state.phase = phase
   state.phaseReason = reason
   if timeout == false then
@@ -149,6 +153,7 @@ local function begin(state, kind, vehicleId, timeout)
   state.state = "idle"
   state.phase = "capturing_original"
   state.previousPhase = "idle"
+  state.phaseStartedAt = state.clock()
   state.kind = kind
   state.vehicleId = vehicleId
   state.expectedTarget = vehicleId and {vehicleId = vehicleId} or nil
@@ -294,6 +299,9 @@ local function summary(state)
     targetGeneration = state.targetGeneration,
     busy = deriveBusy(state),
     deadline = state.deadline,
+    operationDeadline = state.operationDeadline,
+    phaseStartedAt = state.phaseStartedAt,
+    phaseWallElapsed = state.phaseStartedAt and math.max(0, state.clock() - state.phaseStartedAt) or nil,
     staleCallbackCount = state.staleCallbackCount,
     invalidationReason = state.invalidationReason,
     policy = phasePolicy(state),

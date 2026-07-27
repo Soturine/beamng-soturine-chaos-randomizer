@@ -23,6 +23,7 @@ local function create(clock)
     pauseTransitions = 0,
     lastPauseChangedAt = nil,
     pausedRealDuration = 0,
+    recentSamples = {},
     lastRealMonotonicTime = now,
     source = "clock_fallback",
   }
@@ -61,6 +62,15 @@ local function sample(state, dtReal, dtSim, dtRaw, paused, explicitNow)
   state.slowMotionRatio = realDelta > 0 and math.max(0, simulationDelta / realDelta) or 0
   state.source = finiteNumber(dtReal) ~= nil and finiteNumber(dtSim) ~= nil
     and "beamng_onUpdate_deltas" or "clock_fallback"
+  state.recentSamples[#state.recentSamples + 1] = {
+    wall = state.realMonotonicTime,
+    dtReal = state.realDelta,
+    dtSim = state.simulationDelta,
+    dtRaw = state.rawDelta,
+    frame = state.frameCounter,
+    paused = state.paused,
+  }
+  while #state.recentSamples > 12 do table.remove(state.recentSamples, 1) end
   return state
 end
 
@@ -79,6 +89,7 @@ local function snapshot(state)
     pauseTransitions = state.pauseTransitions,
     lastPauseChangedAt = state.lastPauseChangedAt,
     pausedRealDuration = state.pausedRealDuration,
+    recentSamples = state.recentSamples,
   }
 end
 
