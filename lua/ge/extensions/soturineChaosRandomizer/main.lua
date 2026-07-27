@@ -678,6 +678,12 @@ local function finishOperation(success, code, message, details, terminalState)
   operationState.finish(runtime.state, terminalState, success and nil or code)
   if active then vehicleRecovery.cleanup(active) end
   details = type(details) == "table" and details or {}
+  details.terminalOutcome = terminalState == "completed" and "success"
+    or terminalState == "partial" and "partial_success"
+    or terminalState == "cancelled" and "cancelled"
+    or details.preservedCurrentResult == true and "fail_current_result_preserved"
+    or details.rollback == "completed" and "fail_with_explicit_rollback"
+    or "failed"
   if active then
     details.targetGeneration = active.targetGeneration
     details.lifecycleAcceptance = {
@@ -1702,11 +1708,25 @@ local function validateFinalVehicle(active)
   setProgress("Validating final vehicle", 0.96)
   local scanStarted = adapter.clock()
   local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot(active.vehicleId)
-  if not okSnapshot then return false, snapshot end
+  if not okSnapshot then
+    local code = type(snapshot) == "table" and snapshot.code or "parts_read_unavailable"
+    local unreadable = code == "missing_parts_tree" or code == "parts_read_unavailable"
+      or code == "temporarily_unreadable" or code == "config_read_unavailable"
+    if unreadable and active.nonFatalPartial == true then
+      return true, {
+        status = "uncertain", valid = true, profile = "unknown",
+        reason = "parts_tree_unavailable", failures = {},
+        warnings = {{reason = code}}, readError = util.deepCopy(snapshot),
+      }
+    end
+    return false, snapshot
+  end
   local scan, scanError = slotScanner.scan(snapshot.tree, snapshot.metadataByPath)
   active.slotScanDuration = (active.slotScanDuration or 0) + math.max(0, adapter.clock() - scanStarted)
   if not scan then return false, adapter.errorValue(scanError, "Could not scan the final parts tree") end
-  local graph = validator.buildGraph(scan, safetyContext(active, snapshot))
+  local graph = validator.buildGraph(scan, safetyContext(active, snapshot), {
+    allowMissingParts = active.policy and active.policy.allowMissingParts == true,
+  })
   if not active.safetyBaseline then active.safetyBaseline = util.deepCopy(graph) end
   local result = validator.validateGraph(graph, active.safetyBaseline, active.policy.protectCriticalParts)
   active.safetyResult = result
@@ -1715,6 +1735,8 @@ local function validateFinalVehicle(active)
     profile = result.profile,
     status = result.status,
     failures = result.failures,
+    warnings = result.warnings,
+    missingParts = result.missingParts,
     heuristicPaths = graph.heuristicPaths,
   }, not result.valid)
   if not result.valid then
@@ -1723,6 +1745,17 @@ local function validateFinalVehicle(active)
       status = result.status,
       failures = result.failures,
     })
+  end
+  for _, warning in ipairs(result.warnings or {}) do
+    active.nonFatalPartial = true
+    active.partPolicyWarnings = active.partPolicyWarnings or {}
+    local key = tostring(warning.reason) .. ":" .. tostring(warning.slotPath)
+    if not active.partPolicyWarnings[key] then
+      active.partPolicyWarnings[key] = true
+      active.warnings[#active.warnings + 1] = string.format(
+        "Parts warning at %s: %s.", tostring(warning.slotPath), tostring(warning.reason)
+      )
+    end
   end
   return true, result
 end
@@ -1916,8 +1949,18 @@ production.ensureEnergyStorageFloor = function(active, continuation)
   if active.energyGuardComplete then return false end
   local okSnapshot, snapshot = adapter.getTuningSnapshot(active.vehicleId)
   if not okSnapshot then
-    failActive(snapshot, true, "fuel_guard_readback")
-    return true
+    active.energyGuardComplete = true
+    active.energyGuardUncertain = true
+    active.energyGuardReport = {
+      status = "unavailable_warning", unresolved = 1, belowFloor = 0,
+      safeToContinue = true, readError = util.deepCopy(snapshot), storages = {},
+    }
+    active.warnings = active.warnings or {}
+    active.warnings[#active.warnings + 1] =
+      "Combustion-fuel metadata/read-back was unavailable; the randomized vehicle was preserved."
+    diagnosticsModule.write(runtime.diagnostics, "W", "fuel_floor_readback_unavailable",
+      active.energyGuardReport, true)
+    return false
   end
   local plan = productionModules.energyStorageGuard.plan(snapshot)
   active.energyGuardReport = util.deepCopy(plan.report)
@@ -1932,7 +1975,7 @@ production.ensureEnergyStorageFloor = function(active, continuation)
     active.energyGuardReport.status = "readback_confirmed"
     active.energyGuardOverrides = active.energyGuardOverrides or {}
     for _, storage in ipairs(plan.report.storages or {}) do
-      if storage.classification == "fuel" and storage.variable and util.isFinite(storage.current) then
+      if storage.classification == "combustion_fuel" and storage.variable and util.isFinite(storage.current) then
         active.energyGuardOverrides[storage.variable] = storage.current
       end
     end
@@ -1941,19 +1984,28 @@ production.ensureEnergyStorageFloor = function(active, continuation)
     return false
   end
   if plan.report.unresolved > 0 and #plan.changes == 0 then
-    failActive(adapter.errorValue("fuel_floor_unresolved",
-      "Combustion fuel storage could not be correlated to a safe final value", {
-        energyStorages = active.energyGuardReport,
-      }), true, "fuel_guard_readback")
-    return true
+    active.energyGuardComplete = true
+    active.energyGuardUncertain = true
+    active.energyGuardReport.status = "uncertain_warning"
+    active.warnings = active.warnings or {}
+    active.warnings[#active.warnings + 1] =
+      "Combustion-fuel storage could not be correlated confidently; no destructive fallback was applied."
+    diagnosticsModule.write(runtime.diagnostics, "W", "fuel_floor_unresolved_nonfatal",
+      active.energyGuardReport, true)
+    return false
   end
   active.energyGuardAttempts = (active.energyGuardAttempts or 0) + 1
   if active.energyGuardAttempts > 2 then
-    failActive(adapter.errorValue("fuel_floor_readback_failed",
-      "Combustion fuel remained below its minimum after bounded correction attempts", {
-        attempts = active.energyGuardAttempts - 1, energyStorages = active.energyGuardReport,
-      }), true, "fuel_guard_readback")
-    return true
+    active.energyGuardComplete = true
+    active.energyGuardUncertain = true
+    active.energyGuardReport.status = "correction_unconfirmed_warning"
+    active.energyGuardReport.correctionAttempts = active.energyGuardAttempts - 1
+    active.warnings = active.warnings or {}
+    active.warnings[#active.warnings + 1] =
+      "The combustion-fuel floor correction could not be confirmed; the current randomized result was preserved."
+    diagnosticsModule.write(runtime.diagnostics, "W", "fuel_floor_correction_unconfirmed",
+      active.energyGuardReport, true)
+    return false
   end
   if runtime.state.state == "waitingForVehicle" or runtime.state.state == "validating" then
     operationState.transition(runtime.state, "scanning", false)
@@ -2004,7 +2056,7 @@ end
 production.completeRandomConfig = function(active, verificationDetails)
   if production.ensureEnergyStorageFloor(active, "random_config") then return end
   local message = "Loaded " .. tostring(active.selectedConfig.name)
-  local warnings = {}
+  local warnings = util.deepCopy(active.warnings or {})
   if active.selectedModel.isProp then
     message = message .. "; prop control is not validated"
     warnings[#warnings + 1] = "The selected prop may not provide an active controllable vehicle."
@@ -2031,6 +2083,9 @@ production.completeRandomConfig = function(active, verificationDetails)
   details.safety = dnaSafe and util.deepCopy(dnaSafety) or nil
   local dnaReady, dnaOrError = false, dnaSafety
   if dnaSafe then dnaReady, dnaOrError = capturePendingDNA(active, details) end
+  for _, warning in ipairs(active.warnings or {}) do
+    if not util.arrayContains(details.warnings, warning) then details.warnings[#details.warnings + 1] = warning end
+  end
   details.dnaReady = dnaReady
   if dnaReady then details.dnaId = dnaOrError.id else
     details.warnings[#details.warnings + 1] = "Vehicle DNA capture was unavailable because final validation or capture did not complete."
@@ -2042,7 +2097,9 @@ production.completeRandomConfig = function(active, verificationDetails)
     active.selectedModel.key, active.selectedConfig.path or active.selectedConfig.key
   ))
   if dnaReady then pushRecent(runtime.recentCompletedDNA, dnaOrError.id) end
-  finishOperation(true, "random_config_loaded", message, details)
+  details.partial = active.energyGuardUncertain == true or active.nonFatalPartial == true
+  finishOperation(true, details.partial and "random_config_partial" or "random_config_loaded",
+    message, details, details.partial and "partial" or "completed")
 end
 
 local function completeChaos(active)
@@ -2115,7 +2172,7 @@ local function completeChaos(active)
     },
   }
   local totalChanges = #active.changes + #active.tuningChanges + active.paintChanges
-  local partial = not okReadBack
+  local coveragePartial = not okReadBack
     or not active.slotLedger or not slotCoverageLedger.isComplete(active.slotLedger)
     or not active.tuningLedger or not tuningCoverageLedger.isComplete(active.tuningLedger)
     or not active.paintLedger or not paintCoverageLedger.isComplete(active.paintLedger)
@@ -2123,6 +2180,8 @@ local function completeChaos(active)
     or (paintSummary and paintSummary.paintRejected > 0)
     or details.stageReasons.tuning == "tuning_capability_unavailable"
     or details.stageReasons.paint == "paint_capability_unavailable"
+  local nonFatalPartial = active.energyGuardUncertain == true or active.nonFatalPartial == true
+  local partial = coveragePartial or nonFatalPartial
   local dnaReady, dnaOrError = capturePendingDNA(active, details)
   details.dnaReady = dnaReady
   if dnaReady then
@@ -2134,7 +2193,8 @@ local function completeChaos(active)
   end
   details.partial = partial
   details.status = partial and "Partial" or "Completed"
-  if partial and not (active.settings and active.settings.allowPartialResult == true) then
+  if coveragePartial and active.preserveCurrentResult ~= true
+    and not (active.settings and active.settings.allowPartialResult == true) then
     runtime.dna.pending = nil
     failActive(adapter.errorValue("partial_result_not_allowed", "Coverage was partial and Keep Partial Result is off", {
       coverage = util.deepCopy(details.coverage), warnings = util.deepCopy(details.warnings),
@@ -2145,8 +2205,9 @@ local function completeChaos(active)
     or active.creativeOperation == "mutation" and "dna_mutation_completed" or "completed"
   if active.kind == "fullRandom" then
     completionCode = partial and "full_random_partial" or "full_random_completed"
-  elseif active.kind == "scramble" and totalChanges == 0 and not active.creativeOperation then
-    completionCode = partial and "scramble_partial" or "scramble_no_mutable_content"
+  elseif active.kind == "scramble" and not active.creativeOperation then
+    completionCode = partial and "scramble_partial"
+      or totalChanges == 0 and "scramble_no_mutable_content" or "completed"
   end
   local creativeMessage = active.creativeOperation == "reroll_unlocked" and "Reroll Unlocked complete"
     or active.creativeOperation == "mutation" and "Vehicle DNA mutation complete" or nil
@@ -2437,6 +2498,21 @@ processMutationPass = function(active)
         attempts = active.readRetry.count,
         elapsed = math.max(0, now - active.readRetry.firstAt),
       })
+      if type(active.kind) == "string" and active.kind:sub(1, 3) ~= "dna" then
+        active.nonFatalPartial = true
+        active.preserveCurrentResult = true
+        active.stageReasons.parts = "parts_tree_unavailable_warning"
+        active.warnings[#active.warnings + 1] =
+          "The parts tree remained unreadable; the current stable vehicle was preserved without fallback."
+        active.slotLedger.limitReason = "parts_tree_unavailable"
+        slotCoverageLedger.markFinalParts(active.slotLedger, {})
+        diagnosticsModule.write(runtime.diagnostics, "W", "parts_tree_unavailable_nonfatal", {
+          error = snapshot, target = util.deepCopy(active.operationCurrentTarget),
+        }, true)
+        operationState.transition(runtime.state, "tuning", false)
+        startTuning(active)
+        return
+      end
     end
     failActive(snapshot, active.destructiveStarted, "parts")
     return
@@ -2468,7 +2544,9 @@ processMutationPass = function(active)
   local discoveredBefore = #(active.slotLedger.order or {})
   slotCoverageLedger.observeScan(active.slotLedger, ledgerContext, scan, active.coveragePass)
   active.slotLedger.reloadsUsed = active.reloadCount or 0
-  local graph = validator.buildGraph(scan, safetyContext(active, snapshot))
+  local graph = validator.buildGraph(scan, safetyContext(active, snapshot), {
+    allowMissingParts = active.policy and active.policy.allowMissingParts == true,
+  })
   if not active.safetyBaseline then active.safetyBaseline = util.deepCopy(graph) end
   local safetyResult = validator.validateGraph(graph, active.safetyBaseline, active.policy.protectCriticalParts)
   active.safetyResult = safetyResult
@@ -4153,7 +4231,9 @@ processDNAParts = function(active)
   local scan, scanError = slotScanner.scan(snapshot.tree, snapshot.metadataByPath)
   if not scan then failActive(adapter.errorValue(scanError, "Vehicle DNA parts scan failed"), true, "dna_parts"); return end
   if not active.safetyBaseline then
-    active.safetyBaseline = validator.buildGraph(scan, safetyContext(active, snapshot))
+    active.safetyBaseline = validator.buildGraph(scan, safetyContext(active, snapshot), {
+      allowMissingParts = active.policy and active.policy.allowMissingParts == true,
+    })
   end
   local tree, batch, issues = vehicleDNARestore.planPartsPass(active.dnaEntry, scan, active.dnaMode)
   for _, issue in ipairs(issues or {}) do addDNADeviation(active, issue) end

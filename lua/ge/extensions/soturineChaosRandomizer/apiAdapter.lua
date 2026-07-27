@@ -631,7 +631,8 @@ local function getCurrentSlotSnapshot(expectedVehicleId)
           end
           metadataByPath[child.path] = {
             coreSlot = definition.coreSlot == true,
-            required = definition.required == true or definition.coreSlot == true,
+            required = definition.coreSlot == true,
+            declaredRequired = definition.required == true and definition.coreSlot ~= true,
             defaultPart = definition.default,
             description = definition.description,
             allowTypes = allowTypes,

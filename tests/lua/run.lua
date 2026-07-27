@@ -3005,6 +3005,35 @@ tests.v063_reload_can_rebind_same_logical_target = function()
   equal(vehicleTargetTracker.summary(tracker, 0.3).currentCandidateId, 11)
 end
 
+tests.v064_optional_and_unproven_mod_absence_are_nonfatal = function()
+  local tree = {children = {
+    optional = {id = "optional", path = "/optional/", chosenPartName = "", children = {}},
+    modHint = {id = "modHint", path = "/modHint/", chosenPartName = "", children = {}},
+  }}
+  local scan = assert(slotScanner.scan(tree, {
+    ["/modHint/"] = {required = true, description = "non-standard mod hint"},
+  }))
+  local graph = validator.buildGraph(scan, {type = "Car"}, {allowMissingParts = true})
+  local result = validator.validateGraph(graph, graph, true)
+  truthy(result.valid)
+  equal(#result.missingParts, 2)
+  equal(result.missingParts[1].classification, "mod_metadata_required_unproven")
+  equal(result.missingParts[2].classification, "optional_missing_allowed")
+  equal(result.status, "uncertain")
+  equal(#result.failures, 0)
+end
+
+tests.v064_only_core_slot_absence_is_structurally_fatal = function()
+  local tree = {children = {
+    core = {id = "core", path = "/core/", chosenPartName = "", children = {}},
+  }}
+  local scan = assert(slotScanner.scan(tree, {["/core/"] = {coreSlot = true}}))
+  local graph = validator.buildGraph(scan, {type = "Car"}, {allowMissingParts = true})
+  local result = validator.validateGraph(graph, graph, true)
+  truthy(not result.valid)
+  equal(result.failures[1].reason, "core_infrastructure_missing")
+end
+
 tests.v064_tracker_accepts_applied_state_from_matching_evidence_without_callback = function()
   local tracker = vehicleTargetTracker.create({
     token = "evidence", operationId = "SCR-evidence", operationGeneration = 1,
@@ -3667,7 +3696,7 @@ tests.v063_combustion_fuel_floor_single_and_multiple_tanks = function()
   })
   equal(#single.changes, 1)
   near(single.values['$fuel'], 6)
-  equal(single.report.storages[1].classification, 'fuel')
+  equal(single.report.storages[1].classification, 'combustion_fuel')
 
   local multiple = energyStorageGuard.plan({
     variables = {
@@ -3776,6 +3805,37 @@ tests.v063_random_car_applies_fuel_floor_before_completion = function()
   equal(state.lastResult.code, 'random_config_loaded')
   near(harness.tuning['$fuel'], 5)
   equal(state.lastResult.details.energyStorages.status, 'readback_confirmed')
+end
+
+tests.v064_uncertain_fuel_metadata_preserves_randomized_result = function()
+  local harness = pipelineHarness.new({
+    energyStorages = {{name = 'mysteryTank', type = 'fuelTank', energyType = 'gasoline',
+      fuelCapacity = 60, startingFuelCapacity = '$modSpecificFuel'}},
+  })
+  truthy(harness.main.randomConfig({manualSeed = 'uncertain-fuel'}))
+  pipelineHarness.confirmReplacement(harness)
+  pipelineHarness.driveActive(harness, 128)
+  local state = harness.main.requestState()
+  truthy(not state.busy)
+  equal(state.lastResult.success, true)
+  equal(state.lastResult.code, 'random_config_partial')
+  equal(state.lastResult.details.terminalOutcome, 'partial_success')
+  equal(state.lastResult.details.energyStorages.status, 'uncertain_warning')
+  truthy(#state.lastResult.details.warnings > 0)
+  equal(harness.modelKey, 'fixture_new')
+end
+
+tests.v064_unavailable_fuel_readback_is_warning_not_rollback = function()
+  local harness = pipelineHarness.new({energyReadFailure = true})
+  truthy(harness.main.randomConfig({manualSeed = 'fuel-read-unavailable'}))
+  pipelineHarness.confirmReplacement(harness)
+  pipelineHarness.driveActive(harness, 128)
+  local state = harness.main.requestState()
+  truthy(not state.busy)
+  equal(state.lastResult.success, true)
+  equal(state.lastResult.code, 'random_config_partial')
+  equal(state.lastResult.details.energyStorages.status, 'unavailable_warning')
+  equal(harness.modelKey, 'fixture_new')
 end
 
 tests.v060_paint_coverage_confirms_supported_fields = function()
@@ -4482,8 +4542,11 @@ tests.v061_persistent_parts_read_fails_terminally = function()
   truthy(harness.main.scramble({chaos = 100, manualSeed = "persistent-nil", seedMode = "fixed"}))
   local state = pipelineHarness.driveActive(harness, 256)
   truthy(not state.busy)
-  truthy(state.lastResult and not state.lastResult.success)
-  equal(state.lastFailure.code, "parts_read_unavailable")
+  truthy(state.lastResult and state.lastResult.success)
+  equal(state.lastResult.code, "scramble_partial")
+  equal(state.lastResult.details.terminalOutcome, "partial_success")
+  equal(state.lastResult.details.stageReasons.parts, "parts_tree_unavailable_warning")
+  equal(harness.modelKey, "fixture_old")
 end
 
 tests.v061_settings_locks_and_seed_migration = function()
