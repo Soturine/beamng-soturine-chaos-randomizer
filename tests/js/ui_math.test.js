@@ -1,7 +1,7 @@
 'use strict'
 
 const assert = require('assert')
-const ui = require('../../ui/modules/apps/SoturineChaosRandomizer/app.js')
+const ui = require('../../ui/modules/apps/soturineChaosRandomizer/app.js')
 
 assert.strictEqual(ui.sliderPercent(0), '0%')
 assert.strictEqual(ui.sliderPercent(50), '50%')
