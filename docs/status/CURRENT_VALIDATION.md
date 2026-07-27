@@ -1,21 +1,22 @@
 # Current validation
 
-Current published baseline: 0.6.3 Experimental prerelease. Active remediation:
-0.6.4 on `fix/v0.6.4-live-lifecycle`.
+Current source: **0.6.4 Experimental prerelease candidate** on
+`fix/v0.6.4-live-lifecycle`, based exactly on published v0.6.3 commit
+`ef0cf1a258a234a4ef8f8808e59ae983a0c162a6`.
 
-Automated lifecycle, adapter, dynamic tuning, energy storage, UI math, package, workflow, source-contract, and architecture tests are implemented. Exact final counts and commands are recorded in [AUTOMATED_TEST_REPORT.md](../testing/v0.6.3/AUTOMATED_TEST_REPORT.md).
+Automated lifecycle, adapter, recovery, fuel/parts policy, dynamic convergence,
+UI math/assets, architecture, security, package, workflow, and release-gate
+coverage passes locally. Exact categories and distinct counts are in the
+[automated report](../testing/v0.6.4/AUTOMATED_TEST_REPORT.md).
 
-Live BeamNG status for v0.6.3: **Failed — owner-reproduced live regressions**. The reproducible candidate is
-`soturine_chaos_randomizer_0.6.3.zip`, 241,492 bytes, SHA-256
-`486a66da60bfac75d08f1a9584568142846074c110996962e99af2e610d4e9c7`.
-The formal live matrix remains 0 executed / 0 Passed / 0 Failed / 110 Pending /
-0 Blocked because the owner reports were not recorded row by row. At least
-three blocking flow failures were reproduced outside that matrix; the exact
-attempt count is unknown and is not invented. See
-[KNOWN_LIVE_FAILURES.md](../testing/v0.6.3/KNOWN_LIVE_FAILURES.md).
+Live BeamNG status: **Pending owner validation — not executed**. The required
+report is 0 executed / 0 Passed / 0 Failed / 110 Pending / 0 Blocked. The
+installed build/source `0.38.6.0.19963` was inspected, but no interactive world,
+UI, vehicle, physics, performance, or representative-mod run occurred in this
+workspace.
 
-The v0.6.3 failures include 22% target tracking, 57% parts reload waiting,
-pause/unpause dependence, destructive fallback after non-critical uncertainty,
-fuel and missing-parts misclassification, sticky tab height, a rejected fox
-mark, and insufficient evergreen documentation. v0.6.4 is not considered live
-validated until the owner executes its published candidate.
+The published v0.6.3 live candidate is historically Failed from owner-
+reproduced 22%/57% stalls, pause-toggle dependence, wrong fallback, fuel/parts
+uncertainty, sticky height, rejected fox, and insufficient README. v0.6.4 has
+automated regressions for each but is not labeled fixed in gameplay until the
+owner executes the exact downloaded prerelease asset.

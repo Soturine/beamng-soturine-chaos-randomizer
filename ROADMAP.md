@@ -4,15 +4,19 @@ This roadmap describes direction, not release evidence. Completed version histor
 
 ## Now
 
-- Finish the 0.6.3 candidate audit and keep all automated categories green.
-- Build the reproducible candidate ZIP and publish its manifest and SHA-256.
-- Execute the exact live plan against that ZIP on BeamNG.drive `0.38.6.0.19963`.
-- Resolve any remaining 22%, 57%, wrong-target, recovery-loop, fuel, or UI regressions found live.
-- Tag and publish 0.6.3 only after the live release gate passes.
+- Publish v0.6.4 as an Experimental prerelease with reproducible ZIP, manifest,
+  SHA-256, and immutable annotated tag.
+- Execute the exact 110-case v0.6.4 plan against the downloaded release asset
+  on BeamNG.drive `0.38.6.0.19963`.
+- Capture logs/screenshots for Random Car, Full Random, Scramble, paused
+  lifecycle, ID churn, multi-tank fuel, optional/mod parts, and repeated tab
+  resizing.
+- Promote no live-validated claim until every mandatory row is executed and
+  Passed against that exact asset.
 
 ## Next
 
-- Reduce `main.lua` orchestration safely through controller extraction backed by state-machine tests.
+- Reduce `main.lua` orchestration safely through controller extraction backed by state-machine tests and the v0.6.4 lifecycle evidence model.
 - Expand live coverage across representative vehicle, config, part, and controller mods.
 - Add localization infrastructure after UI strings and layouts stabilize.
 - Improve performance baselines with real idle, Chaos, Race, AI, deep-tree, and many-mod captures.

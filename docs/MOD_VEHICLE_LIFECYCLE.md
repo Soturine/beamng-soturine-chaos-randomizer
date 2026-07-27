@@ -3,7 +3,7 @@
 Every BeamNG vehicle event is candidate evidence, never proof that a target is
 ready. The protocol is best effort for official and third-party content. The
 inspected 0.38.6 contracts and their limitations are recorded in the current
-[research notes](testing/v0.6.3/RESEARCH_NOTES.md).
+[research notes](testing/v0.6.4/RESEARCH_NOTES.md).
 
 ## Clock and housekeeping contract
 
@@ -68,6 +68,6 @@ early/missing/duplicate/stale callbacks, coherent discovery, validated rebind,
 reload ownership reset, pause-independent clocks, final timeout readback,
 bounded recovery, cancellation across active phases, and terminal Busy release.
 They are not live BeamNG evidence. All 110 current cases remain Pending in the
-[live report](testing/v0.6.3/LIVE_TEST_REPORT.md); historical failures remain in
+[live report](testing/v0.6.4/LIVE_TEST_REPORT.md); historical failures remain in
 the [0.6.1 report](archive/releases/0.6.1/LIVE_TEST_REPORT.md) and current
 regression matrix.

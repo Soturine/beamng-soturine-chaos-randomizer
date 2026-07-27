@@ -43,4 +43,4 @@ Controls retain labels, `:focus-visible` treatment, polite live regions,
 progressbar semantics, bounded scroll areas, confirmations, and a fixed
 allowlisted Lua bridge. Rendering, scaling, input behavior, no-scroll default
 Chaos layout, and fox appearance remain Pending in the current [live test
-plan](testing/v0.6.3/LIVE_TEST_PLAN.md).
+plan](testing/v0.6.4/LIVE_TEST_PLAN.md).

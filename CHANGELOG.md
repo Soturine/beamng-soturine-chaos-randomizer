@@ -2,6 +2,59 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.4] - 2026-07-27
+
+Live Lifecycle, Read-back Convergence, Safety Policy, Responsive UI, and
+Evergreen Documentation hotfix. This is an Experimental prerelease for owner
+validation; automated evidence passes, while the exact 110-case BeamNG plan is
+0 executed / 0 passed / 0 failed / 110 pending / 0 blocked.
+
+### Fixed
+
+- Observe the player part-manager configuration and ID-specific vehicle-manager
+  bundle independently, select the coherent matching evidence, and accept a
+  state already applied without requiring spawn/reload callbacks.
+- Keep logical target intent separate from concrete IDs through replacement,
+  reload, object recreation, late/duplicate callbacks, and stale-generation
+  rejection. Polling and deadlines remain driven by GE `onUpdate`, not pause
+  toggles or simulation time.
+- Report explicit terminal outcomes (`success`, `partial_success`, preserved
+  failure, explicit rollback, cancellation) while preventing uncertainty alone
+  from restoring stock or a previous vehicle.
+- Classify combustion fuel separately from electric, nitrous, pressure,
+  hydraulic, unknown storage, and normal tuning. Confirmed sub-floor fuel is
+  corrected; unavailable or ambiguous correlation becomes a non-destructive
+  warning.
+- Treat documented BeamNG `coreSlot` absence and proven lost functional roles
+  as fatal. Optional absence, Allow Missing, and non-standard/incomplete mod
+  `required` metadata are classified honestly without false rollback.
+- Replace inferred sticky window height with explicit auto/user size modes,
+  post-render tab measurement, programmatic-resize debounce, and collapsed-mode
+  precedence. Settings→Chaos now shrinks in automatic mode.
+- Replace the rejected mark and old car/banner icon with an original friendly
+  flat fox shared by the header SVG and 250×120 app PNG; preserve the orange
+  slider fill and endpoint behavior.
+
+### Documentation and validation
+
+- Record the actual v0.6.3 owner-reproduced failures without inventing run
+  counts or environment details.
+- Expand the README into an evergreen user and maintainer guide.
+- Add versioned lifecycle investigation, fuel/parts policy, UI validation,
+  requirements, regression, automated, live, research, and release audits.
+- Add multi-source read-back, callback-order, no-callback public-flow,
+  uncertain fuel, unavailable energy read-back, optional/mod missing parts,
+  core-slot, UI tab-cycle, manual resize, collapsed mode, and slider endpoint
+  regressions.
+
+### Compatibility
+
+- Settings schema 6, Vehicle DNA schema 1, generator 6, `SCR6` seeds, and the
+  legacy Lineup facade remain compatible.
+- Compatibility with third-party content and future BeamNG builds remains best
+  effort and evidence-based; uncertainty is disclosed rather than promoted to
+  proof.
+
 ## [0.6.3] - 2026-07-27
 
 Lifecycle identity, dynamic discovery, fuel safety, UI, architecture, and

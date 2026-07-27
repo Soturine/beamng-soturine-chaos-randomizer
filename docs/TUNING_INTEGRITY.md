@@ -46,4 +46,4 @@ Automated tests cover initial and multi-wave discovery, malformed/non-finite
 metadata, metadata changes, disappearance, clamp/rejection, fixed points,
 cycles, Chaos 100, deterministic intermediate Chaos, and seed replay. Actual
 third-party tuning behavior remains Pending in the [live test
-plan](testing/v0.6.3/LIVE_TEST_PLAN.md).
+plan](testing/v0.6.4/LIVE_TEST_PLAN.md).

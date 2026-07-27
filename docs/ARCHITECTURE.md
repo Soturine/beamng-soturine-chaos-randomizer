@@ -1,5 +1,28 @@
 # Architecture
 
+## v0.6.4 lifecycle evidence model
+
+The operation owns a logical target (model/config intent) independently from
+concrete BeamNG object IDs. Replacement returns, spawn/switch/destroy callbacks,
+and player polling nominate bounded candidates. `apiAdapter.getVerificationState`
+collects player/object identity plus independent player-part-manager and manager-
+by-ID configuration views. `vehicleTargetTracker` selects one matching view and
+uses that same view for phase-specific identity, parts, and tuning proof.
+
+No callback is completion authority. Once coherent read-back stabilizes,
+`runtime/operationContext` atomically promotes the concrete target for guarded
+writes. Operation, phase, target, and recovery generations reject stale work.
+Reload may retain or recreate the ID without changing logical ownership.
+
+Backend housekeeping is driven by GE `onUpdate` with real monotonic time.
+Simulation time and pause state are diagnostics/phase requirements only; UI
+render events never drive Lua progress.
+
+Safety results distinguish confirmed fatal evidence from uncertainty. Fuel and
+parts warning paths can finish as partial success while preserving the current
+target. Generic rollback remains for confirmed write/ownership/core/Exact-DNA
+failures, and always invalidates the old plan first.
+
 Soturine's Chaos Randomizer is a BeamNG GE Lua extension with an AngularJS/CEF UI App. `main.lua` composes the subsystems, owns public hooks and routes operations; deterministic domain logic remains in modules that run in the Lua 5.1 test harness.
 
 Current persistent contracts are settings schema 6, Vehicle DNA schema 1, generator 6, and the historical Race/Lineup schema 1.
