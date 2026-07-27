@@ -59,6 +59,9 @@ local productionModules = {
   routePlanner = require("ge/extensions/soturineChaosRandomizer/routePlanner"),
   operationContext = require("ge/extensions/soturineChaosRandomizer/runtime/operationContext"),
   energyStorageGuard = require("ge/extensions/soturineChaosRandomizer/energyStorageGuard"),
+  engineFluidGuard = require("ge/extensions/soturineChaosRandomizer/engineFluidGuard"),
+  baselineSemantics = require("ge/extensions/soturineChaosRandomizer/baselineSemantics"),
+  criticalRepair = require("ge/extensions/soturineChaosRandomizer/criticalRepair"),
   performanceMetrics = require("ge/extensions/soturineChaosRandomizer/performanceMetrics"),
 }
 
@@ -67,7 +70,7 @@ local production = {}
 
 M.dependencies = {"core_modmanager", "core_vehicle_manager", "core_vehicle_partmgmt", "core_vehicles"}
 
-local EXTENSION_VERSION = "0.6.4"
+local EXTENSION_VERSION = "0.6.6-live-fix-candidate"
 local TARGET_BEAMNG = "0.38.6.0.19963"
 local WAIT_TIMEOUT = 25
 local PAINT_CONFIRM_TIMEOUT = 2
@@ -96,6 +99,7 @@ local runtime = {
   recentFullRandomBaseResults = {},
   recentCompletedDNA = {},
   capabilities = {},
+  conflicts = {},
   recovery = vehicleRecovery.create(),
   lineup = {
     current = nil,
@@ -245,6 +249,13 @@ function production.publicPerformance()
   return result
 end
 
+function production.placementAvailability()
+  return productionModules.raceManager.placementAvailability(
+    runtime.lineup.current, runtime.managedVehicles, runtime.state.busy,
+    runtime.spawnDirector.run and runtime.spawnDirector.run.active
+  )
+end
+
 local function publicState()
   local blacklist = contentIndex.blacklistCounts(runtime.index)
   local storageMetrics = vehicleDNAStorage.metrics(runtime.dna.library) or {}
@@ -284,6 +295,16 @@ local function publicState()
         coverage = util.deepCopy(competitor.coverage), targetGeneration = competitor.targetGeneration,
         progress = competitor.progress,
         managedHandle = competitor.managedHandle,
+        competitorId = competitor.competitorId or competitor.id,
+        operationId = competitor.operationId, generation = competitor.generation,
+        requestedIndex = competitor.requestedIndex,
+        logicalCandidate = util.deepCopy(competitor.logicalCandidate),
+        currentVehicleId = competitor.currentVehicleId,
+        spawnState = competitor.spawnState,
+        randomizationState = competitor.randomizationState,
+        validationState = competitor.validationState,
+        placementState = competitor.placementState,
+        terminalResult = util.deepCopy(competitor.terminalResult),
         raceStatus = competitor.raceStatus, traits = util.deepCopy(competitor.traits),
       }
     end
@@ -357,6 +378,11 @@ local function publicState()
         vehicleId = runtime.active.operationCandidateBase.vehicleId,
       } or nil,
       currentTarget = util.deepCopy(runtime.active.operationCurrentTarget),
+      baselines = productionModules.baselineSemantics.summary(runtime.active.baselines),
+      candidateClassification = runtime.active.safetyResult and runtime.active.safetyResult.classification
+        or runtime.active.safetyBaseline and runtime.active.safetyBaseline.classification,
+      engineFluids = util.deepCopy(runtime.active.engineFluidReport),
+      criticalRepairAttempts = util.deepCopy(runtime.active.criticalRepairAttempts),
       recoveryTarget = util.deepCopy(runtime.active.operationRecoveryTarget),
       operationContext = runtime.active.operationContext
         and productionModules.operationContext.summary(runtime.active.operationContext) or nil,
@@ -396,6 +422,7 @@ local function publicState()
     canUndo = #runtime.history.entries > 0 and not runtime.state.busy,
     history = historyModule.summaries(runtime.history),
     capabilities = util.deepCopy(runtime.capabilities),
+    conflicts = util.deepCopy(runtime.conflicts),
     coverage = runtime.active and {
       slots = runtime.active.slotLedger and slotCoverageLedger.summary(runtime.active.slotLedger) or nil,
       tuning = runtime.active.tuningLedger and tuningCoverageLedger.summary(runtime.active.tuningLedger) or nil,
@@ -411,6 +438,7 @@ local function publicState()
       storagePath = adapter.LINEUP_LIBRARY_PATH,
     },
     spawnDirector = {
+      placement = production.placementAvailability(),
       preview = runtime.spawnDirector.preview and {
         count = #(runtime.spawnDirector.preview.placements or {}),
         mode = runtime.spawnDirector.preview.options and runtime.spawnDirector.preview.options.mode,
@@ -678,11 +706,33 @@ local function finishOperation(success, code, message, details, terminalState)
   operationState.finish(runtime.state, terminalState, success and nil or code)
   if active then vehicleRecovery.cleanup(active) end
   details = type(details) == "table" and details or {}
-  details.terminalOutcome = terminalState == "completed" and "success"
+  if active and active.criticalRepairSucceeded == true then
+    details.criticalRepairSucceeded = true
+  end
+  if active then
+    details.baselines = productionModules.baselineSemantics.summary(active.baselines)
+    details.baselineType = active.criticalRepairSourceType
+      or active.recoveryStep
+      or (active.baselines and active.baselines.lastAcceptedGeneratedResult
+        and "last_accepted_generated_result" or "current_generated_result")
+    details.candidateClassification = details.safety and details.safety.classification
+      or active.safetyResult and active.safetyResult.classification
+      or active.safetyBaseline and active.safetyBaseline.classification
+    details.missingCriticalItems = details.safety and util.deepCopy(details.safety.failures or {})
+      or util.deepCopy(active.criticalRepairFailures or {})
+    details.missingOptionalItems = details.safety and util.deepCopy(details.safety.missingParts or {}) or {}
+    details.engineFluids = details.engineFluids or util.deepCopy(active.engineFluidReport)
+    details.partsTreeStabilitySamples = active.lastTargetMetrics
+      and active.lastTargetMetrics.coherentState and active.lastTargetMetrics.coherentState.stableSamples
+    details.repairAttempts = util.deepCopy(active.criticalRepairAttempts or {})
+    details.rollbackReason = active.rollbackFailure and active.rollbackFailure.code or nil
+  end
+  details.terminalOutcome = details.criticalRepairSucceeded == true and "success_with_critical_repair"
+    or terminalState == "completed" and "success"
     or terminalState == "partial" and "partial_success"
     or terminalState == "cancelled" and "cancelled"
-    or details.preservedCurrentResult == true and "fail_current_result_preserved"
-    or details.rollback == "completed" and "fail_with_explicit_rollback"
+    or details.preservedCurrentResult == true and "preserved_previous_result"
+    or details.rollback == "completed" and "full_rollback"
     or "failed"
   if active then
     details.targetGeneration = active.targetGeneration
@@ -707,7 +757,7 @@ local function finishOperation(success, code, message, details, terminalState)
     local readable, finalSnapshot = adapter.captureCurrentState("operation_final", active.seed, active.vehicleId)
     if readable then
       vehicleRecovery.rememberReadable(runtime.recovery, finalSnapshot)
-      local accepted = success == true and terminalState == "completed"
+      local accepted = success == true and (terminalState == "completed" or terminalState == "partial")
         and details.lifecycleAcceptance.busy == false
         and details.lifecycleAcceptance.pendingWrites == 0
         and details.lifecycleAcceptance.pendingTimers == 0
@@ -723,7 +773,8 @@ local function finishOperation(success, code, message, details, terminalState)
           completedAt = adapter.clock(),
         })
         details.snapshotPromoted = true
-        details.snapshotSource = "completed_operation"
+        details.snapshotSource = terminalState == "partial"
+          and "accepted_partial_operation" or "completed_operation"
       end
     end
   end
@@ -766,6 +817,78 @@ local function finishOperation(success, code, message, details, terminalState)
       end
     end
     local lineup = runtime.lineup.current
+    local accepted = competitor and (
+      competitor.status == "Ready" or competitor.status == "Ready with warnings"
+        or competitor.status == "Partial" and lineup.acceptPartial == true
+    )
+    if accepted and (type(active.vehicleId) ~= "number"
+      or active.vehicleId == active.lineupPlayerVehicleId)
+    then
+      competitor.status = "Failed"
+      competitor.validationState = "independent_target_missing"
+      competitor.warning = "Generation did not retain an independent competitor vehicle"
+      accepted = false
+    end
+    if accepted and type(active.vehicleId) == "number"
+      and active.vehicleId ~= active.lineupPlayerVehicleId
+    then
+      local entry = productionModules.managedRegistry.findByVehicle(runtime.managedVehicles, active.vehicleId)
+      if not entry then
+        entry = productionModules.managedRegistry.register(runtime.managedVehicles, active.vehicleId, {
+          competitorId = competitor.id, lineupCompetitorId = competitor.id,
+          lineupId = lineup.id, name = competitor.name, dnaId = competitor.dnaId,
+          modelKey = competitor.modelKey,
+          configIdentity = {
+            modelKey = competitor.modelKey, configPath = competitor.configuration,
+          },
+          spawnTransform = util.deepCopy(competitor.stagingPlacement),
+          lastKnownState = okSnapshot and util.deepCopy(spawnSnapshot) or {
+            vehicleId = active.vehicleId, modelKey = competitor.modelKey,
+          },
+          config = util.deepCopy(competitor.spawnConfig),
+          targetConfirmed = true, validated = true,
+        })
+      end
+      if entry then
+        productionModules.managedRegistry.setPending(runtime.managedVehicles, entry.handle, {
+          writes = 0, timers = 0, callbacks = 0,
+        })
+        productionModules.managedRegistry.markReady(
+          runtime.managedVehicles, entry.handle, entry.targetGeneration,
+          {busy = false, targetConfirmed = true, validated = true}
+        )
+        competitor.managedHandle = entry.handle
+        competitor.currentVehicleId = entry.vehicleId
+        competitor.raceStatus = "Ready"
+        competitor.spawnState = "spawned_and_retained"
+        competitor.placementState = "staged"
+      else
+        competitor.status = "Failed"
+        competitor.validationState = "registry_failed"
+        competitor.warning = "Generated vehicle could not be registered as an isolated managed competitor"
+        accepted = false
+      end
+    end
+    if active.lineupOwnedTarget and not accepted and type(active.vehicleId) == "number"
+      and active.vehicleId ~= active.lineupPlayerVehicleId
+    then
+      productionModules.spawnAdapter.deleteVehicle(active.vehicleId)
+      if competitor then
+        competitor.currentVehicleId = nil
+        competitor.spawnState = "failed_target_removed"
+        competitor.placementState = "unavailable"
+      end
+    end
+    if type(active.lineupPlayerVehicleId) == "number" then
+      local focused, focusReason = adapter.enterVehicle(active.lineupPlayerVehicleId)
+      if not focused then
+        lineup.warnings[#lineup.warnings + 1] =
+          "The original player vehicle was preserved but could not be re-entered automatically."
+        diagnosticsModule.write(runtime.diagnostics, "W", "lineup_player_focus_restore_failed", {
+          playerVehicleId = active.lineupPlayerVehicleId, reason = focusReason,
+        }, true)
+      end
+    end
     if terminalState == "cancelled" then
       productionModules.raceManager.cancel(lineup, "Race generation cancelled by user")
     elseif success then
@@ -807,6 +930,8 @@ end
 local function initialize()
   if runtime.initialized then return end
   runtime.capabilities = adapter.getCapabilities()
+  runtime.conflicts = type(adapter.detectKnownConflicts) == "function"
+    and adapter.detectKnownConflicts() or {}
   local okSettings, stored = adapter.loadSettings()
   if okSettings then runtime.settings = settingsModule.validate(stored) end
   runtime.dna.library.limit = runtime.settings.dnaLibraryLimit
@@ -899,12 +1024,14 @@ local function beginOperation(kind, context)
     return false, adapter.errorValue("stress_active", "Developer stress diagnostics are running")
   end
   if runtime.state.state ~= "idle" then operationState.reset(runtime.state) end
-  local okId, vehicleId = adapter.getCurrentVehicleId()
+  local okId, currentPlayerVehicleId = adapter.getCurrentVehicleId()
+  local vehicleId = context.startWithoutVehicle == true and nil
+    or tonumber(context.targetVehicleId) or currentPlayerVehicleId
   local canStartEmpty = kind == "randomConfig" or kind == "fullRandom"
-  if (not okId or vehicleId == nil) and not canStartEmpty then
+  if ((not okId and context.startWithoutVehicle ~= true) or vehicleId == nil) and not canStartEmpty then
     return false, adapter.errorValue("no_active_vehicle", "Scramble requires an active vehicle. Use Random Car or Spawn Safe Vehicle.")
   end
-  if not okId then vehicleId = nil end
+  if not okId and context.startWithoutVehicle ~= true then vehicleId = nil end
   local seed, generator, seedSource = operationSeed()
   runtime.lastSeed = seed
   local operationTimeout = context.operationTimeout
@@ -970,12 +1097,20 @@ local function beginOperation(kind, context)
     lineupExcludedConfigurations = util.deepCopy(context.lineupExcludedConfigurations),
     lineupRules = util.deepCopy(context.lineupRules),
     lineupAcceptedCompetitors = util.deepCopy(context.lineupAcceptedCompetitors),
+    lineupIndex = context.lineupIndex,
+    lineupSeed = context.lineupSeed,
+    lineupAttempt = context.lineupAttempt,
+    lineupTargetGeneration = context.lineupTargetGeneration,
+    lineupPreviousSettings = util.deepCopy(context.lineupPreviousSettings),
+    lineupPlayerVehicleId = context.lineupPlayerVehicleId or currentPlayerVehicleId,
+    lineupOwnedTarget = context.lineupOwnedTarget == true,
+    lineupStagingPlacement = util.deepCopy(context.lineupStagingPlacement),
     reloadCount = 0,
     partPassesApplied = 0,
     safetyBaseline = nil,
     safetyResult = nil,
     phaseTimings = {},
-    startedWithoutVehicle = vehicleId == nil,
+    startedWithoutVehicle = context.startWithoutVehicle == true or vehicleId == nil,
     batchRecovery = partBatchRecovery.create(),
     treeStabilizer = vehicleStabilizer.create({persistentTreeScans = 2}),
     safeOfficial = context.safeOfficial == true,
@@ -985,6 +1120,9 @@ local function beginOperation(kind, context)
     tuningLedger = tuningCoverageLedger.create(),
     paintLedger = nil,
     convergence = treeConvergence.create(coverageLimits.copyDefaults(), adapter.clock()),
+    baselines = productionModules.baselineSemantics.create(nil),
+    criticalRepairAttempts = {},
+    engineFluidEvidence = nil,
   }
   runtime.active.operationContext = productionModules.operationContext.create(
     runtime.state, token, runtime.time.realMonotonicTime
@@ -1031,6 +1169,7 @@ local function captureOriginal(active)
   if not ok then return false, snapshot end
   vehicleRecovery.rememberReadable(runtime.recovery, snapshot)
   active.operationOriginalSnapshot = util.deepCopy(snapshot)
+  active.baselines.originalPlayerVehicle = util.deepCopy(snapshot)
   local logicalTarget = targetDescriptor(snapshot)
   logicalTarget.vehicleId = nil
   operationState.nextTarget(runtime.state, logicalTarget)
@@ -1184,7 +1323,7 @@ local function enterWaiting(active, phase, afterReload, expected, label, value)
   if not ok then return false, adapter.errorValue("state_error", transitionError) end
   local lifecyclePhase = (
       phase == "parts" or phase == "part_isolation_test"
-      or phase == "part_batch_rollback" or phase == "dna_parts"
+      or phase == "part_batch_rollback" or phase == "dna_parts" or phase == "critical_repair"
     ) and "waiting_parts_reload"
     or (phase == "tuning" or phase == "dna_tuning" or phase == "fuel_guard") and "waiting_tuning_reload"
     or (phase == "rollback") and (
@@ -1194,7 +1333,9 @@ local function enterWaiting(active, phase, afterReload, expected, label, value)
     )
     or "tracking_target_identity"
   setLifecyclePhase(active, lifecyclePhase, active.waitTimeout or WAIT_TIMEOUT, "wait:" .. tostring(phase))
-  if phase == "parts" or phase == "part_isolation_test" or phase == "part_batch_rollback" or phase == "dna_parts" then
+  if phase == "parts" or phase == "part_isolation_test" or phase == "part_batch_rollback"
+    or phase == "dna_parts" or phase == "critical_repair"
+  then
     active.readBackStatus = "parts_reload_pending"
   elseif phase == "tuning" or phase == "dna_tuning" or phase == "fuel_guard" then
     active.readBackStatus = "tuning_reload_pending"
@@ -1268,6 +1409,15 @@ local function enterWaiting(active, phase, afterReload, expected, label, value)
     treeStabilizer = {minimumFrames = 2, minimumScans = 2, pollInterval = 0},
     requirePartsReadable = next(active.wait.parts or {}) ~= nil
       or (createsTarget and afterReload ~= "randomConfig"),
+    requirePowertrainAvailable = active.safetyBaseline ~= nil
+      and (active.safetyBaseline.classification == "drivable_combustion"
+        or active.safetyBaseline.classification == "drivable_electric"
+        or active.safetyBaseline.classification == "drivable_hybrid"),
+    requireEnergyStorageAvailable = active.safetyBaseline ~= nil
+      and (active.safetyBaseline.classification == "drivable_combustion"
+        or active.safetyBaseline.classification == "drivable_electric"
+        or active.safetyBaseline.classification == "drivable_hybrid"),
+    coherentSamples = 2,
   })
   if active.reloadWriteTarget and active.reloadWriteTarget.vehicleId then
     vehicleTargetTracker.addCandidate(active.targetTracker, active.reloadWriteTarget.vehicleId, "reload_origin", {
@@ -1317,6 +1467,13 @@ local function recordReplacementCandidate(active, result, phase)
       correlationEvidence = {strategy = result.correlationStrategy},
     })
   end
+  if active.lineupOwnedTarget and phase == "spawn" and type(result.vehicleId) == "number" then
+    active.lineupFocusSwitchInFlight = true
+    local focused, focusError = adapter.enterVehicle(result.vehicleId)
+    active.lineupFocusSwitchInFlight = false
+    if not focused then return false, focusError end
+    active.lineupFocusedVehicleId = result.vehicleId
+  end
   noteProgress(active, "target", "replacement_candidate_recorded")
   diagnosticsModule.write(runtime.diagnostics, "D", "replacement_candidate_recorded", {
     phase = phase,
@@ -1336,7 +1493,10 @@ local function issueReplacement(active, modelKey, config, phase)
   active.replaceTargetVehicleId = active.reloadWriteTarget and active.reloadWriteTarget.vehicleId
     or active.vehicleId
   active.replaceWriteInFlight = true
-  local ok, result = adapter.replaceVehicle(modelKey, config, active.replaceTargetVehicleId)
+  local ok, result = adapter.replaceVehicle(
+    modelKey, config, active.replaceTargetVehicleId,
+    phase == "spawn" and active.lineupStagingPlacement or nil
+  )
   active.replaceWriteInFlight = false
   if not ok then return false, result end
   local recorded, recordError = recordReplacementCandidate(active, result, phase)
@@ -1515,13 +1675,13 @@ local function beginRollback(failure)
   active.recoveryGeneration = vehicleRecovery.beginRecovery(
     runtime.recovery, runtime.state.operationId, runtime.state.operationGeneration
   )
-  active.recoverySteps = vehicleRecovery.choosePlan(runtime.recovery, {
-    currentTargetSnapshot = active.operationCandidateBase,
-    candidateBaseSnapshot = active.operationCandidateBase,
-    originalSnapshot = active.originalState or active.operationOriginalSnapshot,
-    explicitBaselineSnapshot = runtime.recovery.lastCompletedGoodSnapshot,
-    transient = false,
-  }, runtime.index.allConfigs)
+  local recoveryContext = productionModules.baselineSemantics.recoveryContext(
+    active.baselines or productionModules.baselineSemantics.create(active.operationOriginalSnapshot),
+    active.operationCurrentSnapshot or active.operationCandidateBase
+  )
+  recoveryContext.explicitBaselineSnapshot = runtime.recovery.lastCompletedGoodSnapshot
+  recoveryContext.transient = false
+  active.recoverySteps = vehicleRecovery.choosePlan(runtime.recovery, recoveryContext, runtime.index.allConfigs)
   active.recoveryIndex = 0
   setLifecyclePhase(active, "rolling_back_operation", false, "recovery_started")
   diagnosticsModule.write(runtime.diagnostics, "W", "recovery_pipeline_invalidated", {
@@ -1534,6 +1694,19 @@ local function beginRollback(failure)
     recoveryGeneration = active.recoveryGeneration,
   }, true)
   startNextRecovery(active)
+end
+
+local function safetyFailureFingerprint(failures)
+  local values = {}
+  for _, failure in ipairs(failures or {}) do
+    values[#values + 1] = table.concat({
+      tostring(failure.code or failure.reason or "invalid"),
+      tostring(failure.slotPath or failure.path or failure.role or ""),
+      tostring(failure.partName or failure.candidate or ""),
+    }, ":")
+  end
+  table.sort(values)
+  return table.concat(values, "|")
 end
 
 attemptPartBatchRollback = function(active, reason)
@@ -1617,6 +1790,70 @@ attemptPartBatchRollback = function(active, reason)
   return true, "part_batch_rollback_started"
 end
 
+local function attemptCriticalRepair(active, currentSnapshot, currentScan, failures, continuation)
+  if not active or type(currentScan) ~= "table" then return false, "critical_repair_scan_missing" end
+  local fingerprint = safetyFailureFingerprint(failures)
+  active.criticalRepairAttempts = active.criticalRepairAttempts or {}
+  local attempts = (active.criticalRepairAttempts[fingerprint] or 0) + 1
+  active.criticalRepairAttempts[fingerprint] = attempts
+  if attempts > 1 then return false, "critical_repair_already_attempted" end
+
+  local sourceSnapshot, sourceType
+  if active.batchRecovery and active.batchRecovery.currentBatch
+    and type(active.batchRecovery.currentBatch.treeBefore) == "table"
+  then
+    sourceSnapshot = {partsTree = active.batchRecovery.currentBatch.treeBefore}
+    sourceType = "current_mutation_attempt_start"
+  else
+    sourceSnapshot, sourceType = productionModules.baselineSemantics.repairSource(active.baselines)
+  end
+  if type(sourceSnapshot) ~= "table" or type(sourceSnapshot.partsTree) ~= "table" then
+    return false, "critical_repair_source_missing"
+  end
+  local sourceScan, sourceError = slotScanner.scan(
+    sourceSnapshot.partsTree, currentSnapshot and currentSnapshot.metadataByPath
+  )
+  if not sourceScan then return false, sourceError or "critical_repair_source_scan_failed" end
+  local repairPlan, planReason, planDetails = productionModules.criticalRepair.plan(
+    currentScan, sourceScan, failures, sourceType
+  )
+  if not repairPlan then
+    diagnosticsModule.write(runtime.diagnostics, "E", planReason, {
+      failures = failures, sourceType = sourceType, details = planDetails,
+    }, true)
+    return false, planReason
+  end
+  if runtime.state.state == "waitingForReload" then operationState.transition(runtime.state, "scanning", false) end
+  if runtime.state.state == "scanning" or runtime.state.state == "validating" then
+    operationState.transition(runtime.state, "mutating", false)
+  end
+  active.criticalRepairPlan = util.deepCopy(repairPlan)
+  active.criticalRepairSourceType = sourceType
+  active.criticalRepairContinuation = continuation or "parts"
+  active.criticalRepairOriginPhase = active.phase
+  active.criticalRepairFailures = util.deepCopy(failures)
+  local okWait, waitError = enterWaiting(active, "critical_repair", continuation or "parts", {
+    vehicleId = active.vehicleId,
+    modelKey = active.modelKey or (active.selectedModel and active.selectedModel.key),
+    parts = adapter.flattenChosenParts(repairPlan.tree),
+  }, "Repairing the proven functional dependency", 0.94)
+  if not okWait then return false, waitError.code or "critical_repair_wait_failed" end
+  bindMutationPlan(active, "critical_repair")
+  local guardOk, guardError = guardMutationWrite(active, "critical_repair")
+  if not guardOk then return false, guardError.code or "critical_repair_target_changed" end
+  local applied, applyError = adapter.applyPartsTree(
+    repairPlan.tree, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId
+  )
+  if not applied then return false, applyError.code or "critical_repair_apply_failed" end
+  noteSuccessfulWrite(active, "critical_repair")
+  diagnosticsModule.write(runtime.diagnostics, "W", "critical_dependency_repair_started", {
+    sourceType = sourceType, repairs = repairPlan.repairs,
+    retainedMutationCount = repairPlan.retainedMutationCount,
+    failures = failures,
+  }, true)
+  return true, "critical_repair_started"
+end
+
 local function treeWithDecisions(baseTree, decisions)
   local tree = util.deepCopy(baseTree or {})
   for _, decision in ipairs(decisions or {}) do
@@ -1696,11 +1933,17 @@ end
 
 local function safetyContext(active, snapshot)
   local model = active.selectedModel or snapshot and snapshot.modelMetadata or {}
+  local config = active.selectedConfig or {}
   return {
     type = model.type or model.Type or model.Category or model.category,
     isAutomation = model.isAutomation,
     isTrailer = model.isTrailer,
     isProp = model.isProp,
+    configKey = config.key or config.path,
+    configName = config.name,
+    description = config.description or config.Description,
+    usage = config.usage or config.Usage,
+    intentionalNonDrivable = config.intentionalNonDrivable == true,
   }
 end
 
@@ -1740,10 +1983,18 @@ local function validateFinalVehicle(active)
     heuristicPaths = graph.heuristicPaths,
   }, not result.valid)
   if not result.valid then
+    local repairing, repairReason = attemptCriticalRepair(
+      active, snapshot, scan, result.failures, "validation"
+    )
+    if repairing then
+      return nil, {repairStarted = true, reason = repairReason, safety = util.deepCopy(result)}
+    end
     return false, adapter.errorValue("safety_validation_failed", "Final vehicle safety evidence is invalid", {
       profile = result.profile,
+      classification = result.classification,
       status = result.status,
       failures = result.failures,
+      repairReason = repairReason,
     })
   end
   for _, warning in ipairs(result.warnings or {}) do
@@ -2053,6 +2304,50 @@ production.ensureEnergyStorageFloor = function(active, continuation)
   return true
 end
 
+production.ensureEngineFluidSafety = function(active, continuation, safety)
+  local classification = safety and safety.classification
+    or active.safetyResult and active.safetyResult.classification
+    or active.safetyBaseline and active.safetyBaseline.classification
+  if classification ~= "drivable_combustion" and classification ~= "drivable_hybrid" then
+    active.engineFluidReport = {
+      valid = true, status = "not_applicable", classification = classification,
+      source = "candidate_classification",
+    }
+    return false
+  end
+  local guard = active.engineFluidGuard
+  if guard and guard.complete == true and guard.vehicleId == active.vehicleId
+    and guard.classification == classification
+  then return false end
+  if not guard or guard.vehicleId ~= active.vehicleId or guard.classification ~= classification then
+    active.engineFluidGuard = {
+      requestId = table.concat({
+        tostring(active.operationId), tostring(active.operationGeneration),
+        tostring(active.targetGeneration), tostring(active.vehicleId), "engine-fluid",
+      }, ":"),
+      vehicleId = active.vehicleId,
+      operationId = active.operationId,
+      operationGeneration = active.operationGeneration,
+      targetGeneration = active.targetGeneration,
+      classification = classification,
+      continuation = continuation,
+      attempts = 0,
+      stableSamples = 0,
+      nextRequestAt = runtime.time.realMonotonicTime,
+      complete = false,
+    }
+    active.readBackStatus = "engine_fluid_evidence_pending"
+    setLifecyclePhase(active, "validating_engine_fluids", false, "direct_vehicle_runtime_probe")
+    diagnosticsModule.write(runtime.diagnostics, "D", "engine_fluid_probe_started", {
+      requestId = active.engineFluidGuard.requestId, vehicleId = active.vehicleId,
+      classification = classification, requiredStableSamples = 2, maximumRequests = 8,
+    }, true)
+  else
+    guard.continuation = continuation
+  end
+  return true
+end
+
 production.completeRandomConfig = function(active, verificationDetails)
   if production.ensureEnergyStorageFloor(active, "random_config") then return end
   local message = "Loaded " .. tostring(active.selectedConfig.name)
@@ -2080,6 +2375,8 @@ production.completeRandomConfig = function(active, verificationDetails)
   }
   operationState.transition(runtime.state, "validating", false)
   local dnaSafe, dnaSafety = validateFinalVehicle(active)
+  if dnaSafe == nil and dnaSafety and dnaSafety.repairStarted then return end
+  if dnaSafe and production.ensureEngineFluidSafety(active, "random_config", dnaSafety) then return end
   details.safety = dnaSafe and util.deepCopy(dnaSafety) or nil
   local dnaReady, dnaOrError = false, dnaSafety
   if dnaSafe then dnaReady, dnaOrError = capturePendingDNA(active, details) end
@@ -2097,7 +2394,9 @@ production.completeRandomConfig = function(active, verificationDetails)
     active.selectedModel.key, active.selectedConfig.path or active.selectedConfig.key
   ))
   if dnaReady then pushRecent(runtime.recentCompletedDNA, dnaOrError.id) end
-  details.partial = active.energyGuardUncertain == true or active.nonFatalPartial == true
+  details.engineFluids = util.deepCopy(active.engineFluidReport)
+  details.partial = active.energyGuardUncertain == true or active.engineFluidUncertain == true
+    or active.nonFatalPartial == true
   finishOperation(true, details.partial and "random_config_partial" or "random_config_loaded",
     message, details, details.partial and "partial" or "completed")
 end
@@ -2108,7 +2407,9 @@ local function completeChaos(active)
   active.phase = "validation"
   setLifecyclePhase(active, "final_validation", false, "chaos_final_validation")
   local safe, safetyOrError = validateFinalVehicle(active)
+  if safe == nil and safetyOrError and safetyOrError.repairStarted then return end
   if not safe then failActive(safetyOrError, true, "validation"); return end
+  if production.ensureEngineFluidSafety(active, "chaos", safetyOrError) then return end
   if active.replayGeneration then completeReplayGeneration(active, safetyOrError); return end
   local completionMessage
   if safetyOrError.status == "not_applicable" then
@@ -2163,6 +2464,7 @@ local function completeChaos(active)
     safety = util.deepCopy(safetyOrError),
     warnings = util.deepCopy(active.warnings),
     energyStorages = util.deepCopy(active.energyGuardReport),
+    engineFluids = util.deepCopy(active.engineFluidReport),
     coverage = {
       slots = slotSummary,
       tuning = tuningSummary,
@@ -2180,7 +2482,8 @@ local function completeChaos(active)
     or (paintSummary and paintSummary.paintRejected > 0)
     or details.stageReasons.tuning == "tuning_capability_unavailable"
     or details.stageReasons.paint == "paint_capability_unavailable"
-  local nonFatalPartial = active.energyGuardUncertain == true or active.nonFatalPartial == true
+  local nonFatalPartial = active.energyGuardUncertain == true or active.engineFluidUncertain == true
+    or active.nonFatalPartial == true
   local partial = coveragePartial or nonFatalPartial
   local dnaReady, dnaOrError = capturePendingDNA(active, details)
   details.dnaReady = dnaReady
@@ -2345,6 +2648,47 @@ local function applyTuningPass(active, snapshot, pass, onlyNew)
       end or nil,
     }, active.tuningLedger, pass
   )
+  local fluidValues, fluidProtection = productionModules.engineFluidGuard.protectTuning(
+    values, snapshot.variables, snapshot.values,
+    active.safetyBaseline and active.safetyBaseline.classification
+  )
+  values = fluidValues
+  active.engineFluidTuningProtection = fluidProtection
+  for _, protected in ipairs(fluidProtection.protected or {}) do
+    local matched = false
+    for _, change in ipairs(changes) do
+      if change.name == protected.name then
+        change.selectedValue = protected.restored
+        change.distribution = "critical_engine_fluid_protection"
+        change.engineFluidProtection = util.deepCopy(protected)
+        tuningCoverageLedger.update(ledger, change.identity, "attempted", {
+          eligible = true, requested = protected.restored,
+          tolerance = ledger.entries[change.identity] and ledger.entries[change.identity].tolerance,
+          reason = "critical_engine_fluid_protection",
+        })
+        matched = true
+        break
+      end
+    end
+    if not matched then
+      local variable = tuningPipeline.normalize(
+        protected.name, snapshot.variables[protected.name], snapshot.values
+      )
+      local entry = tuningCoverageLedger.observe(ledger, variable, pass, false)
+      tuningCoverageLedger.update(ledger, entry.identity, "attempted", {
+        eligible = true, requested = protected.restored, tolerance = variable.tolerance,
+        reason = "critical_engine_fluid_protection",
+      })
+      changes[#changes + 1] = {
+        identity = entry.identity, name = protected.name, previousValue = variable.current,
+        selectedValue = protected.restored, minimum = variable.minimum, maximum = variable.maximum,
+        step = variable.step, default = variable.default, category = variable.category,
+        subCategory = variable.subCategory, sourcePart = variable.sourcePart,
+        distribution = "critical_engine_fluid_protection",
+        engineFluidProtection = util.deepCopy(protected),
+      }
+    end
+  end
   productionModules.performanceMetrics.record(
     runtime.performanceTelemetry, "tuningDiscovery", math.max(0, (adapter.clock() - tuningStarted) * 1000)
   )
@@ -2359,6 +2703,7 @@ local function applyTuningPass(active, snapshot, pass, onlyNew)
     metadataChanged = metadataChanged,
     variableDrops = active.tuningLedger.variableDrops,
     coverage = tuningCoverageLedger.summary(active.tuningLedger),
+    engineFluidProtection = util.deepCopy(fluidProtection),
   })
   if #changes == 0 then return false end
   local expected = {}
@@ -2438,19 +2783,6 @@ startTuning = function(active)
     operationState.transition(runtime.state, "painting", false)
     startPaint(active)
   end
-end
-
-local function safetyFailureFingerprint(failures)
-  local values = {}
-  for _, failure in ipairs(failures or {}) do
-    values[#values + 1] = table.concat({
-      tostring(failure.code or failure.reason or "invalid"),
-      tostring(failure.slotPath or failure.path or failure.role or ""),
-      tostring(failure.partName or failure.candidate or ""),
-    }, ":")
-  end
-  table.sort(values)
-  return table.concat(values, "|")
 end
 
 processMutationPass = function(active)
@@ -2566,6 +2898,10 @@ processMutationPass = function(active)
       setProgress("Waiting for a coherent parts tree", 0.44)
       return
     end
+    local repairing, criticalRepairReason = attemptCriticalRepair(
+      active, snapshot, scan, protectionFailures, "parts"
+    )
+    if repairing then return end
     if active.currentBatch then
       local recovering, recoveryReason = attemptPartBatchRollback(active, "critical_state_invalid")
       if recovering then return end
@@ -2575,6 +2911,7 @@ processMutationPass = function(active)
     end
     failActive(adapter.errorValue("critical_state_invalid", "Critical or required parts are missing after reload", {
       failures = protectionFailures,
+      criticalRepairReason = criticalRepairReason,
     }), true, "validation")
     return
   end
@@ -2594,6 +2931,15 @@ processMutationPass = function(active)
     end
     active.currentBatch = nil
     active.batchRecovery.currentBatch = nil
+    local acceptedOk, acceptedSnapshot = adapter.captureCurrentState(
+      "accepted_generated_checkpoint", active.seed, active.vehicleId
+    )
+    if acceptedOk then
+      productionModules.baselineSemantics.acceptGenerated(active.baselines, acceptedSnapshot, {
+        phase = "parts", pass = active.pass, targetGeneration = active.targetGeneration,
+      })
+      active.operationCurrentSnapshot = util.deepCopy(acceptedSnapshot)
+    end
   end
   local eligible = slotScanner.eligiblePaths(active.previousScan, scan, active.deferredPaths, active.mutatedPaths)
   active.previousScan = scan
@@ -2623,6 +2969,10 @@ processMutationPass = function(active)
       return vehicleDNALocks.isSlotLocked(active.lockProfileSnapshot, slot)
     end or nil,
   })
+  local attemptOk, attemptSnapshot = adapter.captureCurrentState(
+    "current_mutation_attempt", active.seed, active.vehicleId
+  )
+  if attemptOk then productionModules.baselineSemantics.beginAttempt(active.baselines, attemptSnapshot, {pass = active.pass}) end
   local planningDuration = math.max(0, adapter.clock() - planningStarted)
   active.mutationPlanningDuration = (active.mutationPlanningDuration or 0) + planningDuration
   productionModules.performanceMetrics.record(runtime.performanceTelemetry, "mutationPlanning", planningDuration * 1000)
@@ -4206,6 +4556,7 @@ runDNATargetPreflight = function(active)
       local transitioned, transitionError = operationState.transition(runtime.state, "validating", false)
       if not transitioned then failActive(adapter.errorValue("state_error", transitionError), true, "dna_replay_verification"); return end
       local safe, safetyOrError = validateFinalVehicle(active)
+      if safe == nil and safetyOrError and safetyOrError.repairStarted then return end
       if not safe then failActive(safetyOrError, true, "dna_replay_verification"); return end
       completeReplayGeneration(active, safetyOrError)
     else
@@ -4379,6 +4730,7 @@ validateDNAFinal = function(active)
     return
   end
   local safe, safetyOrError = validateFinalVehicle(active)
+  if safe == nil and safetyOrError and safetyOrError.repairStarted then return end
   if not safe then
     failActive(adapter.errorValue("dna_validation_failed", "Restored Vehicle DNA failed safety validation", {
       cause = safetyOrError,
@@ -4547,12 +4899,14 @@ local function completeStableTarget(vehicleId, verificationState, verificationDe
     or completedPhase == "undo" or completedPhase == "rollback" or completedPhase == "dna_base_spawn"
     or completedPhase == "dna_parts" or completedPhase == "dna_tuning" or completedPhase == "part_batch_rollback"
     or completedPhase == "part_isolation_test" or completedPhase == "fuel_guard"
+    or completedPhase == "critical_repair"
   then
     active.reloadCount = (active.reloadCount or 0) + 1
   end
 
   if completedPhase == "parts" or completedPhase == "part_isolation_test"
     or completedPhase == "part_batch_rollback" or completedPhase == "dna_parts"
+    or completedPhase == "critical_repair"
   then
     setLifecyclePhase(active, "verifying_parts", false, "parts_reload_verified")
   elseif completedPhase == "tuning" or completedPhase == "dna_tuning" or completedPhase == "fuel_guard" then
@@ -4564,6 +4918,8 @@ local function completeStableTarget(vehicleId, verificationState, verificationDe
     local baseOk, baseSnapshot = adapter.captureCurrentState(active.kind, active.seed, active.vehicleId)
     if baseOk then
       active.operationCandidateBase = util.deepCopy(baseSnapshot)
+      productionModules.baselineSemantics.setSelectedCandidate(active.baselines, baseSnapshot)
+      productionModules.baselineSemantics.setCleanCandidate(active.baselines, baseSnapshot)
       vehicleRecovery.rememberReadable(runtime.recovery, baseSnapshot)
     end
     if afterReload == "randomConfig" then
@@ -4577,6 +4933,61 @@ local function completeStableTarget(vehicleId, verificationState, verificationDe
     active.pass = active.pass + 1
     operationState.transition(runtime.state, "scanning", false)
     processMutationPass(active)
+  elseif completedPhase == "critical_repair" then
+    local repairPlan = active.criticalRepairPlan or {repairs = {}}
+    local repaired = productionModules.criticalRepair.repairedPaths(repairPlan)
+    for index = #active.changes, 1, -1 do
+      if repaired[active.changes[index].slotPath] then table.remove(active.changes, index) end
+    end
+    for _, repair in ipairs(repairPlan.repairs or {}) do
+      active.mutatedPaths[repair.slotPath] = true
+      if active.slotLedger then
+        for _, entry in pairs(active.slotLedger.entries or {}) do
+          if entry.slotPath == repair.slotPath then
+            entry.status = "repaired_critical_dependency"
+            entry.reason = "critical_protection_precedence"
+            entry.rollbackCount = (entry.rollbackCount or 0) + 1
+          end
+        end
+      end
+    end
+    active.currentBatch = nil
+    active.batchRollbackDecisions = nil
+    if active.batchRecovery then active.batchRecovery.currentBatch = nil end
+    active.criticalRepairSucceeded = true
+    active.nonFatalPartial = true
+    active.warnings[#active.warnings + 1] = string.format(
+      "Repaired %d proven functional item(s) while retaining unrelated chaos changes.",
+      #(repairPlan.repairs or {})
+    )
+    local acceptedOk, acceptedSnapshot = adapter.captureCurrentState(
+      "critical_repair_accepted", active.seed, active.vehicleId
+    )
+    if acceptedOk then
+      productionModules.baselineSemantics.acceptGenerated(active.baselines, acceptedSnapshot, {
+        phase = "critical_repair", repairs = util.deepCopy(repairPlan.repairs or {}),
+      })
+      active.operationCurrentSnapshot = util.deepCopy(acceptedSnapshot)
+    end
+    diagnosticsModule.write(runtime.diagnostics, "I", "critical_dependency_repair_completed", {
+      repairs = repairPlan.repairs, sourceType = repairPlan.sourceType,
+      retainedMutationCount = repairPlan.retainedMutationCount,
+    }, true)
+    local continuation = active.criticalRepairContinuation
+    local originPhase = active.criticalRepairOriginPhase
+    active.criticalRepairPlan = nil
+    active.criticalRepairContinuation = nil
+    active.criticalRepairOriginPhase = nil
+    if continuation == "parts" then
+      operationState.transition(runtime.state, "scanning", false)
+      processMutationPass(active)
+    elseif originPhase and originPhase:find("dna", 1, true) then
+      validateDNAFinal(active)
+    elseif active.kind == "randomConfig" then
+      production.completeRandomConfig(active, verificationDetails)
+    else
+      completeChaos(active)
+    end
   elseif completedPhase == "part_isolation_test" then
     local successfulBatch = util.deepCopy(active.currentBatch or {})
     candidateIsolation.record(active.candidateIsolation, true)
@@ -4921,7 +5332,8 @@ local function onVehicleSwitched(oldId, newId, player)
       })
     end
     local accepted, reason = vehicleTargetTracker.onSwitched(
-      active.targetTracker, oldId, newId, player, active.replaceWriteInFlight == true
+      active.targetTracker, oldId, newId, player,
+      active.replaceWriteInFlight == true or active.lineupFocusSwitchInFlight == true
     )
     if not accepted and reason == "stale_callback_rejected" then
       runtime.state.staleCallbackCount = runtime.state.staleCallbackCount + 1
@@ -5081,6 +5493,36 @@ function production.createChaosLineup(options)
   end
   local lineup, reason = productionModules.raceManager.create(options)
   if not lineup then setResult(false, reason, "Chaos Lineup options are invalid"); publishState(); return false end
+  local playerOk, playerVehicleId = adapter.getCurrentVehicleId()
+  if not playerOk or type(playerVehicleId) ~= "number" then
+    setResult(false, "lineup_player_vehicle_required",
+      "Enter a player vehicle before Generate Cars so it can be preserved independently")
+    publishState()
+    return false
+  end
+  local frameOk, frame = productionModules.spawnAdapter.cameraFrame()
+  if not frameOk then
+    setResult(false, "lineup_staging_frame_unavailable", "Safe Race staging positions are unavailable", {reason = frame})
+    publishState()
+    return false
+  end
+  local staging, stagingReason = productionModules.spawnDirector.plan(frame, {
+    mode = "Grid", count = #lineup.competitors, spacing = 8,
+    columns = math.max(1, math.ceil(math.sqrt(#lineup.competitors))),
+    headingMode = "camera", minimumObjectDistance = 3, interval = 0.25,
+  }, productionModules.spawnAdapter.raycastGround, production.occupiedManagedPositions())
+  if not staging then
+    setResult(false, "lineup_staging_unsafe", "Race cars were not generated because safe staging failed", {
+      reason = stagingReason,
+    })
+    publishState()
+    return false
+  end
+  lineup.playerVehicleId = playerVehicleId
+  lineup.stagingPlan = util.deepCopy(staging.placements)
+  for index, competitor in ipairs(lineup.competitors) do
+    competitor.stagingPlacement = util.deepCopy(staging.placements[index])
+  end
   runtime.lineup.current = lineup
   runtime.lineup.pendingNext = true
   local persisted, persistReason = production.persistCurrentLineup()
@@ -5152,14 +5594,26 @@ function production.startNextLineupCompetitor()
     lineupRules = rules,
     lineupAcceptedCompetitors = acceptedCompetitors,
     safeOfficial = competitor.forceOfficialFallback == true,
+    startWithoutVehicle = true,
+    lineupIndex = competitor.index,
+    lineupSeed = runtime.lineup.current.episodeSeed,
+    lineupAttempt = attemptNumber,
+    lineupTargetGeneration = competitor.targetGeneration,
+    lineupPreviousSettings = previousSettings,
+    lineupPlayerVehicleId = runtime.lineup.current.playerVehicleId,
+    lineupOwnedTarget = true,
+    lineupStagingPlacement = util.deepCopy(competitor.stagingPlacement),
   })
   if started and runtime.active then
-    runtime.active.lineupIndex = competitor.index
-    runtime.active.lineupSeed = runtime.lineup.current.episodeSeed
-    runtime.active.lineupAttempt = attemptNumber
-    runtime.active.lineupTargetGeneration = competitor.targetGeneration
-    runtime.active.lineupPreviousSettings = previousSettings
     runtime.active.captureOperation = "fullRandom"
+    competitor.operationId = runtime.active.operationId
+    competitor.generation = runtime.active.operationGeneration
+    competitor.logicalCandidate = {
+      targetGeneration = runtime.active.targetGeneration,
+      stagingPlacement = util.deepCopy(competitor.stagingPlacement),
+    }
+    competitor.spawnState = "spawning_independent_vehicle"
+    competitor.randomizationState = "running"
     competitor.forceOfficialFallback = nil
     productionModules.raceManager.setPhase(
       runtime.lineup.current, competitor.index,
@@ -5295,11 +5749,14 @@ function production.previewLineupSpawn(options)
     for _, competitor in ipairs(lineup.competitors) do
       local accepted = competitor.status == "Ready" or competitor.status == "Ready with warnings"
         or (competitor.status == "Partial" and lineup.acceptPartial)
-      local notAlreadyManaged = competitor.managedHandle == nil and competitor.raceStatus ~= "Loading"
-      if accepted and (options.useNextLineupCompetitor == false or notAlreadyManaged) then
-        competitors[#competitors + 1] = competitor
-      end
+      if accepted then competitors[#competitors + 1] = competitor end
     end
+    table.sort(competitors, function(left, right)
+      local leftPosition = tonumber(left.position) or tonumber(left.index) or 0
+      local rightPosition = tonumber(right.position) or tonumber(right.index) or 0
+      return leftPosition == rightPosition and tostring(left.id) < tostring(right.id)
+        or leftPosition < rightPosition
+    end)
   else
     setResult(false, "lineup_missing", "Create or import a lineup, or choose a Vehicle DNA"); publishState(); return false
   end
@@ -5327,7 +5784,20 @@ function production.previewLineupSpawn(options)
     local okRoad, roadForward = productionModules.spawnAdapter.roadForward(frame.position)
     if okRoad then frame.roadForward = roadForward end
   end
-  local plan, reason = productionModules.spawnDirector.plan(frame, options, productionModules.spawnAdapter.raycastGround, production.occupiedManagedPositions())
+  local occupied = production.occupiedManagedPositions()
+  local selectedIds = {}
+  for _, competitor in ipairs(competitors) do
+    if type(competitor.currentVehicleId) == "number" then
+      selectedIds[tostring(competitor.currentVehicleId)] = true
+    end
+  end
+  local externalOccupied = {}
+  for _, item in ipairs(occupied or {}) do
+    if not selectedIds[tostring(item.vehicleId)] then externalOccupied[#externalOccupied + 1] = item end
+  end
+  local plan, reason = productionModules.spawnDirector.plan(
+    frame, options, productionModules.spawnAdapter.raycastGround, externalOccupied
+  )
   if not plan then setResult(false, reason, "Spawn preview is unsafe: " .. tostring(reason)); publishState(); return false end
   plan.competitors = competitors
   runtime.spawnDirector.preview = plan
@@ -5368,6 +5838,18 @@ function production.configForCompetitor(competitor)
 end
 
 local function verifyPendingSpawn(pending)
+  if pending.placementOnly then
+    local readable, positionOrReason = productionModules.spawnAdapter.objectPosition(pending.vehicleId)
+    if not readable then
+      return positionOrReason == "vehicle_missing" and false or nil, positionOrReason
+    end
+    local expected = pending.placement and pending.placement.position or {}
+    local dx = (tonumber(positionOrReason.x) or 0) - (tonumber(expected.x) or 0)
+    local dy = (tonumber(positionOrReason.y) or 0) - (tonumber(expected.y) or 0)
+    local dz = (tonumber(positionOrReason.z) or 0) - (tonumber(expected.z) or 0)
+    if dx * dx + dy * dy + dz * dz > 2.25 then return nil, "placement_readback_pending" end
+    return true, {vehicleId = pending.vehicleId, position = util.deepCopy(positionOrReason), placementOnly = true}
+  end
   local candidates, seen = {pending.vehicleId}, {[tostring(pending.vehicleId)] = true}
   for _, vehicleId in ipairs(pending.candidateIds or {}) do
     local key = tostring(vehicleId)
@@ -5429,6 +5911,10 @@ function production.processSpawnDirector()
         run.spawned[#run.spawned + 1] = pending.handle
         pending.competitor.raceStatus = "Ready"
         pending.competitor.managedHandle = pending.handle
+        pending.competitor.currentVehicleId = pending.vehicleId
+        pending.competitor.placementState = pending.placementOnly and "placed" or "spawned"
+        local entry = runtime.managedVehicles.entries[pending.handle]
+        if entry and pending.placement then entry.spawnTransform = util.deepCopy(pending.placement) end
       else
         run.failures[#run.failures + 1] = {index = pending.competitor.index, reason = readyReason}
       end
@@ -5441,12 +5927,19 @@ function production.processSpawnDirector()
     end
     if verified == false or adapter.clock() >= pending.deadline then
       local entry = runtime.managedVehicles.entries[pending.handle]
-      if entry then entry.status = "failed"; entry.failureReason = stateOrReason end
+      if entry then
+        entry.status = pending.placementOnly and "ready" or "failed"
+        entry.targetConfirmed = pending.placementOnly == true
+        entry.validated = pending.placementOnly == true
+        entry.pendingWrites, entry.pendingTimers, entry.pendingCallbacks = 0, 0, 0
+        entry.failureReason = stateOrReason
+      end
       run.failures[#run.failures + 1] = {
         index = pending.competitor.index,
         reason = verified == false and stateOrReason or "spawn_readback_timeout",
       }
-      pending.competitor.raceStatus = "DNS"
+      pending.competitor.raceStatus = pending.placementOnly and "Ready" or "DNS"
+      pending.competitor.placementState = pending.placementOnly and "placement_failed" or "spawn_failed"
       run.pendingVerification = nil
       run.cursor = run.cursor + 1
       run.nextAt = adapter.clock() + run.options.interval
@@ -5468,6 +5961,52 @@ function production.processSpawnDirector()
   end
   local config = production.configForCompetitor(competitor)
   local modelKey = competitor.modelKey or competitor.dna and competitor.dna.final and competitor.dna.final.modelKey
+  if competitor.managedHandle then
+    local entry, readyReason = productionModules.managedRegistry.readyEntry(
+      runtime.managedVehicles, competitor.managedHandle
+    )
+    if not entry then
+      run.failures[#run.failures + 1] = {index = competitor.index, reason = readyReason}
+      competitor.placementState = "managed_vehicle_unavailable"
+    else
+      local generation = productionModules.managedRegistry.beginGeneration(
+        runtime.managedVehicles, entry.handle, "placement"
+      )
+      productionModules.managedRegistry.setPending(runtime.managedVehicles, entry.handle, {
+        writes = 1, timers = 1, callbacks = 0,
+      })
+      local placed, placementReason = productionModules.spawnAdapter.placeVehicle(entry.vehicleId, placement)
+      if placed then
+        productionModules.managedRegistry.setPending(runtime.managedVehicles, entry.handle, {
+          writes = 0, timers = 1, callbacks = 0,
+        })
+        run.pendingVerification = {
+          handle = entry.handle, targetGeneration = generation,
+          vehicleId = entry.vehicleId, modelKey = entry.modelKey,
+          config = util.deepCopy(entry.metadata and entry.metadata.config or config),
+          competitor = competitor, placement = util.deepCopy(placement), placementOnly = true,
+          startedAt = adapter.clock(), deadline = adapter.clock() + WAIT_TIMEOUT,
+          candidateIds = {}, candidateSeen = {}, stableScans = 0,
+        }
+        run.nextAt = adapter.clock() + 0.1
+        competitor.raceStatus = "Loading"
+        competitor.placementState = "placing"
+        publishState()
+        return true
+      end
+      entry.status = "ready"
+      entry.targetConfirmed, entry.validated = true, true
+      productionModules.managedRegistry.setPending(runtime.managedVehicles, entry.handle, {
+        writes = 0, timers = 0, callbacks = 0,
+      })
+      run.failures[#run.failures + 1] = {index = competitor.index, reason = placementReason}
+      competitor.placementState = "placement_failed"
+    end
+    run.cursor = run.cursor + 1
+    run.nextAt = adapter.clock() + run.options.interval
+    publishState()
+    return true
+  end
   local ok, vehicleId
   if config and modelKey then ok, vehicleId = productionModules.spawnAdapter.spawnVehicle(modelKey, config, placement)
   else ok, vehicleId = false, "spawn_config_unavailable" end
@@ -5953,6 +6492,139 @@ local function processPaintConfirmation()
   return true
 end
 
+function production.reorderLineupCompetitor(index, newPosition)
+  local lineup = runtime.lineup.current
+  index = math.floor(tonumber(index) or -1)
+  local changed, reason = productionModules.raceManager.reorder(lineup, index, newPosition)
+  if not changed then
+    setResult(false, reason, "Competitor order was not changed")
+    publishState()
+    return false
+  end
+  local persisted, persistReason = production.persistCurrentLineup()
+  setResult(persisted, persisted and "lineup_competitor_reordered" or "lineup_storage_failed",
+    persisted and "Competitor placement order updated" or "The new order could not be checkpointed",
+    {index = index, position = newPosition, reason = persistReason})
+  publishState()
+  return persisted
+end
+
+production.resumeEngineFluidContinuation = function(active, continuation)
+  if not active or active ~= runtime.active or not operationState.isCurrent(runtime.state, active.token) then return end
+  if continuation == "random_config" then
+    production.completeRandomConfig(active)
+  else
+    completeChaos(active)
+  end
+end
+
+production.onFluidProbe = function(evidence)
+  local active = runtime.active
+  local guard = active and active.engineFluidGuard
+  if not guard or guard.complete == true or type(evidence) ~= "table"
+    or evidence.requestId ~= guard.requestId
+    or tonumber(evidence.vehicleId) ~= tonumber(guard.vehicleId)
+    or tostring(evidence.operationId) ~= tostring(guard.operationId)
+    or tostring(evidence.operationGeneration) ~= tostring(guard.operationGeneration)
+    or tostring(evidence.targetGeneration) ~= tostring(guard.targetGeneration)
+  then
+    diagnosticsModule.write(runtime.diagnostics, "W", "stale_engine_fluid_probe_ignored", {
+      received = type(evidence) == "table" and {
+        requestId = evidence.requestId, vehicleId = evidence.vehicleId,
+        operationId = evidence.operationId, operationGeneration = evidence.operationGeneration,
+        targetGeneration = evidence.targetGeneration,
+      } or nil,
+      expected = guard and {
+        requestId = guard.requestId, vehicleId = guard.vehicleId,
+        operationId = guard.operationId, operationGeneration = guard.operationGeneration,
+        targetGeneration = guard.targetGeneration,
+      } or nil,
+    }, true)
+    return false
+  end
+  local signature = productionModules.engineFluidGuard.signature(evidence)
+  guard.stableSamples = signature == guard.lastSignature and guard.stableSamples + 1 or 1
+  guard.lastSignature = signature
+  guard.lastEvidence = util.deepCopy(evidence)
+  guard.awaitingResponse = false
+  active.engineFluidEvidence = util.deepCopy(evidence)
+  if guard.stableSamples < 2 then
+    guard.nextRequestAt = runtime.time.realMonotonicTime
+    return true
+  end
+  local assessment = productionModules.engineFluidGuard.assess(evidence, guard.classification)
+  active.engineFluidReport = assessment
+  if assessment.valid == false then
+    guard.failurePending = adapter.errorValue(
+      "engine_fluid_safety_failed",
+      "Direct vehicle evidence found an unsafe engine-fluid state; no unverified runtime setter was used",
+      {assessment = util.deepCopy(assessment), tuningProtection = util.deepCopy(active.engineFluidTuningProtection)}
+    )
+  else
+    guard.complete = true
+    guard.resumePending = true
+    active.readBackStatus = assessment.status == "safe" and "engine_fluid_safe" or "engine_fluid_uncertain"
+    if assessment.status ~= "safe" then
+      active.engineFluidUncertain = true
+      active.nonFatalPartial = true
+      active.warnings[#active.warnings + 1] =
+        "Engine-fluid runtime evidence was incomplete; this result is preserved without a fluid-safety claim."
+    end
+  end
+  diagnosticsModule.write(runtime.diagnostics,
+    assessment.valid == false and "E" or assessment.status == "safe" and "I" or "W",
+    "engine_fluid_probe_completed", {
+      stableSamples = guard.stableSamples, attempts = guard.attempts,
+      assessment = util.deepCopy(assessment),
+      tuningProtection = util.deepCopy(active.engineFluidTuningProtection),
+    }, assessment.status ~= "safe")
+  return true
+end
+
+production.processEngineFluidGuard = function()
+  local active = runtime.active
+  local guard = active and active.engineFluidGuard
+  if not guard or guard.complete == true and not guard.resumePending then return false end
+  if guard.failurePending then
+    local failure = guard.failurePending
+    guard.failurePending = nil
+    failActive(failure, true, "engine_fluid_validation")
+    return true
+  end
+  if guard.resumePending then
+    guard.resumePending = false
+    production.resumeEngineFluidContinuation(active, guard.continuation)
+    return true
+  end
+  local now = runtime.time.realMonotonicTime
+  if now < (guard.nextRequestAt or 0) then return true end
+  if guard.attempts >= 8 then
+    guard.complete = true
+    guard.resumePending = true
+    active.engineFluidUncertain = true
+    active.nonFatalPartial = true
+    active.engineFluidReport = {
+      valid = nil, status = "unavailable", classification = guard.classification,
+      source = "bounded_vehicle_lua_probe", attempts = guard.attempts,
+      lastEvidence = util.deepCopy(guard.lastEvidence), lastError = util.deepCopy(guard.lastError),
+    }
+    active.warnings[#active.warnings + 1] =
+      "Engine-fluid runtime evidence was unavailable after eight bounded requests; no fluid-safety claim is made."
+    diagnosticsModule.write(runtime.diagnostics, "W", "engine_fluid_probe_unavailable",
+      util.deepCopy(active.engineFluidReport), true)
+    return true
+  end
+  guard.attempts = guard.attempts + 1
+  local queued, result = adapter.requestFluidEvidence(guard.vehicleId, guard.requestId, {
+    operationId = guard.operationId, operationGeneration = guard.operationGeneration,
+    targetGeneration = guard.targetGeneration,
+  })
+  guard.awaitingResponse = queued == true
+  if not queued then guard.lastError = util.deepCopy(result) end
+  guard.nextRequestAt = now + 0.25
+  return true
+end
+
 local function onUpdate(dtReal, dtSim, dtRaw)
   local updateStarted = adapter.clock()
   local pauseKnown, paused = false, nil
@@ -5961,6 +6633,7 @@ local function onUpdate(dtReal, dtSim, dtRaw)
     if okPause then pauseKnown, paused = true, pauseValue end
   end
   timeSource.sample(runtime.time, dtReal, dtSim, dtRaw, pauseKnown and paused or nil, adapter.clock())
+  local fluidWorkHandled = production.processEngineFluidGuard()
   local activeAtFrameStart = runtime.active
   if activeAtFrameStart and activeAtFrameStart.progressWatchdog then
     progressWatchdog.observePause(
@@ -6001,7 +6674,7 @@ local function onUpdate(dtReal, dtSim, dtRaw)
   end
 
   local targetTrackingStarted = adapter.clock()
-  local phaseWorkHandled = processTargetTracking()
+  local phaseWorkHandled = fluidWorkHandled or processTargetTracking()
   productionModules.performanceMetrics.record(
     runtime.performanceTelemetry, "targetTracking", math.max(0, (adapter.clock() - targetTrackingStarted) * 1000)
   )
@@ -6094,7 +6767,7 @@ local function onUpdate(dtReal, dtSim, dtRaw)
   productionModules.performanceMetrics.record(runtime.performanceTelemetry, "onUpdate", math.max(0, (adapter.clock() - updateStarted) * 1000))
 end
 
-local function onExtensionLoaded()
+production.onExtensionLoaded = function()
   initialize()
   rebuildIndex()
   publishState()
@@ -6131,6 +6804,7 @@ M.cancelCurrentOperation = cancelCurrentOperation
 M.getDeveloperStressState = getDeveloperStressState
 M.createChaosLineup = production.createChaosLineup
 M.renameLineupCompetitor = production.renameLineupCompetitor
+M.reorderLineupCompetitor = production.reorderLineupCompetitor
 M.resolveLineupFailure = production.resolveLineupFailure
 M.exportChaosLineup = production.exportChaosLineup
 M.importChaosLineup = production.importChaosLineup
@@ -6178,10 +6852,11 @@ M.replayVehicleDNAGeneration = replayVehicleDNAGeneration
 M.pureSeedReplayVehicleDNA = pureSeedReplayVehicleDNA
 M.mutateVehicleDNA = mutateVehicleDNA
 M.restoreVehicleDNA = restoreVehicleDNA
-M.onExtensionLoaded = onExtensionLoaded
+M.onExtensionLoaded = production.onExtensionLoaded
 M.onVehicleSpawned = onVehicleSpawned
 M.onVehicleSwitched = onVehicleSwitched
 M.onVehicleDestroyed = onVehicleDestroyed
+M.onFluidProbe = production.onFluidProbe
 M.onClientEndMission = onClientEndMission
 M.onModActivated = onModStateChanged
 M.onModDeactivated = onModStateChanged

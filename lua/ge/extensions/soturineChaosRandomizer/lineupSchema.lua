@@ -36,10 +36,25 @@ local function validate(lineup, options)
   local minimum = options.allowOne == true and 1 or M.MIN_COMPETITORS
   if #lineup.competitors < minimum or #lineup.competitors > M.MAX_COMPETITORS then return false, "lineup_competitor_limit" end
   local seen = {}
+  local seenPositions = {}
+  local seenVehicleIds = {}
   for index, competitor in ipairs(lineup.competitors) do
     if type(competitor) ~= "table" or tonumber(competitor.index) ~= index then return false, "lineup_competitor_index_invalid" end
     if not text(competitor.id, 128) or seen[competitor.id] then return false, "lineup_competitor_id_invalid" end
     seen[competitor.id] = true
+    if competitor.competitorId ~= nil and competitor.competitorId ~= competitor.id then
+      return false, "lineup_competitor_identity_changed"
+    end
+    if competitor.requestedIndex ~= nil and tonumber(competitor.requestedIndex) ~= index then
+      return false, "lineup_requested_index_invalid"
+    end
+    if competitor.currentVehicleId ~= nil then
+      local vehicleId = tonumber(competitor.currentVehicleId)
+      if not util.isFinite(vehicleId) or vehicleId < 0 or vehicleId ~= math.floor(vehicleId)
+        or seenVehicleIds[vehicleId]
+      then return false, "lineup_vehicle_identity_invalid" end
+      seenVehicleIds[vehicleId] = true
+    end
     if not text(competitor.seed, 64) or not text(competitor.name, 80) or not STATUSES[competitor.status] then
       return false, "lineup_competitor_invalid"
     end
@@ -50,7 +65,13 @@ local function validate(lineup, options)
     if competitor.compatibility ~= nil and type(competitor.compatibility) ~= "table" then return false, "lineup_compatibility_invalid" end
     if competitor.traits ~= nil and type(competitor.traits) ~= "table" then return false, "lineup_traits_invalid" end
     if competitor.raceStatus ~= nil and not RACE_STATUSES[competitor.raceStatus] then return false, "lineup_race_status_invalid" end
-    if competitor.position ~= nil and (tonumber(competitor.position) ~= index or index < 1) then return false, "lineup_position_invalid" end
+    if competitor.position ~= nil then
+      local position = tonumber(competitor.position)
+      if not util.isFinite(position) or position < 1 or position > #lineup.competitors
+        or position ~= math.floor(position) or seenPositions[position]
+      then return false, "lineup_position_invalid" end
+      seenPositions[position] = true
+    end
     if competitor.targetGeneration ~= nil and (not util.isFinite(tonumber(competitor.targetGeneration)) or tonumber(competitor.targetGeneration) < 0) then return false, "lineup_generation_invalid" end
     if competitor.vehicleDNAId ~= nil and not text(competitor.vehicleDNAId, 128) then return false, "lineup_dna_identity_invalid" end
     if competitor.notes ~= nil and (type(competitor.notes) ~= "string" or #competitor.notes > 2048) then return false, "lineup_notes_invalid" end
@@ -88,6 +109,14 @@ local function sanitizedImport(lineup)
       coverage = util.deepCopy(competitor.coverage), generationStatus = competitor.generationStatus,
       thumbnail = util.deepCopy(competitor.thumbnail), notes = competitor.notes,
       targetGeneration = competitor.targetGeneration,
+      competitorId = competitor.competitorId or competitor.id,
+      requestedIndex = competitor.requestedIndex or competitor.index,
+      operationId = competitor.operationId, generation = competitor.generation,
+      logicalCandidate = util.deepCopy(competitor.logicalCandidate),
+      currentVehicleId = competitor.currentVehicleId,
+      spawnState = competitor.spawnState, randomizationState = competitor.randomizationState,
+      validationState = competitor.validationState, placementState = competitor.placementState,
+      terminalResult = util.deepCopy(competitor.terminalResult),
       compatibility = {status = "requires_local_recompute"},
     }
   end

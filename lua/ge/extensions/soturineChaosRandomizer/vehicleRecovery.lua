@@ -157,13 +157,16 @@ local function choosePlan(state, context, registry)
     return true
   end
 
-  if context.transient == true then
-    add("continue_current_target", 1, context.currentTargetSnapshot)
-  end
-  add("local_rollback", 2, context.candidateBaseSnapshot)
-  add("abort_candidate", 3, context.originalSnapshot)
+  if context.transient == true then add("continue_current_target", 1, context.currentTargetSnapshot) end
+  -- A generated state that already passed coherent safety validation is the
+  -- first whole-snapshot recovery source. The clean candidate and original
+  -- player vehicle have distinct meanings and may never alias this role.
+  add("last_accepted_generated_result", 2, context.lastAcceptedGeneratedSnapshot)
+  add("clean_candidate_baseline", 3, context.candidateBaseSnapshot)
+  add("selected_random_candidate", 4, context.selectedCandidateSnapshot)
+  add("original_player_vehicle", 5, context.originalSnapshot)
   local completedGood = state.lastCompletedGoodSnapshot or state.lastKnownGood
-  add("explicit_safe_baseline", 4, context.explicitBaselineSnapshot or completedGood)
+  add("explicit_safe_baseline", 6, context.explicitBaselineSnapshot or completedGood)
   local official = {}
   for _, config in ipairs(registry or {}) do
     if config.sourceKind == "official" and config.isProp ~= true and config.isTrailer ~= true
@@ -184,11 +187,11 @@ local function choosePlan(state, context, registry)
   end)
   for index = 1, math.min(5, #official) do
     local config = official[index].config
-    add("safe_official_fallback", 5, {
+    add("safe_official_fallback", 7, {
       modelKey = config.modelKey, selectedConfiguration = config.path or config.key, config = config,
     }, {rank = index, score = official[index].score})
   end
-  steps[#steps + 1] = {kind = "hard_failure", tier = 6, recoveryGeneration = state.recoveryGeneration}
+  steps[#steps + 1] = {kind = "hard_failure", tier = 8, recoveryGeneration = state.recoveryGeneration}
   return steps
 end
 

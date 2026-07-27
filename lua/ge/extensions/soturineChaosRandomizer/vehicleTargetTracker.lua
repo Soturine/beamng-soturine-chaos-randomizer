@@ -1,4 +1,5 @@
 local configVerification = require("ge/extensions/soturineChaosRandomizer/configVerification")
+local coherentStateGate = require("ge/extensions/soturineChaosRandomizer/coherentStateGate")
 local util = require("ge/extensions/soturineChaosRandomizer/util")
 local vehicleStabilizer = require("ge/extensions/soturineChaosRandomizer/vehicleStabilizer")
 
@@ -65,7 +66,7 @@ end
 local function create(options)
   options = type(options) == "table" and options or {}
   local now = tonumber(options.startedAt) or 0
-  return {
+  local tracker = {
     token = options.token,
     operationId = options.operationId,
     operationGeneration = options.operationGeneration,
@@ -115,6 +116,22 @@ local function create(options)
       minimumFrames = 2, minimumScans = 2, pollInterval = 0,
     }),
   }
+  tracker.coherentGate = coherentStateGate.create({
+    operationId = tracker.operationId,
+    operationGeneration = tracker.operationGeneration,
+    targetGeneration = tracker.targetGeneration,
+    logicalTarget = {
+      modelKey = tracker.expectedModelKey,
+      configKey = tracker.expectedConfigKey,
+      configIdentity = util.deepCopy(tracker.expectedConfigIdentity),
+    },
+    requireParts = tracker.requirePartsReadable or next(tracker.expectedParts or {}) ~= nil,
+    requireTuning = next(tracker.expectedTuning or {}) ~= nil,
+    requirePowertrain = options.requirePowertrainAvailable == true,
+    requireEnergyStorage = options.requireEnergyStorageAvailable == true,
+    minimumSamples = options.coherentSamples or 2,
+  })
+  return tracker
 end
 
 local function addCandidate(tracker, vehicleId, source, details)
@@ -179,7 +196,10 @@ local function onSwitched(tracker, oldId, newId, player, replaceWriteInFlight)
   tracker.callbackSeen = true
   tracker.switchCallbackSeen = true
   local priorCandidateId = tracker.currentCandidateId
-  addCandidate(tracker, newId, replaceWriteInFlight and "switch_during_replace" or "player_switch")
+  local source = replaceWriteInFlight and "switch_during_replace"
+    or oldId == tracker.returnedVehicleId and "switch_from_returned_target"
+    or "player_switch"
+  addCandidate(tracker, newId, source, {oldId = oldId, newId = newId})
   addEvent(tracker, "switch", {oldId = oldId, newId = newId, player = player})
   if not replaceWriteInFlight and newId ~= priorCandidateId and newId ~= tracker.returnedVehicleId then
     tracker.suspectSwitchId = newId
@@ -205,6 +225,17 @@ end
 
 local function verifyIdentity(tracker, state)
   if tracker.destroyed[tostring(state.vehicleId)] then return false, "candidate_destroyed" end
+  if type(tracker.returnedVehicleId) == "number"
+    and not tracker.destroyed[tostring(tracker.returnedVehicleId)]
+  then
+    local candidate = tracker.candidateSeen[tostring(state.vehicleId)]
+    local sources = candidate and candidate.sources or {}
+    local correlated = state.vehicleId == tracker.returnedVehicleId
+      or sources.switch_during_replace == true
+      or sources.switch_from_returned_target == true
+      or sources.spawn_callback == true
+    if not correlated then return false, "target_concrete_id_mismatch" end
+  end
   if tracker.expectedModelKey and state.modelKey ~= tracker.expectedModelKey then
     return false, "target_model_mismatch"
   end
@@ -329,7 +360,8 @@ local function observe(tracker, token, state, now, context)
   if not expected then
     tracker.rejected[tostring(state.vehicleId)] = reason
     if tracker.suspectSwitchId == state.vehicleId
-      and (reason == "target_model_mismatch" or reason == "target_config_mismatch")
+      and (reason == "target_model_mismatch" or reason == "target_config_mismatch"
+        or reason == "target_concrete_id_mismatch")
     then
       tracker.status = "external_vehicle_switch"
       return "cancelled", "external_vehicle_switch", {vehicleId = state.vehicleId, reason = reason}
@@ -348,40 +380,30 @@ local function observe(tracker, token, state, now, context)
     return "waiting", reason, verificationDetails
   end
 
-  if deadlineReached then
-    tracker.finalReadAttempted = true
-    local finalVerified, finalReason, finalDetails, finalState = verifyExpected(tracker, state)
-    local coherent = state.playerIndex == 0 and state.coherentTargetRead == true
-    if not finalVerified or not coherent then
-      tracker.status = "operation_deadline_exceeded"
-      tracker.lastReason = tracker.status
-      return "failed", tracker.status, {
-        finalReadReason = finalVerified and "candidate_read_incoherent" or finalReason,
-        verification = finalDetails,
-      }
-    end
-    tracker.finalReadAccepted = true
-    tracker.identityConfirmed = true
-    tracker.identityReported = true
-    tracker.identityConfirmedAt = now
-    tracker.identityStatus = "target_identity_confirmed"
-    tracker.treeStatus = (next(tracker.expectedParts or {}) ~= nil or tracker.requirePartsReadable)
-      and "parts_tree_converged" or "not_required"
-    finalState = finalState or resolvedState or state
-    tracker.currentCandidateId = finalState.vehicleId
-    tracker.lastState = util.deepCopy(finalState)
-    tracker.status = "vehicle_target_stable"
-    tracker.lastReason = "final_read_accepted"
-    return "stable", "final_read_accepted", {
-      vehicleId = finalState.vehicleId, state = util.deepCopy(finalState), verification = finalDetails,
-      identityConfirmed = true, treeStatus = tracker.treeStatus, finalReadAccepted = true,
-    }
-  end
-
   tracker.suspectSwitchId = nil
   state = resolvedState or state
   tracker.currentCandidateId = state.vehicleId
   tracker.lastState = util.deepCopy(state)
+  local coherent, coherentReason = coherentStateGate.observe(tracker.coherentGate, state, context)
+  tracker.lastCoherent, tracker.lastCoherentReason = coherent, coherentReason
+  local finalExpected, finalReason, finalDetails = verifyExpected(tracker, state)
+  if deadlineReached and not finalExpected then
+    tracker.finalReadAttempted = true
+    tracker.status = "operation_deadline_exceeded"
+    tracker.lastReason = tracker.status
+    return "failed", tracker.status, {
+      finalReadReason = finalReason, verification = finalDetails,
+      coherentState = coherentStateGate.summary(tracker.coherentGate),
+    }
+  elseif deadlineReached and not coherent then
+    tracker.finalReadAttempted = true
+    tracker.status = "operation_deadline_exceeded"
+    tracker.lastReason = tracker.status
+    return "failed", tracker.status, {
+      finalReadReason = "coherent_state_did_not_stabilize",
+      coherentState = coherentStateGate.summary(tracker.coherentGate),
+    }
+  end
   if not tracker.identityConfirmed then
     local stable, stableReason = vehicleStabilizer.observe(
       tracker.stabilizer, state.vehicleId, stateFingerprint(state), true
@@ -427,6 +449,15 @@ local function observe(tracker, token, state, now, context)
     tracker.treeStatus = "not_required"
   end
 
+  if not coherent then
+    tracker.status = "coherent_state_stabilizing"
+    tracker.lastReason = coherentReason
+    return "waiting", coherentReason, {
+      identityConfirmed = true, treeStatus = tracker.treeStatus,
+      coherentState = coherentStateGate.summary(tracker.coherentGate),
+    }
+  end
+
   tracker.status = "vehicle_target_stable"
   tracker.lastReason = tracker.status
   return "stable", "vehicle_target_stable", {
@@ -470,6 +501,7 @@ local function summary(tracker, now)
   metrics.lastReason = tracker.lastReason
   metrics.finalReadAttempted = tracker.finalReadAttempted
   metrics.finalReadAccepted = tracker.finalReadAccepted
+  metrics.coherentState = coherentStateGate.summary(tracker.coherentGate)
   metrics.expectedModelKey = tracker.expectedModelKey
   metrics.expectedConfigKey = tracker.expectedConfigKey
   metrics.candidateChain = util.deepCopy(tracker.candidates)

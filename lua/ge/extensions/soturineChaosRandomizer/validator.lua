@@ -3,6 +3,7 @@ local util = require("ge/extensions/soturineChaosRandomizer/util")
 local M = {}
 
 local ROLE_ORDER = {
+  "structure",
   "energy_electric",
   "energy_fuel",
   "energy_other",
@@ -52,6 +53,9 @@ local ENERGY_TYPES = {
 }
 
 local FALLBACK_TOKENS = {
+  body = "structure",
+  frame = "structure",
+  unibody = "structure",
   energy = "energy_other",
   battery = "energy_electric",
   fuel = "energy_fuel",
@@ -137,6 +141,14 @@ local function evidenceFromPart(part)
   end
   if type(part.hydros) == "table" then add("steering", "part.hydros", "present") end
   if type(part.controller) == "table" then add("control", "part.controller", "present") end
+
+  -- Structural evidence must come from the loaded part, not merely its name.
+  -- A part that owns both nodes and beams/flexbodies contributes to the
+  -- vehicle's physical structure. Name tokens remain a lower-confidence
+  -- fallback for content whose JBeam metadata cannot be read.
+  if type(part.nodes) == "table"
+    and (type(part.beams) == "table" or type(part.flexbodies) == "table")
+  then add("structure", "part.nodes_and_structure", "present") end
 
   return {roles = roleList(roles), evidence = evidence, heuristic = false}
 end
@@ -235,6 +247,45 @@ local function explicitProfile(context, roles)
   return "unknown", "insufficient_metadata"
 end
 
+local function candidateClassification(context, roles, graph)
+  context = type(context) == "table" and context or {}
+  roles = type(roles) == "table" and roles or {}
+  local itemType = util.normalizeText(context.type or context.Type or context.category or context.Category)
+  local configText = util.normalizeText(table.concat({
+    tostring(context.configKey or ""), tostring(context.configName or ""),
+    tostring(context.description or ""), tostring(context.usage or ""),
+  }, " "))
+  if context.isProp == true or itemType == "prop" or itemType == "props" then return "prop", "explicit_type" end
+  if context.isTrailer == true or itemType == "trailer" then return "trailer", "explicit_type" end
+  if context.intentionalNonDrivable == true
+    or configText:find("rolling shell", 1, true)
+    or configText:find("bare chassis", 1, true)
+    or configText:find("display shell", 1, true)
+  then return "intentional_non_drivable_shell", "explicit_configuration_metadata" end
+  if roles.propulsion_combustion and (roles.propulsion_electric or roles.energy_electric) then
+    return "drivable_hybrid", "loaded_part_metadata"
+  end
+  if roles.propulsion_combustion then return "drivable_combustion", "loaded_part_metadata" end
+  if roles.propulsion_electric then return "drivable_electric", "loaded_part_metadata" end
+  if graph and graph.slotCount > 0 and (itemType == "car" or itemType == "truck" or itemType == "bus") then
+    return "unknown", "road_type_without_propulsion_evidence"
+  end
+  return "unknown", "insufficient_metadata"
+end
+
+local FUNCTIONAL_CORE_ROLES = roleSet({
+  "structure", "energy_electric", "energy_fuel", "propulsion_electric",
+  "propulsion_combustion", "power_path", "transmission", "transfer",
+  "differential", "driven_axle", "steering", "hub", "wheel",
+  "tire_contact", "braking", "control",
+})
+
+local function nodeHasFunctionalCore(node)
+  if type(node) ~= "table" or node.heuristic == true then return false end
+  for _, role in ipairs(node.roles or {}) do if FUNCTIONAL_CORE_ROLES[role] then return true end end
+  return false
+end
+
 local function buildGraph(scan, context, options)
   options = type(options) == "table" and options or {}
   local graph = {
@@ -248,6 +299,7 @@ local function buildGraph(scan, context, options)
     slotCount = 0,
     candidateCount = 0,
     maxDepth = 0,
+    roleEvidence = {},
   }
   for _, slot in ipairs(type(scan) == "table" and scan.slots or {}) do
     local selected = selectedEvidence(slot)
@@ -281,6 +333,9 @@ local function buildGraph(scan, context, options)
     end
     for _, role in ipairs(selected.roles) do
       graph.roles[role] = (graph.roles[role] or 0) + 1
+      graph.roleEvidence[role] = graph.roleEvidence[role] or {structural = 0, heuristic = 0}
+      if selected.heuristic then graph.roleEvidence[role].heuristic = graph.roleEvidence[role].heuristic + 1
+      else graph.roleEvidence[role].structural = graph.roleEvidence[role].structural + 1 end
       if slot.required or slot.coreSlot then graph.requiredRoles[role] = (graph.requiredRoles[role] or 0) + 1 end
     end
     if selected.heuristic then graph.heuristicPaths[#graph.heuristicPaths + 1] = slot.path end
@@ -288,6 +343,7 @@ local function buildGraph(scan, context, options)
   local rolePresence = {}
   for role, count in pairs(graph.roles) do rolePresence[role] = count > 0 end
   graph.profile, graph.profileStrategy = explicitProfile(context, rolePresence)
+  graph.classification, graph.classificationStrategy = candidateClassification(context, rolePresence, graph)
   return graph
 end
 
@@ -322,23 +378,58 @@ local function validateGraph(graph, baseline, protectCriticalParts)
     end
   end
   if protectCriticalParts then
+    -- Protect exact, evidence-backed functional paths before comparing coarse
+    -- aggregate roles. This gives repair code a concrete slot/dependency chain
+    -- and prevents Allow Missing Parts from winning over critical protection.
+    for _, path in ipairs(util.sortedKeys(baseline.nodes or {})) do
+      local expectedNode = baseline.nodes[path]
+      local currentNode = graph.nodes and graph.nodes[path] or nil
+      local pathRequired = expectedNode.coreSlot == true or expectedNode.required == true
+        or expectedNode.declaredRequired == true or nodeHasFunctionalCore(expectedNode)
+      if pathRequired and type(expectedNode.part) == "string" and expectedNode.part ~= "" then
+        if not currentNode or type(currentNode.part) ~= "string" or currentNode.part == "" then
+          failures[#failures + 1] = {
+            slotPath = path, reason = "protected_functional_slot_missing",
+            expectedPart = expectedNode.part, roles = util.deepCopy(expectedNode.roles or {}),
+            dependencyPath = expectedNode.parentPath,
+          }
+        elseif nodeHasFunctionalCore(expectedNode) then
+          local contains, missingRole = rolesContain(currentNode.roles, expectedNode.roles)
+          if not contains then
+            failures[#failures + 1] = {
+              slotPath = path, reason = "protected_functional_evidence_lost:" .. tostring(missingRole),
+              role = missingRole, expectedPart = expectedNode.part, currentPart = currentNode.part,
+              dependencyPath = expectedNode.parentPath,
+            }
+          end
+        end
+      end
+    end
     for _, role in ipairs(applicableRoles(baseline.profile)) do
       local expected = baseline.roles and baseline.roles[role] or 0
-      if expected > 0 and (graph.roles and graph.roles[role] or 0) <= 0 then
+      local structural = baseline.roleEvidence and baseline.roleEvidence[role]
+        and baseline.roleEvidence[role].structural or 0
+      local legacyExplicitEvidence = baseline.roleEvidence == nil
+      if expected > 0 and (structural > 0 or legacyExplicitEvidence)
+        and (graph.roles and graph.roles[role] or 0) <= 0
+      then
         failures[#failures + 1] = {reason = "baseline_safety_role_lost:" .. role, role = role}
       end
     end
   end
   if #failures > 0 then
-    return {status = "unsafe", valid = false, profile = baseline.profile, failures = failures,
+    return {status = "unsafe", valid = false, profile = baseline.profile,
+      classification = baseline.classification or graph.classification, failures = failures,
       warnings = warnings, missingParts = util.deepCopy(graph.missingParts or {})}
   end
   if baseline.profile == "prop" then
-    return {status = "not_applicable", valid = true, profile = baseline.profile, failures = {},
+    return {status = "not_applicable", valid = true, profile = baseline.profile,
+      classification = baseline.classification or graph.classification, failures = {},
       warnings = warnings, missingParts = util.deepCopy(graph.missingParts or {})}
   end
   if baseline.profile == "unknown" or baseline.profile == "special" then
-    return {status = "uncertain", valid = true, profile = baseline.profile, failures = {}, reason = "insufficient_profile_evidence",
+    return {status = "uncertain", valid = true, profile = baseline.profile,
+      classification = baseline.classification or graph.classification, failures = {}, reason = "insufficient_profile_evidence",
       warnings = warnings, missingParts = util.deepCopy(graph.missingParts or {})}
   end
   if baseline.profile == "standard_road" or baseline.profile == "automation" then
@@ -347,7 +438,8 @@ local function validateGraph(graph, baseline, protectCriticalParts)
       applicableEvidence = applicableEvidence + (baseline.roles and baseline.roles[role] or 0)
     end
     if applicableEvidence == 0 then
-      return {status = "uncertain", valid = true, profile = baseline.profile, failures = {}, reason = "insufficient_functional_evidence",
+      return {status = "uncertain", valid = true, profile = baseline.profile,
+        classification = baseline.classification or graph.classification, failures = {}, reason = "insufficient_functional_evidence",
         warnings = warnings, missingParts = util.deepCopy(graph.missingParts or {})}
     end
   end
@@ -356,7 +448,8 @@ local function validateGraph(graph, baseline, protectCriticalParts)
     if warning.reason == "mod_metadata_required_unproven" then hasUnprovenMetadata = true; break end
   end
   return {status = hasUnprovenMetadata and "uncertain" or "safe", valid = true,
-    profile = baseline.profile, failures = {}, warnings = warnings,
+    profile = baseline.profile, classification = baseline.classification or graph.classification,
+    failures = {}, warnings = warnings,
     reason = hasUnprovenMetadata and "mod_metadata_incomplete" or nil,
     missingParts = util.deepCopy(graph.missingParts or {})}
 end
@@ -377,5 +470,7 @@ M.protectedSelection = protectedSelection
 M.validateProtectedScan = validateProtectedScan
 M.buildGraph = buildGraph
 M.validateGraph = validateGraph
+M.candidateClassification = candidateClassification
+M.nodeHasFunctionalCore = nodeHasFunctionalCore
 
 return M

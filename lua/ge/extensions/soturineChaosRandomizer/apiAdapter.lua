@@ -338,7 +338,82 @@ local function vehicleObjectId(vehicle)
   return nil
 end
 
-local function replaceVehicle(modelKey, config, targetVehicleId)
+local function enterVehicle(vehicleId)
+  if type(vehicleId) ~= "number" or type(getObjectByID) ~= "function"
+    or type(be) ~= "userdata" and type(be) ~= "table"
+  then return false, errorValue("vehicle_focus_unavailable", "The requested vehicle cannot become the temporary player target") end
+  local okObject, vehicle = pcall(getObjectByID, vehicleId)
+  if not okObject or vehicle == nil then
+    return false, errorValue("vehicle_focus_target_missing", "The requested temporary player target no longer exists", {vehicleId = vehicleId})
+  end
+  local ok = pcall(function() be:enterVehicle(0, vehicle) end)
+  if not ok then return false, errorValue("vehicle_focus_failed", "BeamNG rejected the temporary player target", {vehicleId = vehicleId}) end
+  return true, vehicleId
+end
+
+local function requestFluidEvidence(vehicleId, requestId, ownership)
+  if type(vehicleId) ~= "number" or type(requestId) ~= "string" or requestId == ""
+    or type(getObjectByID) ~= "function"
+  then return false, errorValue("fluid_probe_request_invalid", "Engine-fluid evidence request is invalid") end
+  local okObject, vehicle = pcall(getObjectByID, vehicleId)
+  if not okObject or vehicle == nil then
+    return false, errorValue("fluid_probe_vehicle_missing", "Engine-fluid target no longer exists", {vehicleId = vehicleId})
+  end
+  ownership = type(ownership) == "table" and ownership or {}
+  local command = string.format(
+    "extensions.load(%q); if extensions.soturineChaosRandomizerFluidProbe then extensions.soturineChaosRandomizerFluidProbe.collect(%q,%q,%q,%q) end",
+    "soturineChaosRandomizerFluidProbe", requestId,
+    tostring(ownership.operationId or ""), tostring(ownership.operationGeneration or ""),
+    tostring(ownership.targetGeneration or "")
+  )
+  local okQueue = pcall(function() vehicle:queueLuaCommand(command) end)
+  if not okQueue then
+    return false, errorValue("fluid_probe_queue_failed", "Engine-fluid evidence could not be requested", {vehicleId = vehicleId})
+  end
+  return true, {vehicleId = vehicleId, requestId = requestId, source = "vehicle_lua_probe"}
+end
+
+local function detectKnownConflicts()
+  local result, seen = {}, {}
+  local function add(id, label, evidence)
+    if seen[id] then return end
+    seen[id] = true
+    result[#result + 1] = {
+      id = id, label = label, evidence = evidence,
+      action = "warning_only", disabledByRandomizer = false,
+      message = label .. " may also replace or mutate vehicles during Chaos/Race operations.",
+    }
+  end
+  if type(extensions) == "table" then
+    for name in pairs(extensions) do
+      local normalized = util.normalizeText(name)
+      if normalized:find("beamlr", 1, true) then add("beamlr", "BeamLR", "loaded_extension:" .. tostring(name)) end
+      if normalized:find("driver_assistance", 1, true) or normalized:find("angelo234", 1, true) then
+        add("driver_assistance_angelo234", "Driver Assistance (angelo234)", "loaded_extension:" .. tostring(name))
+      end
+    end
+  end
+  if type(FS) == "userdata" or type(FS) == "table" then
+    if type(FS.findFiles) == "function" then
+      local worked, files = pcall(function()
+        return FS:findFiles("/scripts/driver_assistance_angelo234", "*.lua", -1, true, false)
+      end)
+      if worked and type(files) == "table" and #files > 0 then
+        add("driver_assistance_angelo234", "Driver Assistance (angelo234)", "mounted_script_path")
+      end
+      worked, files = pcall(function()
+        return FS:findFiles("/mods", "*beamlr*", -1, true, false)
+      end)
+      if worked and type(files) == "table" and #files > 0 then
+        add("beamlr", "BeamLR", "mounted_mod_path")
+      end
+    end
+  end
+  table.sort(result, function(left, right) return left.id < right.id end)
+  return result
+end
+
+local function replaceVehicle(modelKey, config, targetVehicleId, spawnPlacement)
   local canReplace = type(core_vehicles) == "table" and type(core_vehicles.replaceVehicle) == "function"
   local canSpawn = type(core_vehicles) == "table" and type(core_vehicles.spawnNewVehicle) == "function"
   if not canReplace and not canSpawn then
@@ -365,7 +440,25 @@ local function replaceVehicle(modelKey, config, targetVehicleId)
   local operationName = targetVehicle == nil and canSpawn and "core_vehicles.spawnNewVehicle" or "core_vehicles.replaceVehicle"
   local ok, result = callContract(operationName, "vehicle_replace_rejected", "object_required", function()
     if targetVehicle == nil and canSpawn then
-      return core_vehicles.spawnNewVehicle(modelKey, {config = util.deepCopy(config)})
+      local options = {config = util.deepCopy(config)}
+      if type(spawnPlacement) == "table" and type(spawnPlacement.position) == "table"
+        and type(vec3) == "function"
+      then
+        options.pos = vec3(
+          tonumber(spawnPlacement.position.x) or 0,
+          tonumber(spawnPlacement.position.y) or 0,
+          tonumber(spawnPlacement.position.z) or 0
+        )
+        if type(quatFromDir) == "function" and type(spawnPlacement.forward) == "table" then
+          local worked, rotation = pcall(
+            quatFromDir,
+            vec3(tonumber(spawnPlacement.forward.x) or 0, tonumber(spawnPlacement.forward.y) or 1, tonumber(spawnPlacement.forward.z) or 0),
+            vec3(0, 0, 1)
+          )
+          if worked then options.rot = rotation end
+        end
+      end
+      return core_vehicles.spawnNewVehicle(modelKey, options)
     end
     return core_vehicles.replaceVehicle(modelKey, {config = util.deepCopy(config)}, targetVehicle)
   end)
@@ -531,9 +624,18 @@ local function getVerificationState(expectedVehicleId)
 
   local primary = candidates[1] or {}
   local anyParts = false
+  local anyTuning = false
   for _, candidate in ipairs(candidates) do
     if candidate.partsAvailable then anyParts = true; break end
   end
+  for _, candidate in ipairs(candidates) do
+    if type(candidate.tuning) == "table" then anyTuning = true; break end
+  end
+  local okVehicleData, vehicleData = getCurrentVehicleData(vehicleId)
+  local vdata = okVehicleData and type(vehicleData.vdata) == "table" and vehicleData.vdata or {}
+  local powertrainEvidence = type(vdata.powertrain) == "table" and util.deepCopy(vdata.powertrain) or nil
+  local energyStorages = type(vdata.energyStorage) == "table" and util.deepCopy(vdata.energyStorage) or nil
+  if not okVehicleData then readErrors.vehicleDataById = util.deepCopy(vehicleData) end
   local observation = util.shallowMerge({}, primary)
   observation = util.shallowMerge(observation, {
     vehicleId = vehicleId,
@@ -545,7 +647,16 @@ local function getVerificationState(expectedVehicleId)
       model = true,
       config = #candidates > 0,
       parts = anyParts,
+      tuning = anyTuning,
+      -- A successful ID-bound vehicle-data read is a coherent answer even
+      -- when a particular vehicle legitimately exposes no such table.
+      powertrain = okVehicleData,
+      energyStorage = okVehicleData,
+      replacementInProgress = false,
+      newerReloadInProgress = false,
     },
+    powertrainEvidence = powertrainEvidence,
+    energyStorages = energyStorages,
     readErrors = readErrors,
     readStatus = anyParts and "ready" or (#candidates > 0 and "config_readable" or "identity_only"),
     coherentTargetRead = true,
@@ -1093,6 +1204,9 @@ M.getCurrentModelKey = getCurrentModelKey
 M.getCurrentConfig = getCurrentConfig
 M.captureCurrentState = captureCurrentState
 M.getRegistryData = getRegistryData
+M.enterVehicle = enterVehicle
+M.requestFluidEvidence = requestFluidEvidence
+M.detectKnownConflicts = detectKnownConflicts
 M.replaceVehicle = replaceVehicle
 M.applyPartsTree = applyPartsTree
 M.applyTuning = applyTuning

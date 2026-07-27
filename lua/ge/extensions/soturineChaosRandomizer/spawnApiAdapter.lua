@@ -88,6 +88,28 @@ local function spawnVehicle(modelKey, config, placement)
   return true, id
 end
 
+local function placeVehicle(vehicleId, placement)
+  if type(getObjectByID) ~= "function" or type(spawn) ~= "table"
+    or type(spawn.safeTeleport) ~= "function" or type(placement) ~= "table"
+    or type(placement.position) ~= "table"
+  then return false, "vehicle_placement_unavailable" end
+  local okObject, vehicle = pcall(getObjectByID, vehicleId)
+  if not okObject or not vehicle then return false, "vehicle_missing" end
+  local direction = placement.forward or {x = 0, y = 1, z = 0}
+  local rotation
+  if type(quatFromDir) == "function" then
+    local worked, value = pcall(
+      quatFromDir, vector(direction), vector(placement.normal or {x = 0, y = 0, z = 1})
+    )
+    if worked then rotation = value end
+  end
+  local worked = pcall(
+    spawn.safeTeleport, vehicle, vector(placement.position), rotation,
+    nil, nil, nil, true, false
+  )
+  return worked, worked and "vehicle_placement_requested" or "vehicle_placement_failed"
+end
+
 local function objectPosition(vehicleId)
   if type(getObjectByID) ~= "function" then return false, "vehicle_lookup_unavailable" end
   local ok, object = pcall(getObjectByID, vehicleId)
@@ -200,6 +222,7 @@ M.playerForward = playerForward
 M.roadForward = roadForward
 M.raycastGround = raycastGround
 M.spawnVehicle = spawnVehicle
+M.placeVehicle = placeVehicle
 M.objectPosition = objectPosition
 M.objectSpeed = objectSpeed
 M.occupiedVehiclePositions = occupiedVehiclePositions

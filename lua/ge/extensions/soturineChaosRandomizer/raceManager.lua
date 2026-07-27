@@ -1,6 +1,7 @@
 local util = require("ge/extensions/soturineChaosRandomizer/util")
 local rng = require("ge/extensions/soturineChaosRandomizer/rng")
 local schema = require("ge/extensions/soturineChaosRandomizer/lineupSchema")
+local managedRegistry = require("ge/extensions/soturineChaosRandomizer/managedVehicleRegistry")
 
 local M = {}
 
@@ -284,12 +285,17 @@ local function create(options)
     local seed = rng.new(episodeSeed .. ":competitor:" .. tostring(index)).seed
     lineup.competitors[index] = {
       index = index, id = lineup.id .. "-" .. tostring(index),
+      competitorId = lineup.id .. "-" .. tostring(index), requestedIndex = index,
       name = "Competitor " .. tostring(index), seed = seed,
       status = "Pending", raceStatus = "Pending", traits = {verified = {}},
       compatibility = {status = "local"},
       attemptCount = 0, position = index, targetGeneration = 0,
       generationClosed = false,
       vehicleDNAId = nil, thumbnail = nil, notes = "",
+      operationId = nil, generation = 0, logicalCandidate = nil,
+      currentVehicleId = nil, spawnState = "pending",
+      randomizationState = "pending", validationState = "pending",
+      placementState = "staging_pending", terminalResult = nil,
     }
   end
   return lineup
@@ -306,6 +312,10 @@ local function nextCompetitor(lineup)
       competitor.pendingTimers = 0
       competitor.pendingCallbacks = 0
       competitor.status = "Selecting"
+      competitor.spawnState = "staging_pending"
+      competitor.randomizationState = "selecting"
+      competitor.validationState = "pending"
+      competitor.generation = competitor.targetGeneration
       lineup.nextIndex = index
       lineup.updatedAt = os.time()
       return competitor
@@ -323,6 +333,9 @@ local function setPhase(lineup, index, phase, progress)
   if not allowed[phase] then return false, "lineup_phase_invalid" end
   competitor.status = phase
   competitor.generationStatus = phase
+  competitor.randomizationState = phase == "Selecting" and "selecting"
+    or phase == "Loading" and "loading" or phase == "Randomizing" and "randomizing"
+    or "verifying"
   competitor.progress = progress
   lineup.updatedAt = os.time()
   return true
@@ -355,6 +368,7 @@ local function record(lineup, index, result, dna, targetGeneration)
   result = type(result) == "table" and result or {}
   local details = type(result.details) == "table" and result.details or {}
   competitor.attemptCount = (competitor.attemptCount or 0) + 1
+  competitor.terminalResult = util.deepCopy(result)
   local hasWarnings = type(details.warnings) == "table" and #details.warnings > 0
   local lifecycle = type(details.lifecycleAcceptance) == "table" and details.lifecycleAcceptance or {}
   competitor.pendingWrites = tonumber(lifecycle.pendingWrites) or 0
@@ -394,6 +408,8 @@ local function record(lineup, index, result, dna, targetGeneration)
     potentiallyUndrivable = potentiallyUndrivable,
   }
   competitor.generationClosed = true
+  competitor.validationState = result.success == true and "validated" or "failed"
+  competitor.randomizationState = result.success == true and "complete" or "failed"
   if acceptanceBlocked then
     competitor.warning = uncertain and not lineup.acceptMetadataUncertain
       and "Metadata-uncertain result requires explicit acceptance"
@@ -407,6 +423,49 @@ local function record(lineup, index, result, dna, targetGeneration)
   lineup.nextIndex = index + 1
   lineup.updatedAt = os.time()
   return true
+end
+
+local function reorder(lineup, index, newPosition)
+  local competitor = lineup and lineup.competitors and lineup.competitors[index]
+  newPosition = math.floor(tonumber(newPosition) or -1)
+  if not competitor then return false, "lineup_competitor_missing" end
+  if newPosition < 1 or newPosition > #lineup.competitors then return false, "lineup_position_invalid" end
+  local oldPosition = math.floor(tonumber(competitor.position) or index)
+  if oldPosition == newPosition then return true end
+  for _, other in ipairs(lineup.competitors) do
+    local position = math.floor(tonumber(other.position) or other.index)
+    if other ~= competitor then
+      if newPosition < oldPosition and position >= newPosition and position < oldPosition then
+        other.position = position + 1
+      elseif newPosition > oldPosition and position > oldPosition and position <= newPosition then
+        other.position = position - 1
+      end
+    end
+  end
+  competitor.position = newPosition
+  lineup.updatedAt = os.time()
+  return true
+end
+
+local function placementAvailability(lineup, managedVehicles, operationBusy, placementBusy)
+  if not lineup then return {available = false, count = 0, reason = "Create or import a Race first."} end
+  local count = 0
+  for _, competitor in ipairs(lineup.competitors or {}) do
+    local entry = competitor.managedHandle and managedVehicles
+      and managedRegistry.readyEntry(managedVehicles, competitor.managedHandle)
+    if entry and competitor.currentVehicleId == entry.vehicleId then count = count + 1 end
+  end
+  if operationBusy == true then
+    return {available = false, count = count, reason = "Wait for the current vehicle operation to finish."}
+  end
+  if placementBusy == true then
+    return {available = false, count = count, reason = "Wait for the current Placement operation to finish or stop it."}
+  end
+  if count == 0 then
+    return {available = false, count = 0,
+      reason = "No retained managed competitors are ready. Finish Generate Cars or review failed entries."}
+  end
+  return {available = true, count = count}
 end
 
 local function resolveFailure(lineup, index, action)
@@ -472,5 +531,7 @@ M.setPhase = setPhase
 M.cancel = cancel
 M.resolveFailure = resolveFailure
 M.summary = summary
+M.reorder = reorder
+M.placementAvailability = placementAvailability
 
 return M
