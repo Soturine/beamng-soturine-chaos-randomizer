@@ -1,5 +1,55 @@
-(function () {
+var SoturineChaosUiMath = (function () {
   'use strict'
+
+  function finite(value, fallback) {
+    var number = Number(value)
+    return Number.isFinite(number) ? number : fallback
+  }
+
+  function clamp(value, minimum, maximum) {
+    return Math.max(minimum, Math.min(maximum, finite(value, minimum)))
+  }
+
+  function sliderPercent(value) {
+    return clamp(value, 0, 100) + '%'
+  }
+
+  function contentHeight(metrics) {
+    metrics = metrics || {}
+    var mode = metrics.mode === 'collapsed' ? 'collapsed' : 'expanded'
+    var minimum = mode === 'collapsed' ? 120 : 240
+    var maximum = mode === 'collapsed' ? 220 : clamp(metrics.maximum, 320, 720)
+    var content = finite(metrics.header, 0) + finite(metrics.navigation, 0)
+      + finite(metrics.bodyContent, 0) + finite(metrics.frame, 4)
+    if (mode === 'collapsed') content = finite(metrics.collapsedContent, content)
+    return Math.ceil(clamp(content, minimum, maximum))
+  }
+
+  function manualHeight(current, lastApplied, previousManual) {
+    current = finite(current, 0)
+    if (lastApplied !== null && lastApplied !== undefined && Math.abs(current - lastApplied) > 3) return current
+    return finite(previousManual, 0) || null
+  }
+
+  function shouldApplyResize(current, target) {
+    return Math.abs(finite(current, 0) - finite(target, 0)) > 1
+  }
+
+  return {
+    clamp: clamp,
+    sliderPercent: sliderPercent,
+    contentHeight: contentHeight,
+    manualHeight: manualHeight,
+    shouldApplyResize: shouldApplyResize
+  }
+}())
+
+if (typeof module !== 'undefined' && module.exports) module.exports = SoturineChaosUiMath
+
+;(function () {
+  'use strict'
+
+  if (typeof angular === 'undefined') return
 
   var appModule = angular.module('beamng.apps')
 
@@ -22,6 +72,10 @@
       link: function (scope, element) {
         var settingsTimer = null
         var queryTimer = null
+        var resizeTimer = null
+        var contentObserver = null
+        var lastAppliedHeight = null
+        var manualHeight = null
 
         scope.chaos = {
           view: 'chaos',
@@ -197,19 +251,44 @@
         function requestState() { engineCall('requestState') }
 
         function updateWindowHeight() {
+          resizeTimer = null
           var mode = scope.chaos.state.uiMode || 'expanded'
-          var height = 140
-          if (mode !== 'collapsed') {
-            height = scope.chaos.view === 'chaos'
-              ? ((scope.chaos.state.busy || scope.chaos.operationDetailsOpen) ? 330 : 270)
-              : 330
-          }
           var host = element && element[0]
           while (host && (!host.classList || !host.classList.contains('bng-app'))) host = host.parentNode
           if (!host) return
+          var root = element[0] && element[0].querySelector('.scr-app')
+          var header = root && root.querySelector('.scr-header')
+          var navigation = root && root.querySelector('.scr-nav')
+          var body = root && root.querySelector('.scr-body')
+          var collapsed = root && root.querySelector('.scr-collapsed')
+          var currentHeight = host.offsetHeight
+          manualHeight = SoturineChaosUiMath.manualHeight(currentHeight, lastAppliedHeight, manualHeight)
+          var viewportMaximum = window.screen && window.screen.availHeight
+            ? Math.max(320, window.screen.availHeight - 80) : 720
+          var height = SoturineChaosUiMath.contentHeight({
+            mode: mode,
+            header: header ? header.offsetHeight : 0,
+            navigation: mode === 'collapsed' ? 0 : (navigation ? navigation.offsetHeight : 0),
+            bodyContent: mode === 'collapsed' ? 0 : (body ? body.scrollHeight : 0),
+            collapsedContent: mode === 'collapsed'
+              ? (header ? header.offsetHeight : 0) + (collapsed ? collapsed.scrollHeight : 0) + 4 : 0,
+            frame: 4,
+            maximum: Math.min(720, viewportMaximum)
+          })
+          if (mode !== 'collapsed' && manualHeight) height = Math.max(height, Math.min(manualHeight, viewportMaximum))
+          if (!SoturineChaosUiMath.shouldApplyResize(currentHeight, height)) {
+            lastAppliedHeight = currentHeight
+            return
+          }
+          lastAppliedHeight = height
           host.style.height = height + 'px'
           if (scope.entry && scope.entry.css) scope.entry.css.height = height + 'px'
-          scope.$broadcast('app:resized', {width: host.offsetWidth, height: height})
+          scope.$broadcast('app:resized', {width: host.offsetWidth, height: height, source: 'content'})
+        }
+
+        function scheduleWindowHeight() {
+          if (resizeTimer) return
+          resizeTimer = $timeout(updateWindowHeight, 0, false)
         }
 
         function applyState(data) {
@@ -218,7 +297,7 @@
             scope.chaos.state = data
             if (!scope.chaos.dnaName && data.garage && data.garage.pending) scope.chaos.dnaName = data.garage.pending.name || ''
             if (!scope.chaos.shareId && data.garage && data.garage.selectedId) scope.chaos.shareId = data.garage.selectedId
-            $timeout(updateWindowHeight, 0, false)
+            scheduleWindowHeight()
           })
         }
 
@@ -274,13 +353,7 @@
           settingsTimer = $timeout(persistSettings, 250)
         }
 
-        scope.chaos.chaosSliderStyle = function (value) {
-          var percent = Math.max(0, Math.min(100, Number(value) || 0))
-          return {
-            '--chaos-percent': percent + '%',
-            '--chaos-active-color': percent >= 75 ? '#e04a16' : '#f25a0a'
-          }
-        }
+        scope.chaos.sliderPercent = SoturineChaosUiMath.sliderPercent
 
         scope.chaos.capabilityReason = function (name) {
           var report = scope.chaos.state.capabilities && scope.chaos.state.capabilities.report
@@ -324,11 +397,17 @@
         scope.chaos.toggleMode = function () { scope.chaos.setMode(scope.chaos.state.uiMode === 'collapsed' ? 'expanded' : 'collapsed') }
         scope.chaos.toggleOperationDetails = function () {
           scope.chaos.operationDetailsOpen = !scope.chaos.operationDetailsOpen
-          $timeout(updateWindowHeight, 0, false)
+          scheduleWindowHeight()
         }
         scope.chaos.spawnSafeVehicle = function () { if (!scope.chaos.state.busy) engineCall('spawnSafeVehicle') }
         scope.chaos.retryQuarantined = function () { if (!scope.chaos.state.busy) engineCall('retryQuarantinedConfigurations') }
         scope.chaos.copyDiagnostics = function () { engineCall('copyDiagnostics') }
+        scope.chaos.candidateIds = function () {
+          var chain = scope.chaos.state && scope.chaos.state.transaction && scope.chaos.state.transaction.candidateIdChain || []
+          return chain.map(function (candidate) { return candidate.vehicleId }).filter(function (id) {
+            return id !== undefined && id !== null
+          }).join(', ') || 'none'
+        }
 
         scope.chaos.rerollUnlocked = function () {
           if (scope.chaos.state.busy) return
@@ -351,7 +430,7 @@
           var allowed = {chaos: true, garage: true, race: true, settings: true}
           if (!allowed[view]) return
           scope.chaos.view = view
-          $timeout(updateWindowHeight, 0, false)
+          scheduleWindowHeight()
           if (view === 'settings') $timeout(scope.chaos.requestLocks, 0)
         }
 
@@ -709,6 +788,15 @@
           callWithArgs('setVehicleDNAPage', [page])
         }
 
+        $timeout(function () {
+          var root = element[0] && element[0].querySelector('.scr-app')
+          if (root && window.MutationObserver) {
+            contentObserver = new window.MutationObserver(scheduleWindowHeight)
+            contentObserver.observe(root, {childList: true, subtree: true, characterData: true, attributes: true})
+          }
+          scheduleWindowHeight()
+        }, 0, false)
+
         scope.$on('SoturineChaosRandomizerState', function (event, data) { applyState(data) })
         scope.$on('SoturineChaosRandomizerLocks', function (event, data) { scope.$evalAsync(function () { scope.chaos.lockData = data }) })
         scope.$on('SoturineChaosRandomizerDNADetails', function (event, data) {
@@ -733,9 +821,14 @@
           })
         })
         scope.$on('VehicleFocusChanged', function () { $timeout(requestState, 250) })
+        scope.$on('app:resized', function (event, data) {
+          if (!data || data.source !== 'content') scheduleWindowHeight()
+        })
         scope.$on('$destroy', function () {
           cancelSettingsTimer()
           cancelQueryTimer()
+          if (resizeTimer) $timeout.cancel(resizeTimer)
+          if (contentObserver) contentObserver.disconnect()
         })
 
         bngApi.engineLua('extensions.load("soturineChaosRandomizer")')
