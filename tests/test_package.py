@@ -128,6 +128,35 @@ class PackageTests(unittest.TestCase):
             with self.assertRaises(validate_release_gate.ReleaseGateError):
                 validate_release_gate.validate_live_release(archive, ROOT)
 
+    def test_live_release_gate_accepts_complete_exact_artifact_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "VERSION").write_text("0.6.3\n", encoding="utf-8")
+            report_dir = root / "docs/testing/v0.6.3"
+            report_dir.mkdir(parents=True)
+            archive = root / "soturine_chaos_randomizer_0.6.3.zip"
+            archive.write_bytes(b"exact-candidate")
+            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+            report_dir.joinpath("LIVE_TEST_REPORT.md").write_text(
+                "\n".join((
+                    "# Live test report — 0.6.3",
+                    "Status: **executed and complete**.",
+                    f"| Exact artifact | {archive.name} |",
+                    f"| Bytes | {archive.stat().st_size} |",
+                    f"| SHA-256 | {digest} |",
+                    "| Result | Count |",
+                    "| --- | ---: |",
+                    "| Executed | 2 |",
+                    "| Passed | 2 |",
+                    "| Failed | 0 |",
+                    "| Pending | 0 |",
+                    "| Blocked | 0 |",
+                )) + "\n",
+                encoding="utf-8",
+            )
+            counts = validate_release_gate.validate_live_release(archive, root)
+            self.assertEqual(counts["Passed"], 2)
+
 
 if __name__ == "__main__":
     unittest.main()
