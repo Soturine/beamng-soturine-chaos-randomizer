@@ -154,6 +154,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
             stalledWarning: false,
             progress: {label: 'Loading extension', value: 0},
             capabilities: {},
+            conflicts: [],
             lifecycle: {},
             transaction: null,
             locks: {summary: {}, categories: {}, vehicle: false, configuration: false},
@@ -235,6 +236,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
             setUICompactMode: true,
             createChaosLineup: true,
             renameLineupCompetitor: true,
+            reorderLineupCompetitor: true,
             resolveLineupFailure: true,
             previewLineupSpawn: true,
             startLineupSpawn: true,
@@ -474,6 +476,12 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
           var name = window.prompt('Competitor name', competitor.name)
           if (name) callWithArgs('renameLineupCompetitor', [competitor.index, name])
         }
+        scope.chaos.moveCompetitor = function (competitor, delta) {
+          var current = scope.chaos.state.lineup && scope.chaos.state.lineup.current
+          var total = current && current.competitors ? current.competitors.length : 0
+          var next = Math.max(1, Math.min(total, (Number(competitor.position) || Number(competitor.index) || 1) + delta))
+          if (competitor && total && next !== Number(competitor.position)) callWithArgs('reorderLineupCompetitor', [competitor.index, next])
+        }
         scope.chaos.lineupFailure = function (competitor, action) {
           var allowed = {retry: true, skip: true, fallback: true, stop: true}
           if (competitor && allowed[action]) callWithArgs('resolveLineupFailure', [competitor.index, action])
@@ -522,8 +530,16 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
           return (scope.chaos.state.spawnDirector && scope.chaos.state.spawnDirector.managed || []).filter(function (entry) { return entry.status === 'ready' }).length
         }
         scope.chaos.raceReadyCount = function () {
-          var current = scope.chaos.state.lineup && scope.chaos.state.lineup.current
-          return current && current.summary ? Number(current.summary.ready) || 0 : 0
+          var placement = scope.chaos.state.spawnDirector && scope.chaos.state.spawnDirector.placement
+          return placement ? Number(placement.count) || 0 : 0
+        }
+        scope.chaos.placementAvailable = function () {
+          var placement = scope.chaos.state.spawnDirector && scope.chaos.state.spawnDirector.placement
+          return Boolean(placement && placement.available)
+        }
+        scope.chaos.placementReason = function () {
+          var placement = scope.chaos.state.spawnDirector && scope.chaos.state.spawnDirector.placement
+          return placement && placement.reason || 'No retained managed competitors are ready.'
         }
         scope.chaos.managedStep = function (delta) {
           var managed = scope.chaos.state.spawnDirector && scope.chaos.state.spawnDirector.managed || []
