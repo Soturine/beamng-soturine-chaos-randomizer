@@ -19,7 +19,7 @@
       replace: false,
       restrict: 'E',
       scope: false,
-      link: function (scope) {
+      link: function (scope, element) {
         var settingsTimer = null
         var queryTimer = null
 
@@ -196,12 +196,29 @@
 
         function requestState() { engineCall('requestState') }
 
+        function updateWindowHeight() {
+          var mode = scope.chaos.state.uiMode || 'expanded'
+          var height = 140
+          if (mode !== 'collapsed') {
+            height = scope.chaos.view === 'chaos'
+              ? ((scope.chaos.state.busy || scope.chaos.operationDetailsOpen) ? 330 : 270)
+              : 330
+          }
+          var host = element && element[0]
+          while (host && (!host.classList || !host.classList.contains('bng-app'))) host = host.parentNode
+          if (!host) return
+          host.style.height = height + 'px'
+          if (scope.entry && scope.entry.css) scope.entry.css.height = height + 'px'
+          scope.$broadcast('app:resized', {width: host.offsetWidth, height: height})
+        }
+
         function applyState(data) {
           if (!data) return
           scope.$evalAsync(function () {
             scope.chaos.state = data
             if (!scope.chaos.dnaName && data.garage && data.garage.pending) scope.chaos.dnaName = data.garage.pending.name || ''
             if (!scope.chaos.shareId && data.garage && data.garage.selectedId) scope.chaos.shareId = data.garage.selectedId
+            $timeout(updateWindowHeight, 0, false)
           })
         }
 
@@ -273,6 +290,10 @@
           callWithArgs('setUICompactMode', [mode])
         }
         scope.chaos.toggleMode = function () { scope.chaos.setMode(scope.chaos.state.uiMode === 'collapsed' ? 'expanded' : 'collapsed') }
+        scope.chaos.toggleOperationDetails = function () {
+          scope.chaos.operationDetailsOpen = !scope.chaos.operationDetailsOpen
+          $timeout(updateWindowHeight, 0, false)
+        }
         scope.chaos.spawnSafeVehicle = function () { if (!scope.chaos.state.busy) engineCall('spawnSafeVehicle') }
         scope.chaos.retryQuarantined = function () { if (!scope.chaos.state.busy) engineCall('retryQuarantinedConfigurations') }
         scope.chaos.copyDiagnostics = function () { engineCall('copyDiagnostics') }
@@ -298,6 +319,7 @@
           var allowed = {chaos: true, garage: true, race: true, settings: true}
           if (!allowed[view]) return
           scope.chaos.view = view
+          $timeout(updateWindowHeight, 0, false)
           if (view === 'settings') $timeout(scope.chaos.requestLocks, 0)
         }
 

@@ -178,8 +178,8 @@ class StaticValidationTests(unittest.TestCase):
         app = json.loads((ROOT / "ui/modules/apps/soturineChaosRandomizer/app.json").read_text(encoding="utf-8"))
         html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
         css = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.css").read_text(encoding="utf-8")
-        self.assertEqual((app["css"]["width"], app["css"]["height"]), ("340px", "320px"))
-        self.assertEqual((app["css"]["min-width"], app["css"]["min-height"]), ("300px", "220px"))
+        self.assertEqual((app["css"]["width"], app["css"]["height"]), ("340px", "300px"))
+        self.assertEqual((app["css"]["min-width"], app["css"]["min-height"]), ("300px", "120px"))
         self.assertIn("scr-collapsed-actions", html)
         self.assertIn(".scr-mode-collapsed", css)
         self.assertNotIn(".scr-mode-compact", css)
@@ -257,8 +257,8 @@ class StaticValidationTests(unittest.TestCase):
         source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
         fox_path = ROOT / "ui/modules/apps/soturineChaosRandomizer/assets/fox-mark.svg"
         fox = fox_path.read_text(encoding="utf-8")
-        self.assertEqual((app["css"]["width"], app["css"]["height"]), ("340px", "320px"))
-        self.assertEqual((app["css"]["min-width"], app["css"]["min-height"]), ("300px", "220px"))
+        self.assertEqual((app["css"]["width"], app["css"]["height"]), ("340px", "300px"))
+        self.assertEqual((app["css"]["min-width"], app["css"]["min-height"]), ("300px", "120px"))
         self.assertIn("RANDOM CAR", html)
         self.assertNotIn("RANDOM CONFIG", html)
         chaos_panel = html[html.index("scr-chaos-view"):html.index("chaos.view === 'garage'")]
@@ -277,6 +277,19 @@ class StaticValidationTests(unittest.TestCase):
         self.assertNotRegex(fox.lower(), r"<script|base64|https?://(?!www\.w3\.org/2000/svg)")
         ET.fromstring(fox)
         self.assertIn("var allowed =", source)
+
+    def test_v062_responsive_height_and_natural_chaos_flow(self) -> None:
+        html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
+        css = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.css").read_text(encoding="utf-8")
+        source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        panel = html[html.index("scr-chaos-view"):html.index("chaos.view === 'garage'")]
+        self.assertLess(panel.index("scr-chaos-control"), panel.index("scr-status"))
+        self.assertLess(panel.index("scr-status"), panel.index("scr-warning"))
+        self.assertNotRegex(css, r"\.scr-status\s*\{[^}]*margin-top:\s*auto")
+        for height in (140, 270, 330):
+            self.assertIn(f"{height}", source)
+        self.assertIn("classList.contains('bng-app')", source)
+        self.assertIn("app:resized", source)
 
     def test_workflow_yaml_parses(self) -> None:
         try:

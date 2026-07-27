@@ -9,9 +9,9 @@
     "right": "20px",
     "top": "120px",
     "width": "340px",
-    "height": "320px",
+    "height": "300px",
     "min-width": "300px",
-    "min-height": "220px"
+    "min-height": "120px"
   },
   "author": "Soturine",
   "version": "0.6.1",
