@@ -356,6 +356,29 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("startSpawnVariant", source)
         self.assertIn("options.spawnAll = variant === 'all'", source)
 
+    def test_v062_evidence_documents_are_exact_and_feature_audit_is_complete(self) -> None:
+        plan = (ROOT / "docs/INTERACTIVE_TEST_PLAN_0.6.2.md").read_text(encoding="utf-8")
+        report = (ROOT / "docs/INTERACTIVE_TEST_REPORT_0.6.2.md").read_text(encoding="utf-8")
+        matrix = (ROOT / "docs/REQUIREMENTS_MATRIX_0.6.2.md").read_text(encoding="utf-8")
+        audit = (ROOT / "docs/FEATURE_AUDIT_0.6.2.md").read_text(encoding="utf-8")
+        required_columns = (
+            "Feature", "Public action", "Backend entry point", "Dependencies",
+            "Automated tests", "Interactive status", "Known issue", "Documentation",
+        )
+        self.assertEqual(len(re.findall(r"^\| (?:A-|P\d|B\d|L\d|R\d|G\d|U\d)", plan, re.MULTILINE)), 80)
+        self.assertIn("| Pending | 80 |", plan)
+        self.assertIn("| Pending | 80 |", report)
+        self.assertEqual(len(re.findall(r"^\| R\d{2} \|", matrix, re.MULTILINE)), 95)
+        for column in required_columns:
+            self.assertIn(column, audit)
+
+        main = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/main.lua").read_text(encoding="utf-8")
+        exported = set(re.findall(r"^M\.([A-Za-z0-9_]+)\s*=", main, re.MULTILINE))
+        infrastructure = {"dependencies"}
+        for name in sorted(exported - infrastructure):
+            with self.subTest(public_entry_point=name):
+                self.assertIn(f"`{name}`", audit)
+
     def test_workflow_yaml_parses(self) -> None:
         try:
             import yaml
