@@ -411,7 +411,8 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn('expected="v$(tr -d \'\\r\\n\' < VERSION)"', package)
         self.assertIn('notes="docs/RELEASE NOTES/RELEASE_NOTES_${version}.md"', package)
         self.assertIn("Refuse to overwrite an existing release", package)
-        self.assertIn("python tools/validate_release_gate.py", package)
+        self.assertIn("Validate experimental prerelease candidate", package)
+        self.assertIn("python tools/validate_release_gate.py --channel prerelease", package)
         self.assertIn("--verify-tag", package)
         self.assertIn("--prerelease", package)
 
