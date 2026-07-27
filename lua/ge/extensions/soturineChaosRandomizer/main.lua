@@ -59,6 +59,7 @@ local productionModules = {
   routePlanner = require("ge/extensions/soturineChaosRandomizer/routePlanner"),
   operationContext = require("ge/extensions/soturineChaosRandomizer/runtime/operationContext"),
   energyStorageGuard = require("ge/extensions/soturineChaosRandomizer/energyStorageGuard"),
+  performanceMetrics = require("ge/extensions/soturineChaosRandomizer/performanceMetrics"),
 }
 
 local M = {}
@@ -120,6 +121,7 @@ local runtime = {
     exportMs = 0,
     importMs = 0,
   },
+  performanceTelemetry = productionModules.performanceMetrics.create({sampleLimit = 256, eventLimit = 512}),
   dna = {
     library = vehicleDNAStorage.create(100),
     loaded = false,
@@ -235,6 +237,12 @@ local function publicStressState()
     summary = util.deepCopy(runtime.stress.summary),
     cancelReason = runtime.stress.cancelReason,
   }
+end
+
+function production.publicPerformance()
+  local result = util.deepCopy(runtime.performance)
+  result.telemetry = productionModules.performanceMetrics.snapshot(runtime.performanceTelemetry, adapter.clock())
+  return result
 end
 
 local function publicState()
@@ -422,7 +430,7 @@ local function publicState()
       route = util.deepCopy(runtime.aiRoute),
       diagnostics = util.deepCopy(runtime.aiDirector.diagnostics),
     },
-    performance = util.deepCopy(runtime.performance),
+    performance = production.publicPerformance(),
     locks = {
       summary = vehicleDNALocks.summary(lockProfile),
       vehicle = lockProfile.vehicle,
@@ -469,7 +477,13 @@ local function publicState()
 end
 
 local function publishState()
-  adapter.emit("SoturineChaosRandomizerState", publicState())
+  local started = adapter.clock()
+  local state = publicState()
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "uiState", math.max(0, (adapter.clock() - started) * 1000))
+  local payloadStarted = adapter.clock()
+  adapter.emit("SoturineChaosRandomizerState", state)
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "uiPayload", math.max(0, (adapter.clock() - payloadStarted) * 1000))
+  productionModules.performanceMetrics.recordEvent(runtime.performanceTelemetry, "uiEvents", adapter.clock())
 end
 
 local function setProgress(label, value)
@@ -837,8 +851,12 @@ end
 local function rebuildIndex()
   local started = adapter.clock()
   local okRegistry, registry = adapter.getRegistryData()
-  if not okRegistry then return false, registry end
+  if not okRegistry then
+    productionModules.performanceMetrics.record(runtime.performanceTelemetry, "indexing", math.max(0, (adapter.clock() - started) * 1000))
+    return false, registry
+  end
   local ok, counts = contentIndex.build(runtime.index, registry.models, registry.configs, os.time(), adapter.clock() - started)
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "indexing", math.max(0, (adapter.clock() - started) * 1000))
   if not ok then return false, adapter.errorValue("no_eligible_content", "No eligible vehicle configurations were discovered") end
   counts.sources = sourceCounts()
   runtime.performance.indexBuilds = runtime.performance.indexBuilds + 1
@@ -2255,6 +2273,7 @@ local function applyTuningPass(active, snapshot, pass, onlyNew)
   end
   active.tuningDiscoverySignatures[signature] = pass
   active.tuningDiscoveryOrder[#active.tuningDiscoveryOrder + 1] = signature
+  local tuningStarted = adapter.clock()
   local values, changes, ledger, newly, metadataChanged = tuningPipeline.plan(
     snapshot.variables, snapshot.values, active.policy, active.rng:fork("tuning:pass:" .. tostring(pass)), {
       onlyNew = onlyNew == true,
@@ -2264,6 +2283,9 @@ local function applyTuningPass(active, snapshot, pass, onlyNew)
         return vehicleDNALocks.isTuningLocked(active.lockProfileSnapshot, name, category, subCategory)
       end or nil,
     }, active.tuningLedger, pass
+  )
+  productionModules.performanceMetrics.record(
+    runtime.performanceTelemetry, "tuningDiscovery", math.max(0, (adapter.clock() - tuningStarted) * 1000)
   )
   active.tuningLedger = ledger
   active.tuningPass = pass
@@ -2421,7 +2443,9 @@ processMutationPass = function(active)
   end
   active.readRetry = nil
   local scan, scanError = slotScanner.scan(snapshot.tree, snapshot.metadataByPath)
-  active.slotScanDuration = (active.slotScanDuration or 0) + math.max(0, adapter.clock() - scanStarted)
+  local scanDuration = math.max(0, adapter.clock() - scanStarted)
+  active.slotScanDuration = (active.slotScanDuration or 0) + scanDuration
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "treeScanning", scanDuration * 1000)
   if not scan then failActive(adapter.errorValue(scanError, "Could not scan the current parts tree"), active.destructiveStarted, "parts"); return end
   if active.lastTreeSignature ~= scan.signature then
     active.lastTreeSignature = scan.signature
@@ -2521,7 +2545,9 @@ processMutationPass = function(active)
       return vehicleDNALocks.isSlotLocked(active.lockProfileSnapshot, slot)
     end or nil,
   })
-  active.mutationPlanningDuration = (active.mutationPlanningDuration or 0) + math.max(0, adapter.clock() - planningStarted)
+  local planningDuration = math.max(0, adapter.clock() - planningStarted)
+  active.mutationPlanningDuration = (active.mutationPlanningDuration or 0) + planningDuration
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "mutationPlanning", planningDuration * 1000)
   local actual = {}
   local ancestors = {}
   local deferred = 0
@@ -3214,7 +3240,7 @@ local function copyDiagnostics()
     },
     lastResult = util.deepCopy(runtime.lastResult),
     lastFailure = util.deepCopy(runtime.lastFailure),
-    performance = util.deepCopy(runtime.performance),
+    performance = production.publicPerformance(),
     recovery = vehicleRecovery.metrics(runtime.recovery),
     lineup = state.lineup and state.lineup.current and {
       episodeSeed = state.lineup.current.episodeSeed,
@@ -5848,6 +5874,7 @@ local function processPaintConfirmation()
 end
 
 local function onUpdate(dtReal, dtSim, dtRaw)
+  local updateStarted = adapter.clock()
   local pauseKnown, paused = false, nil
   if type(adapter.getPauseState) == "function" then
     local okPause, pauseValue = adapter.getPauseState()
@@ -5883,15 +5910,21 @@ local function onUpdate(dtReal, dtSim, dtRaw)
     end
   end
 
+  local previewStarted = adapter.clock()
   if runtime.spawnDirector.preview then productionModules.spawnAdapter.drawPreview(runtime.spawnDirector.preview.placements) end
   productionModules.destinationMarker.draw(runtime.destination)
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "preview", math.max(0, (adapter.clock() - previewStarted) * 1000))
   if runtime.stress and runtime.stress.active
     and adapter.clock() - runtime.stress.startedAt >= runtime.stress.options.maxDuration
   then
     cancelDeveloperStressInternal("duration_limit")
   end
 
+  local targetTrackingStarted = adapter.clock()
   local phaseWorkHandled = processTargetTracking()
+  productionModules.performanceMetrics.record(
+    runtime.performanceTelemetry, "targetTracking", math.max(0, (adapter.clock() - targetTrackingStarted) * 1000)
+  )
   if not phaseWorkHandled then phaseWorkHandled = processPaintConfirmation() end
   if not phaseWorkHandled and runtime.state.busy and runtime.active and runtime.active.treeRescanAt
     and adapter.clock() >= runtime.active.treeRescanAt
@@ -5915,8 +5948,16 @@ local function onUpdate(dtReal, dtSim, dtRaw)
   end
 
   -- Housekeeping must run even while a lifecycle phase is waiting.
+  local spawnDirectorStarted = adapter.clock()
   production.processSpawnDirector()
+  productionModules.performanceMetrics.record(
+    runtime.performanceTelemetry, "spawnDirector", math.max(0, (adapter.clock() - spawnDirectorStarted) * 1000)
+  )
+  local aiDirectorStarted = adapter.clock()
   production.processAIDirector()
+  productionModules.performanceMetrics.record(
+    runtime.performanceTelemetry, "aiDirector", math.max(0, (adapter.clock() - aiDirectorStarted) * 1000)
+  )
 
   local waitingForSimulation = runtime.state.phase == "waiting_for_simulation_resume"
   local watchdogState
@@ -5970,6 +6011,7 @@ local function onUpdate(dtReal, dtSim, dtRaw)
 
   startStressIteration()
   production.startNextLineupCompetitor()
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "onUpdate", math.max(0, (adapter.clock() - updateStarted) * 1000))
 end
 
 local function onExtensionLoaded()

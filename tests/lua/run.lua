@@ -25,6 +25,7 @@ local progressWatchdog = require("ge/extensions/soturineChaosRandomizer/progress
 local paintRandomizer = require("ge/extensions/soturineChaosRandomizer/paintRandomizer")
 local paintVerification = require("ge/extensions/soturineChaosRandomizer/paintVerification")
 local partBatchRecovery = require("ge/extensions/soturineChaosRandomizer/partBatchRecovery")
+local performanceMetrics = require("ge/extensions/soturineChaosRandomizer/performanceMetrics")
 local pngValidator = require("ge/extensions/soturineChaosRandomizer/pngValidator")
 local rng = require("ge/extensions/soturineChaosRandomizer/rng")
 local settings = require("ge/extensions/soturineChaosRandomizer/settings")
@@ -317,6 +318,21 @@ tests.crc32_canonical_vectors = function()
   equal(crc32.digest("123456789"), 3421780262)
   equal(crc32.digest("The quick brown fox jumps over the lazy dog"), 1095738169)
   equal(crc32.digest({}), nil)
+end
+
+tests.performance_metrics_are_bounded_and_report_percentiles = function()
+  local metrics = performanceMetrics.create({sampleLimit = 8, eventLimit = 16})
+  for value = 1, 100 do truthy(performanceMetrics.record(metrics, "onUpdate", value)) end
+  truthy(not performanceMetrics.record(metrics, "onUpdate", 0 / 0))
+  for index = 1, 20 do performanceMetrics.recordEvent(metrics, "ui", index / 20) end
+  local report = performanceMetrics.snapshot(metrics, 1)
+  equal(report.categories.onUpdate.count, 100)
+  equal(report.categories.onUpdate.sampleCount, 8)
+  truthy(report.categories.onUpdate.p50 <= report.categories.onUpdate.p95)
+  truthy(report.categories.onUpdate.p95 <= report.categories.onUpdate.p99)
+  equal(report.categories.onUpdate.max, 100)
+  equal(report.eventRates.ui.count, 20)
+  equal(report.eventRates.ui.perSecond, 16)
 end
 
 tests.default_centered_tuning = function()
@@ -4483,6 +4499,27 @@ tests.v062_runtime_instrumentation_is_bounded_and_complete = function()
   equal(state.clocks.recentSamples[#state.clocks.recentSamples].dtSim, 0)
 end
 
+tests.v063_performance_telemetry_covers_runtime_subsystems = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom", {
+    chaos = 100, manualSeed = "performance-telemetry", seedMode = "fixed",
+  }))
+  local telemetry = harness.main.requestState().performance.telemetry
+  equal(telemetry.sampleLimit, 256)
+  for _, category in ipairs({
+    "onUpdate", "targetTracking", "treeScanning", "mutationPlanning", "tuningDiscovery",
+    "uiState", "indexing", "spawnDirector", "aiDirector", "preview", "uiPayload",
+  }) do
+    local metric = telemetry.categories[category]
+    truthy(metric ~= nil, "missing performance category " .. category)
+    truthy(metric.count >= 1, "empty performance category " .. category)
+    truthy(metric.sampleCount <= telemetry.sampleLimit)
+    truthy(metric.p50 <= metric.p95 and metric.p95 <= metric.p99)
+    truthy(metric.p99 <= metric.max)
+  end
+  truthy(telemetry.eventRates.uiEvents.count >= 1)
+end
+
 tests.v062_player_vehicle_loss_is_bounded_and_recovers = function()
   local harness = pipelineHarness.new()
   truthy(harness.main.scramble({chaos = 100, manualSeed = "player-loss", seedMode = "fixed"}))
@@ -4611,6 +4648,7 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/paintRandomizer.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/paintCoverageLedger.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/paintVerification.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/performanceMetrics.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/partBatchRecovery.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/pngValidator.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/rng.lua",
