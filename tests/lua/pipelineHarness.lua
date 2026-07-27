@@ -236,11 +236,17 @@ local function new(options)
     elseif options.treeNeverConverges then
       harness.tree.children.body.chosenPartName = harness.scanCount % 2 == 0 and "body_a" or "body_b"
     end
+    local snapshotVariables = {boost = {min = harness.tuningMinimum, max = harness.tuningMaximum, default = 0.5, step = 0.1}}
+    if type(options.tuningWaves) == "table" and #options.tuningWaves > 0 then
+      local waveIndex = math.min(math.max(1, harness.tuningSnapshotCount or 1), #options.tuningWaves)
+      local wave = options.tuningWaves[waveIndex] or {}
+      snapshotVariables = util.deepCopy(wave.variables or wave)
+    end
     return true, {
       tree = util.deepCopy(harness.tree),
       metadataByPath = util.deepCopy(harness.metadata),
       modelMetadata = {Type = options.modelType or "Car"},
-      variables = {boost = {min = harness.tuningMinimum, max = harness.tuningMaximum, default = 0.5, step = 0.1}},
+      variables = snapshotVariables,
       currentTuning = util.deepCopy(harness.tuning),
       paints = util.deepCopy(harness.paints),
     }
@@ -267,11 +273,12 @@ local function new(options)
         if values[name] == nil then values[name] = tonumber(metadata.default) or tonumber(metadata.min) or 0 end
       end
       harness.tuning = util.deepCopy(values)
-      return true, {variables = variables, values = values}
+      return true, {variables = variables, values = values, energyStorages = util.deepCopy(options.energyStorages or {})}
     end
     return true, {
       variables = {boost = {min = harness.tuningMinimum, max = harness.tuningMaximum, default = 0.5, step = 0.1}},
       values = util.deepCopy(harness.tuning),
+      energyStorages = util.deepCopy(options.energyStorages or {}),
     }
   end
   function adapter.applyTuning(values)
@@ -365,7 +372,7 @@ local function applyPendingReplacement(harness, emitCallback)
     if harness.options.targetMissingBodyB then
       harness.tree.children.body.suitablePartNames = {"body_a"}
     end
-    harness.tuning = {boost = 0.5}
+    harness.tuning = util.deepCopy(harness.options.newTargetTuning or {boost = 0.5})
   end
   if emitCallback ~= false then
     harness.callbackLog[#harness.callbackLog + 1] = {kind = "spawn", vehicleId = harness.vehicleId}

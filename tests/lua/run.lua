@@ -12,6 +12,7 @@ local capabilities = require("ge/extensions/soturineChaosRandomizer/capabilities
 local contentIndex = require("ge/extensions/soturineChaosRandomizer/contentIndex")
 local configVerification = require("ge/extensions/soturineChaosRandomizer/configVerification")
 local failureAttribution = require("ge/extensions/soturineChaosRandomizer/failureAttribution")
+local energyStorageGuard = require("ge/extensions/soturineChaosRandomizer/energyStorageGuard")
 local history = require("ge/extensions/soturineChaosRandomizer/history")
 local historyTransaction = require("ge/extensions/soturineChaosRandomizer/historyTransaction")
 local lifecycle = require("ge/extensions/soturineChaosRandomizer/lifecycle")
@@ -3389,6 +3390,125 @@ tests.v063_tuning_discovery_cycle_stops_without_remaining_busy = function()
   local state = harness.main.requestState()
   truthy(not state.busy)
   equal(state.lastResult.details.stageReasons.tuning, "tuning_discovery_cycle_detected")
+end
+
+tests.v063_combustion_fuel_floor_single_and_multiple_tanks = function()
+  local single = energyStorageGuard.plan({
+    variables = {['$fuel'] = {name = '$fuel', min = 0, max = 60, default = 60, unit = 'L', title = 'Fuel Volume'}},
+    values = {['$fuel'] = 0},
+    energyStorages = {{name = 'mainTank', type = 'fuelTank', energyType = 'gasoline', fuelCapacity = 60, startingFuelCapacity = '$fuel'}},
+  })
+  equal(#single.changes, 1)
+  near(single.values['$fuel'], 6)
+  equal(single.report.storages[1].classification, 'fuel')
+
+  local multiple = energyStorageGuard.plan({
+    variables = {
+      leftLevel = {name = 'leftLevel', min = 0, max = 500, default = 500, unit = 'L', sourcePart = 'left_tank'},
+      auxLevel = {name = 'auxLevel', min = 0, max = 500, default = 500, unit = 'L', sourcePart = 'aux_tank'},
+    },
+    values = {leftLevel = 1, auxLevel = 49},
+    energyStorages = {
+      {name = 'leftTank', type = 'fuelTank', energyType = 'diesel', fuelCapacity = 500, startingFuelCapacity = 'leftLevel', sourcePart = 'left_tank'},
+      {name = 'auxTank', type = 'fuelTank', energyType = 'diesel', fuelCapacity = 500, startingFuelCapacity = 'auxLevel', sourcePart = 'aux_tank'},
+    },
+  })
+  equal(#multiple.changes, 2)
+  near(multiple.values.leftLevel, 50)
+  near(multiple.values.auxLevel, 50)
+  equal(multiple.report.fuelStorageCount, 2)
+end
+
+tests.v063_energy_storage_classification_excludes_non_fuel = function()
+  equal(energyStorageGuard.classifyStorage({type = 'electricBattery', name = 'mainBattery'}), 'electric_energy')
+  equal(energyStorageGuard.classifyStorage({type = 'n2oTank', name = 'mainBottle'}), 'nitrous')
+  equal(energyStorageGuard.classifyStorage({type = 'pressureTank', name = 'airTank'}), 'air_pressure')
+  equal(energyStorageGuard.classifyStorage({type = 'pressureTank', name = 'hydraulicReservoir'}), 'hydraulic')
+  equal(energyStorageGuard.classifyVariable({name = '$n2o_power', title = 'Nitrous Shot', unit = 'kW'}), 'nitrous')
+  equal(energyStorageGuard.classifyVariable({name = '$batteryCapacity', unit = 'kWh'}), 'electric_energy')
+  equal(energyStorageGuard.classifyVariable({name = '$hydraulicPressure', category = 'Hydraulics'}), 'hydraulic')
+end
+
+tests.v063_hybrid_only_clamps_combustion_storage = function()
+  local plan = energyStorageGuard.plan({
+    variables = {
+      fuelLevel = {name = 'fuelLevel', min = 0, max = 50, default = 50, unit = 'L', title = 'Diesel Fuel Volume'},
+      batteryLevel = {name = 'batteryLevel', min = 0, max = 100, default = 100, unit = 'kWh', title = 'Battery Energy'},
+      n2oLevel = {name = 'n2oLevel', min = 0, max = 10, default = 10, title = 'N2O Bottle'},
+    },
+    values = {fuelLevel = 0, batteryLevel = 0, n2oLevel = 0},
+    energyStorages = {
+      {name = 'fuel', type = 'fuelTank', energyType = 'diesel', fuelCapacity = 50, startingFuelCapacity = 'fuelLevel'},
+      {name = 'battery', type = 'electricBattery', batteryCapacity = 100, startingCapacity = 'batteryLevel'},
+      {name = 'nitrous', type = 'n2oTank', capacity = 10, startingCapacity = 'n2oLevel'},
+    },
+  })
+  equal(#plan.changes, 1)
+  near(plan.values.fuelLevel, 5)
+  equal(plan.values.batteryLevel, 0)
+  equal(plan.values.n2oLevel, 0)
+end
+
+tests.v063_removed_or_absent_fuel_tank_is_not_applicable = function()
+  local plan = energyStorageGuard.plan({
+    variables = {battery = {name = 'battery', min = 0, max = 100, unit = 'kWh'}},
+    values = {battery = 0},
+    energyStorages = {{name = 'battery', type = 'electricBattery', batteryCapacity = 100}},
+  })
+  truthy(plan.report.notApplicable)
+  truthy(plan.report.compliant)
+  equal(#plan.changes, 0)
+end
+
+tests.v063_fuel_floor_is_read_back_before_success_and_dna_capture = function()
+  local variables = {
+    boost = {min = 0, max = 1, default = 0.5, step = 0.1},
+    ['$fuel'] = {name = '$fuel', min = 0, max = 60, default = 60, step = 0.5,
+      unit = 'L', title = 'Fuel Volume', hideInUI = true},
+  }
+  local harness = pipelineHarness.new({
+    tuningWaves = {{variables = variables}},
+    energyStorages = {{name = 'mainTank', type = 'fuelTank', energyType = 'gasoline',
+      fuelCapacity = 60, startingFuelCapacity = '$fuel'}},
+  })
+  harness.tuning['$fuel'] = 0
+  truthy(pipelineHarness.driveSuccess(harness, 'scramble', {manualSeed = 'fuel-floor-seed'}))
+  pipelineHarness.driveActive(harness, 256)
+  local state = harness.main.requestState()
+  truthy(not state.busy, 'fuel guard remained Busy at ' .. tostring(state.lifecyclePhase))
+  truthy(state.lastResult.success)
+  near(harness.tuning['$fuel'], 6)
+  equal(state.lastResult.details.energyStorages.status, 'readback_confirmed')
+  equal(state.lastResult.details.energyStorages.storages[1].status, 'confirmed')
+  truthy(type(state.lastResult.details.seed) == 'string' and state.lastResult.details.seed ~= '')
+  truthy(state.garage.pendingSave)
+  truthy(harness.main.saveVehicleDNA('Fuel Floor DNA'))
+  local pendingFuel
+  for _, variable in ipairs(harness.library.entries[1].final.tuning or {}) do
+    if variable.name == '$fuel' then pendingFuel = variable.value end
+  end
+  near(pendingFuel, 6)
+end
+
+tests.v063_random_car_applies_fuel_floor_before_completion = function()
+  local variables = {
+    ['$fuel'] = {name = '$fuel', min = 0, max = 50, default = 50, unit = 'L', title = 'Fuel Volume'},
+  }
+  local harness = pipelineHarness.new({
+    tuningWaves = {{variables = variables}},
+    newTargetTuning = {['$fuel'] = 0},
+    energyStorages = {{name = 'mainTank', type = 'fuelTank', energyType = 'diesel',
+      fuelCapacity = 50, startingFuelCapacity = '$fuel'}},
+  })
+  harness.tuning['$fuel'] = 0
+  truthy(harness.main.randomConfig({manualSeed = 'random-car-fuel'}))
+  pipelineHarness.confirmReplacement(harness)
+  pipelineHarness.driveActive(harness, 128)
+  local state = harness.main.requestState()
+  truthy(not state.busy)
+  equal(state.lastResult.code, 'random_config_loaded')
+  near(harness.tuning['$fuel'], 5)
+  equal(state.lastResult.details.energyStorages.status, 'readback_confirmed')
 end
 
 tests.v060_paint_coverage_confirms_supported_fields = function()

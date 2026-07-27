@@ -58,6 +58,7 @@ local productionModules = {
   destinationMarker = require("ge/extensions/soturineChaosRandomizer/destinationMarker"),
   routePlanner = require("ge/extensions/soturineChaosRandomizer/routePlanner"),
   operationContext = require("ge/extensions/soturineChaosRandomizer/runtime/operationContext"),
+  energyStorageGuard = require("ge/extensions/soturineChaosRandomizer/energyStorageGuard"),
 }
 
 local M = {}
@@ -1161,7 +1162,7 @@ local function enterWaiting(active, phase, afterReload, expected, label, value)
       phase == "parts" or phase == "part_isolation_test"
       or phase == "part_batch_rollback" or phase == "dna_parts"
     ) and "waiting_parts_reload"
-    or (phase == "tuning" or phase == "dna_tuning") and "waiting_tuning_reload"
+    or (phase == "tuning" or phase == "dna_tuning" or phase == "fuel_guard") and "waiting_tuning_reload"
     or (phase == "rollback") and (
       (active.recoveryTier or 6) <= 3 and "recovering_previous"
       or active.recoveryStep == "explicit_safe_baseline" and "recovering_last_completed_good"
@@ -1171,7 +1172,7 @@ local function enterWaiting(active, phase, afterReload, expected, label, value)
   setLifecyclePhase(active, lifecyclePhase, active.waitTimeout or WAIT_TIMEOUT, "wait:" .. tostring(phase))
   if phase == "parts" or phase == "part_isolation_test" or phase == "part_batch_rollback" or phase == "dna_parts" then
     active.readBackStatus = "parts_reload_pending"
-  elseif phase == "tuning" or phase == "dna_tuning" then
+  elseif phase == "tuning" or phase == "dna_tuning" or phase == "fuel_guard" then
     active.readBackStatus = "tuning_reload_pending"
   else
     active.readBackStatus = "target_identity_unstable"
@@ -1893,7 +1894,141 @@ completeReplayGeneration = function(active, safetyResult)
   })
 end
 
+production.ensureEnergyStorageFloor = function(active, continuation)
+  if active.energyGuardComplete then return false end
+  local okSnapshot, snapshot = adapter.getTuningSnapshot(active.vehicleId)
+  if not okSnapshot then
+    failActive(snapshot, true, "fuel_guard_readback")
+    return true
+  end
+  local plan = productionModules.energyStorageGuard.plan(snapshot)
+  active.energyGuardReport = util.deepCopy(plan.report)
+  if plan.report.notApplicable then
+    active.energyGuardComplete = true
+    active.energyGuardReport.status = "not_applicable"
+    diagnosticsModule.write(runtime.diagnostics, "D", "fuel_floor_not_applicable", active.energyGuardReport)
+    return false
+  end
+  if #plan.changes == 0 and plan.report.compliant then
+    active.energyGuardComplete = true
+    active.energyGuardReport.status = "readback_confirmed"
+    active.energyGuardOverrides = active.energyGuardOverrides or {}
+    for _, storage in ipairs(plan.report.storages or {}) do
+      if storage.classification == "fuel" and storage.variable and util.isFinite(storage.current) then
+        active.energyGuardOverrides[storage.variable] = storage.current
+      end
+    end
+    active.lastAcceptedCheckpoint = "fuel_floor_readback_confirmed"
+    diagnosticsModule.write(runtime.diagnostics, "I", "fuel_floor_readback_confirmed", active.energyGuardReport, true)
+    return false
+  end
+  if plan.report.unresolved > 0 and #plan.changes == 0 then
+    failActive(adapter.errorValue("fuel_floor_unresolved",
+      "Combustion fuel storage could not be correlated to a safe final value", {
+        energyStorages = active.energyGuardReport,
+      }), true, "fuel_guard_readback")
+    return true
+  end
+  active.energyGuardAttempts = (active.energyGuardAttempts or 0) + 1
+  if active.energyGuardAttempts > 2 then
+    failActive(adapter.errorValue("fuel_floor_readback_failed",
+      "Combustion fuel remained below its minimum after bounded correction attempts", {
+        attempts = active.energyGuardAttempts - 1, energyStorages = active.energyGuardReport,
+      }), true, "fuel_guard_readback")
+    return true
+  end
+  if runtime.state.state == "waitingForVehicle" or runtime.state.state == "validating" then
+    operationState.transition(runtime.state, "scanning", false)
+  end
+  if runtime.state.state == "waitingForReload" then operationState.transition(runtime.state, "tuning", false) end
+  if runtime.state.state == "scanning" then operationState.transition(runtime.state, "tuning", false) end
+  local expected = {}
+  for _, change in ipairs(plan.changes) do
+    expected[change.name] = change.requested
+    local record = util.deepCopy(change)
+    record.energyFloor = true
+    record.selectedValue = change.requested
+    active.tuningChanges[#active.tuningChanges + 1] = record
+    active.energyGuardOverrides = active.energyGuardOverrides or {}
+    active.energyGuardOverrides[change.name] = change.requested
+    if type(active.kind) == "string" and active.kind:sub(1, 3) == "dna" then
+      addDNADeviation(active, {
+        kind = "tuning", name = change.name, reason = "minimum_combustion_fuel",
+        requested = change.before, applied = change.requested,
+      })
+    end
+  end
+  active.pendingTuningChanges = nil
+  active.energyGuardContinuation = continuation
+  active.energyGuardPendingPlan = util.deepCopy(plan)
+  local okWait, waitError = enterWaiting(active, "fuel_guard", continuation, {
+    vehicleId = active.vehicleId,
+    modelKey = active.modelKey or (active.selectedModel and active.selectedModel.key),
+    tuning = expected,
+  }, "Enforcing minimum combustion fuel", 0.95)
+  if not okWait then failActive(waitError, true, "fuel_guard"); return true end
+  local okHistory, historyError = commitHistory(active)
+  if not okHistory then failActive(historyError, false, "fuel_guard"); return true end
+  bindMutationPlan(active, "fuel_guard")
+  local guardOk, guardError = guardMutationWrite(active, "fuel_guard")
+  if not guardOk then failActive(guardError, true, "fuel_guard"); return true end
+  local okApply, applyError = adapter.applyTuning(
+    plan.values, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId
+  )
+  if not okApply then failActive(applyError, true, "fuel_guard"); return true end
+  noteSuccessfulWrite(active, "fuel_guard")
+  diagnosticsModule.write(runtime.diagnostics, "I", "fuel_floor_correction_applied", {
+    attempt = active.energyGuardAttempts, changes = plan.changes, report = plan.report,
+  }, true)
+  return true
+end
+
+production.completeRandomConfig = function(active, verificationDetails)
+  if production.ensureEnergyStorageFloor(active, "random_config") then return end
+  local message = "Loaded " .. tostring(active.selectedConfig.name)
+  local warnings = {}
+  if active.selectedModel.isProp then
+    message = message .. "; prop control is not validated"
+    warnings[#warnings + 1] = "The selected prop may not provide an active controllable vehicle."
+  end
+  local details = {
+    seed = active.seed,
+    model = active.selectedModel.key,
+    configuration = active.selectedConfig.key,
+    configurationName = active.selectedConfig.name,
+    sourceKind = active.selectedConfig.sourceKind,
+    sourceLabel = active.selectedConfig.sourceLabel,
+    verifiedTraits = productionModules.lineupManager.verifiedTraits(active.selectedModel, active.selectedConfig),
+    verificationStrategy = verificationDetails and verificationDetails.strategy,
+    warnings = warnings,
+    energyStorages = util.deepCopy(active.energyGuardReport),
+    selection = {
+      kind = "new_selection", substream = active.selectionSubstream, seedSource = active.seedSource,
+      reusedFromRetry = false, restoredFromRecovery = false,
+      previousResultIdentity = active.previousResultIdentity,
+    },
+  }
+  operationState.transition(runtime.state, "validating", false)
+  local dnaSafe, dnaSafety = validateFinalVehicle(active)
+  details.safety = dnaSafe and util.deepCopy(dnaSafety) or nil
+  local dnaReady, dnaOrError = false, dnaSafety
+  if dnaSafe then dnaReady, dnaOrError = capturePendingDNA(active, details) end
+  details.dnaReady = dnaReady
+  if dnaReady then details.dnaId = dnaOrError.id else
+    details.warnings[#details.warnings + 1] = "Vehicle DNA capture was unavailable because final validation or capture did not complete."
+    diagnosticsModule.write(runtime.diagnostics, "W", "dna_capture_failed", dnaOrError, true)
+  end
+  pushRecent(runtime.recentModels, active.selectedModel.key)
+  pushRecent(runtime.recentConfigs, configSelector.identifier(active.selectedConfig))
+  pushRecent(runtime.recentRandomCarResults, selectionIdentity(
+    active.selectedModel.key, active.selectedConfig.path or active.selectedConfig.key
+  ))
+  if dnaReady then pushRecent(runtime.recentCompletedDNA, dnaOrError.id) end
+  finishOperation(true, "random_config_loaded", message, details)
+end
+
 local function completeChaos(active)
+  if production.ensureEnergyStorageFloor(active, "chaos") then return end
   operationState.transition(runtime.state, "validating", false)
   active.phase = "validation"
   setLifecyclePhase(active, "final_validation", false, "chaos_final_validation")
@@ -1952,6 +2087,7 @@ local function completeChaos(active)
     batchRecovery = active.batchRecovery and partBatchRecovery.metrics(active.batchRecovery) or nil,
     safety = util.deepCopy(safetyOrError),
     warnings = util.deepCopy(active.warnings),
+    energyStorages = util.deepCopy(active.energyGuardReport),
     coverage = {
       slots = slotSummary,
       tuning = tuningSummary,
@@ -4129,6 +4265,7 @@ startDNAPaint = function(active)
 end
 
 validateDNAFinal = function(active)
+  if production.ensureEnergyStorageFloor(active, "dna_validation") then return end
   active.phase = "dna_validation"
   local transitioned, transitionError = operationState.transition(runtime.state, "validating", false)
   if not transitioned then
@@ -4222,7 +4359,10 @@ verifyDNAFinal = function(active)
   end
   local expectedTuning = active.dnaMode == "exact" and {} or active.dnaExpectedTuning
   if active.dnaMode == "exact" then
-    for _, saved in ipairs(active.dnaEntry.final.tuning or {}) do expectedTuning[saved.name] = saved.value end
+    for _, saved in ipairs(active.dnaEntry.final.tuning or {}) do
+      expectedTuning[saved.name] = active.energyGuardOverrides and active.energyGuardOverrides[saved.name]
+        or saved.value
+    end
   end
   for name, expected in pairs(expectedTuning or {}) do
     local actual = tonumber(capture.tuning and capture.tuning[name])
@@ -4258,6 +4398,7 @@ verifyDNAFinal = function(active)
   finishOperation(true, "dna_restore_" .. status, "Vehicle DNA restored: " .. status, {
     restoreStatus = status, dnaId = active.dnaEntry.id, deviations = util.deepCopy(active.dnaDeviations),
     exact = status == "exact", verified = true, safety = util.deepCopy(active.dnaSafetyResult),
+    energyStorages = util.deepCopy(active.energyGuardReport),
   })
 end
 
@@ -4299,7 +4440,7 @@ local function completeStableTarget(vehicleId, verificationState, verificationDe
   if completedPhase == "spawn" or completedPhase == "parts" or completedPhase == "tuning"
     or completedPhase == "undo" or completedPhase == "rollback" or completedPhase == "dna_base_spawn"
     or completedPhase == "dna_parts" or completedPhase == "dna_tuning" or completedPhase == "part_batch_rollback"
-    or completedPhase == "part_isolation_test"
+    or completedPhase == "part_isolation_test" or completedPhase == "fuel_guard"
   then
     active.reloadCount = (active.reloadCount or 0) + 1
   end
@@ -4308,7 +4449,7 @@ local function completeStableTarget(vehicleId, verificationState, verificationDe
     or completedPhase == "part_batch_rollback" or completedPhase == "dna_parts"
   then
     setLifecyclePhase(active, "verifying_parts", false, "parts_reload_verified")
-  elseif completedPhase == "tuning" or completedPhase == "dna_tuning" then
+  elseif completedPhase == "tuning" or completedPhase == "dna_tuning" or completedPhase == "fuel_guard" then
     setLifecyclePhase(active, "verifying_tuning", false, "tuning_reload_verified")
   end
 
@@ -4320,48 +4461,7 @@ local function completeStableTarget(vehicleId, verificationState, verificationDe
       vehicleRecovery.rememberReadable(runtime.recovery, baseSnapshot)
     end
     if afterReload == "randomConfig" then
-      local message = "Loaded " .. tostring(active.selectedConfig.name)
-      local warnings = {}
-      if active.selectedModel.isProp then
-        message = message .. "; prop control is not validated"
-        warnings[#warnings + 1] = "The selected prop may not provide an active controllable vehicle."
-      end
-      local details = {
-        seed = active.seed,
-        model = active.selectedModel.key,
-        configuration = active.selectedConfig.key,
-        configurationName = active.selectedConfig.name,
-        sourceKind = active.selectedConfig.sourceKind,
-        sourceLabel = active.selectedConfig.sourceLabel,
-        verifiedTraits = productionModules.lineupManager.verifiedTraits(active.selectedModel, active.selectedConfig),
-        verificationStrategy = verificationDetails and verificationDetails.strategy,
-        warnings = warnings,
-        selection = {
-          kind = "new_selection",
-          substream = active.selectionSubstream,
-          seedSource = active.seedSource,
-          reusedFromRetry = false,
-          restoredFromRecovery = false,
-          previousResultIdentity = active.previousResultIdentity,
-        },
-      }
-      operationState.transition(runtime.state, "validating", false)
-      local dnaSafe, dnaSafety = validateFinalVehicle(active)
-      details.safety = dnaSafe and util.deepCopy(dnaSafety) or nil
-      local dnaReady, dnaOrError = false, dnaSafety
-      if dnaSafe then dnaReady, dnaOrError = capturePendingDNA(active, details) end
-      details.dnaReady = dnaReady
-      if dnaReady then details.dnaId = dnaOrError.id else
-        details.warnings[#details.warnings + 1] = "Vehicle DNA capture was unavailable because final validation or capture did not complete."
-        diagnosticsModule.write(runtime.diagnostics, "W", "dna_capture_failed", dnaOrError, true)
-      end
-      pushRecent(runtime.recentModels, active.selectedModel.key)
-      pushRecent(runtime.recentConfigs, configSelector.identifier(active.selectedConfig))
-      pushRecent(runtime.recentRandomCarResults, selectionIdentity(
-        active.selectedModel.key, active.selectedConfig.path or active.selectedConfig.key
-      ))
-      if dnaReady then pushRecent(runtime.recentCompletedDNA, dnaOrError.id) end
-      finishOperation(true, "random_config_loaded", message, details)
+      production.completeRandomConfig(active, verificationDetails)
     else
       operationState.transition(runtime.state, "scanning", false)
       active.pass = 1
@@ -4414,6 +4514,19 @@ local function completeStableTarget(vehicleId, verificationState, verificationDe
   elseif completedPhase == "tuning" then
     operationState.transition(runtime.state, "tuning", false)
     processTuningReadback(active)
+  elseif completedPhase == "fuel_guard" then
+    operationState.transition(runtime.state, "tuning", false)
+    active.energyGuardPendingPlan = nil
+    local continuation = active.energyGuardContinuation
+    active.energyGuardComplete = false
+    if production.ensureEnergyStorageFloor(active, continuation) then return end
+    if continuation == "random_config" then
+      production.completeRandomConfig(active, verificationDetails)
+    elseif continuation == "dna_validation" then
+      validateDNAFinal(active)
+    else
+      completeChaos(active)
+    end
   elseif completedPhase == "undo" then
     historyModule.pop(runtime.history)
     finishOperation(true, "undo_completed", "Previous vehicle state restored", {model = active.originalState.modelKey})

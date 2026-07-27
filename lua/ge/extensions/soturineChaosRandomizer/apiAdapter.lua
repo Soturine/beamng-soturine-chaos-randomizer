@@ -649,6 +649,7 @@ local function getTuningSnapshot(expectedVehicleId)
   return true, {
     variables = util.deepCopy(data.vdata and data.vdata.variables or {}),
     values = util.deepCopy(data.config and data.config.vars or {}),
+    energyStorages = util.deepCopy(data.vdata and data.vdata.energyStorage or {}),
   }
 end
 
