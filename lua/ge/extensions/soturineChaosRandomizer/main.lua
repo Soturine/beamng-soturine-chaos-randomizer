@@ -1214,6 +1214,13 @@ local function enterWaiting(active, phase, afterReload, expected, label, value)
   expected.vehicleId = nil
   active.wait = lifecycle.createExpectation(expected)
   active.wait.context = util.deepCopy(active.waitContext)
+  local expectedTuningMetadata = {}
+  for _, change in ipairs(active.pendingTuningChanges or {}) do
+    expectedTuningMetadata[change.name] = {
+      minimum = change.minimum, maximum = change.maximum,
+      tolerance = change.step and math.max(change.step * 0.45, 1e-9) or 1e-7,
+    }
+  end
   active.targetTracker = vehicleTargetTracker.create({
     token = active.token,
     operationId = runtime.state.operationId,
@@ -1226,6 +1233,8 @@ local function enterWaiting(active, phase, afterReload, expected, label, value)
     configKey = active.wait.configKey,
     configIdentity = active.wait.configIdentity,
     parts = active.wait.parts,
+    tuning = active.wait.tuning,
+    tuningMetadata = expectedTuningMetadata,
     originalVehicleId = active.reloadWriteTarget and active.reloadWriteTarget.vehicleId,
     startedAt = active.wait.startedAt,
     timeout = active.waitTimeout or WAIT_TIMEOUT,

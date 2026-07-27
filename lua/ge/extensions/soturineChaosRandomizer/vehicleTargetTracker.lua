@@ -62,6 +62,8 @@ local function create(options)
     expectedVehicleId = options.vehicleId,
     expectedConfigIdentity = util.deepCopy(options.configIdentity),
     expectedParts = util.deepCopy(options.parts or {}),
+    expectedTuning = util.deepCopy(options.tuning or {}),
+    expectedTuningMetadata = util.deepCopy(options.tuningMetadata or {}),
     requirePartsReadable = options.requirePartsReadable == true,
     originalVehicleId = options.originalVehicleId,
     returnedVehicleId = options.returnedVehicleId,
@@ -91,6 +93,8 @@ local function create(options)
     identityReported = false,
     identityConfirmedAt = nil,
     fingerprintReason = "identity_not_confirmed",
+    finalReadAttempted = false,
+    finalReadAccepted = false,
     stabilizer = vehicleStabilizer.create(options.stabilizer),
     treeStabilizer = vehicleStabilizer.create(options.treeStabilizer or {
       minimumFrames = 2, minimumScans = 2, pollInterval = 0,
@@ -224,10 +228,34 @@ local function verifyTree(tracker, state)
   return true
 end
 
+local function verifyTuning(tracker, state)
+  if not next(tracker.expectedTuning or {}) then return true end
+  if type(state.tuning) ~= "table" then return false, "tuning_readback_unavailable" end
+  for name, requested in pairs(tracker.expectedTuning) do
+    local observed = tonumber(state.tuning[name])
+    local expected = tonumber(requested)
+    if not util.isFinite(observed) or not util.isFinite(expected) then
+      return false, "tuning_readback_mismatch", {name = name, requested = requested, observed = state.tuning[name]}
+    end
+    local metadata = tracker.expectedTuningMetadata[name] or {}
+    local tolerance = tonumber(metadata.tolerance) or 1e-7
+    local minimum, maximum = tonumber(metadata.minimum), tonumber(metadata.maximum)
+    local exact = math.abs(observed - expected) <= tolerance
+    local validClamp = util.isFinite(minimum) and util.isFinite(maximum)
+      and observed >= minimum - tolerance and observed <= maximum + tolerance
+    if not exact and not validClamp then
+      return false, "tuning_readback_mismatch", {name = name, requested = expected, observed = observed}
+    end
+  end
+  return true
+end
+
 local function verifyExpected(tracker, state)
   local identity, reason, details = verifyIdentity(tracker, state)
   if not identity then return false, reason, details end
-  return verifyTree(tracker, state)
+  local tree, treeReason, treeDetails = verifyTree(tracker, state)
+  if not tree then return false, treeReason, treeDetails end
+  return verifyTuning(tracker, state)
 end
 
 local function generationsMatch(tracker, context)
@@ -246,12 +274,13 @@ local function observe(tracker, token, state, now, context)
     tracker.lastReason = tracker.status
     return "failed", tracker.status
   end
-  if now >= tracker.deadline then
-    tracker.status = tracker.callbackSeen and "operation_deadline_exceeded" or "target_callback_missing"
-    tracker.lastReason = tracker.status
-    return "failed", tracker.status
-  end
+  local deadlineReached = now >= tracker.deadline
   if type(state) ~= "table" or type(state.vehicleId) ~= "number" then
+    if deadlineReached then
+      tracker.status = tracker.callbackSeen and "operation_deadline_exceeded" or "target_callback_missing"
+      tracker.lastReason = tracker.status
+      return "failed", tracker.status
+    end
     tracker.status = "vehicle_target_stabilizing"
     tracker.lastReason = "target_identity_unstable"
     return "waiting", tracker.lastReason
@@ -271,12 +300,47 @@ local function observe(tracker, token, state, now, context)
       tracker.status = "external_vehicle_switch"
       return "cancelled", "external_vehicle_switch", {vehicleId = state.vehicleId, reason = reason}
     end
+    if deadlineReached then
+      tracker.finalReadAttempted = true
+      tracker.status = "operation_deadline_exceeded"
+      tracker.lastReason = tracker.status
+      return "failed", tracker.status, {finalReadReason = reason, verification = verificationDetails}
+    end
     if not tracker.identityConfirmed then vehicleStabilizer.reset(tracker.stabilizer, reason) end
     tracker.identityStatus = "tracking_target_identity"
     tracker.fingerprintReason = reason
     tracker.lastReason = reason
     tracker.status = "vehicle_target_stabilizing"
     return "waiting", reason, verificationDetails
+  end
+
+  if deadlineReached then
+    tracker.finalReadAttempted = true
+    local finalVerified, finalReason, finalDetails = verifyExpected(tracker, state)
+    local coherent = state.playerIndex == 0 and state.coherentTargetRead == true
+    if not finalVerified or not coherent then
+      tracker.status = "operation_deadline_exceeded"
+      tracker.lastReason = tracker.status
+      return "failed", tracker.status, {
+        finalReadReason = finalVerified and "candidate_read_incoherent" or finalReason,
+        verification = finalDetails,
+      }
+    end
+    tracker.finalReadAccepted = true
+    tracker.identityConfirmed = true
+    tracker.identityReported = true
+    tracker.identityConfirmedAt = now
+    tracker.identityStatus = "target_identity_confirmed"
+    tracker.treeStatus = (next(tracker.expectedParts or {}) ~= nil or tracker.requirePartsReadable)
+      and "parts_tree_converged" or "not_required"
+    tracker.currentCandidateId = state.vehicleId
+    tracker.lastState = util.deepCopy(state)
+    tracker.status = "vehicle_target_stable"
+    tracker.lastReason = "final_read_accepted"
+    return "stable", "final_read_accepted", {
+      vehicleId = state.vehicleId, state = util.deepCopy(state), verification = finalDetails,
+      identityConfirmed = true, treeStatus = tracker.treeStatus, finalReadAccepted = true,
+    }
   end
 
   tracker.suspectSwitchId = nil
@@ -368,6 +432,8 @@ local function summary(tracker, now)
   metrics.switchCallbackSeen = tracker.switchCallbackSeen
   metrics.lastObservedAt = tracker.lastObservedAt
   metrics.lastReason = tracker.lastReason
+  metrics.finalReadAttempted = tracker.finalReadAttempted
+  metrics.finalReadAccepted = tracker.finalReadAccepted
   metrics.expectedModelKey = tracker.expectedModelKey
   metrics.expectedConfigKey = tracker.expectedConfigKey
   metrics.candidateChain = util.deepCopy(tracker.candidates)
@@ -387,6 +453,7 @@ M.onDestroyed = onDestroyed
 M.observe = observe
 M.verifyIdentity = verifyIdentity
 M.verifyTree = verifyTree
+M.verifyTuning = verifyTuning
 M.verifyExpected = verifyExpected
 M.stateFingerprint = stateFingerprint
 M.partsFingerprint = partsFingerprint

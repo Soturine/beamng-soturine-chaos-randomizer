@@ -3016,6 +3016,45 @@ tests.v063_operation_context_rejects_stale_and_destroyed_candidates = function()
   equal(context.staleCandidateCount, 1)
 end
 
+tests.v063_final_unbound_read_accepts_converged_target_at_deadline = function()
+  local tracker = vehicleTargetTracker.create({
+    token = "deadline", operationId = "SCR-deadline", operationGeneration = 1,
+    phaseGeneration = 2, targetGeneration = 3, modelKey = "target_model",
+    configKey = "/vehicles/target_model/base.pc", parts = {["/body/"] = "body_b"},
+    tuning = {boost = 0.8}, tuningMetadata = {boost = {minimum = 0, maximum = 1, tolerance = 0.01}},
+    requirePartsReadable = true, startedAt = 0, timeout = 1,
+  })
+  local status, reason, details = vehicleTargetTracker.observe(tracker, "deadline", {
+    vehicleId = 99, playerIndex = 0, modelKey = "target_model",
+    configKey = "/vehicles/target_model/base.pc", parts = {["/body/"] = "body_b"},
+    partsAvailable = true, tuning = {boost = 0.8}, readStatus = "ready", coherentTargetRead = true,
+  }, 1, {
+    operationId = "SCR-deadline", operationGeneration = 1,
+    phaseGeneration = 2, targetGeneration = 3,
+  })
+  equal(status, "stable")
+  equal(reason, "final_read_accepted")
+  truthy(details.finalReadAccepted)
+  local summary = vehicleTargetTracker.summary(tracker, 1)
+  truthy(summary.finalReadAttempted)
+  truthy(summary.finalReadAccepted)
+end
+
+tests.v063_final_unbound_read_rejects_wrong_tuning = function()
+  local tracker = vehicleTargetTracker.create({
+    token = "deadline", modelKey = "target_model", tuning = {boost = 0.8},
+    tuningMetadata = {boost = {minimum = 0.5, maximum = 1, tolerance = 0.01}},
+    startedAt = 0, timeout = 1,
+  })
+  local status, reason, details = vehicleTargetTracker.observe(tracker, "deadline", {
+    vehicleId = 99, playerIndex = 0, modelKey = "target_model", parts = {},
+    tuning = {boost = 0.1}, readStatus = "ready", coherentTargetRead = true,
+  }, 1)
+  equal(status, "failed")
+  equal(reason, "operation_deadline_exceeded")
+  equal(details.finalReadReason, "tuning_readback_mismatch")
+end
+
 tests.alpha2_tracker_limits_contract = function()
   local tracker = alpha2Tracker()
   for id = 1, 40 do vehicleTargetTracker.onSpawned(tracker, id) end
