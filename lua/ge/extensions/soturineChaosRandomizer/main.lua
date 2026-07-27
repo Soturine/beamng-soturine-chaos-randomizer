@@ -2092,10 +2092,38 @@ end
 
 local function applyTuningPass(active, snapshot, pass, onlyNew)
   setLifecyclePhase(active, "applying_tuning", false, "tuning_pass_" .. tostring(pass))
-  local values, changes, ledger, newly = tuningPipeline.plan(
+  active.tuningDiscoverySignatures = active.tuningDiscoverySignatures or {}
+  active.tuningDiscoveryOrder = active.tuningDiscoveryOrder or {}
+  local signature = tuningPipeline.snapshotSignature(snapshot.variables)
+  local previousPass = active.tuningDiscoverySignatures[signature]
+  if previousPass then
+    active.tuningDiscoveryStopReason = previousPass == pass - 1
+      and "tuning_fixed_point_reached" or "tuning_discovery_cycle_detected"
+    active.stageReasons = active.stageReasons or {}
+    active.stageReasons.tuning = active.tuningDiscoveryStopReason
+    diagnosticsModule.write(runtime.diagnostics,
+      active.tuningDiscoveryStopReason == "tuning_discovery_cycle_detected" and "W" or "D",
+      active.tuningDiscoveryStopReason, {pass = pass, firstSeenPass = previousPass})
+    return false
+  end
+  if pass > active.coverageLimits.maxTuningDiscoveryPasses then
+    active.tuningDiscoveryStopReason = "tuning_discovery_limit_reached"
+    active.stageReasons = active.stageReasons or {}
+    active.stageReasons.tuning = active.tuningDiscoveryStopReason
+    active.warnings[#active.warnings + 1] = "Tuning discovery stopped at its bounded pass limit."
+    diagnosticsModule.write(runtime.diagnostics, "W", active.tuningDiscoveryStopReason, {
+      pass = pass, limit = active.coverageLimits.maxTuningDiscoveryPasses,
+      variableCount = #util.sortedKeys(snapshot.variables or {}),
+    }, true)
+    return false
+  end
+  active.tuningDiscoverySignatures[signature] = pass
+  active.tuningDiscoveryOrder[#active.tuningDiscoveryOrder + 1] = signature
+  local values, changes, ledger, newly, metadataChanged = tuningPipeline.plan(
     snapshot.variables, snapshot.values, active.policy, active.rng:fork("tuning:pass:" .. tostring(pass)), {
       onlyNew = onlyNew == true,
       extremeTuning = runtime.settings.extremeTuning == true,
+      maxVariables = active.coverageLimits.maxTuningVariables,
       isLocked = active.lockProfileSnapshot and function(name, category, subCategory)
         return vehicleDNALocks.isTuningLocked(active.lockProfileSnapshot, name, category, subCategory)
       end or nil,
@@ -2109,6 +2137,8 @@ local function applyTuningPass(active, snapshot, pass, onlyNew)
   active.stageReasons.tuning = #changes > 0 and "tuning_processed" or "tuning_no_mutable_values"
   diagnosticsModule.write(runtime.diagnostics, "D", "tuning_pass_planned", {
     pass = pass, changes = #changes, newlyDiscovered = newly,
+    metadataChanged = metadataChanged,
+    variableDrops = active.tuningLedger.variableDrops,
     coverage = tuningCoverageLedger.summary(active.tuningLedger),
   })
   if #changes == 0 then return false end
@@ -2150,10 +2180,9 @@ local function processTuningReadback(active)
       change.clamped = entry.clamped == true
     end
   end
-  if (active.tuningPass or 1) < 2 then
-    if applyTuningPass(active, snapshot, 2, true) then return end
-    tuningCoverageLedger.readBack(active.tuningLedger, snapshot.values, 2)
-  end
+  local nextPass = (active.tuningPass or 1) + 1
+  if applyTuningPass(active, snapshot, nextPass, true) then return end
+  tuningCoverageLedger.readBack(active.tuningLedger, snapshot.values, nextPass)
   operationState.transition(runtime.state, "painting", false)
   startPaint(active)
 end

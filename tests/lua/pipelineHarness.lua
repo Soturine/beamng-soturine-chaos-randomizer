@@ -256,6 +256,19 @@ local function new(options)
     return true, {confirmationRequired = true}
   end
   function adapter.getTuningSnapshot()
+    harness.tuningSnapshotCount = (harness.tuningSnapshotCount or 0) + 1
+    local waves = options.tuningWaves
+    if type(waves) == "table" and #waves > 0 then
+      local wave = waves[math.min(harness.tuningSnapshotCount, #waves)] or {}
+      local variables = util.deepCopy(wave.variables or wave)
+      local values = util.deepCopy(harness.tuning)
+      for name, value in pairs(type(wave.values) == "table" and wave.values or {}) do values[name] = value end
+      for name, metadata in pairs(variables) do
+        if values[name] == nil then values[name] = tonumber(metadata.default) or tonumber(metadata.min) or 0 end
+      end
+      harness.tuning = util.deepCopy(values)
+      return true, {variables = variables, values = values}
+    end
     return true, {
       variables = {boost = {min = harness.tuningMinimum, max = harness.tuningMaximum, default = 0.5, step = 0.1}},
       values = util.deepCopy(harness.tuning),

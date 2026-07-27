@@ -3,6 +3,26 @@ local tuningLedger = require("ge/extensions/soturineChaosRandomizer/tuningCovera
 
 local M = {}
 
+local function scalar(value)
+  if value == nil then return "~" end
+  if type(value) == "boolean" then return value and "1" or "0" end
+  return tostring(value)
+end
+
+local function snapshotSignature(variables)
+  local fields = {}
+  for _, name in ipairs(util.sortedKeys(variables or {})) do
+    local raw = type(variables[name]) == "table" and variables[name] or {}
+    fields[#fields + 1] = table.concat({
+      scalar(name), scalar(raw.sourcePart), scalar(raw.category), scalar(raw.subCategory),
+      scalar(raw.correlationGroup), scalar(raw.min), scalar(raw.max),
+      scalar(raw.step or raw.stepDis), scalar(raw.default), scalar(raw.hideInUI),
+      scalar(raw.internal), scalar(raw.isInternal), scalar(raw.action),
+    }, "\31")
+  end
+  return table.concat(fields, "\30")
+end
+
 local function text(value)
   return type(value) == "string" and value ~= "" and value or nil
 end
@@ -89,14 +109,19 @@ local function plan(variables, currentValues, policy, generator, options, state,
   local values = util.deepCopy(currentValues or {})
   local changes = {}
   local newly = {}
-  for _, name in ipairs(util.sortedKeys(variables or {})) do
+  local metadataChanged = {}
+  local names = util.sortedKeys(variables or {})
+  local maxVariables = math.max(1, math.floor(tonumber(options.maxVariables) or #names))
+  for index, name in ipairs(names) do
+    if index > maxVariables then break end
     local variable = normalize(name, variables[name], currentValues, options.isLocked)
     local key = tuningLedger.identity(variable)
     local existed = state.entries[key] ~= nil
     local isNew = not existed and pass > 1
-    local entry = tuningLedger.observe(state, variable, pass, isNew)
+    local entry, revisionChanged = tuningLedger.observe(state, variable, pass, isNew)
     if isNew then newly[#newly + 1] = name end
-    if options.onlyNew and existed then
+    if revisionChanged then metadataChanged[#metadataChanged + 1] = name end
+    if options.onlyNew and existed and not revisionChanged then
       -- Existing entries were already verified by the preceding read-back.
     elseif variable.status ~= "eligible" then
       tuningLedger.update(state, key, variable.status, {eligible = variable.eligible == true, tolerance = variable.tolerance})
@@ -127,12 +152,15 @@ local function plan(variables, currentValues, policy, generator, options, state,
       end
     end
   end
-  return values, changes, state, newly
+  state.lastVariableCount = math.min(#names, maxVariables)
+  state.variableDrops = math.max(0, #names - maxVariables)
+  return values, changes, state, newly, metadataChanged
 end
 
 M.normalize = normalize
 M.selected = selected
 M.choose = choose
 M.plan = plan
+M.snapshotSignature = snapshotSignature
 
 return M

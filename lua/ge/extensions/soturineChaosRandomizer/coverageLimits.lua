@@ -11,6 +11,7 @@ local DEFAULTS = {
   maxDiscoveredSlots = 2048,
   maxCandidateAttempts = 4096,
   maxTuningVariables = 2048,
+  maxTuningDiscoveryPasses = 16,
   maxPaintFields = 64,
   maxLineupCompetitors = 16,
   maxManagedVehicles = 32,

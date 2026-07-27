@@ -3308,6 +3308,89 @@ tests.v060_tuning_rescan_discovers_only_new_variables = function()
   equal(changes[1].name, "nitrous")
 end
 
+tests.v063_tuning_metadata_revision_is_reprocessed = function()
+  local policy = mutationPolicy.fromSettings({chaos = 100})
+  local variables = {boost = {min = 0, max = 1, default = 0.5, step = 0.1, category = "Engine"}}
+  local _, first, ledger = tuningPipeline.plan(
+    variables, {boost = 0.5}, policy, rng.new("metadata-pass-1"), {}, nil, 1
+  )
+  equal(#first, 1)
+  variables.boost.max = 2
+  variables.boost.step = 0.25
+  local _, second, updated, newly, changed = tuningPipeline.plan(
+    variables, {boost = first[1].selectedValue}, policy, rng.new("metadata-pass-2"),
+    {onlyNew = true}, ledger, 2
+  )
+  equal(#newly, 0)
+  equal(#changed, 1)
+  equal(changed[1], "boost")
+  equal(#second, 1)
+  local entry = updated.entries[second[1].identity]
+  equal(entry.maximum, 2)
+  equal(entry.step, 0.25)
+  equal(entry.metadataChangeCount, 1)
+end
+
+tests.v063_tuning_pipeline_reaches_fixed_point_after_multiple_waves = function()
+  local boost = {min = 0, max = 1, default = 0.5, step = 0.1, category = "Engine"}
+  local spring = {min = 0, max = 10, default = 5, step = 1, category = "Suspension"}
+  local nitrous = {min = 0, max = 100, default = 50, step = 10, category = "Powertrain"}
+  local harness = pipelineHarness.new({tuningWaves = {
+    {variables = {boost = boost}},
+    {variables = {boost = boost, spring = spring}, values = {spring = 5}},
+    {variables = {boost = boost, spring = spring, nitrous = nitrous}, values = {nitrous = 50}},
+    {variables = {boost = boost, spring = spring, nitrous = nitrous}},
+  }})
+  truthy(pipelineHarness.driveSuccess(harness, "scramble", {manualSeed = "tuning-waves"}))
+  pipelineHarness.driveActive(harness, 256)
+  local state = harness.main.requestState()
+  truthy(not state.busy, "tuning waves remained Busy at " .. tostring(state.lifecyclePhase))
+  equal(state.lastResult.code, "completed")
+  local tuningWrites = 0
+  for _, write in ipairs(harness.writes) do if write.kind == "tuning" then tuningWrites = tuningWrites + 1 end end
+  equal(tuningWrites, 3)
+  equal(state.lastResult.details.coverage.tuning.tuningDiscovered, 3)
+  equal(state.lastResult.details.coverage.tuning.tuningNewlyDiscovered, 2)
+end
+
+tests.v063_tuning_signature_detects_fixed_point_and_cycle = function()
+  local first = {a = {min = 0, max = 1, default = 0.5}}
+  local second = {a = {min = 0, max = 2, default = 0.5}}
+  equal(tuningPipeline.snapshotSignature(first), tuningPipeline.snapshotSignature(util.deepCopy(first)))
+  truthy(tuningPipeline.snapshotSignature(first) ~= tuningPipeline.snapshotSignature(second))
+end
+
+tests.v063_tuning_disappearance_and_nonfinite_metadata_are_classified = function()
+  local policy = mutationPolicy.fromSettings({chaos = 100})
+  local variables = {
+    valid = {min = 0, max = 1, default = 0.5},
+    infinite = {min = 0, max = math.huge, default = 1},
+    notANumber = {min = 0 / 0, max = 1, default = 0.5},
+  }
+  local _, changes, ledger = tuningPipeline.plan(
+    variables, {valid = 0.5}, policy, rng.new("tuning-disappear"), {}, nil, 1
+  )
+  equal(#changes, 1)
+  tuningCoverageLedger.readBack(ledger, {valid = changes[1].selectedValue}, 1)
+  tuningPipeline.plan({}, {}, policy, rng.new("tuning-disappear-2"), {onlyNew = true}, ledger, 2)
+  tuningCoverageLedger.readBack(ledger, {}, 2)
+  equal(ledger.entries[changes[1].identity].status, "disappeared_after_apply")
+  equal(tuningCoverageLedger.summary(ledger).tuningInvalid, 2)
+end
+
+tests.v063_tuning_discovery_cycle_stops_without_remaining_busy = function()
+  local first = {boost = {min = 0, max = 1, default = 0.5, step = 0.1}}
+  local second = {boost = {min = 0, max = 2, default = 0.5, step = 0.1}}
+  local harness = pipelineHarness.new({tuningWaves = {
+    {variables = first}, {variables = second}, {variables = first},
+  }})
+  truthy(pipelineHarness.driveSuccess(harness, "scramble", {manualSeed = "tuning-cycle"}))
+  pipelineHarness.driveActive(harness, 256)
+  local state = harness.main.requestState()
+  truthy(not state.busy)
+  equal(state.lastResult.details.stageReasons.tuning, "tuning_discovery_cycle_detected")
+end
+
 tests.v060_paint_coverage_confirms_supported_fields = function()
   local before = {{baseColor = {0, 0, 0, 1}, metallic = 0, roughness = 0.5, clearcoat = 0, clearcoatRoughness = 0.5}}
   local after = {{baseColor = {1, 0, 0, 1}, metallic = 0.8, roughness = 0.2, clearcoat = 1, clearcoatRoughness = 0.1}}

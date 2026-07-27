@@ -9,6 +9,7 @@ local TERMINAL = {
   readback_clamped = true, readback_rejected = true, write_failed = true,
   rolled_back = true, category_rolled_back = true, unsupported = true,
   disappeared_after_apply = true,
+  protection_limit = true,
 }
 
 local function create(context)
@@ -36,7 +37,25 @@ local function identity(variable)
   return table.concat({
     tostring(variable.name or ""), tostring(variable.category or ""),
     tostring(variable.subCategory or ""), tostring(variable.sourcePart or ""),
+    tostring(variable.correlationGroup or ""),
   }, "\31")
+end
+
+local function metadataSnapshot(variable)
+  return {
+    minimum = variable.minimum, maximum = variable.maximum, step = variable.step,
+    default = variable.default, eligible = variable.eligible == true,
+    locked = variable.locked == true, hidden = variable.hidden == true,
+    internal = variable.internal == true, status = variable.status,
+  }
+end
+
+local function metadataChanged(entry, variable)
+  local current = metadataSnapshot(variable)
+  local previous = entry.lastMetadata or {}
+  for key, value in pairs(current) do if previous[key] ~= value then return true, previous, current end end
+  for key, value in pairs(previous) do if current[key] ~= value then return true, previous, current end end
+  return false, previous, current
 end
 
 local function observe(state, variable, pass, newlyDiscovered)
@@ -55,12 +74,30 @@ local function observe(state, variable, pass, newlyDiscovered)
       correlationGroup = variable.correlationGroup, firstSeenPass = pass,
       attemptCount = 0, rollbackCount = 0,
       newlyDiscovered = newlyDiscovered == true,
+      metadataRevision = 1, metadataChangeCount = 0, metadataChanges = {},
+      lastMetadata = metadataSnapshot(variable),
     }
     state.entries[key] = entry
     state.order[#state.order + 1] = key
+  else
+    local changed, before, after = metadataChanged(entry, variable)
+    if changed then
+      entry.metadataRevision = (entry.metadataRevision or 1) + 1
+      entry.metadataChangeCount = (entry.metadataChangeCount or 0) + 1
+      entry.metadataChanges[#entry.metadataChanges + 1] = {
+        pass = pass, before = util.deepCopy(before), after = util.deepCopy(after),
+      }
+      while #entry.metadataChanges > 8 do table.remove(entry.metadataChanges, 1) end
+      entry.minimum, entry.maximum, entry.step = variable.minimum, variable.maximum, variable.step
+      entry.default, entry.eligible = variable.default, variable.eligible == true
+      entry.locked, entry.hidden, entry.internal = variable.locked == true, variable.hidden == true, variable.internal == true
+      entry.status, entry.reason = variable.status or "discovered", variable.reason or "metadata_changed"
+      entry.lastMetadata = after
+    end
+    entry.lastRevisionChanged = changed == true
   end
   entry.lastSeenPass = pass
-  return entry
+  return entry, entry.lastRevisionChanged == true
 end
 
 local function update(state, key, status, details)
@@ -90,7 +127,9 @@ local function readBack(state, values, pass)
   values = type(values) == "table" and values or {}
   for _, key in ipairs(state.order) do
     local entry = state.entries[key]
-    if entry.lastSeenPass and entry.lastSeenPass < pass and values[entry.name] == nil and not TERMINAL[entry.status] then
+    if entry.lastSeenPass and entry.lastSeenPass < pass and values[entry.name] == nil
+      and (entry.eligible or entry.attempted)
+    then
       entry.status, entry.reason = "disappeared_after_apply", "disappeared_after_apply"
     elseif entry.attempted and values[entry.name] ~= nil then
       local observed = tonumber(values[entry.name])
@@ -118,7 +157,8 @@ local function summary(state)
     tuningDiscovered = #state.order, tuningEligible = 0, tuningSelectedByChaos = 0,
     tuningAttempted = 0, tuningChanged = 0, tuningFixed = 0, tuningLocked = 0,
     tuningInvalid = 0, tuningClamped = 0, tuningRejected = 0, tuningRolledBack = 0,
-    tuningNewlyDiscovered = 0, tuningUnresolved = 0, tuningClassified = 0,
+    tuningNewlyDiscovered = 0, tuningMetadataChanged = 0,
+    tuningUnresolved = 0, tuningClassified = 0,
     tuningCoveragePercent = 100, tuningChangePercent = 0,
     finalReadBack = state.finalReadBack == true,
   }
@@ -135,6 +175,7 @@ local function summary(state)
     if entry.status == "readback_rejected" or entry.status == "write_failed" then result.tuningRejected = result.tuningRejected + 1 end
     if (entry.rollbackCount or 0) > 0 then result.tuningRolledBack = result.tuningRolledBack + 1 end
     if entry.newlyDiscovered then result.tuningNewlyDiscovered = result.tuningNewlyDiscovered + 1 end
+    result.tuningMetadataChanged = result.tuningMetadataChanged + (entry.metadataChangeCount or 0)
     if entry.eligible and TERMINAL[entry.status] then result.tuningClassified = result.tuningClassified + 1 end
     if entry.eligible and not TERMINAL[entry.status] then result.tuningUnresolved = result.tuningUnresolved + 1 end
   end
