@@ -5,6 +5,7 @@ import hashlib
 import re
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
 
 from tools import package_mod, validate_package, validate_release_gate
@@ -122,40 +123,114 @@ class PackageTests(unittest.TestCase):
             second_manifest = package_mod.write_release_manifest(second, root=ROOT)
             self.assertEqual(first_manifest.read_bytes(), second_manifest.read_bytes())
 
-    def test_live_release_gate_rejects_pending_report(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            archive, _ = package_mod.package(Path(temporary), ROOT)
-            with self.assertRaises(validate_release_gate.ReleaseGateError):
-                validate_release_gate.validate_live_release(archive, ROOT)
+    def _write_release_gate_fixture(
+        self,
+        root: Path,
+        counts: dict[str, int],
+        *,
+        pending_owner: bool,
+        include_identity: bool = True,
+    ) -> Path:
+        (root / "VERSION").write_text("0.6.3\n", encoding="utf-8")
+        report_dir = root / "docs/testing/v0.6.3"
+        notes_dir = root / "docs/RELEASE NOTES"
+        report_dir.mkdir(parents=True)
+        notes_dir.mkdir(parents=True)
+        archive = root / "soturine_chaos_randomizer_0.6.3.zip"
+        archive.write_bytes(b"exact-candidate")
+        identity = ()
+        if include_identity:
+            identity = (
+                f"| Exact artifact | {archive.name} |",
+                f"| Bytes | {archive.stat().st_size} |",
+                f"| SHA-256 | {hashlib.sha256(archive.read_bytes()).hexdigest()} |",
+            )
+        status = "Pending owner validation; not executed" if pending_owner else "executed and complete"
+        report_dir.joinpath("LIVE_TEST_REPORT.md").write_text(
+            "\n".join((
+                "# Live test report — 0.6.3",
+                f"Status: **{status}**.",
+                "| Field | Value |",
+                "| --- | --- |",
+                "| Candidate version | 0.6.3 |",
+                "| Target commit | fixture commit |",
+                "| Validation owner | repository owner |",
+                *identity,
+                "| Result | Count |",
+                "| --- | ---: |",
+                *(f"| {name} | {counts[name]} |" for name in validate_release_gate.REPORT_STATUSES),
+            )) + "\n",
+            encoding="utf-8",
+        )
+        notes_dir.joinpath("RELEASE_NOTES_0.6.3.md").write_text(
+            "\n".join((
+                "# Soturine's Chaos Randomizer 0.6.3",
+                "Status: **Experimental prerelease — live validation pending owner test**.",
+                "Automated validation: Passed",
+                "Live BeamNG validation: Pending owner validation",
+                "Live cases: 0 executed / 0 passed / 0 failed / 110 pending / 0 blocked",
+            )) + "\n",
+            encoding="utf-8",
+        )
+        return archive
 
-    def test_live_release_gate_accepts_complete_exact_artifact_evidence(self) -> None:
+    def test_prerelease_gate_accepts_pending_owner_validation(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            (root / "VERSION").write_text("0.6.3\n", encoding="utf-8")
-            report_dir = root / "docs/testing/v0.6.3"
-            report_dir.mkdir(parents=True)
-            archive = root / "soturine_chaos_randomizer_0.6.3.zip"
-            archive.write_bytes(b"exact-candidate")
-            digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-            report_dir.joinpath("LIVE_TEST_REPORT.md").write_text(
-                "\n".join((
-                    "# Live test report — 0.6.3",
-                    "Status: **executed and complete**.",
-                    f"| Exact artifact | {archive.name} |",
-                    f"| Bytes | {archive.stat().st_size} |",
-                    f"| SHA-256 | {digest} |",
-                    "| Result | Count |",
-                    "| --- | ---: |",
-                    "| Executed | 2 |",
-                    "| Passed | 2 |",
-                    "| Failed | 0 |",
-                    "| Pending | 0 |",
-                    "| Blocked | 0 |",
-                )) + "\n",
-                encoding="utf-8",
+            counts = {"Executed": 0, "Passed": 0, "Failed": 0, "Pending": 110, "Blocked": 0}
+            archive = self._write_release_gate_fixture(root, counts, pending_owner=True)
+            with mock.patch.object(validate_release_gate, "_validate_candidate_artifacts", return_value={}):
+                self.assertEqual(validate_release_gate.validate_prerelease_candidate(archive, root), counts)
+
+    def test_prerelease_gate_rejects_failed_cases(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            counts = {"Executed": 1, "Passed": 0, "Failed": 1, "Pending": 109, "Blocked": 0}
+            archive = self._write_release_gate_fixture(root, counts, pending_owner=True)
+            with self.assertRaises(validate_release_gate.ReleaseGateError):
+                validate_release_gate.validate_prerelease_candidate(archive, root)
+
+    def test_prerelease_gate_rejects_blocked_cases(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            counts = {"Executed": 1, "Passed": 0, "Failed": 0, "Pending": 109, "Blocked": 1}
+            archive = self._write_release_gate_fixture(root, counts, pending_owner=True)
+            with self.assertRaises(validate_release_gate.ReleaseGateError):
+                validate_release_gate.validate_prerelease_candidate(archive, root)
+
+    def test_prerelease_gate_rejects_inconsistent_counts(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            counts = {"Executed": 0, "Passed": 1, "Failed": 0, "Pending": 109, "Blocked": 0}
+            archive = self._write_release_gate_fixture(root, counts, pending_owner=True)
+            with self.assertRaises(validate_release_gate.ReleaseGateError):
+                validate_release_gate.validate_prerelease_candidate(archive, root)
+
+    def test_validated_gate_rejects_pending_report(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            counts = {"Executed": 0, "Passed": 0, "Failed": 0, "Pending": 110, "Blocked": 0}
+            archive = self._write_release_gate_fixture(root, counts, pending_owner=True)
+            with self.assertRaises(validate_release_gate.ReleaseGateError):
+                validate_release_gate.validate_live_release(archive, root)
+
+    def test_validated_gate_requires_exact_artifact_identity(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            counts = {"Executed": 2, "Passed": 2, "Failed": 0, "Pending": 0, "Blocked": 0}
+            archive = self._write_release_gate_fixture(
+                root, counts, pending_owner=False, include_identity=False,
             )
-            counts = validate_release_gate.validate_live_release(archive, root)
-            self.assertEqual(counts["Passed"], 2)
+            with self.assertRaises(validate_release_gate.ReleaseGateError):
+                validate_release_gate.validate_live_release(archive, root)
+
+    def test_validated_gate_accepts_complete_exact_live_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            counts = {"Executed": 2, "Passed": 2, "Failed": 0, "Pending": 0, "Blocked": 0}
+            archive = self._write_release_gate_fixture(root, counts, pending_owner=False)
+            with mock.patch.object(validate_release_gate, "_validate_candidate_artifacts", return_value={}):
+                self.assertEqual(validate_release_gate.validate_live_release(archive, root), counts)
 
 
 if __name__ == "__main__":
