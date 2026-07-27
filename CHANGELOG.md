@@ -53,9 +53,17 @@ blocked — Pending owner validation**.
 
 ### Known Issues
 
-- The owner-observed 0.6.2 failures at 22%, 57%, recovery to the previous car,
-  pause dependency, empty fuel, and UI rendering are not claimed resolved in
-  live gameplay until the exact candidate ZIP completes the 110-case plan.
+- The published v0.6.3 candidate reproduced live failures at 22% target
+  tracking and 57% parts-reload waiting, including pause/unpause dependence.
+- Non-critical fuel/read-back uncertainty and optional/mod/not-ready parts could
+  trigger destructive recovery to stock or a previous state and discard a
+  usable randomized result.
+- Settings height could remain sticky after returning to Chaos; the fox mark
+  was rejected by the owner; and the README was insufficient as an evergreen
+  user/maintainer guide.
+- These observations occurred outside the formal 110-row matrix, so missing
+  attempt counts and environment details are explicitly not invented. See
+  `docs/testing/v0.6.3/KNOWN_LIVE_FAILURES.md`.
 - Compatibility remains best effort for third-party content and future BeamNG
   builds; malformed or insufficient metadata can yield an honest partial or
   unsupported result.
