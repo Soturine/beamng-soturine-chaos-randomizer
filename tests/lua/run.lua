@@ -2839,6 +2839,65 @@ tests.alpha2_tracker_rebind_chain_contract = function()
   equal(vehicleTargetTracker.summary(tracker, 0.5).currentCandidateId, 3)
 end
 
+tests.v063_returned_vehicle_id_remains_a_candidate = function()
+  local tracker = alpha2Tracker({returnedVehicleId = 2})
+  vehicleTargetTracker.onSpawned(tracker, 3)
+  local status
+  for frame = 1, 5 do
+    status = vehicleTargetTracker.observe(
+      tracker,
+      "alpha2-token",
+      alpha2State(3, "target_model"),
+      frame * 0.1
+    )
+  end
+  equal(status, "stable")
+  local summary = vehicleTargetTracker.summary(tracker, 0.5)
+  equal(summary.returnedVehicleId, 2)
+  equal(summary.currentCandidateId, 3)
+end
+
+tests.v063_reload_can_rebind_same_logical_target = function()
+  local tracker = vehicleTargetTracker.create({
+    token = "reload", operationId = "SCR-reload", operationGeneration = 4,
+    phaseGeneration = 7, targetGeneration = 2, phase = "parts",
+    vehicleId = 10, modelKey = "target_model",
+    configKey = "/vehicles/target_model/base.pc",
+    parts = {["/body/"] = "body_b"}, requirePartsReadable = true,
+    startedAt = 0, timeout = 3,
+    stabilizer = {minimumFrames = 2, minimumScans = 2, pollInterval = 0},
+    treeStabilizer = {minimumFrames = 2, minimumScans = 2, pollInterval = 0},
+  })
+  vehicleTargetTracker.onSpawned(tracker, 11)
+  local context = {
+    operationId = "SCR-reload", operationGeneration = 4,
+    phaseGeneration = 7, targetGeneration = 2,
+  }
+  local status
+  for frame = 1, 3 do
+    status = vehicleTargetTracker.observe(tracker, "reload", {
+      vehicleId = 11, playerIndex = 0, modelKey = "target_model",
+      configKey = "/vehicles/target_model/base.pc",
+      configIdentity = {path = "/vehicles/target_model/base.pc", key = "base"},
+      parts = {["/body/"] = "body_b"}, partsAvailable = true, readStatus = "ready",
+    }, frame * 0.1, context)
+  end
+  equal(status, "stable")
+  equal(vehicleTargetTracker.summary(tracker, 0.3).currentCandidateId, 11)
+end
+
+tests.v063_random_car_accepts_recreated_player_target_without_pause = function()
+  local harness = pipelineHarness.new({vehicleId = 1, returnedVehicleId = 2})
+  truthy(harness.main.randomConfig({manualSeed = "candidate-rebind", seedMode = "fixed"}))
+  harness.pendingReplacement.vehicleId = 3
+  pipelineHarness.applyPendingReplacement(harness, true)
+  pipelineHarness.advance(harness, 0.06, 0.06, 12)
+  local state = harness.main.requestState()
+  truthy(not state.busy, "recreated target remained Busy at " .. tostring(state.lifecyclePhase))
+  equal(state.lastResult.code, "random_config_loaded")
+  equal(state.lastResult.details.model, "fixture_new")
+end
+
 tests.alpha2_tracker_limits_contract = function()
   local tracker = alpha2Tracker()
   for id = 1, 40 do vehicleTargetTracker.onSpawned(tracker, id) end
