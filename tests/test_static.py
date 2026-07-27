@@ -328,8 +328,9 @@ class StaticValidationTests(unittest.TestCase):
         self.assertLess(fox_path.stat().st_size, 2048)
         self.assertNotRegex(fox.lower(), r"<script|<image|<filter|base64|https?://(?!www\.w3\.org/2000/svg)")
         import hashlib
+        packaged_fox = fox_path.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
         self.assertEqual(
-            hashlib.sha256(fox_path.read_bytes()).hexdigest(),
+            hashlib.sha256(packaged_fox).hexdigest(),
             "22d0e8cba5878582879633c03158aa948388d02aaabe28f380c333f462b20040",
         )
         self.assertIn('class="scr-fox" aria-hidden="true"', html)
