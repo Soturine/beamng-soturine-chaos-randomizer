@@ -1543,7 +1543,7 @@ end
 local function validateFinalVehicle(active)
   setProgress("Validating final vehicle", 0.96)
   local scanStarted = adapter.clock()
-  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot()
+  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot(active.vehicleId)
   if not okSnapshot then return false, snapshot end
   local scan, scanError = slotScanner.scan(snapshot.tree, snapshot.metadataByPath)
   active.slotScanDuration = (active.slotScanDuration or 0) + math.max(0, adapter.clock() - scanStarted)
@@ -1634,7 +1634,7 @@ end
 local function capturePendingDNA(active, details)
   local okCapture, capture = adapter.captureCurrentState(active.kind, active.seed, active.vehicleId)
   if not okCapture then return false, capture end
-  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot()
+  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot(active.vehicleId)
   if not okSnapshot then return false, snapshot end
   local scan, scanError = slotScanner.scan(snapshot.tree, snapshot.metadataByPath)
   if not scan then return false, adapter.errorValue(scanError, "Vehicle DNA final slot normalization failed") end
@@ -1720,7 +1720,7 @@ completeReplayGeneration = function(active, safetyResult)
   setProgress("Verifying replayed generation", 0.97)
   local okCapture, capture = adapter.captureCurrentState(active.kind, active.seed, active.vehicleId)
   if not okCapture then failActive(capture, true, "dna_replay_verification"); return end
-  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot()
+  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot(active.vehicleId)
   if not okSnapshot then failActive(snapshot, true, "dna_replay_verification"); return end
   local scan, scanError = slotScanner.scan(snapshot.tree, snapshot.metadataByPath)
   if not scan then failActive(adapter.errorValue(scanError, "Replay final slot scan failed"), true, "dna_replay_verification"); return end
@@ -1893,7 +1893,7 @@ startPaint = function(active)
   active.phase = "paint"
   setLifecyclePhase(active, "applying_paint", false, "paint_planning")
   setProgress("Applying paints", 0.90)
-  local okPaints, paints = adapter.getPaints()
+  local okPaints, paints = adapter.getPaints(active.vehicleId)
   if not okPaints then failActive(paints, true, "paint"); return end
   active.paintLedger = paintCoverageLedger.create(paints, active.lockProfileSnapshot and function(layer, field)
     return vehicleDNALocks.isPaintLocked(active.lockProfileSnapshot, layer, field)
@@ -1942,7 +1942,7 @@ startPaint = function(active)
       setProgress("Confirming paint read-back", 0.93)
       return
     end
-    local okReadBack, readBack = adapter.getPaints()
+    local okReadBack, readBack = adapter.getPaints(active.vehicleId)
     if okReadBack then paintCoverageLedger.readBack(active.paintLedger, readBack) end
   else
     paintCoverageLedger.readBack(active.paintLedger, paints)
@@ -1993,7 +1993,7 @@ end
 
 local function processTuningReadback(active)
   setLifecyclePhase(active, "verifying_tuning", false, "tuning_readback")
-  local okSnapshot, snapshot = adapter.getTuningSnapshot()
+  local okSnapshot, snapshot = adapter.getTuningSnapshot(active.vehicleId)
   if not okSnapshot then failActive(snapshot, true, "tuning_readback"); return end
   tuningCoverageLedger.readBack(active.tuningLedger, snapshot.values, active.tuningPass or 1)
   for _, change in ipairs(active.pendingTuningChanges or {}) do
@@ -2038,7 +2038,7 @@ startTuning = function(active)
   })
   if not tuningBound then failActive(adapter.errorValue(tuningBindReason, "Tuning ledger target changed"), true, "tuning"); return end
   setProgress("Applying tuning", 0.80)
-  local okSnapshot, snapshot = adapter.getTuningSnapshot()
+  local okSnapshot, snapshot = adapter.getTuningSnapshot(active.vehicleId)
   if not okSnapshot then failActive(snapshot, true, "tuning"); return end
   if not applyTuningPass(active, snapshot, 1, false) then
     tuningCoverageLedger.readBack(active.tuningLedger, snapshot.values, 1)
@@ -2072,7 +2072,7 @@ processMutationPass = function(active)
   active.coveragePass = (active.coveragePass or 0) + 1
   setProgress(string.format("Scanning complete slot tree (pass %d)", active.coveragePass), 0.30 + math.min(active.coveragePass, 8) * 0.045)
   local scanStarted = adapter.clock()
-  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot()
+  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot(active.vehicleId)
   if not okSnapshot then
     local readCode = type(snapshot) == "table" and snapshot.code or "parts_read_unavailable"
     local retryable = readCode == "missing_parts_tree" or readCode == "parts_read_unavailable"
@@ -2396,7 +2396,7 @@ local function startScramble(context)
     failActive(adapter.errorValue("missing_parts_write", "This BeamNG build cannot read and write hierarchical parts"), false, "parts")
     return false
   end
-  local okModel, modelKey = adapter.getCurrentModelKey()
+  local okModel, modelKey = adapter.getCurrentModelKey(active.vehicleId)
   if not okModel then failActive(modelKey, false, "parts"); return false end
   active.modelKey = modelKey
   local okCapture, captureError = captureOriginal(active)
@@ -3351,7 +3351,7 @@ end
 local function currentThumbnailState(entry)
   local okCapture, capture = adapter.captureCurrentState("thumbnail_preflight", entry.generation and entry.generation.seed)
   if not okCapture then return nil, capture end
-  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot()
+  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot(capture.vehicleId)
   if not okSnapshot then return nil, snapshot end
   local scan, scanError = slotScanner.scan(snapshot.tree, snapshot.metadataByPath)
   if not scan then return nil, adapter.errorValue(scanError, "Thumbnail state scan failed") end
@@ -3756,7 +3756,7 @@ processDNAParts = function(active)
   if not operationState.isCurrent(runtime.state, active.token) then return end
   if active.recoveryOnly then guardMutationWrite(active, "dna_parts"); return end
   active.phase = "dna_parts"
-  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot()
+  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot(active.vehicleId)
   if not okSnapshot then failActive(snapshot, true, "dna_parts"); return end
   local scan, scanError = slotScanner.scan(snapshot.tree, snapshot.metadataByPath)
   if not scan then failActive(adapter.errorValue(scanError, "Vehicle DNA parts scan failed"), true, "dna_parts"); return end
@@ -3826,7 +3826,7 @@ startDNATuning = function(active)
     startDNAPaint(active)
     return
   end
-  local okSnapshot, snapshot = adapter.getTuningSnapshot()
+  local okSnapshot, snapshot = adapter.getTuningSnapshot(active.vehicleId)
   if not okSnapshot then failActive(snapshot, true, "dna_tuning"); return end
   local values, issues = vehicleDNARestore.tuningValues(active.dnaEntry, snapshot.variables, active.dnaMode)
   active.dnaExpectedTuning = util.deepCopy(values)
@@ -3862,7 +3862,7 @@ startDNAPaint = function(active)
     validateDNAFinal(active)
     return
   end
-  local okPaints, current = adapter.getPaints()
+  local okPaints, current = adapter.getPaints(active.vehicleId)
   if not okPaints then failActive(current, true, "dna_paint"); return end
   local payload = util.deepCopy(saved)
   if active.dnaMode == "exact" and #current ~= #saved then
@@ -3967,7 +3967,7 @@ verifyDNAFinal = function(active)
   setProgress("Verifying restored Vehicle DNA", 0.96)
   local okCapture, capture = adapter.captureCurrentState(active.kind, active.seed, active.vehicleId)
   if not okCapture then failActive(capture, true, "dna_final_verification"); return end
-  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot()
+  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot(active.vehicleId)
   if not okSnapshot then failActive(snapshot, true, "dna_final_verification"); return end
   local scan, scanError = slotScanner.scan(snapshot.tree, snapshot.metadataByPath)
   if not scan then failActive(adapter.errorValue(scanError, "Vehicle DNA final verification scan failed"), true, "dna_final_verification"); return end
@@ -5422,7 +5422,7 @@ local function processPaintConfirmation()
   end
   if paintVerification.shouldCheck(confirmation, now) then
     paintVerification.recordAttempt(confirmation, now)
-    local verified, reason = adapter.verifyPaints(confirmation.expected)
+    local verified, reason = adapter.verifyPaints(confirmation.expected, active.vehicleId)
     diagnosticsModule.write(runtime.diagnostics, verified and "D" or "W", "paint_confirmation_attempt", {
       strategy = confirmation.strategy,
       attempt = confirmation.attempts,
@@ -5432,7 +5432,7 @@ local function processPaintConfirmation()
     })
     if verified then
       active.paintConfirmation = nil
-      local okPaints, paints = adapter.getPaints()
+      local okPaints, paints = adapter.getPaints(active.vehicleId)
       if okPaints and active.paintLedger then paintCoverageLedger.readBack(active.paintLedger, paints) end
       if active.kind == "dnaRestoreExact" or active.kind == "dnaRestoreCompatible" then
         validateDNAFinal(active)
