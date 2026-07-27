@@ -212,9 +212,10 @@ def validate_release_manifest(
     expected = {
         "version": read_version(root),
         "tag": identity["tag"],
-        "futureTag": identity["futureTag"],
         "releaseStage": identity["releaseStage"],
         "publicationAllowed": identity["publicationAllowed"],
+        "releaseStatus": identity["releaseStatus"],
+        "prerelease": identity["prerelease"],
         "filename": archive_path.name,
         "bytes": archive_path.stat().st_size,
         "entries": expected_entries,
@@ -223,6 +224,8 @@ def validate_release_manifest(
     for key, value in expected.items():
         if manifest.get(key) != value:
             raise PackageValidationError(f"Release manifest {key} does not match the ZIP")
+    if manifest.get("branch") != "main":
+        raise PackageValidationError("Release manifest branch must be main")
     return manifest
 
 

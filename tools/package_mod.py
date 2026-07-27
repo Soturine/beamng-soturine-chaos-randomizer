@@ -43,6 +43,17 @@ def get_commit_sha(root: Path = REPOSITORY_ROOT) -> str:
     return result.stdout.strip() if result.returncode == 0 else "unknown"
 
 
+def get_branch_name(root: Path = REPOSITORY_ROOT) -> str:
+    result = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=root,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+    return result.stdout.strip() if result.returncode == 0 else "unknown"
+
+
 def get_commit_timestamp(root: Path = REPOSITORY_ROOT) -> str:
     result = subprocess.run(
         ["git", "show", "-s", "--format=%cI", "HEAD"],
@@ -62,20 +73,14 @@ def read_version(root: Path = REPOSITORY_ROOT) -> str:
 
 
 def release_identity(version: str) -> dict[str, object]:
-    candidate = re.fullmatch(r"(\d+\.\d+\.\d+)-live-fix-candidate", version)
-    if candidate:
-        return {
-            "releaseStage": "live-fix-candidate",
-            "tag": None,
-            "futureTag": f"v{candidate.group(1)}",
-            "publicationAllowed": False,
-            "documentationVersion": candidate.group(1),
-        }
+    if not re.fullmatch(r"\d+\.\d+\.\d+", version):
+        raise ValueError("Final release VERSION must use MAJOR.MINOR.PATCH")
     return {
-        "releaseStage": "release",
+        "releaseStage": "experimental-prerelease",
         "tag": f"v{version}",
-        "futureTag": None,
         "publicationAllowed": True,
+        "releaseStatus": "published",
+        "prerelease": True,
         "documentationVersion": version,
     }
 
@@ -178,10 +183,13 @@ def test_counts(root: Path = REPOSITORY_ROOT) -> dict[str, int]:
         python_methods += len(re.findall(r"^\s+def test_[A-Za-z0-9_]+\(", path.read_text(encoding="utf-8"), re.MULTILINE))
     _, lua_metrics = run_lua_suite(root.resolve())
     interactive = live_test_counts(root)
+    javascript_source = (root / "tests" / "js" / "ui_math.test.js").read_text(encoding="utf-8")
+    javascript_total = re.search(r"SCR_UI_JS_TESTS_PASSED\s+(\d+)", javascript_source)
     result = {
         "pythonTestMethodsUnique": python_methods,
         **lua_metrics,
         "nodeSyntaxFiles": len(list((root / "ui").rglob("*.js"))),
+        "javaScriptChecks": int(javascript_total.group(1)) if javascript_total else 0,
         "jsonFiles": len([
             path for path in root.rglob("*.json")
             if not any(part in {".git", "dist", "__pycache__"} for part in path.relative_to(root).parts)
@@ -209,10 +217,12 @@ def write_release_manifest(archive: Path, output: Path | None = None, root: Path
         "manifestVersion": 3,
         "version": report["version"],
         "tag": identity["tag"],
-        "futureTag": identity["futureTag"],
         "releaseStage": identity["releaseStage"],
         "publicationAllowed": identity["publicationAllowed"],
+        "releaseStatus": identity["releaseStatus"],
+        "prerelease": identity["prerelease"],
         "commit": report["commit"],
+        "branch": get_branch_name(root),
         "buildTimestamp": get_commit_timestamp(root),
         "filename": report["filename"],
         "bytes": report["bytes"],

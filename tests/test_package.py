@@ -100,14 +100,17 @@ class PackageTests(unittest.TestCase):
             manifest = validate_package.validate_release_manifest(archive)
             identity = package_mod.release_identity(package_mod.read_version(ROOT))
             self.assertEqual(manifest["tag"], identity["tag"])
-            self.assertEqual(manifest["futureTag"], identity["futureTag"])
             self.assertEqual(manifest["publicationAllowed"], identity["publicationAllowed"])
+            self.assertEqual(manifest["releaseStatus"], "published")
+            self.assertTrue(manifest["prerelease"])
+            self.assertEqual(manifest["branch"], "main")
             self.assertEqual(manifest["generatorVersion"], 6)
             self.assertEqual(manifest["vehicleDNASchemaVersion"], 1)
             expected_counts = package_mod.test_counts(ROOT)
             self.assertEqual(manifest["tests"], expected_counts)
             self.assertEqual(manifest["tests"]["luaTestFunctionsUnique"], manifest["tests"]["luaExecutedCases"])
             self.assertEqual(manifest["tests"]["luaRequirementMappings"], 451)
+            self.assertEqual(manifest["tests"]["javaScriptChecks"], 27)
             self.assertGreater(manifest["tests"]["luaAssertions"], manifest["tests"]["luaExecutedCases"])
             self.assertEqual(manifest["tests"]["interactiveExecuted"], 0)
             self.assertEqual(manifest["tests"]["interactivePassed"], 0)
@@ -155,7 +158,7 @@ class PackageTests(unittest.TestCase):
                 f"Status: **{status}**.",
                 "| Field | Value |",
                 "| --- | --- |",
-                "| Candidate version | 0.6.3 |",
+                "| Release version | 0.6.3 |",
                 "| Target commit | fixture commit |",
                 "| Validation owner | repository owner |",
                 *identity,

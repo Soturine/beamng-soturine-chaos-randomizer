@@ -76,9 +76,11 @@ def _validate_candidate_artifacts(archive: Path, root: Path, counts: dict[str, i
     if expected_commit == "unknown" or manifest.get("commit") != expected_commit:
         raise ReleaseGateError("Release manifest commit does not match the current checkout")
     identity = release_identity(version)
-    for key in ("tag", "futureTag", "releaseStage", "publicationAllowed"):
+    for key in ("tag", "releaseStage", "publicationAllowed", "releaseStatus", "prerelease"):
         if manifest.get(key) != identity[key]:
             raise ReleaseGateError(f"Release manifest {key} does not match the publication stage")
+    if manifest.get("branch") != "main":
+        raise ReleaseGateError("Release manifest branch must be main")
 
     manifest_tests = manifest.get("tests")
     if not isinstance(manifest_tests, dict):
@@ -103,6 +105,7 @@ def _reject_false_live_claims(source: str) -> None:
 
 def validate_prerelease_candidate(archive: Path, root: Path = REPOSITORY_ROOT) -> dict[str, int]:
     version = read_version(root)
+    identity = release_identity(version)
     report, notes = _release_documents(root, version)
     report_source = report.read_text(encoding="utf-8")
     notes_source = notes.read_text(encoding="utf-8")
@@ -117,22 +120,20 @@ def validate_prerelease_candidate(archive: Path, root: Path = REPOSITORY_ROOT) -
         raise ReleaseGateError("Live report must declare Pending owner validation")
     if "not executed" not in report_normalized and counts["Executed"] == 0:
         raise ReleaseGateError("Live report must state clearly that live validation was not executed")
-    if f"candidate version" not in report_normalized or version not in report_source:
-        raise ReleaseGateError("Live report must identify the candidate version")
+    version_label = "release version"
+    if version_label not in report_normalized or version not in report_source:
+        raise ReleaseGateError(f"Live report must identify the {version_label}")
     if "validation owner" not in report_normalized or "repository owner" not in report_normalized:
         raise ReleaseGateError("Live report must identify the repository owner as validation owner")
 
     notes_normalized = notes_source.casefold()
-    identity = release_identity(version)
-    stage_disclosure = "unpublished live-fix candidate" if identity["publicationAllowed"] is False else "experimental prerelease"
+    stage_disclosure = "experimental prerelease"
     required_notes = (
         stage_disclosure,
         "automated validation: passed",
         "live beamng validation: pending owner validation",
         f"0 executed / 0 passed / 0 failed / {counts['Pending']} pending / 0 blocked",
     )
-    if identity["publicationAllowed"] is False and "publication gate: closed" not in notes_normalized:
-        raise ReleaseGateError("Candidate release notes must keep the publication gate closed")
     for required in required_notes:
         if required not in notes_normalized:
             raise ReleaseGateError(f"Release notes are missing required prerelease disclosure: {required}")
