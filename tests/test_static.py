@@ -399,7 +399,7 @@ class StaticValidationTests(unittest.TestCase):
         plan = (archive / "LIVE_TEST_PLAN.md").read_text(encoding="utf-8")
         report = (archive / "LIVE_TEST_REPORT.md").read_text(encoding="utf-8")
         matrix = (archive / "REQUIREMENTS_MATRIX_0.6.2.md").read_text(encoding="utf-8")
-        audit = (ROOT / "docs/FEATURE_AUDIT_0.6.2.md").read_text(encoding="utf-8")
+        audit = (archive / "FEATURE_AUDIT_0.6.2.md").read_text(encoding="utf-8")
         required_columns = (
             "Feature", "Public action", "Backend entry point", "Dependencies",
             "Automated tests", "Interactive status", "Known issue", "Documentation",

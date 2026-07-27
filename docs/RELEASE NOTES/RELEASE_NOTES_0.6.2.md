@@ -26,7 +26,7 @@ Download `soturine_chaos_randomizer_0.6.2.zip` from this release's **Assets**, n
 - Settings: General, Safety, Seed, Locks, Advanced, Diagnostics and capability degradation.
 - Vehicle, placement and AI adapters; lifecycle hooks; README, architecture, lifecycle, UI, compatibility, testing, roadmap and release workflows.
 
-The [feature audit](../FEATURE_AUDIT_0.6.2.md) maps every exported public entry point to its dependencies, automated evidence, live status, limitation and documentation. Vehicle DNA schema 1, generator 6, `SCR6` seeds, v0.6.0/v0.6.1 saved data and legacy `lineup` storage/API reads remain compatible.
+The [feature audit](../archive/releases/0.6.2/FEATURE_AUDIT_0.6.2.md) maps every exported public entry point to its dependencies, automated evidence, live status, limitation and documentation. Vehicle DNA schema 1, generator 6, `SCR6` seeds, v0.6.0/v0.6.1 saved data and legacy `lineup` storage/API reads remain compatible.
 
 ## Root-cause status
 

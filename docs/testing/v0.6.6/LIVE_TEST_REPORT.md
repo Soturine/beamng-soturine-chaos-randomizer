@@ -6,10 +6,10 @@ Status: **Pending owner validation; not executed**.
 | --- | --- |
 | Candidate version | 0.6.6-live-fix-candidate |
 | Validation owner | repository owner |
-| Exact artifact | Pending final candidate build |
-| Bytes | Pending |
-| SHA-256 | Pending |
-| Target commit | Pending final Stage A commit |
+| Exact artifact | `soturine_chaos_randomizer_0.6.6-live-fix-candidate.zip` |
+| Bytes | 342988 |
+| SHA-256 | `5722af4b80c7bf32520ee15888881132355b96abbdc2645e97465915bed96d97` |
+| Target commit | Final Stage A `main` commit recorded in `release-manifest.json` |
 | BeamNG build | 0.38.6 required; execution pending |
 
 | Result | Count |

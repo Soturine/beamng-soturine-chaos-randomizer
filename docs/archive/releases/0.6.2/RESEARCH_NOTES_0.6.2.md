@@ -1,5 +1,7 @@
 # Research Notes 0.6.2
 
+> Archived preservation copy of the complete v0.6.2 primary-source notes.
+
 This document records the primary-source runtime contracts used for the v0.6.2 hotfix. It does not claim live gameplay validation.
 
 ## Local BeamNG 0.38.6 source audit
