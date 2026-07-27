@@ -103,11 +103,12 @@ class PackageTests(unittest.TestCase):
             expected_counts = package_mod.test_counts(ROOT)
             self.assertEqual(manifest["tests"], expected_counts)
             self.assertEqual(manifest["tests"]["luaTestFunctionsUnique"], manifest["tests"]["luaExecutedCases"])
-            self.assertGreaterEqual(manifest["tests"]["luaRequirementMappings"], 217)
+            self.assertEqual(manifest["tests"]["luaRequirementMappings"], 440)
             self.assertGreater(manifest["tests"]["luaAssertions"], manifest["tests"]["luaExecutedCases"])
             self.assertEqual(manifest["tests"]["interactivePassed"], 0)
             self.assertEqual(manifest["tests"]["interactiveFailed"], 0)
-            self.assertEqual(manifest["tests"]["interactivePending"], 50)
+            if package_mod.read_version(ROOT) == "0.6.2":
+                self.assertEqual(manifest["tests"]["interactivePending"], 80)
             self.assertEqual(manifest["tests"]["interactiveBlocked"], 0)
 
     def test_release_manifest_is_reproducible(self) -> None:

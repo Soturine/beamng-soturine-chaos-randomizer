@@ -387,6 +387,17 @@ class StaticValidationTests(unittest.TestCase):
         for path in sorted((ROOT / ".github/workflows").glob("*.yml")):
             with self.subTest(path=path.name):
                 self.assertIsInstance(yaml.safe_load(path.read_text(encoding="utf-8")), dict)
+        ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        package = (ROOT / ".github/workflows/package.yml").read_text(encoding="utf-8")
+        for source in (ci, package):
+            self.assertIn("dist/*.zip", source)
+            self.assertIn("dist/*.sha256", source)
+            self.assertIn("dist/release-manifest.json", source)
+        self.assertIn('expected="v$(tr -d \'\\r\\n\' < VERSION)"', package)
+        self.assertIn('notes="docs/RELEASE NOTES/RELEASE_NOTES_${version}.md"', package)
+        self.assertIn("Refuse to overwrite an existing release", package)
+        self.assertIn("--verify-tag", package)
+        self.assertIn("--prerelease", package)
 
     def test_workflow_actions_are_sha_pinned(self) -> None:
         uses = re.compile(r"^\s*uses:\s*([^\s#]+)", re.MULTILINE)

@@ -54,5 +54,6 @@ jobs:
           path: |
             dist/*.zip
             dist/*.sha256
+            dist/release-manifest.json
           if-no-files-found: error
           retention-days: 14
