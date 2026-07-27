@@ -307,6 +307,21 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("@media (min-width: 320px) and (max-width: 359px)", css)
         self.assertIn("@media (min-width: 360px)", css)
 
+    def test_v062_fox_is_local_compact_and_visibly_symmetric(self) -> None:
+        fox_path = ROOT / "ui/modules/apps/soturineChaosRandomizer/assets/fox-mark.svg"
+        fox = fox_path.read_text(encoding="utf-8")
+        css = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.css").read_text(encoding="utf-8")
+        html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
+        ET.fromstring(fox)
+        self.assertLess(fox_path.stat().st_size, 2048)
+        self.assertNotRegex(fox.lower(), r"<script|<image|<filter|base64|https?://(?!www\.w3\.org/2000/svg)")
+        self.assertIn("M5 6", fox)
+        self.assertIn("L59 6", fox)
+        self.assertIn("M18 31", fox)
+        self.assertIn("m28 0", fox)
+        self.assertIn('class="scr-fox" aria-hidden="true"', html)
+        self.assertRegex(css, r"\.scr-fox\s*\{[^}]*32px[^}]*opacity:\s*\.96")
+
     def test_workflow_yaml_parses(self) -> None:
         try:
             import yaml

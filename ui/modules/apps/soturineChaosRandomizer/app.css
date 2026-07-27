@@ -11,7 +11,7 @@ soturine-chaos-randomizer { display: block; width: 100%; height: 100%; min-width
 .scr-brand > div { min-width: 0; }
 .scr-brand span { display: block; font-size: 12px; font-weight: 700; line-height: 1; letter-spacing: .12em; }
 .scr-brand h1 { margin: 2px 0 0; overflow: hidden; font-size: 19px; line-height: 1; letter-spacing: .025em; white-space: nowrap; text-overflow: ellipsis; }
-.scr-fox { flex: 0 0 36px; width: 36px; height: 36px; opacity: .38; background: center / contain no-repeat url('/ui/modules/apps/soturineChaosRandomizer/assets/fox-mark.svg'); }
+.scr-fox { flex: 0 0 32px; width: 32px; height: 32px; opacity: .96; background: center / contain no-repeat url('/ui/modules/apps/soturineChaosRandomizer/assets/fox-mark.svg'); }
 .scr-window-tools { display: flex; align-items: center; gap: 4px; }
 .scr-window-tools > span { font-size: 12px; }
 .scr-window-tools button { width: 30px; min-height: 30px; padding: 0; background: rgba(58, 16, 0, .28); border-color: rgba(255, 255, 255, .48); font-size: 16px; }
@@ -89,7 +89,7 @@ soturine-chaos-randomizer { display: block; width: 100%; height: 100%; min-width
 .scr-mode-collapsed .scr-header { flex-basis: 44px; }
 .scr-mode-collapsed .scr-brand span:not(.scr-fox), .scr-mode-collapsed .scr-window-tools > span, .scr-mode-collapsed .scr-nav, .scr-mode-collapsed .scr-body { display: none; }
 .scr-mode-collapsed .scr-brand h1 { font-size: 16px; }
-.scr-mode-collapsed .scr-fox { width: 30px; height: 30px; flex-basis: 30px; }
+.scr-mode-collapsed .scr-fox { width: 28px; height: 28px; flex-basis: 28px; }
 .scr-mode-collapsed .scr-collapsed { flex: 1 1 auto; display: grid; align-content: center; gap: 5px; padding: 6px; }
 .scr-collapsed-status { display: flex; justify-content: space-between; gap: 5px; min-width: 0; }
 .scr-collapsed-status strong { overflow: hidden; font-size: 12px; white-space: nowrap; text-overflow: ellipsis; }
