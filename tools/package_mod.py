@@ -61,6 +61,25 @@ def read_version(root: Path = REPOSITORY_ROOT) -> str:
     return version
 
 
+def release_identity(version: str) -> dict[str, object]:
+    candidate = re.fullmatch(r"(\d+\.\d+\.\d+)-live-fix-candidate", version)
+    if candidate:
+        return {
+            "releaseStage": "live-fix-candidate",
+            "tag": None,
+            "futureTag": f"v{candidate.group(1)}",
+            "publicationAllowed": False,
+            "documentationVersion": candidate.group(1),
+        }
+    return {
+        "releaseStage": "release",
+        "tag": f"v{version}",
+        "futureTag": None,
+        "publicationAllowed": True,
+        "documentationVersion": version,
+    }
+
+
 def collect_files(root: Path = REPOSITORY_ROOT) -> list[tuple[Path, str]]:
     entries: list[tuple[Path, str]] = []
     for directory in CONTENT_ROOTS + OPTIONAL_CONTENT_ROOTS:
@@ -137,8 +156,9 @@ def build_report(archive: Path, root: Path = REPOSITORY_ROOT) -> dict[str, objec
 
 def live_test_counts(root: Path = REPOSITORY_ROOT) -> dict[str, int]:
     version = read_version(root)
+    documentation_version = str(release_identity(version)["documentationVersion"])
     candidates = (
-        root / "docs" / "testing" / f"v{version}" / "LIVE_TEST_REPORT.md",
+        root / "docs" / "testing" / f"v{documentation_version}" / "LIVE_TEST_REPORT.md",
         root / "docs" / f"INTERACTIVE_TEST_REPORT_{version}.md",
         root / "docs" / f"INTERACTIVE_TEST_PLAN_{version}.md",
     )
@@ -184,10 +204,14 @@ def test_counts(root: Path = REPOSITORY_ROOT) -> dict[str, int]:
 
 def write_release_manifest(archive: Path, output: Path | None = None, root: Path = REPOSITORY_ROOT) -> Path:
     report = build_report(archive, root)
+    identity = release_identity(str(report["version"]))
     manifest = {
         "manifestVersion": 3,
         "version": report["version"],
-        "tag": f"v{report['version']}",
+        "tag": identity["tag"],
+        "futureTag": identity["futureTag"],
+        "releaseStage": identity["releaseStage"],
+        "publicationAllowed": identity["publicationAllowed"],
         "commit": report["commit"],
         "buildTimestamp": get_commit_timestamp(root),
         "filename": report["filename"],

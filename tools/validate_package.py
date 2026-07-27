@@ -14,9 +14,9 @@ import tempfile
 import zipfile
 
 try:
-    from package_mod import ARCHIVE_PREFIX, REPOSITORY_ROOT, TEXT_FILENAMES, TEXT_SUFFIXES, build_archive, read_version
+    from package_mod import ARCHIVE_PREFIX, REPOSITORY_ROOT, TEXT_FILENAMES, TEXT_SUFFIXES, build_archive, read_version, release_identity
 except ImportError:  # Imported as tools.validate_package.
-    from tools.package_mod import ARCHIVE_PREFIX, REPOSITORY_ROOT, TEXT_FILENAMES, TEXT_SUFFIXES, build_archive, read_version
+    from tools.package_mod import ARCHIVE_PREFIX, REPOSITORY_ROOT, TEXT_FILENAMES, TEXT_SUFFIXES, build_archive, read_version, release_identity
 
 
 REQUIRED_PATHS = {
@@ -26,6 +26,10 @@ REQUIRED_PATHS = {
     "lua/ge/extensions/soturineChaosRandomizer.lua",
     "lua/ge/extensions/soturineChaosRandomizer/main.lua",
     "lua/ge/extensions/soturineChaosRandomizer/apiAdapter.lua",
+    "lua/ge/extensions/soturineChaosRandomizer/baselineSemantics.lua",
+    "lua/ge/extensions/soturineChaosRandomizer/coherentStateGate.lua",
+    "lua/ge/extensions/soturineChaosRandomizer/criticalRepair.lua",
+    "lua/ge/extensions/soturineChaosRandomizer/engineFluidGuard.lua",
     "lua/ge/extensions/soturineChaosRandomizer/configVerification.lua",
     "lua/ge/extensions/soturineChaosRandomizer/paintVerification.lua",
     "lua/ge/extensions/soturineChaosRandomizer/validator.lua",
@@ -42,11 +46,18 @@ REQUIRED_PATHS = {
     "lua/ge/extensions/soturineChaosRandomizer/vehicleDNARestore.lua",
     "lua/ge/extensions/soturineChaosRandomizer/vehicleDNASchema.lua",
     "lua/ge/extensions/soturineChaosRandomizer/vehicleDNAStorage.lua",
+    "lua/vehicle/extensions/soturineChaosRandomizerFluidProbe.lua",
     "ui/modules/apps/soturineChaosRandomizer/app.json",
     "ui/modules/apps/soturineChaosRandomizer/app.js",
     "ui/modules/apps/soturineChaosRandomizer/app.html",
     "ui/modules/apps/soturineChaosRandomizer/app.css",
     "ui/modules/apps/soturineChaosRandomizer/app.png",
+    "ui/modules/apps/soturineChaosRandomizer/assets/app-icon.svg",
+    "ui/modules/apps/soturineChaosRandomizer/assets/app-icon-250x120.png",
+    "ui/modules/apps/soturineChaosRandomizer/assets/fox-mark.svg",
+    "ui/modules/apps/soturineChaosRandomizer/assets/fox-mark-24.png",
+    "ui/modules/apps/soturineChaosRandomizer/assets/fox-mark-32.png",
+    "ui/modules/apps/soturineChaosRandomizer/assets/fox-mark-48.png",
     "settings/soturineChaosRandomizer/defaults.json",
 }
 REQUIRED_ROOTS = {"lua", "ui", "settings"}
@@ -197,9 +208,13 @@ def validate_release_manifest(
     expected_digest = hashlib.sha256(archive_path.read_bytes()).hexdigest()
     with zipfile.ZipFile(archive_path) as archive:
         expected_entries = len(archive.infolist())
+    identity = release_identity(read_version(root))
     expected = {
         "version": read_version(root),
-        "tag": f"v{read_version(root)}",
+        "tag": identity["tag"],
+        "futureTag": identity["futureTag"],
+        "releaseStage": identity["releaseStage"],
+        "publicationAllowed": identity["publicationAllowed"],
         "filename": archive_path.name,
         "bytes": archive_path.stat().st_size,
         "entries": expected_entries,

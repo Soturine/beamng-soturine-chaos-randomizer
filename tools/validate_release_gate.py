@@ -16,10 +16,11 @@ try:
         REPOSITORY_ROOT,
         get_commit_sha,
         read_version,
+        release_identity,
     )
 except ModuleNotFoundError:  # Direct execution: python tools/validate_release_gate.py
     import validate_package
-    from package_mod import ARCHIVE_PREFIX, REPOSITORY_ROOT, get_commit_sha, read_version
+    from package_mod import ARCHIVE_PREFIX, REPOSITORY_ROOT, get_commit_sha, read_version, release_identity
 
 
 class ReleaseGateError(RuntimeError):
@@ -37,7 +38,8 @@ MANIFEST_STATUS_KEYS = {
 
 
 def _release_documents(root: Path, version: str) -> tuple[Path, Path]:
-    report = root / "docs" / "testing" / f"v{version}" / "LIVE_TEST_REPORT.md"
+    documentation_version = str(release_identity(version)["documentationVersion"])
+    report = root / "docs" / "testing" / f"v{documentation_version}" / "LIVE_TEST_REPORT.md"
     notes = root / "docs" / "RELEASE NOTES" / f"RELEASE_NOTES_{version}.md"
     if not report.is_file():
         raise ReleaseGateError(f"Live report does not exist: {report}")
@@ -73,8 +75,10 @@ def _validate_candidate_artifacts(archive: Path, root: Path, counts: dict[str, i
     expected_commit = get_commit_sha(root)
     if expected_commit == "unknown" or manifest.get("commit") != expected_commit:
         raise ReleaseGateError("Release manifest commit does not match the current checkout")
-    if manifest.get("tag") != f"v{version}":
-        raise ReleaseGateError("Release manifest tag does not match VERSION")
+    identity = release_identity(version)
+    for key in ("tag", "futureTag", "releaseStage", "publicationAllowed"):
+        if manifest.get(key) != identity[key]:
+            raise ReleaseGateError(f"Release manifest {key} does not match the publication stage")
 
     manifest_tests = manifest.get("tests")
     if not isinstance(manifest_tests, dict):
@@ -119,12 +123,16 @@ def validate_prerelease_candidate(archive: Path, root: Path = REPOSITORY_ROOT) -
         raise ReleaseGateError("Live report must identify the repository owner as validation owner")
 
     notes_normalized = notes_source.casefold()
+    identity = release_identity(version)
+    stage_disclosure = "unpublished live-fix candidate" if identity["publicationAllowed"] is False else "experimental prerelease"
     required_notes = (
-        "experimental prerelease",
+        stage_disclosure,
         "automated validation: passed",
         "live beamng validation: pending owner validation",
-        "0 executed / 0 passed / 0 failed / 110 pending / 0 blocked",
+        f"0 executed / 0 passed / 0 failed / {counts['Pending']} pending / 0 blocked",
     )
+    if identity["publicationAllowed"] is False and "publication gate: closed" not in notes_normalized:
+        raise ReleaseGateError("Candidate release notes must keep the publication gate closed")
     for required in required_notes:
         if required not in notes_normalized:
             raise ReleaseGateError(f"Release notes are missing required prerelease disclosure: {required}")
