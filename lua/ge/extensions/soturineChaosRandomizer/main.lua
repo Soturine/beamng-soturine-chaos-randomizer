@@ -325,6 +325,7 @@ local function publicState()
       lastAcceptedCheckpoint = runtime.active.lastAcceptedCheckpoint,
       recoveryTier = runtime.active.recoveryTier,
       recoveryAttemptCount = recoveryMetrics.recoveryAttempts,
+      rngSubstreams = util.deepCopy(runtime.active.rngSubstreams),
       originalSnapshot = runtime.active.operationOriginalSnapshot and {
         modelKey = runtime.active.operationOriginalSnapshot.modelKey,
         vehicleId = runtime.active.operationOriginalSnapshot.vehicleId,
@@ -880,6 +881,14 @@ local function beginOperation(kind, context)
     kind = kind,
     seed = seed,
     rng = generator,
+    retryRng = generator:fork("retry"),
+    rngSubstreams = {
+      modelConfig = "vehicle/configuration",
+      parts = "parts:pass",
+      tuning = "tuning:pass",
+      paint = "paint",
+      retry = "retry",
+    },
     seedSource = seedSource,
     selectionSubstream = "vehicle_selection:operation:" .. tostring(runtime.state.operationGeneration),
     previousResultIdentity = previousDetails and selectionIdentity(

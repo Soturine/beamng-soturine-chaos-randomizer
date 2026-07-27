@@ -3974,6 +3974,51 @@ tests.v062_diagnostics_redact_personal_paths = function()
   equal(records[1].details.nested.safe, "/settings/mod.json")
 end
 
+tests.v062_extension_unload_is_a_terminal_cleanup = function()
+  local harness = pipelineHarness.new({paused = true})
+  truthy(harness.main.scramble({chaos = 100, manualSeed = "unload", seedMode = "fixed"}))
+  truthy(harness.main.requestState().busy)
+  harness.main.onExtensionUnloaded()
+  local state = harness.main.requestState()
+  truthy(not state.busy)
+  equal(state.lastResult.code, "extension_unloaded")
+  equal(state.transaction, nil)
+end
+
+tests.v062_operation_exposes_isolated_rng_domains = function()
+  local harness = pipelineHarness.new({paused = true})
+  truthy(harness.main.scramble({chaos = 100, manualSeed = "rng-domains", seedMode = "fixed"}))
+  local streams = harness.main.requestState().transaction.rngSubstreams
+  equal(streams.modelConfig, "vehicle/configuration")
+  equal(streams.parts, "parts:pass")
+  equal(streams.tuning, "tuning:pass")
+  equal(streams.paint, "paint")
+  equal(streams.retry, "retry")
+end
+
+tests.v062_mandatory_reason_codes_are_stable_contract = function()
+  local required = {
+    "target_callback_missing", "target_id_changed", "target_model_mismatch", "target_config_mismatch",
+    "target_identity_unstable", "tree_unavailable", "tree_changed_legitimately", "parts_reload_pending",
+    "tuning_reload_pending", "paint_readback_pending", "pause_toggle_unblocked_operation",
+    "stale_callback_rejected", "stale_timer_rejected", "recovery_snapshot_old_generation",
+    "recovery_loop_detected", "candidate_cycle_detected", "operation_deadline_exceeded",
+  }
+  local sources = {}
+  for _, path in ipairs({
+    "/lua/ge/extensions/soturineChaosRandomizer/main.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/operationState.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/vehicleTargetTracker.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/vehicleRecovery.lua",
+  }) do
+    local file = assert(io.open(root .. path, "rb"))
+    sources[#sources + 1] = file:read("*a")
+    file:close()
+  end
+  local joined = table.concat(sources, "\n")
+  for _, code in ipairs(required) do truthy(joined:find(code, 1, true) ~= nil, code) end
+end
+
 tests.v061_compact_ui_contract = function()
   local function read(path)
     local file = assert(io.open(root .. path, "rb"))
@@ -4433,10 +4478,109 @@ local v061Required = {
   {"76_missing_callback_cannot_leave_busy", tests.v061_target_deadline_uses_wall_clock_while_paused},
 }
 
+local v062Required = {
+  {"v062_random_car_without_pause", tests.v060_actions_complete_without_pause_toggle},
+  {"v062_scramble_without_pause", tests.v060_actions_complete_without_pause_toggle},
+  {"v062_full_random_without_pause", tests.v060_actions_complete_without_pause_toggle},
+  {"v062_race_generation_without_pause", tests.v061_race_statuses_and_cancel_are_terminal},
+  {"v062_identity_precedes_tree", tests.v062_target_ownership_precedes_tree_convergence},
+  {"v062_tree_change_preserves_target", tests.v060_target_identity_tree_separation_contract},
+  {"v062_stale_callback_rejected", tests.v060_explicit_lifecycle_generations_contract},
+  {"v062_stale_timer_rejected", tests.v060_explicit_lifecycle_generations_contract},
+  {"v062_cancel_target_tracking", tests.v060_busy_cancel_and_diagnostics_contract},
+  {"v062_cancel_parts_reload", tests.v060_busy_cancel_and_diagnostics_contract},
+  {"v062_busy_all_terminals", tests.v060_busy_cancel_and_diagnostics_contract},
+  {"v062_wall_deadline_zero_dtsim", tests.v061_target_deadline_uses_wall_clock_while_paused},
+  {"v062_pause_preserves_generation", tests.v062_pause_transitions_are_diagnostic_only},
+  {"v062_pause_preserves_target", tests.v060_pause_mid_pipeline_and_frame_step_contract},
+  {"v062_progress_without_pause_toggle", tests.v060_actions_complete_without_pause_toggle},
+  {"v062_housekeeping_always_runs", tests.v060_onupdate_housekeeping_contract},
+  {"v062_map_unload_terminal_cleanup", tests.map_change_cancels_pipeline},
+  {"v062_extension_unload_terminal_cleanup", tests.v062_extension_unload_is_a_terminal_cleanup},
+  {"v062_clean_spawn_not_promoted", tests.v060_recovery_snapshot_roles_contract},
+  {"v062_partial_not_promoted", tests.v060_recovery_snapshot_roles_contract},
+  {"v062_completed_promotes_snapshot", tests.v060_recovery_snapshot_roles_contract},
+  {"v062_recovery_invalidates_plans", tests.v061_recovery_invalidation_drops_all_old_plans},
+  {"v062_recovery_rejects_old_tuning", tests.v060_recovery_stale_callback_isolation_contract},
+  {"v062_recovery_rejects_old_paint", tests.v060_recovery_stale_callback_isolation_contract},
+  {"v062_recovery_explicit_snapshot", tests.v062_recovery_tiers_are_ordered_and_deduplicated},
+  {"v062_recovery_loop_detected", tests.v062_recovery_rejects_old_generation_and_repeated_state},
+  {"v062_recovery_loop_terminal", tests.v060_recovery_stale_callback_isolation_contract},
+  {"v062_failed_candidate_quarantine", tests.alpha2_recovery_contract},
+  {"v062_new_operation_candidate_isolation", tests.v061_recovery_invalidation_drops_all_old_plans},
+  {"v062_failure_next_operation_isolation", tests.v060_recovery_stale_callback_isolation_contract},
+  {"v062_fresh_rng_per_operation", tests.v062_operation_exposes_isolated_rng_domains},
+  {"v062_random_seed_changes", tests.v061_seed_modes_refresh_or_reproduce},
+  {"v062_fixed_seed_reproduces", tests.v061_seed_modes_refresh_or_reproduce},
+  {"v062_anti_repeat", tests.anti_repeat_selection},
+  {"v062_replay_anti_repeat_exception", tests.random_config_replay_loads_saved_config_without_reselection},
+  {"v062_recovery_not_selection", tests.v060_recovery_snapshot_roles_contract},
+  {"v062_retry_substream", tests.v060_lineup_variety_substreams_and_failure_actions},
+  {"v062_scramble_target_isolation", tests.scramble_mocked_success_pipeline},
+  {"v062_full_random_target_isolation", tests.full_random_mocked_success_pipeline},
+  {"v062_parent_first_rescan", tests.changing_parent_defers_descendant_mutation},
+  {"v062_tuning_after_parts", tests.v060_tuning_rescan_discovers_only_new_variables},
+  {"v062_paint_readback", tests.paint_readback_supports_bounded_deferred_confirmation},
+  {"v062_completion_requires_closed_ledgers", tests.v060_coverage_chaos100_and_slot_identity},
+  {"v062_partial_terminal", tests.v060_partial_result_setting_controls_rollback},
+  {"v062_critical_failure_terminal", tests.required_core_missing_is_unsafe},
+  {"v062_balanced_preset", tests.v061_race_presets_apply_real_policy},
+  {"v062_maximum_chaos_preset", tests.v061_race_presets_apply_real_policy},
+  {"v062_mods_showcase_preset", tests.v061_race_presets_apply_real_policy},
+  {"v062_race_custom_preset", tests.v061_compact_ui_contract},
+  {"v062_competitor_leaves_pending", tests.v061_race_statuses_and_cancel_are_terminal},
+  {"v062_competitor_timeout_terminal", tests.v061_persistent_parts_read_fails_terminally},
+  {"v062_race_cancel_terminal", tests.v061_race_statuses_and_cancel_are_terminal},
+  {"v062_race_failure_isolation", tests.v060_lineup_variety_substreams_and_failure_actions},
+  {"v062_placement_requires_ready", tests.v061_compact_ui_contract},
+  {"v062_drive_requires_managed", tests.v060_managed_registry_rebinds_without_cross_vehicle_damage},
+  {"v062_start_stop_ai", tests.v060_navgraph_routes_and_ai_bounds},
+  {"v062_capability_explanation", tests.v062_capability_report_has_explicit_four_state_contract},
+  {"v062_managed_vehicle_ownership", tests.v060_managed_registry_rebinds_without_cross_vehicle_damage},
+  {"v062_save_dna", tests.explicit_save_persists_dna_with_readback},
+  {"v062_restore_snapshot", tests.restore_exact_uses_one_transaction_and_strict_readback},
+  {"v062_replay_generation", tests.replay_generation_freezes_saved_base_from_different_model},
+  {"v062_import_compatibility", tests.vdna_json_envelope_roundtrips_through_public_import},
+  {"v062_export_dna", tests.vdna_zip_roundtrip_validates_crc_manifest_and_limits},
+  {"v062_compare_dna", tests.vehicle_dna_compare_is_field_by_field_not_fingerprint_only},
+  {"v062_share_dna", tests.vdna_zip_roundtrip_validates_crc_manifest_and_limits},
+  {"v062_dna_lineage", tests.dna_mutation_loads_parent_base_and_creates_child_lineage},
+  {"v062_mutation_target_isolation", tests.dna_mutation_loads_parent_base_and_creates_child_lineage},
+  {"v062_reroll_target_isolation", tests.reroll_unlocked_creates_pending_dna_without_changing_locked_state},
+  {"v062_locks_default_unlocked", tests.v061_settings_locks_and_seed_migration},
+  {"v062_remember_locks_default_off", tests.v061_settings_locks_and_seed_migration},
+  {"v062_fixed_seed_warning", tests.v061_compact_ui_contract},
+  {"v062_clear_seed", tests.v061_settings_locks_and_seed_migration},
+  {"v062_safety_flag_mapping", tests.v060_partial_result_setting_controls_rollback},
+  {"v062_diagnostics_available", tests.v062_runtime_instrumentation_is_bounded_and_complete},
+  {"v062_no_dead_vertical_space", tests.v061_compact_ui_contract},
+  {"v062_status_follows_slider", tests.v061_compact_ui_contract},
+  {"v062_dynamic_height", tests.v061_compact_ui_contract},
+  {"v062_collapsed_height", tests.v061_compact_ui_contract},
+  {"v062_slider_fill_0", tests.v061_compact_ui_contract},
+  {"v062_slider_fill_50", tests.v061_compact_ui_contract},
+  {"v062_slider_fill_100", tests.v061_compact_ui_contract},
+  {"v062_thumb_endpoint_0", tests.v061_compact_ui_contract},
+  {"v062_thumb_endpoint_100", tests.v061_compact_ui_contract},
+  {"v062_responsive_widths", tests.v061_compact_ui_contract},
+  {"v062_ui_scaling", tests.v061_compact_ui_contract},
+  {"v062_fox_svg_valid", tests.v061_compact_ui_contract},
+  {"v062_fox_visible", tests.v061_compact_ui_contract},
+  {"v062_fox_no_overlap", tests.v061_compact_ui_contract},
+  {"v062_four_top_tabs", tests.v061_compact_ui_contract},
+  {"v062_no_horizontal_overflow", tests.v061_compact_ui_contract},
+  {"v062_temporary_parts_nil", tests.v061_bounded_parts_read_recovers},
+  {"v062_persistent_parts_nil", tests.v061_persistent_parts_read_fails_terminally},
+  {"v062_missing_callback", tests.v061_target_deadline_uses_wall_clock_while_paused},
+  {"v062_external_error_target_guard", tests.v060_target_identity_tree_separation_contract},
+  {"v062_degraded_capability_disables_action", tests.v062_capability_report_has_explicit_four_state_contract},
+}
+
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")
 equal(#v060Required, 104, "0.6.0 required scenario registry")
 equal(#v060PauseLifecycleRequired, 52, "0.6.0 pause lifecycle scenario registry")
 equal(#v061Required, 76, "0.6.1 required scenario registry")
+equal(#v062Required, 95, "0.6.2 required scenario registry")
 for _, scenario in ipairs(alpha2Required) do
   requirementMappings[#requirementMappings + 1] = {"0.5.0-alpha.2:" .. scenario[1], scenario[2]}
 end
@@ -4448,6 +4592,9 @@ for _, scenario in ipairs(v060PauseLifecycleRequired) do
 end
 for _, scenario in ipairs(v061Required) do
   requirementMappings[#requirementMappings + 1] = {"0.6.1:" .. scenario[1], scenario[2]}
+end
+for _, scenario in ipairs(v062Required) do
+  requirementMappings[#requirementMappings + 1] = {"0.6.2:" .. scenario[1], scenario[2]}
 end
 
 local canonicalByFunction = {}
