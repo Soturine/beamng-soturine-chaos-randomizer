@@ -26,17 +26,32 @@ local function create(clock)
     recentSamples = {},
     lastRealMonotonicTime = now,
     source = "clock_fallback",
+    externalClockStalls = 0,
   }
 end
 
 local function sample(state, dtReal, dtSim, dtRaw, paused, explicitNow)
-  local clockNow = finiteNumber(explicitNow)
-  if clockNow == nil then clockNow = finiteNumber(state.clock()) or state.realMonotonicTime end
-  if clockNow < state.realMonotonicTime then clockNow = state.realMonotonicTime end
+  local previousNow = finiteNumber(state.realMonotonicTime) or 0
+  local externalNow = finiteNumber(explicitNow)
+  if externalNow == nil then externalNow = finiteNumber(state.clock()) end
+  if externalNow == nil or externalNow < previousNow then externalNow = previousNow end
 
-  local measuredRealDelta = math.max(0, clockNow - state.realMonotonicTime)
+  local measuredRealDelta = math.max(0, externalNow - previousNow)
   local realDelta = finiteNumber(dtReal)
   if realDelta == nil or realDelta < 0 then realDelta = measuredRealDelta end
+
+  -- BeamNG supplies dtReal for every GE onUpdate call, including while the
+  -- simulation is paused. Some Windows builds expose an os.clockhp/os.clock
+  -- value that can remain unchanged across many graphical frames. Lifecycle
+  -- polling must therefore advance from dtReal as well as from the external
+  -- clock. Otherwise 50 ms poll intervals never become due and replacement or
+  -- part reload waits remain at 22/57 percent until pause changes the clock.
+  local deltaAdvancedNow = previousNow + math.max(0, realDelta or 0)
+  local clockAdvanced = externalNow > previousNow
+  local monotonicNow = math.max(previousNow, externalNow, deltaAdvancedNow)
+  if not clockAdvanced and realDelta and realDelta > 0 then
+    state.externalClockStalls = (state.externalClockStalls or 0) + 1
+  end
 
   local pauseKnown = type(paused) == "boolean"
   local simulationDelta = finiteNumber(dtSim)
@@ -45,8 +60,8 @@ local function sample(state, dtReal, dtSim, dtRaw, paused, explicitNow)
   end
 
   local wasPaused = state.paused
-  state.lastRealMonotonicTime = state.realMonotonicTime
-  state.realMonotonicTime = clockNow
+  state.lastRealMonotonicTime = previousNow
+  state.realMonotonicTime = monotonicNow
   state.realDelta = realDelta
   state.simulationDelta = simulationDelta
   state.rawDelta = math.max(0, finiteNumber(dtRaw) or realDelta)
@@ -56,14 +71,16 @@ local function sample(state, dtReal, dtSim, dtRaw, paused, explicitNow)
   state.paused = pauseKnown and paused or (realDelta > 0 and simulationDelta <= 0)
   if state.paused ~= wasPaused then
     state.pauseTransitions = state.pauseTransitions + 1
-    state.lastPauseChangedAt = clockNow
+    state.lastPauseChangedAt = monotonicNow
   end
-  if state.paused then state.pausedRealDuration = state.pausedRealDuration + measuredRealDelta end
+  if state.paused then state.pausedRealDuration = state.pausedRealDuration + realDelta end
   state.slowMotionRatio = realDelta > 0 and math.max(0, simulationDelta / realDelta) or 0
-  state.source = finiteNumber(dtReal) ~= nil and finiteNumber(dtSim) ~= nil
-    and "beamng_onUpdate_deltas" or "clock_fallback"
+  state.source = finiteNumber(dtReal) ~= nil
+    and (clockAdvanced and "beamng_dtReal_plus_clock" or "beamng_dtReal_monotonic")
+    or "clock_fallback"
   state.recentSamples[#state.recentSamples + 1] = {
     wall = state.realMonotonicTime,
+    externalWall = externalNow,
     dtReal = state.realDelta,
     dtSim = state.simulationDelta,
     dtRaw = state.rawDelta,
@@ -89,6 +106,7 @@ local function snapshot(state)
     pauseTransitions = state.pauseTransitions,
     lastPauseChangedAt = state.lastPauseChangedAt,
     pausedRealDuration = state.pausedRealDuration,
+    externalClockStalls = state.externalClockStalls or 0,
     recentSamples = state.recentSamples,
   }
 end
