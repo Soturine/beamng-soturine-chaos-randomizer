@@ -26,7 +26,7 @@ node --check ui/modules/apps/soturineChaosRandomizer/app.js
 | Requirement mappings | 440 mapped | 440 mapped | 0 unmapped | Not independent executions |
 | Live BeamNG | 0 | 0 | 0 | 110 Pending |
 
-The host result was **59 passed Python methods plus 808 unittest subtests**.
+The host result was **59 passed Python methods plus 805 unittest subtests**.
 Property functions are already included among the 347 Lua cases; JSON, YAML,
 syntax, and requirement mappings are contracts or observations and are not
 added to an invented aggregate “test” count.

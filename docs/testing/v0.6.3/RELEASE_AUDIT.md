@@ -52,7 +52,7 @@ The candidate now:
 
 | Gate | Status |
 | --- | --- |
-| Automated source/Lua/JS/schema/workflow suites | Passed: 54 Python methods/808 subtests, 347 Lua cases/7,712 assertions, 17 JS cases |
+| Automated source/Lua/JS/schema/workflow suites | Passed: 59 Python methods/805 subtests, 347 Lua cases/7,712 assertions, 17 JS cases |
 | Orphan and BeamNG boundary gates | Implemented |
 | Version/app/release-note consistency | Passed for 0.6.3 |
 | Reproducible ZIP, manifest, SHA-256 | Passed: 79 entries, 241,492 bytes, SHA-256 `486a66da60bfac75d08f1a9584568142846074c110996962e99af2e610d4e9c7` |
