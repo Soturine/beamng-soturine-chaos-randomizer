@@ -13,7 +13,7 @@ the experimental 0.6.3 candidate.
 - Baseline automated host run: 50 of 50 host tests passed
 - Nested behavioral Lua run: 319 of 319 unique cases passed, with 4,031
   assertions and 440 requirement mappings
-- Live BeamNG status for 0.6.3: not executed
+- Live BeamNG status for 0.6.3: Pending owner validation; not executed
 
 Passing host tests are not evidence that gameplay, rendering, physics, CEF
 layout, or compatibility with installed vehicle mods works in BeamNG.
@@ -47,5 +47,5 @@ are treated as reproduced failures, not pending cases:
 
 - Automated results are reported by category and executed-case count.
 - Live cases remain `Pending` until performed in BeamNG with the exact final ZIP.
-- The release tag and prerelease are blocked until the live test plan passes.
-- An artifact candidate may be produced while that gate remains blocked.
+- The Experimental prerelease publishes the exact artifact for owner validation while retaining all 110 Pending rows.
+- The strict live-validated gate remains blocked until the exact artifact completes the plan with zero Pending, Failed, or Blocked rows.

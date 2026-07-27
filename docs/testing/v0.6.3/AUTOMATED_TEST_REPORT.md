@@ -20,13 +20,13 @@ node --check ui/modules/apps/soturineChaosRandomizer/app.js
 | Lua host-runner Python method | 1 | 1 | 0 | 0 |
 | JavaScript helper cases | 17 | 17 | 0 | 0 |
 | JavaScript host-wrapper Python method | 1 | 1 | 0 | 0 |
-| Package/release Python methods | 13 | 13 | 0 | 0 |
+| Package/release Python methods | 18 | 18 | 0 | 0 |
 | JSON files parsed | 2 | 2 | 0 | 0 |
 | Workflow YAML files parsed | 3 | 3 | 0 | 0 |
 | Requirement mappings | 440 mapped | 440 mapped | 0 unmapped | Not independent executions |
 | Live BeamNG | 0 | 0 | 0 | 110 Pending |
 
-The host result was **54 passed Python methods plus 808 unittest subtests**.
+The host result was **59 passed Python methods plus 808 unittest subtests**.
 Property functions are already included among the 347 Lua cases; JSON, YAML,
 syntax, and requirement mappings are contracts or observations and are not
 added to an invented aggregate “test” count.

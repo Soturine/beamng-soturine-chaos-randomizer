@@ -2,7 +2,7 @@
 
 Soturine's Chaos Randomizer is an experimental BeamNG.drive UI App that creates repeatable vehicle chaos from the content actually loaded by the game. It discovers configurations, compatible part slots, tuning variables, and paint fields at runtime instead of maintaining a catalog of supported cars.
 
-The current source is the **0.6.3 release candidate**. Automated validation is in progress and the exact candidate ZIP has not yet passed the mandatory live BeamNG smoke test. The latest published release remains available on the [GitHub releases page](https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases/latest).
+The current source is the **0.6.3 Experimental prerelease**. Automated validation passes; live BeamNG validation is Pending owner validation. Download the exact owner-test build from the [v0.6.3 release](https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases/tag/v0.6.3).
 
 ## Three Chaos actions
 
@@ -38,7 +38,7 @@ The archive must contain `lua/`, `ui/`, and `settings/` at its root, with no wra
 - Settings schema: 6. Vehicle DNA schema: 1. Generator: 6.
 - Mod support is best effort: bad or incomplete metadata degrades or skips a feature with a reason instead of granting false success.
 - Automated tests do not prove live gameplay, physics, mod compatibility, or CEF rendering.
-- Tagging and release of 0.6.3 remain blocked until the exact final ZIP passes the live plan.
+- The Experimental prerelease is the distribution channel for owner testing. A future live-validated status remains unavailable until the exact ZIP completes the live plan.
 
 See [current validation](docs/status/CURRENT_VALIDATION.md) and the [compatibility matrix](docs/status/CURRENT_COMPATIBILITY_MATRIX.md).
 

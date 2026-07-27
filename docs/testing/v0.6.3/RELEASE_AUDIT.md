@@ -1,6 +1,6 @@
 # Release audit — 0.6.3
 
-Status: **candidate preparation in progress; tag and release blocked by live validation**.
+Status: **Experimental prerelease authorized; live validation Pending owner validation**.
 
 ## Historical preservation
 
@@ -58,7 +58,12 @@ The candidate now:
 | Reproducible ZIP, manifest, SHA-256 | Passed: 79 entries, 241,492 bytes, SHA-256 `486a66da60bfac75d08f1a9584568142846074c110996962e99af2e610d4e9c7` |
 | Exact-ZIP clean-profile install | Pending |
 | 110-case live plan | 0 executed / 110 Pending |
-| Tag `v0.6.3` | Not created; blocked |
-| GitHub prerelease | Not created; blocked |
+| Experimental prerelease gate | Permits Pending owner validation; rejects Failed, Blocked, ambiguity, version/commit/manifest/package errors, and false claims |
+| Live-validated gate | Correctly rejects 110 Pending until exact-artifact execution passes |
+| Tag `v0.6.3` | Authorized after final `main` CI is green |
+| GitHub prerelease | Authorized as the owner-validation distribution channel |
 
-The candidate may be committed, pushed, and handed off with an artifact. It must stop before tag/release until [LIVE_TEST_REPORT.md](LIVE_TEST_REPORT.md) records the exact artifact passing mandatory cases.
+The Experimental prerelease may be tagged and published with the current honest
+Pending owner validation report. Only a future live-validated claim remains
+blocked until [LIVE_TEST_REPORT.md](LIVE_TEST_REPORT.md) records real execution
+against the exact published artifact.

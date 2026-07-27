@@ -184,4 +184,4 @@ Required baseline: clean profile, Small Grid, game running, no manual pause unle
 | Blocked | 0 |
 | Not applicable | 0 |
 
-Release requires all mandatory rows to be executed and acceptance regressions to pass. Update [LIVE_TEST_REPORT.md](LIVE_TEST_REPORT.md) with evidence; never edit this total based on automated tests.
+Promotion to live-validated status requires all mandatory rows to be executed and acceptance regressions to pass. The Experimental prerelease may be published for owner testing while these rows remain Pending. Update [LIVE_TEST_REPORT.md](LIVE_TEST_REPORT.md) with evidence; never edit this total based on automated tests.

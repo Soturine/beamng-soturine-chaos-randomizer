@@ -8,7 +8,7 @@ Testing is reported by evidence category. Counts from different categories are n
 python -m pytest -q
 node --check ui/modules/apps/soturineChaosRandomizer/app.js
 node tests/js/ui_math.test.js
-python tools/package.py
+python tools/package_mod.py
 python tools/validate_package.py
 ```
 
@@ -37,7 +37,8 @@ Current exact automated results are recorded in [the 0.6.3 report](testing/v0.6.
 - Compilation is not evidence of physics, scaling, overflow, readability, or mod compatibility.
 - Automated target simulations do not become live BeamNG results.
 - Live rows remain Pending until run with the exact candidate ZIP whose checksum is recorded in the report.
-- The tag/release gate remains closed while any mandatory live row is Pending, Failed, or Blocked.
+- The Experimental prerelease gate permits Pending owner validation only when Failed and Blocked are zero and the disclosure, package, checksum, manifest, version, commit, and reproducibility contracts pass.
+- The separate live-validated gate remains closed while any mandatory live row is Pending, Failed, or Blocked.
 
 ## Adding tests
 

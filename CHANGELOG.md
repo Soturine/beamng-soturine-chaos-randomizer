@@ -5,9 +5,10 @@ All notable changes are documented here using [Keep a Changelog](https://keepach
 ## [0.6.3] - 2026-07-27
 
 Lifecycle identity, dynamic discovery, fuel safety, UI, architecture, and
-release-evidence candidate. This remains an Experimental pre-1.0 candidate.
-Automated tests pass, but live BeamNG validation is **0 executed / 0 passed /
-0 failed / 110 pending / 0 blocked**; tag and release are blocked.
+release-evidence candidate. This is published as an Experimental pre-1.0
+prerelease so the owner can test the exact asset. Automated tests pass; live
+BeamNG validation is **0 executed / 0 passed / 0 failed / 110 pending / 0
+blocked — Pending owner validation**.
 
 ### Implemented
 
@@ -36,8 +37,10 @@ Automated tests pass, but live BeamNG validation is **0 executed / 0 passed /
   operation/target binding context between coverage ledgers.
 - Reorganize usage documentation as evergreen guides and archive prior release
   test evidence by version.
-- Bind release manifests to explicit live executed/passed/failed/pending counts
-  and make tag workflows reject incomplete or artifact-mismatched live reports.
+- Bind release manifests to explicit live executed/passed/failed/pending counts.
+- Split the Experimental prerelease gate, which permits honest Pending owner
+  validation, from the strict live-validated gate, which still requires exact
+  artifact identity and zero Pending/Failed/Blocked cases.
 
 ### Validation
 
