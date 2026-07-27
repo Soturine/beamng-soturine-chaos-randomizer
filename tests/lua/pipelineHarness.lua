@@ -176,7 +176,7 @@ local function new(options)
   function adapter.prepareConfigExpectation(record)
     return configVerification.expectation(record)
   end
-  function adapter.replaceVehicle(modelKey, config)
+  function adapter.replaceVehicle(modelKey, config, targetVehicleId)
     harness.calls[#harness.calls + 1] = "replace"
     local restoring = type(config) == "table"
     if options.replaceFailure and not restoring then
@@ -185,7 +185,7 @@ local function new(options)
     if options.ambiguousReplace and not restoring then
       return true, {correlationStrategy = "fixture_missing_id"}
     end
-    local targetId = restoring and harness.original.vehicleId or harness.returnedVehicleId
+    local targetId = restoring and (targetVehicleId or harness.original.vehicleId) or harness.returnedVehicleId
     harness.pendingReplacement = {
       restoring = restoring,
       vehicleId = targetId,

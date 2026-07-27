@@ -1166,11 +1166,13 @@ tests.manual_switch_does_not_retarget_spawn = function()
 end
 
 tests.manual_switch_does_not_retarget_rollback = function()
-  local harness = pipelineHarness.new({partsFailure = true})
-  truthy(harness.main.fullRandom({chaos = 100, manualSeed = "rollback"}))
-  pipelineHarness.confirmReplacement(harness)
+  local harness = pipelineHarness.new({paintFailure = true, vehicleId = 1, returnedVehicleId = 2})
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom", {manualSeed = "rollback"}))
   truthy(harness.pendingReplacement and harness.pendingReplacement.restoring)
-  harness.main.onVehicleSwitched(1, 77, 0)
+  local beforeSwitch = harness.main.requestState()
+  truthy(beforeSwitch.transaction.recoveryOnly)
+  equal(beforeSwitch.targetMetrics.returnedVehicleId, 2)
+  harness.main.onVehicleSwitched(2, 77, 0)
   harness.vehicleId = 77
   harness.now = harness.now + 0.06
   harness.main.onUpdate()
@@ -1221,11 +1223,10 @@ tests.synchronous_unrelated_switch_never_starts_rollback = function()
 end
 
 tests.rollback_never_targets_unrelated_vehicle = function()
-  local harness = pipelineHarness.new({vehicleId = 1, returnedVehicleId = 2, partsFailure = true})
-  truthy(harness.main.fullRandom({chaos = 100, manualSeed = "rollback-id"}))
-  pipelineHarness.confirmReplacement(harness)
+  local harness = pipelineHarness.new({vehicleId = 1, returnedVehicleId = 2, paintFailure = true})
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom", {manualSeed = "rollback-id"}))
   truthy(harness.pendingReplacement and harness.pendingReplacement.restoring)
-  equal(harness.pendingReplacement.vehicleId, 1)
+  equal(harness.pendingReplacement.vehicleId, 2)
 end
 
 tests.paint_readback_allows_extra_fields = function()
@@ -1628,12 +1629,13 @@ tests.full_random_rollback_restores_original = function()
   local harness = pipelineHarness.new({partsFailure = true})
   truthy(harness.main.fullRandom({chaos = 100, manualSeed = "rollback"}))
   pipelineHarness.confirmReplacement(harness)
-  pipelineHarness.confirmReplacement(harness)
   local state = harness.main.requestState()
   equal(state.busy, false)
   equal(state.lastResult.details.rollback, "completed")
   equal(#state.history, 0)
-  equal(harness.modelKey, "fixture_old")
+  equal(harness.modelKey, "fixture_new")
+  equal(state.lastResult.details.recoveryTier, 2)
+  equal(state.lastResult.details.recoveryStep, "local_rollback")
 end
 
 tests.full_random_result_reports_base_version_and_final_changes = function()
@@ -2173,8 +2175,7 @@ tests.failed_operation_does_not_expose_pending_dna = function()
   local harness = pipelineHarness.new({partsFailure = true})
   truthy(harness.main.runAction("fullRandom", {chaos = 100, protectCriticalParts = true, manualSeed = "failure"}))
   pipelineHarness.confirmReplacement(harness)
-  truthy(harness.pendingReplacement ~= nil)
-  pipelineHarness.confirmReplacement(harness)
+  truthy(not harness.main.requestState().busy)
   equal(harness.main.requestState().garage.pendingSave, false)
 end
 
@@ -2884,12 +2885,14 @@ tests.alpha2_recovery_contract = function()
   for index = 1, 3 do vehicleRecovery.recordLoadFailure(state, {modelKey = "bad", configKey = "bad" .. index}, "load_failed") end
   truthy(state.circuitOpen)
   truthy(vehicleRecovery.isQuarantined(state, "bad", "bad1"))
+  vehicleRecovery.beginRecovery(state, "SCR-alpha2", 2)
   local plan = vehicleRecovery.choosePlan(state, {modelKey = "previous", selectedConfiguration = "previous.pc"}, {
     {modelKey = "safe", key = "base", path = "safe.pc", sourceKind = "official"},
   })
-  equal(plan[1].kind, "previous")
-  equal(plan[2].kind, "last_known_good")
-  equal(plan[3].kind, "safe_official")
+  equal(plan[1].kind, "abort_candidate")
+  equal(plan[2].kind, "explicit_safe_baseline")
+  equal(plan[3].kind, "safe_official_fallback")
+  equal(plan[4].kind, "hard_failure")
   local operation = {wait = {}, targetTracker = {}, paintConfirmation = {}, replaceWriteInFlight = true}
   vehicleRecovery.cleanup(operation)
   equal(operation.wait, nil); equal(operation.targetTracker, nil); equal(operation.replaceWriteInFlight, false)
@@ -3545,6 +3548,41 @@ tests.v060_recovery_snapshot_roles_contract = function()
   truthy(operation.slotLedger.closed and operation.tuningLedger.closed and operation.paintLedger.closed)
 end
 
+tests.v062_recovery_tiers_are_ordered_and_deduplicated = function()
+  local recovery = vehicleRecovery.create()
+  vehicleRecovery.rememberCompletedGood(recovery, {modelKey = "baseline", selectedConfiguration = "baseline.pc"})
+  local generation = vehicleRecovery.beginRecovery(recovery, "SCR-tiers", 9)
+  local plan = vehicleRecovery.choosePlan(recovery, {
+    transient = true,
+    currentTargetSnapshot = {modelKey = "current", selectedConfiguration = "current.pc"},
+    candidateBaseSnapshot = {modelKey = "candidate", selectedConfiguration = "candidate.pc"},
+    originalSnapshot = {modelKey = "original", selectedConfiguration = "original.pc"},
+  }, {{modelKey = "safe", key = "base", path = "safe.pc", sourceKind = "official"}})
+  equal(generation, 1)
+  equal(plan[1].tier, 1); equal(plan[1].kind, "continue_current_target")
+  equal(plan[2].tier, 2); equal(plan[2].kind, "local_rollback")
+  equal(plan[3].tier, 3); equal(plan[3].kind, "abort_candidate")
+  equal(plan[4].tier, 4); equal(plan[4].kind, "explicit_safe_baseline")
+  equal(plan[5].tier, 5); equal(plan[5].kind, "safe_official_fallback")
+  equal(plan[#plan].tier, 6); equal(plan[#plan].kind, "hard_failure")
+end
+
+tests.v062_recovery_rejects_old_generation_and_repeated_state = function()
+  local recovery = vehicleRecovery.create({cycleVisitLimit = 1})
+  local generation = vehicleRecovery.beginRecovery(recovery, "SCR-cycle", 4)
+  local step = {kind = "abort_candidate", tier = 3, snapshot = {
+    modelKey = "loop", selectedConfiguration = "loop.pc", partsTree = {body = "same"},
+  }}
+  local accepted = vehicleRecovery.observeRecoveryStep(recovery, "SCR-cycle", generation, step)
+  truthy(accepted)
+  local repeated, repeatReason = vehicleRecovery.observeRecoveryStep(recovery, "SCR-cycle", generation, step)
+  equal(repeated, false)
+  equal(repeatReason, "candidate_cycle_detected")
+  local stale, staleReason = vehicleRecovery.observeRecoveryStep(recovery, "SCR-cycle", generation - 1, step)
+  equal(stale, false)
+  equal(staleReason, "recovery_snapshot_old_generation")
+end
+
 tests.v060_progress_watchdog_contract = function()
   local watchdog = progressWatchdog.create(0, {warningAfter = 2, stalledAfter = 4, pauseDependencyWindow = 1})
   equal(progressWatchdog.evaluate(watchdog, 2.1, false), "warning")
@@ -3623,17 +3661,14 @@ tests.v060_slow_motion_is_seed_independent = function()
 end
 
 tests.v060_recovery_stale_callback_isolation_contract = function()
-  local harness = pipelineHarness.new({partsFailure = true, vehicleId = 1, returnedVehicleId = 2})
+  local harness = pipelineHarness.new({paintFailure = true, vehicleId = 1, returnedVehicleId = 2})
   harness.tuning.boost = -1
   harness.paints[1].metallic = 0.91
   local originalTree = util.deepCopy(harness.tree)
-  local originalTuning = util.deepCopy(harness.tuning)
-  local originalPaints = util.deepCopy(harness.paints)
-  truthy(harness.main.fullRandom({chaos = 100, manualSeed = "recovery-stale-B"}))
-  pipelineHarness.confirmReplacement(harness)
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom", {manualSeed = "recovery-stale-B"}))
   truthy(harness.pendingReplacement and harness.pendingReplacement.restoring)
   pipelineHarness.applyPendingReplacement(harness, false)
-  equal(harness.vehicleId, 1)
+  equal(harness.vehicleId, 2)
   local writesBeforeStale = #harness.writes
   harness.main.onVehicleSpawned(2)
   harness.main.onVehicleSpawned(1)
@@ -3645,9 +3680,9 @@ tests.v060_recovery_stale_callback_isolation_contract = function()
   equal(state.lastResult.details.rollback, "completed")
   equal(#harness.writes, writesBeforeStale)
   truthy(util.deepEqual(harness.tree, originalTree, 1e-8))
-  truthy(util.deepEqual(harness.tuning, originalTuning, 1e-8))
-  truthy(util.deepEqual(harness.paints, originalPaints, 1e-8))
-  truthy(state.lifecycle.staleCallbackCount > 0)
+  equal(harness.modelKey, "fixture_new")
+  equal(harness.tuning.boost, 0.5)
+  equal(state.lastResult.details.recoveryTier, 2)
 end
 
 tests.v060_busy_cancel_and_diagnostics_contract = function()

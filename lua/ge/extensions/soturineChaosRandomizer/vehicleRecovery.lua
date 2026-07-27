@@ -2,7 +2,7 @@ local util = require("ge/extensions/soturineChaosRandomizer/util")
 
 local M = {}
 
-local DEFAULTS = {consecutiveFailureLimit = 3, quarantineLimit = 64}
+local DEFAULTS = {consecutiveFailureLimit = 3, quarantineLimit = 64, cycleVisitLimit = 1}
 
 local function create(options)
   options = type(options) == "table" and options or {}
@@ -17,7 +17,72 @@ local function create(options)
     lastKnownGood = nil,
     circuitOpen = false,
     status = "idle",
+    recoveryGeneration = 0,
+    recoveryOperationId = nil,
+    recoveryOperationGeneration = nil,
+    recoveryAttempts = 0,
+    cycleVisitLimit = tonumber(options.cycleVisitLimit) or DEFAULTS.cycleVisitLimit,
+    cycleVisits = {},
+    cycleOrder = {},
+    lastCycleReason = nil,
   }
+end
+
+local function stableValue(value, depth)
+  depth = depth or 0
+  if type(value) ~= "table" then return tostring(value) end
+  if depth > 10 then return "<depth>" end
+  local out = {"{"}
+  for _, key in ipairs(util.sortedKeys(value)) do
+    out[#out + 1] = tostring(key)
+    out[#out + 1] = "="
+    out[#out + 1] = stableValue(value[key], depth + 1)
+    out[#out + 1] = ";"
+  end
+  out[#out + 1] = "}"
+  return table.concat(out)
+end
+
+local function targetStateFingerprint(snapshot)
+  snapshot = type(snapshot) == "table" and snapshot or {}
+  return table.concat({
+    tostring(snapshot.modelKey or ""),
+    tostring(snapshot.selectedConfiguration or (snapshot.config and snapshot.config.partConfigFilename) or ""),
+    stableValue(snapshot.partsTree or (snapshot.config and snapshot.config.partsTree) or {}),
+    stableValue(snapshot.tuning or (snapshot.config and snapshot.config.vars) or {}),
+    stableValue(snapshot.paints or (snapshot.config and snapshot.config.paints) or {}),
+  }, "\30")
+end
+
+local function beginRecovery(state, operationId, operationGeneration)
+  state.recoveryGeneration = state.recoveryGeneration + 1
+  state.recoveryOperationId = operationId
+  state.recoveryOperationGeneration = operationGeneration
+  state.recoveryAttempts = 0
+  state.cycleVisits = {}
+  state.cycleOrder = {}
+  state.lastCycleReason = nil
+  state.status = "recovery_started"
+  return state.recoveryGeneration
+end
+
+local function observeRecoveryStep(state, operationId, recoveryGeneration, step)
+  if operationId ~= state.recoveryOperationId or recoveryGeneration ~= state.recoveryGeneration then
+    state.lastCycleReason = "recovery_snapshot_old_generation"
+    return false, state.lastCycleReason
+  end
+  if type(step) ~= "table" or type(step.snapshot) ~= "table" then return true, "hard_failure" end
+  local fingerprint = targetStateFingerprint(step.snapshot)
+  local visits = (state.cycleVisits[fingerprint] or 0) + 1
+  state.cycleVisits[fingerprint] = visits
+  state.cycleOrder[#state.cycleOrder + 1] = fingerprint
+  state.recoveryAttempts = state.recoveryAttempts + 1
+  if visits > state.cycleVisitLimit then
+    state.lastCycleReason = "candidate_cycle_detected"
+    state.status = "recovery_loop_detected"
+    return false, state.lastCycleReason, fingerprint
+  end
+  return true, "recovery_candidate_accepted", fingerprint
 end
 
 local function candidateKey(modelKey, configKey)
@@ -30,12 +95,15 @@ local function rememberReadable(state, snapshot)
   return true
 end
 
-local function rememberCompletedGood(state, snapshot, preserveFailures)
+local function rememberCompletedGood(state, snapshot, preserveFailures, metadata)
   if type(snapshot) ~= "table" or type(snapshot.modelKey) ~= "string" then return false end
-  state.lastReadableSnapshot = util.deepCopy(snapshot)
-  state.lastCompletedGoodSnapshot = util.deepCopy(snapshot)
+  local promoted = util.deepCopy(snapshot)
+  promoted.recoveryMetadata = util.deepCopy(metadata or snapshot.recoveryMetadata or {})
+  promoted.recoveryMetadata.role = "last_completed_good"
+  state.lastReadableSnapshot = util.deepCopy(promoted)
+  state.lastCompletedGoodSnapshot = util.deepCopy(promoted)
   -- Compatibility alias for the 0.5 API. New code must use the explicit role.
-  state.lastKnownGood = util.deepCopy(snapshot)
+  state.lastKnownGood = util.deepCopy(promoted)
   if not preserveFailures then
     state.consecutiveFailures = 0
     state.circuitOpen = false
@@ -70,19 +138,32 @@ local function recordLoadFailure(state, candidate, reason)
   return not state.circuitOpen, state.status
 end
 
-local function choosePlan(state, previous, registry)
+local function choosePlan(state, context, registry)
+  local legacyPrevious = type(context) == "table" and context.modelKey and context or nil
+  context = legacyPrevious and {originalSnapshot = legacyPrevious} or (type(context) == "table" and context or {})
   local steps = {}
-  if type(previous) == "table" and type(previous.modelKey) == "string" then
-    steps[#steps + 1] = {kind = "previous", snapshot = util.deepCopy(previous)}
+  local fingerprints = {}
+  local function add(kind, tier, snapshot, details)
+    if type(snapshot) ~= "table" or type(snapshot.modelKey) ~= "string" then return false end
+    local fingerprint = targetStateFingerprint(snapshot)
+    if fingerprints[fingerprint] then return false end
+    fingerprints[fingerprint] = true
+    local step = {
+      kind = kind, tier = tier, snapshot = util.deepCopy(snapshot), fingerprint = fingerprint,
+      recoveryGeneration = state.recoveryGeneration,
+    }
+    for key, value in pairs(details or {}) do step[key] = value end
+    steps[#steps + 1] = step
+    return true
   end
+
+  if context.transient == true then
+    add("continue_current_target", 1, context.currentTargetSnapshot)
+  end
+  add("local_rollback", 2, context.candidateBaseSnapshot)
+  add("abort_candidate", 3, context.originalSnapshot)
   local completedGood = state.lastCompletedGoodSnapshot or state.lastKnownGood
-  if type(completedGood) == "table" then
-    local duplicate = previous and candidateKey(previous.modelKey, previous.selectedConfiguration)
-      == candidateKey(completedGood.modelKey, completedGood.selectedConfiguration)
-    if not duplicate then
-      steps[#steps + 1] = {kind = "last_known_good", snapshot = util.deepCopy(completedGood)}
-    end
-  end
+  add("explicit_safe_baseline", 4, context.explicitBaselineSnapshot or completedGood)
   local official = {}
   for _, config in ipairs(registry or {}) do
     if config.sourceKind == "official" and config.isProp ~= true and config.isTrailer ~= true
@@ -103,13 +184,11 @@ local function choosePlan(state, previous, registry)
   end)
   for index = 1, math.min(5, #official) do
     local config = official[index].config
-    steps[#steps + 1] = {
-      kind = "safe_official",
-      rank = index,
-      score = official[index].score,
-      snapshot = {modelKey = config.modelKey, selectedConfiguration = config.path or config.key, config = config},
-    }
+    add("safe_official_fallback", 5, {
+      modelKey = config.modelKey, selectedConfiguration = config.path or config.key, config = config,
+    }, {rank = index, score = official[index].score})
   end
+  steps[#steps + 1] = {kind = "hard_failure", tier = 6, recoveryGeneration = state.recoveryGeneration}
   return steps
 end
 
@@ -173,6 +252,12 @@ local function metrics(state)
     consecutiveLoadFailures = state.consecutiveFailures,
     recoveryCircuitOpen = state.circuitOpen,
     recoveryStatus = state.status,
+    recoveryGeneration = state.recoveryGeneration,
+    recoveryOperationId = state.recoveryOperationId,
+    recoveryOperationGeneration = state.recoveryOperationGeneration,
+    recoveryAttempts = state.recoveryAttempts,
+    recoveryCycleVisits = #state.cycleOrder,
+    recoveryCycleReason = state.lastCycleReason,
     lastReadableSnapshot = state.lastReadableSnapshot and {
       modelKey = state.lastReadableSnapshot.modelKey,
       vehicleId = state.lastReadableSnapshot.vehicleId,
@@ -205,6 +290,9 @@ M.rememberGood = rememberGood
 M.quarantine = quarantine
 M.isQuarantined = isQuarantined
 M.recordLoadFailure = recordLoadFailure
+M.targetStateFingerprint = targetStateFingerprint
+M.beginRecovery = beginRecovery
+M.observeRecoveryStep = observeRecoveryStep
 M.choosePlan = choosePlan
 M.cleanup = cleanup
 M.invalidateForRecovery = invalidateForRecovery

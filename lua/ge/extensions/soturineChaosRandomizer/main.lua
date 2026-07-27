@@ -576,6 +576,24 @@ end
 local function finishOperation(success, code, message, details, terminalState)
   local active = runtime.active
   terminalState = terminalState or (success and "completed" or "failed")
+  if active and success == true then
+    active.operationMutationPlan = nil
+    active.pendingTuningPlan = nil
+    active.pendingPaintPlan = nil
+    active.pendingTuningChanges = nil
+    active.currentBatch = nil
+    active.batchRollbackDecisions = nil
+    active.afterReload = nil
+    if active.slotLedger and slotCoverageLedger.isComplete(active.slotLedger) then
+      active.slotLedger.closed, active.slotLedger.closeReason = true, "terminal_readback_complete"
+    end
+    if active.tuningLedger and tuningCoverageLedger.isComplete(active.tuningLedger) then
+      active.tuningLedger.closed, active.tuningLedger.closeReason = true, "terminal_readback_complete"
+    end
+    if active.paintLedger and paintCoverageLedger.isComplete(active.paintLedger) then
+      active.paintLedger.closed, active.paintLedger.closeReason = true, "terminal_readback_complete"
+    end
+  end
   operationState.finish(runtime.state, terminalState, success and nil or code)
   if active then vehicleRecovery.cleanup(active) end
   details = type(details) == "table" and details or {}
@@ -589,6 +607,11 @@ local function finishOperation(success, code, message, details, terminalState)
       pendingTimers = (active.treeRescanAt and 1 or 0) + (active.paintConfirmation and 1 or 0),
       pendingCallbacks = active.targetTracker and 1 or 0,
       staleCallbackCount = runtime.state.staleCallbackCount,
+      coverageLedgersClosed = (not active.slotLedger or active.slotLedger.closed == true)
+        and (not active.tuningLedger or active.tuningLedger.closed == true)
+        and (not active.paintLedger or active.paintLedger.closed == true),
+      targetOwnershipConfirmed = active.targetOwnershipConfirmed == true
+        or active.operationCurrentTarget ~= nil,
     }
   end
   if active and (success == true or details.rollback == "completed") then
@@ -600,8 +623,15 @@ local function finishOperation(success, code, message, details, terminalState)
         and details.lifecycleAcceptance.pendingWrites == 0
         and details.lifecycleAcceptance.pendingTimers == 0
         and details.lifecycleAcceptance.pendingCallbacks == 0
+        and details.lifecycleAcceptance.coverageLedgersClosed == true
+        and details.lifecycleAcceptance.targetOwnershipConfirmed == true
         and active.recoveryOnly ~= true
-      if accepted then vehicleRecovery.rememberCompletedGood(runtime.recovery, finalSnapshot) end
+      if accepted then vehicleRecovery.rememberCompletedGood(runtime.recovery, finalSnapshot, false, {
+        operationId = active.operationId,
+        operationGeneration = active.operationGeneration,
+        targetGeneration = active.targetGeneration,
+        completedAt = adapter.clock(),
+      }) end
     end
   end
   setResult(success, code, message, details)
@@ -1034,8 +1064,8 @@ local function enterWaiting(active, phase, afterReload, expected, label, value)
     ) and "waiting_parts_reload"
     or (phase == "tuning" or phase == "dna_tuning") and "waiting_tuning_reload"
     or (phase == "rollback") and (
-      active.recoveryStep == "previous" and "recovering_previous"
-      or active.recoveryStep == "last_known_good" and "recovering_last_completed_good"
+      (active.recoveryTier or 6) <= 3 and "recovering_previous"
+      or active.recoveryStep == "explicit_safe_baseline" and "recovering_last_completed_good"
       or "recovering_fallback"
     )
     or "tracking_target_identity"
@@ -1215,17 +1245,62 @@ local function startNextRecovery(active)
     })
     return false
   end
+  if step.kind == "hard_failure" then
+    local cycleReason = vehicleRecovery.metrics(runtime.recovery).recoveryCycleReason
+    finishOperation(false, cycleReason and "recovery_loop_detected" or "vehicle_recovery_failed",
+      cycleReason and "Recovery stopped after detecting a repeated target state"
+        or "The operation and all bounded vehicle recovery attempts failed", {
+        originalFailure = active.rollbackFailure,
+        recovery = vehicleRecovery.metrics(runtime.recovery),
+        attempts = (active.recoveryIndex or 1) - 1,
+        recoveryTier = 6,
+      })
+    return false
+  end
+  local accepted, recoveryReason = vehicleRecovery.observeRecoveryStep(
+    runtime.recovery, runtime.state.operationId, active.recoveryGeneration, step
+  )
+  if not accepted then
+    diagnosticsModule.write(runtime.diagnostics, "E", recoveryReason, {
+      step = step.kind, tier = step.tier, attempt = active.recoveryIndex,
+      recoveryGeneration = active.recoveryGeneration,
+    }, true)
+    return startNextRecovery(active)
+  end
   local snapshot = step.snapshot or {}
+  if step.kind == "local_rollback" then
+    local readable, currentSnapshot = adapter.captureCurrentState("recovery_local_check", active.seed, active.vehicleId)
+    if readable and vehicleRecovery.targetStateFingerprint(currentSnapshot) == step.fingerprint then
+      active.recoveryStep = step.kind
+      active.recoveryTier = step.tier
+      active.recoverySnapshot = util.deepCopy(snapshot)
+      vehicleRecovery.rememberReadable(runtime.recovery, currentSnapshot)
+      historyTransaction.rollbackSucceeded(active, runtime.history, historyModule.pop)
+      local originalFailure = active.rollbackFailure
+        or failureRecord(active, "rollback", adapter.errorValue("operation_failed", "Operation failed"))
+      finishOperation(false, originalFailure.code,
+        originalFailure.message .. "; current target restored to its clean candidate baseline", {
+          rollback = "completed",
+          recoveryStep = step.kind,
+          recoveryTier = step.tier,
+          recoveryOutcome = "continued_current_target_at_verified_baseline",
+          locksRequireReview = false,
+          originalFailure = originalFailure,
+        })
+      return true
+    end
+  end
   local configValue = snapshot.config or snapshot.selectedConfiguration
   if type(configValue) == "table" and configValue.path then configValue = configValue.path end
   local configIdentity
-  if step.kind == "safe_official" and type(snapshot.config) == "table" then
+  if step.kind == "safe_official_fallback" and type(snapshot.config) == "table" then
     configIdentity = adapter.prepareConfigExpectation(snapshot.config)
   end
   local okTransition = operationState.transition(runtime.state, "rollingBack", false)
   if not okTransition then runtime.state.state = "rollingBack" end
   active.phase = "rollback"
   active.recoveryStep = step.kind
+  active.recoveryTier = step.tier
   active.recoverySnapshot = util.deepCopy(snapshot)
   local okWait, waitError = enterWaiting(active, "rollback", "recovery", {
     modelKey = snapshot.modelKey,
@@ -1249,7 +1324,8 @@ local function startNextRecovery(active)
     return startNextRecovery(active)
   end
   diagnosticsModule.write(runtime.diagnostics, "W", "vehicle_recovery_started", {
-    step = step.kind, attempt = active.recoveryIndex, modelKey = snapshot.modelKey,
+    step = step.kind, tier = step.tier, attempt = active.recoveryIndex, modelKey = snapshot.modelKey,
+    recoveryGeneration = active.recoveryGeneration,
   }, true)
   return true
 end
@@ -1266,8 +1342,7 @@ local function beginRollback(failure)
       failure.code
     )
   end
-  active.recoverySteps = vehicleRecovery.choosePlan(runtime.recovery, active.originalState, runtime.index.allConfigs)
-  active.recoveryIndex = 0
+  local failedOperationGeneration = runtime.state.operationGeneration
   active.token = operationState.invalidate(runtime.state, "recovery_started", {
     operation = true,
     target = true,
@@ -1276,6 +1351,18 @@ local function beginRollback(failure)
   active.phaseGeneration = runtime.state.phaseGeneration
   active.targetGeneration = runtime.state.targetGeneration
   vehicleRecovery.invalidateForRecovery(active)
+  active.failedOperationGeneration = failedOperationGeneration
+  active.recoveryGeneration = vehicleRecovery.beginRecovery(
+    runtime.recovery, runtime.state.operationId, runtime.state.operationGeneration
+  )
+  active.recoverySteps = vehicleRecovery.choosePlan(runtime.recovery, {
+    currentTargetSnapshot = active.operationCandidateBase,
+    candidateBaseSnapshot = active.operationCandidateBase,
+    originalSnapshot = active.originalState or active.operationOriginalSnapshot,
+    explicitBaselineSnapshot = runtime.recovery.lastCompletedGoodSnapshot,
+    transient = false,
+  }, runtime.index.allConfigs)
+  active.recoveryIndex = 0
   setLifecyclePhase(active, "rolling_back_operation", false, "recovery_started")
   diagnosticsModule.write(runtime.diagnostics, "W", "recovery_pipeline_invalidated", {
     operationId = runtime.state.operationId,
@@ -1283,6 +1370,8 @@ local function beginRollback(failure)
     phaseGeneration = runtime.state.phaseGeneration,
     targetGeneration = runtime.state.targetGeneration,
     recoveryOnly = true,
+    failedOperationGeneration = failedOperationGeneration,
+    recoveryGeneration = active.recoveryGeneration,
   }, true)
   startNextRecovery(active)
 end
@@ -4101,7 +4190,9 @@ local function completeStableTarget(vehicleId, verificationState, verificationDe
     finishOperation(false, originalFailure.code, originalFailure.message .. "; vehicle recovery completed", {
       rollback = "completed",
       recoveryStep = recoveryStep,
-      locksRequireReview = recoveryStep ~= "previous",
+      recoveryTier = active.recoveryTier,
+      recoveryOutcome = "restored_explicit_snapshot",
+      locksRequireReview = (active.recoveryTier or 6) >= 4,
       originalFailure = originalFailure,
     })
   elseif completedPhase == "dna_base_spawn" then
@@ -4323,6 +4414,19 @@ local function onVehicleSwitched(oldId, newId, player)
   if not runtime.state.busy or not runtime.active then return end
   local active = runtime.active
   if active.targetTracker then
+    if active.recoveryOnly and (player == nil or player == 0)
+      and active.targetTracker.returnedVehicleId
+      and newId ~= active.targetTracker.returnedVehicleId
+    then
+      diagnosticsModule.write(runtime.diagnostics, "E", "target_id_changed", {
+        source = "onVehicleSwitched",
+        expectedVehicleId = active.targetTracker.returnedVehicleId,
+        currentVehicleId = newId,
+        recoveryGeneration = active.recoveryGeneration,
+      }, true)
+      cancelOperation("vehicle_switched", "Recovery cancelled because the player selected an unrelated vehicle")
+      return
+    end
     local accepted, reason = vehicleTargetTracker.onSwitched(
       active.targetTracker, oldId, newId, player, active.replaceWriteInFlight == true
     )
