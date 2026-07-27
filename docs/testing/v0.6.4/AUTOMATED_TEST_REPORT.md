@@ -18,7 +18,7 @@ python tools/validate_release_gate.py --channel prerelease
 | Behavioral + mocked BeamNG Lua cases | 356 | 356 | 0 | 0 |
 | Lua assertions evaluated | 7,764 | 7,764 | 0 | 0 |
 | Static/Lua/JS/package/workflow Python methods | 59 | 59 | 0 | 0 |
-| Python unittest subtests | 810 | 810 | 0 | 0 |
+| Python unittest subtests | 841 | 841 | 0 | 0 |
 | JavaScript helper assertions | 27 | 27 | 0 | 0 |
 | Requirement mappings | 440 mapped | 440 mapped | 0 unmapped | not executions |
 | Live BeamNG cases | 0 | 0 | 0 | 110 Pending |
