@@ -294,8 +294,10 @@ class StaticValidationTests(unittest.TestCase):
         self.assertLess(panel.index("scr-status"), panel.index("scr-warning"))
         self.assertNotRegex(css, r"\.scr-status\s*\{[^}]*margin-top:\s*auto")
         self.assertIn("body.scrollHeight", source)
-        self.assertIn("SoturineChaosUiMath.contentHeight", source)
-        self.assertIn("SoturineChaosUiMath.manualHeight", source)
+        self.assertIn("function contentHeight", source)
+        self.assertIn("SoturineChaosUiMath.resolvedHeight", source)
+        self.assertIn("SoturineChaosUiMath.resizeMode", source)
+        self.assertNotIn("function manualHeight", source)
         self.assertIn("SoturineChaosUiMath.shouldApplyResize", source)
         self.assertIn("window.MutationObserver", source)
         self.assertNotRegex(source, r"view === 'chaos'\s*\?.*270")
@@ -319,20 +321,22 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("@media (min-width: 320px) and (max-width: 359px)", css)
         self.assertIn("@media (min-width: 360px)", css)
 
-    def test_v063_fox_exactly_matches_v061_asset(self) -> None:
+    def test_v064_fox_and_app_icon_share_original_identity(self) -> None:
         fox_path = ROOT / "ui/modules/apps/soturineChaosRandomizer/assets/fox-mark.svg"
+        icon_svg_path = ROOT / "ui/modules/apps/soturineChaosRandomizer/assets/app-icon.svg"
         fox = fox_path.read_text(encoding="utf-8")
+        icon_svg = icon_svg_path.read_text(encoding="utf-8")
         css = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.css").read_text(encoding="utf-8")
         html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
         ET.fromstring(fox)
+        ET.fromstring(icon_svg)
         self.assertLess(fox_path.stat().st_size, 2048)
         self.assertNotRegex(fox.lower(), r"<script|<image|<filter|base64|https?://(?!www\.w3\.org/2000/svg)")
-        import hashlib
-        packaged_fox = fox_path.read_bytes().replace(b"\r\n", b"\n").replace(b"\r", b"\n")
-        self.assertEqual(
-            hashlib.sha256(packaged_fox).hexdigest(),
-            "22d0e8cba5878582879633c03158aa948388d02aaabe28f380c333f462b20040",
-        )
+        self.assertNotRegex(icon_svg.lower(), r"<script|<image|<filter|base64|https?://(?!www\.w3\.org/2000/svg)")
+        for color in ("#f36a21", "#5b2417", "#fff3e8"):
+            self.assertIn(color, fox.lower())
+            self.assertIn(color, icon_svg.lower())
+        self.assertIn('viewBox="0 0 250 120"', icon_svg)
         self.assertIn('class="scr-fox" aria-hidden="true"', html)
         self.assertRegex(css, r"\.scr-fox\s*\{[^}]*32px[^}]*opacity:\s*\.96")
 
