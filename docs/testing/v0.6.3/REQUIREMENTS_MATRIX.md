@@ -30,7 +30,7 @@
 | P2-02 | Canonical Race domain | `raceManager` plus legacy facade | Verified | Pending |
 | P2-03 | Safe UI separation | exported pure UI math; gameplay remains Lua | Verified | Pending visual |
 | P2-04 | Performance instrumentation | bounded percentiles and UI event rate | Verified collector | Pending measurements |
-| REL-01 | Reproducible package/manifest/checksum | package workflow and two-build comparison | Pending final build | Pending install |
+| REL-01 | Reproducible package/manifest/checksum | package builder, validator, checksum, manifest v3 | Verified exact candidate | Pending install |
 | REL-02 | Version metadata synchronized | VERSION/app/main/HTML/release notes | Verified | Not applicable |
 | REL-03 | Tag/release only after live gate | tag workflow runs exact-artifact live validator | Verified gate | Blocking |
 | HIST-01 | Preserve v0.6.2 tag/release/assets/history | initial Git/GitHub audit; no rewrite/force push | Verified audit | Not applicable |
