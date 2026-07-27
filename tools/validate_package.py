@@ -187,7 +187,9 @@ def validate_reproducible(archive_path: Path, root: Path = REPOSITORY_ROOT) -> N
             raise PackageValidationError("Archive is not reproducible from the current inputs")
 
 
-def validate_release_manifest(archive_path: Path) -> dict[str, object]:
+def validate_release_manifest(
+    archive_path: Path, root: Path = REPOSITORY_ROOT,
+) -> dict[str, object]:
     manifest_path = archive_path.parent / "release-manifest.json"
     if not manifest_path.is_file():
         raise PackageValidationError(f"Release manifest does not exist: {manifest_path}")
@@ -196,8 +198,8 @@ def validate_release_manifest(archive_path: Path) -> dict[str, object]:
     with zipfile.ZipFile(archive_path) as archive:
         expected_entries = len(archive.infolist())
     expected = {
-        "version": read_version(),
-        "tag": f"v{read_version()}",
+        "version": read_version(root),
+        "tag": f"v{read_version(root)}",
         "filename": archive_path.name,
         "bytes": archive_path.stat().st_size,
         "entries": expected_entries,
