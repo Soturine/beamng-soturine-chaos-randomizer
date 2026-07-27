@@ -125,6 +125,10 @@ end
 
 local function setPhase(state, phase, timeout, reason)
   if not PHASES[phase] then return false, "unknown_phase:" .. tostring(phase) end
+  local current = PHASES[state.phase] or {}
+  if current.terminal == true and state.phase ~= "idle" and PHASES[phase].terminal ~= true then
+    return false, "terminal_phase_cannot_resume"
+  end
   state.previousPhase = state.phase
   if state.phase ~= phase then
     state.phaseGeneration = state.phaseGeneration + 1

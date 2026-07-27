@@ -3072,6 +3072,103 @@ tests.v063_final_unbound_read_rejects_wrong_tuning = function()
   equal(details.finalReadReason, "tuning_readback_mismatch")
 end
 
+tests.v063_state_machine_terminal_and_generation_properties = function()
+  local phases = {
+    "capturing_original", "selecting", "issuing_spawn", "tracking_target_identity",
+    "stabilizing_tree", "planning_parts", "applying_parts", "waiting_parts_reload",
+    "verifying_parts", "planning_tuning", "applying_tuning", "waiting_tuning_reload",
+    "verifying_tuning", "applying_paint", "verifying_paint", "final_validation",
+  }
+  local terminals = {"completed", "partial", "failed", "cancelled"}
+  for sequence = 1, 32 do
+    local state = operationState.create(function() return sequence end, 10)
+    truthy(operationState.begin(state, "property", sequence, 10))
+    local generator = rng.new("state-machine-property:" .. tostring(sequence))
+    local operationGeneration = state.operationGeneration
+    local phaseGeneration = state.phaseGeneration
+    local targetGeneration = state.targetGeneration
+    for _ = 1, 24 do
+      local phase = phases[generator:integer(1, #phases)]
+      truthy(operationState.setPhase(state, phase, 10, "property_sequence"))
+      truthy(state.operationGeneration >= operationGeneration)
+      truthy(state.phaseGeneration >= phaseGeneration)
+      truthy(state.targetGeneration >= targetGeneration)
+      operationGeneration, phaseGeneration, targetGeneration =
+        state.operationGeneration, state.phaseGeneration, state.targetGeneration
+    end
+    truthy(operationState.finish(state, terminals[(sequence - 1) % #terminals + 1]))
+    truthy(not operationState.deriveBusy(state))
+    local resumed, reason = operationState.setPhase(state, "planning_parts", 10, "invalid_resume")
+    equal(resumed, false)
+    equal(reason, "terminal_phase_cannot_resume")
+    truthy(not operationState.deriveBusy(state))
+  end
+end
+
+tests.v063_cancel_is_terminal_from_every_active_phase = function()
+  for phase, definition in pairs(operationState.phases) do
+    if definition.terminal ~= true then
+      local state = operationState.create(function() return 1 end, 10)
+      truthy(operationState.begin(state, "cancel-property", 1, 10))
+      truthy(operationState.setPhase(state, phase, 10, "cancel_property"))
+      truthy(operationState.finish(state, "cancelled", "cancelled_by_user"))
+      equal(state.phase, "cancelled")
+      truthy(not operationState.deriveBusy(state), phase .. " remained Busy after cancel")
+    end
+  end
+end
+
+tests.v063_concrete_target_changes_only_after_validated_rebind = function()
+  local state = {
+    operationId = "SCR-property", operationGeneration = 4, phaseGeneration = 2,
+    targetGeneration = 9, operationToken = "token",
+  }
+  local context = operationContext.create(state, "token", 0)
+  operationContext.beginLogicalTarget(context, state, {modelKey = "expected"}, 0)
+  operationContext.beginWait(context, state, {modelKey = "expected"}, "parts_reload", 1)
+  local logical = util.deepCopy(context.logicalTarget)
+  local invalid = {
+    {vehicleId = 10, modelKey = "wrong", playerIndex = 0, stable = true, coherentTargetRead = true, observedAt = 2},
+    {vehicleId = 11, modelKey = "expected", playerIndex = 1, stable = true, coherentTargetRead = true, observedAt = 2},
+    {vehicleId = 12, modelKey = "expected", playerIndex = 0, stable = false, coherentTargetRead = true, observedAt = 2},
+    {vehicleId = 13, modelKey = "expected", playerIndex = 0, stable = true, coherentTargetRead = false, observedAt = 2},
+    {vehicleId = 14, modelKey = "expected", playerIndex = 0, stable = true, coherentTargetRead = true, observedAt = 0.5},
+  }
+  for _, candidate in ipairs(invalid) do
+    local rebound = operationContext.rebindConcreteTarget(context, state, candidate, 2)
+    equal(rebound, false)
+    equal(context.concreteTarget, nil)
+    truthy(util.deepEqual(context.logicalTarget, logical, 1e-10))
+  end
+  local accepted, target = operationContext.rebindConcreteTarget(context, state, {
+    vehicleId = 15, modelKey = "expected", playerIndex = 0, stable = true,
+    coherentTargetRead = true, readStatus = "ready", observedAt = 2,
+  }, 2)
+  truthy(accepted)
+  equal(target.vehicleId, 15)
+  truthy(util.deepEqual(context.logicalTarget, logical, 1e-10))
+end
+
+tests.v063_recovery_property_is_bounded_per_generation = function()
+  local recovery = vehicleRecovery.create({cycleVisitLimit = 1})
+  local lastGeneration = 0
+  for sequence = 1, 32 do
+    local generation = vehicleRecovery.beginRecovery(recovery, "SCR-recovery-property", sequence)
+    truthy(generation > lastGeneration)
+    lastGeneration = generation
+    local step = {kind = "abort_candidate", tier = 3, snapshot = {
+      modelKey = "candidate-" .. tostring(sequence), selectedConfiguration = "base.pc",
+    }}
+    truthy(vehicleRecovery.observeRecoveryStep(recovery, "SCR-recovery-property", generation, step))
+    local repeated, reason = vehicleRecovery.observeRecoveryStep(
+      recovery, "SCR-recovery-property", generation, step
+    )
+    equal(repeated, false)
+    equal(reason, "candidate_cycle_detected")
+    equal(recovery.recoveryAttempts, 2)
+  end
+end
+
 tests.alpha2_tracker_limits_contract = function()
   local tracker = alpha2Tracker()
   for id = 1, 40 do vehicleTargetTracker.onSpawned(tracker, id) end
