@@ -329,6 +329,7 @@ local function publicState()
       totalVehicles = runtime.lineup.current.totalVehicles,
       aiOpponentCount = runtime.lineup.current.aiOpponentCount,
       settings = util.deepCopy(runtime.lineup.current.settings),
+      varietyRules = util.deepCopy(runtime.lineup.current.varietyRules),
       stagingPreview = util.deepCopy(runtime.lineup.current.stagingPreview),
       placementPreview = util.deepCopy(runtime.lineup.current.placementPreview),
       summary = productionModules.raceManager.summary(runtime.lineup.current), competitors = {},
@@ -1013,6 +1014,9 @@ local function finishOperation(success, code, message, details, terminalState)
     end
     if terminalState == "cancelled" then
       productionModules.raceManager.cancel(lineup, "Race generation cancelled by user")
+      if lineup.settings and lineup.settings.retainAcceptedOnCancel == false then
+        production.clearManagedRaceVehicles("race_cancel_policy_cleanup")
+      end
     elseif success then
       lineup.consecutiveFailures = 0
     else
@@ -5854,6 +5858,7 @@ function production.cancelRaceGeneration(reason)
   reason = reason or "Race generation cancelled by user"
   runtime.lineup.pendingNext = false
   productionModules.raceManager.cancel(lineup, reason)
+  lineup.removeAcceptedOnCancel = lineup.settings and lineup.settings.retainAcceptedOnCancel == false
   if runtime.active and runtime.active.domain == "race" then
     cancelCurrentOperation()
   else
@@ -5867,6 +5872,10 @@ function production.cancelRaceGeneration(reason)
         runtime.domainOperations, productionModules.spawnAdapter.deleteVehicle,
         {domain = "race", operationId = domainContext.operationId}
       )
+    end
+    if lineup.removeAcceptedOnCancel then
+      production.clearManagedRaceVehicles("race_cancel_policy_cleanup")
+      lineup.removeAcceptedOnCancel = false
     end
   end
   production.persistCurrentLineup()
@@ -6078,6 +6087,9 @@ function production.resolveLineupFailure(index, action)
     return false
   end
   runtime.lineup.pendingNext = lineup.active == true
+  if action == "stop" and lineup.settings and lineup.settings.retainAcceptedOnCancel == false then
+    production.clearManagedRaceVehicles("race_stop_policy_cleanup")
+  end
   production.persistCurrentLineup()
   setResult(true, "lineup_failure_action_applied", "Lineup failure action applied", {index = index, action = action})
   publishState()
@@ -6669,6 +6681,15 @@ end
 
 function production.startManagedAI(options)
   options = type(options) == "table" and util.deepCopy(options) or {}
+  local lineup = runtime.lineup.current
+  if lineup and (lineup.active == true or (lineup.generationState ~= "ready"
+    and not (lineup.generationState == "partial_ready" and lineup.acceptPartial == true)))
+  then
+    setResult(false, "race_formation_not_ready",
+      "Race AI cannot start until generation and Placement are ready or an accepted partial formation is ready.")
+    publishState()
+    return false
+  end
   if #(runtime.managedVehicles.order or {}) == 0 then
     setResult(false, "race_no_managed_vehicles", "No managed race cars are available. Place cars first.")
     publishState()
@@ -6961,6 +6982,21 @@ local function processPaintConfirmation()
     return true
   end
   return true
+end
+
+function production.focusManagedVehicle(handle)
+  local entry = runtime.managedVehicles.entries[handle]
+  if not entry then
+    setResult(false, "managed_vehicle_unknown", "The requested Race competitor is unavailable")
+    publishState()
+    return false
+  end
+  local focused, reason = adapter.enterVehicle(entry.vehicleId)
+  setResult(focused, focused and "race_competitor_focused" or reason,
+    focused and "Focused the selected Race competitor" or "The selected competitor could not be focused",
+    {handle = handle, vehicleId = entry.vehicleId})
+  publishState()
+  return focused
 end
 
 function production.reorderLineupCompetitor(index, newPosition)
@@ -7285,6 +7321,7 @@ M.startLineupSpawn = production.startLineupSpawn
 M.cancelLineupSpawn = production.cancelLineupSpawn
 M.removeManagedVehicle = production.removeManagedVehicle
 M.respawnManagedVehicle = production.respawnManagedVehicle
+M.focusManagedVehicle = production.focusManagedVehicle
 M.placeAIDestination = production.placeAIDestination
 M.confirmAIDestination = production.confirmAIDestination
 M.clearAIDestination = production.clearAIDestination

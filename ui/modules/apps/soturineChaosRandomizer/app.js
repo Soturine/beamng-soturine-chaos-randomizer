@@ -46,13 +46,44 @@ var SoturineChaosUiMath = (function () {
     return Math.abs(finite(current, 0) - finite(target, 0)) > 1
   }
 
+  var TAB_DEFAULTS = {
+    expanded: {chaos: 360, garage: 520, race: 620, settings: 640},
+    collapsed: {chaos: 180, garage: 194, race: 214, settings: 220}
+  }
+
+  function tabSizes() {
+    return {
+      expanded: Object.assign({}, TAB_DEFAULTS.expanded),
+      collapsed: Object.assign({}, TAB_DEFAULTS.collapsed)
+    }
+  }
+
+  function tabHeight(tab, mode, sizes, details) {
+    tab = {chaos: true, garage: true, race: true, settings: true}[tab] ? tab : 'chaos'
+    mode = mode === 'collapsed' ? 'collapsed' : 'expanded'
+    sizes = sizes || TAB_DEFAULTS
+    var values = sizes[mode] || TAB_DEFAULTS[mode]
+    var base = finite(values[tab], TAB_DEFAULTS[mode][tab])
+    if (mode === 'collapsed' || !details || details.open !== true) return Math.ceil(base)
+    return Math.ceil(clamp(Math.max(base, finite(details.measuredHeight, base)), base,
+      finite(details.maximum, 720)))
+  }
+
+  function changedPolicyCount(options, defaults) {
+    options = options || {}; defaults = defaults || {}
+    return Object.keys(defaults).filter(function (key) { return options[key] !== defaults[key] }).length
+  }
+
   return {
     clamp: clamp,
     sliderPercent: sliderPercent,
     contentHeight: contentHeight,
     resizeMode: resizeMode,
     resolvedHeight: resolvedHeight,
-    shouldApplyResize: shouldApplyResize
+    shouldApplyResize: shouldApplyResize,
+    tabSizes: tabSizes,
+    tabHeight: tabHeight,
+    changedPolicyCount: changedPolicyCount
   }
 }())
 
@@ -87,9 +118,23 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
         var resizeTimer = null
         var contentObserver = null
         var lastAppliedHeight = null
-        var sizeMode = 'auto'
-        var userHeight = null
+        var sizeModeByTab = {chaos: 'auto', garage: 'auto', race: 'auto', settings: 'auto'}
+        var userHeightByTab = {chaos: null, garage: null, race: null, settings: null}
+        var tabSizes = SoturineChaosUiMath.tabSizes()
         var lastProgrammaticResizeAt = -Infinity
+
+        var racePolicyDefaults = {
+          avoidDuplicateModels: true, avoidDuplicateConfigurations: true,
+          avoidDuplicateFamilies: false, maximumSameFamily: 2,
+          diversifyVehicleClasses: true, diversifyPropulsion: false,
+          diversifyDrivetrain: false, diversifySource: true,
+          diversifyWheelStyles: false, diversifyBodyTypes: false,
+          allowOfficialVehicles: true, allowModVehicles: true,
+          allowAutomationVehicles: false, allowTrailers: false, allowProps: false,
+          acceptPartial: false, acceptMetadataUncertain: false,
+          acceptPotentiallyUndrivable: false, maxAttemptsPerCompetitor: 3,
+          maxConsecutiveFailures: 4, retainAcceptedOnCancel: true
+        }
 
         scope.chaos = {
           view: 'chaos',
@@ -128,6 +173,10 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
           raceSection: 'cars',
           racePresets: ['Balanced', 'Maximum Chaos', 'Mods Showcase'],
           operationDetailsOpen: false,
+          detailsExpandedByTab: {chaos: false, garage: false, race: false, settings: false},
+          expandedSizeByTab: tabSizes.expanded,
+          compactSizeByTab: tabSizes.collapsed,
+          racePolicyOpen: false,
           garageQuery: {search: '', filter: 'all', sort: 'updated', model: '', tag: '', collection: ''},
           replayPolicy: 'original',
           lockData: null,
@@ -141,8 +190,9 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
           metadata: {rating: '0', collection: '', tags: '', notes: ''},
           lineupPage: 0,
           managedIndex: 0,
-          lineupOptions: {count: 4, preset: 'Balanced', episodeSeed: '', acceptPartial: false, acceptMetadataUncertain: false, acceptPotentiallyUndrivable: false, avoidDuplicateModels: true, avoidDuplicateConfigurations: true, avoidDuplicateFamilies: false, maximumSameFamily: 2, diversifyVehicleClasses: true, diversifyPropulsion: false, diversifyDrivetrain: false, diversifySource: true, diversifyWheelStyles: false, diversifyBodyTypes: false, allowOfficialVehicles: true, allowModVehicles: true, allowAutomationVehicles: false, allowTrailers: false, allowProps: false, maxAttemptsPerCompetitor: 3, maxConsecutiveFailures: 4},
-          spawnOptions: {mode: 'Grid', count: 4, spacing: 7, rows: 2, columns: 2, radius: 14, headingMode: 'camera', headingOffset: 0, groundOffset: 0.2, minimumObjectDistance: 3, interval: 0.75, spawnAll: true, useNextLineupCompetitor: true, selectedDNAId: '', customPointX: 0, customPointY: 0, customPointZ: 0},
+          compactGarageIndex: 0,
+          lineupOptions: {count: 4, participationMode: 'spectator', preset: 'Balanced', episodeSeed: '', acceptPartial: false, acceptMetadataUncertain: false, acceptPotentiallyUndrivable: false, avoidDuplicateModels: true, avoidDuplicateConfigurations: true, avoidDuplicateFamilies: false, maximumSameFamily: 2, diversifyVehicleClasses: true, diversifyPropulsion: false, diversifyDrivetrain: false, diversifySource: true, diversifyWheelStyles: false, diversifyBodyTypes: false, allowOfficialVehicles: true, allowModVehicles: true, allowAutomationVehicles: false, allowTrailers: false, allowProps: false, maxAttemptsPerCompetitor: 3, maxConsecutiveFailures: 4, retainAcceptedOnCancel: true, formation: 'Automatic Best Fit', spacingMode: 'automatic', longitudinalSpacing: 8, lateralSpacing: 5, safetyMargin: 1.5},
+          spawnOptions: {mode: 'Automatic Best Fit', count: 4, spacingMode: 'automatic', spacing: 7, longitudinalSpacing: 8, lateralSpacing: 5, safetyMargin: 1.5, availableWidth: null, rows: 2, columns: 2, radius: 14, headingMode: 'camera', headingOffset: 0, groundOffset: 0.2, minimumObjectDistance: 3, interval: 0.75, spawnAll: true, useNextLineupCompetitor: true, selectedDNAId: '', customPointX: 0, customPointY: 0, customPointZ: 0},
           aiOptions: {mode: 'Destination', speedKph: 65, speedMode: 'limit', aggression: 0.5, driveInLane: true, avoidCars: true, delay: 0, stagger: 0.5, arrivalRadius: 8, timeout: 600, finishAction: 'stop', loop: false, recoveryWhenStuck: false, stuckAction: 'none', stuckTimeout: 12, maxReplans: 2, allowDamagedVehicles: true, targetVehicleId: null, handles: []},
           state: {
             busy: false,
@@ -187,8 +237,10 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
           }
         }
 
+        restoreRaceOptions()
+
         function engineCall(method) {
-          var allowed = {requestState: true, cancelCurrentOperation: true, getVehicleDNALocks: true, confirmVehicleDNAPackageImport: true, copyDiagnostics: true, spawnSafeVehicle: true, retryQuarantinedConfigurations: true, exportChaosLineup: true, importChaosLineup: true, cancelLineupSpawn: true, placeAIDestination: true, clearAIDestination: true, addAIRoutePoint: true, pauseManagedAI: true, resumeManagedAI: true, stopManagedAI: true, resetManagedAI: true}
+          var allowed = {requestState: true, cancelCurrentOperation: true, cancelRaceGeneration: true, getVehicleDNALocks: true, confirmVehicleDNAPackageImport: true, copyDiagnostics: true, spawnSafeVehicle: true, retryQuarantinedConfigurations: true, exportChaosLineup: true, importChaosLineup: true, cancelLineupSpawn: true, placeAIDestination: true, clearAIDestination: true, addAIRoutePoint: true, pauseManagedAI: true, resumeManagedAI: true, stopManagedAI: true, resetManagedAI: true}
           if (!allowed[method]) return
           bngApi.engineLua('if soturineChaosRandomizer then soturineChaosRandomizer.' + method + '() end')
         }
@@ -242,6 +294,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
             startLineupSpawn: true,
             removeManagedVehicle: true,
             respawnManagedVehicle: true,
+            focusManagedVehicle: true,
             confirmAIDestination: true,
             editAIRoute: true,
             startManagedAI: true,
@@ -262,6 +315,20 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
           if (!queryTimer) return
           $timeout.cancel(queryTimer)
           queryTimer = null
+        }
+
+        function persistRaceOptions() {
+          try {
+            window.localStorage.setItem('soturineChaosRandomizer.racePolicy.v067',
+              JSON.stringify(scope.chaos.lineupOptions))
+          } catch (error) {}
+        }
+
+        function restoreRaceOptions() {
+          try {
+            var stored = JSON.parse(window.localStorage.getItem('soturineChaosRandomizer.racePolicy.v067') || 'null')
+            if (stored && typeof stored === 'object') angular.extend(scope.chaos.lineupOptions, stored)
+          } catch (error) {}
         }
 
         function requestState() { engineCall('requestState') }
@@ -290,9 +357,16 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
             frame: 4,
             maximum: Math.min(720, viewportMaximum)
           }
-          var height = SoturineChaosUiMath.resolvedHeight(metrics, {
-            mode: sizeMode, userHeight: userHeight
+          var tab = scope.chaos.view || 'chaos'
+          var measuredHeight = SoturineChaosUiMath.contentHeight(metrics)
+          var height = SoturineChaosUiMath.tabHeight(tab, mode, tabSizes, {
+            open: scope.chaos.detailsExpandedByTab[tab] === true,
+            measuredHeight: measuredHeight,
+            maximum: metrics.maximum
           })
+          if (mode !== 'collapsed' && sizeModeByTab[tab] === 'user') {
+            height = Math.ceil(SoturineChaosUiMath.clamp(userHeightByTab[tab], 240, metrics.maximum))
+          }
           if (!SoturineChaosUiMath.shouldApplyResize(currentHeight, height)) {
             lastAppliedHeight = currentHeight
             return
@@ -415,6 +489,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
         scope.chaos.toggleMode = function () { scope.chaos.setMode(scope.chaos.state.uiMode === 'collapsed' ? 'expanded' : 'collapsed') }
         scope.chaos.toggleOperationDetails = function () {
           scope.chaos.operationDetailsOpen = !scope.chaos.operationDetailsOpen
+          scope.chaos.detailsExpandedByTab.chaos = scope.chaos.operationDetailsOpen
           scheduleWindowHeight()
         }
         scope.chaos.spawnSafeVehicle = function () { if (!scope.chaos.state.busy) engineCall('spawnSafeVehicle') }
@@ -459,16 +534,31 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
           })
         }
 
-        scope.chaos.createLineup = function () { if (!scope.chaos.state.busy) callWithArgs('createChaosLineup', [angular.copy(scope.chaos.lineupOptions)]) }
+        scope.chaos.createLineup = function () {
+          if (scope.chaos.state.busy) return
+          persistRaceOptions()
+          callWithArgs('createChaosLineup', [angular.copy(scope.chaos.lineupOptions)])
+        }
         scope.chaos.applyRacePreset = function (preset) {
           var policy = {
             Balanced: {preset: 'Balanced', acceptPartial: false, acceptMetadataUncertain: false, acceptPotentiallyUndrivable: false, avoidDuplicateModels: true, avoidDuplicateConfigurations: true, allowOfficialVehicles: true, allowModVehicles: true},
             'Maximum Chaos': {preset: 'Maximum Chaos', acceptPartial: true, acceptMetadataUncertain: true, acceptPotentiallyUndrivable: true, avoidDuplicateModels: true, avoidDuplicateConfigurations: true, allowOfficialVehicles: true, allowModVehicles: true},
             'Mods Showcase': {preset: 'Mods Showcase', acceptPartial: false, acceptMetadataUncertain: true, acceptPotentiallyUndrivable: false, avoidDuplicateModels: true, avoidDuplicateConfigurations: true, allowOfficialVehicles: false, allowModVehicles: true}
           }[preset]
-          if (policy) angular.extend(scope.chaos.lineupOptions, policy)
+          if (policy) { angular.extend(scope.chaos.lineupOptions, policy); persistRaceOptions() }
         }
-        scope.chaos.markRaceCustom = function () { scope.chaos.lineupOptions.preset = 'Custom' }
+        scope.chaos.markRaceCustom = function () {
+          scope.chaos.lineupOptions.preset = 'Custom'
+          persistRaceOptions()
+        }
+        scope.chaos.racePolicyChangedCount = function () {
+          return SoturineChaosUiMath.changedPolicyCount(scope.chaos.lineupOptions, racePolicyDefaults)
+        }
+        scope.chaos.racePolicyConflict = function () {
+          return !scope.chaos.lineupOptions.allowOfficialVehicles && !scope.chaos.lineupOptions.allowModVehicles
+            ? 'Enable Official vehicles or Mod vehicles.' : ''
+        }
+        scope.chaos.cancelRaceGeneration = function () { engineCall('cancelRaceGeneration') }
         scope.chaos.exportLineup = function () { engineCall('exportChaosLineup') }
         scope.chaos.importLineup = function () { engineCall('importChaosLineup') }
         scope.chaos.renameCompetitor = function (competitor) {
@@ -490,10 +580,19 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
           var count = scope.chaos.state.lineup && scope.chaos.state.lineup.current && scope.chaos.state.lineup.current.competitors.length || 0
           return Math.max(1, Math.ceil(count / 8))
         }
-        scope.chaos.previewSpawn = function () { callWithArgs('previewLineupSpawn', [angular.copy(scope.chaos.spawnOptions)]) }
+        scope.chaos.placementOptions = function () {
+          var options = angular.copy(scope.chaos.spawnOptions)
+          options.mode = scope.chaos.lineupOptions.formation
+          options.spacingMode = scope.chaos.lineupOptions.spacingMode
+          options.longitudinalSpacing = scope.chaos.lineupOptions.longitudinalSpacing
+          options.lateralSpacing = scope.chaos.lineupOptions.lateralSpacing
+          options.safetyMargin = scope.chaos.lineupOptions.safetyMargin
+          return options
+        }
+        scope.chaos.previewSpawn = function () { callWithArgs('previewLineupSpawn', [scope.chaos.placementOptions()]) }
         scope.chaos.startSpawn = function () { callWithArgs('startLineupSpawn', [angular.copy(scope.chaos.spawnOptions)]) }
         scope.chaos.startSpawnVariant = function (variant) {
-          var options = angular.copy(scope.chaos.spawnOptions)
+          var options = scope.chaos.placementOptions()
           options.spawnAll = variant === 'all'
           if (variant === 'one') options.useNextLineupCompetitor = false
           if (variant === 'next') options.useNextLineupCompetitor = true
@@ -505,6 +604,9 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
         }
         scope.chaos.respawnManaged = function (managed) {
           if (managed) callWithArgs('respawnManagedVehicle', [managed.handle])
+        }
+        scope.chaos.focusManaged = function (managed) {
+          if (managed) callWithArgs('focusManagedVehicle', [managed.handle])
         }
         scope.chaos.placeDestination = function () { engineCall('placeAIDestination') }
         scope.chaos.confirmDestination = function (mode) {
@@ -552,6 +654,18 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
           var index = Math.max(0, Math.min(managed.length - 1, scope.chaos.managedIndex))
           var entry = managed[index]
           return (index + 1) + '/' + managed.length + '  ' + (entry.metadata && entry.metadata.name || entry.handle)
+        }
+        scope.chaos.compactGarageDNA = function () {
+          if (scope.chaos.dnaDetails && scope.chaos.dnaDetails.entry) return scope.chaos.dnaDetails.entry
+          var entries = scope.chaos.state.garage && scope.chaos.state.garage.entries || []
+          if (!entries.length) return null
+          scope.chaos.compactGarageIndex = Math.max(0, Math.min(entries.length - 1, scope.chaos.compactGarageIndex))
+          return entries[scope.chaos.compactGarageIndex]
+        }
+        scope.chaos.compactGarageStep = function (delta) {
+          var entries = scope.chaos.state.garage && scope.chaos.state.garage.entries || []
+          if (!entries.length) return
+          scope.chaos.compactGarageIndex = (scope.chaos.compactGarageIndex + delta + entries.length) % entries.length
         }
 
         scope.chaos.saveDNA = function () {
@@ -648,10 +762,15 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
         scope.chaos.selectDNA = function (dna) {
           if (!dna) return
           scope.chaos.shareId = dna.id
+          scope.chaos.detailsExpandedByTab.garage = true
           callWithArgs('getVehicleDNADetails', [dna.id])
         }
 
-        scope.chaos.closeDetails = function () { scope.chaos.dnaDetails = null }
+        scope.chaos.closeDetails = function () {
+          scope.chaos.dnaDetails = null
+          scope.chaos.detailsExpandedByTab.garage = false
+          scheduleWindowHeight()
+        }
 
         scope.chaos.restoreDNA = function (dna, mode) {
           if (!dna || scope.chaos.state.busy) return
@@ -834,6 +953,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
         scope.$on('SoturineChaosRandomizerDNADetails', function (event, data) {
           scope.$evalAsync(function () {
             scope.chaos.dnaDetails = data
+            scope.chaos.detailsExpandedByTab.garage = Boolean(data && data.entry)
             var entry = data && data.entry ? data.entry : {}
             scope.chaos.metadata = {
               rating: String(entry.rating || 0),
@@ -841,6 +961,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
               tags: (entry.tags || []).join(', '),
               notes: entry.notes || ''
             }
+            scheduleWindowHeight()
           })
         })
         scope.$on('SoturineChaosRandomizerDNAComparison', function (event, data) { scope.$evalAsync(function () { scope.chaos.comparison = data }) })
@@ -858,16 +979,19 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
           var host = element && element[0]
           while (host && (!host.classList || !host.classList.contains('bng-app'))) host = host.parentNode
           var observedHeight = Number(data.height) || (host && host.offsetHeight) || 0
+          var tab = scope.chaos.view || 'chaos'
           var nextMode = SoturineChaosUiMath.resizeMode({
-            currentMode: sizeMode,
+            currentMode: sizeModeByTab[tab],
             source: data.source || 'external',
             currentHeight: observedHeight,
             lastAppliedHeight: lastAppliedHeight,
             elapsedSinceProgrammatic: Date.now() - lastProgrammaticResizeAt
           })
           if (nextMode === 'user') {
-            sizeMode = 'user'
-            userHeight = observedHeight
+            sizeModeByTab[tab] = 'user'
+            userHeightByTab[tab] = observedHeight
+            if (scope.chaos.state.uiMode === 'collapsed') tabSizes.collapsed[tab] = observedHeight
+            else tabSizes.expanded[tab] = observedHeight
           }
           scheduleWindowHeight()
         })

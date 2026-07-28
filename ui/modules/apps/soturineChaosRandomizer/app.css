@@ -53,6 +53,8 @@ soturine-chaos-randomizer { display: block; width: 100%; height: 100%; min-width
 .scr-dna-details h3 { margin: 0; }
 .scr-stalled-warning { display: flex; flex-wrap: wrap; align-items: center; gap: 5px; padding: 6px; background: #501a15; border: 1px solid #d75c52; border-radius: 4px; }
 .scr-collapsed { display: none; }
+.scr-race-v067-cars ~ div[ng-if*="raceSection === 'cars'"] { display: none; }
+.scr-race-v067-placement ~ div[ng-if*="raceSection === 'placement'"] { display: none; }
 .scr-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 7px; }
 .scr-section-heading h2 { margin: 0; font-size: 18px; }
 .scr-section-heading span, .scr-muted, .scr-empty, .scr-block-reason, .scr-preset-state { color: var(--muted); font-size: 12px; }
@@ -86,6 +88,21 @@ soturine-chaos-randomizer { display: block; width: 100%; height: 100%; min-width
 .scr-race-action { width: 100%; min-height: 44px !important; margin: 5px 0 7px; font-size: 14px !important; }
 .scr-race-list li > div:first-child { min-width: 0; display: grid; }
 .scr-race-list li > span { flex: 0 0 auto; color: #ff9a61; font-size: 12px; font-weight: 700; }
+.scr-race-setup { display: grid; gap: 6px; }
+.scr-race-step { display: grid; grid-template-columns: 24px minmax(0, 1fr); gap: 7px; padding: 7px; background: #202329; border: 1px solid var(--line); border-radius: 5px; }
+.scr-race-step > span { display: grid; place-items: center; width: 23px; height: 23px; color: #fff; background: #a63b07; border-radius: 50%; font-weight: 800; }
+.scr-race-step small { display: block; margin-top: 4px; color: var(--muted); }
+.scr-race-step output { display: flex; align-items: center; min-height: 34px; padding: 5px 7px; color: #ff9b5c; background: #111318; border: 1px solid #4b515c; border-radius: 4px; font-weight: 800; }
+.scr-policy-toggle { width: 100%; margin-top: 7px; text-align: left; }
+.scr-race-policy { max-height: 290px; margin-top: 5px; padding-right: 3px; overflow-y: auto; overscroll-behavior: contain; }
+.scr-race-policy fieldset { min-width: 0; margin: 0 0 6px; padding: 7px; border: 1px solid var(--line); border-radius: 5px; }
+.scr-race-policy legend { padding: 0 4px; color: #ff9b5c; font-size: 12px; font-weight: 800; }
+.scr-race-policy fieldset > label { display: grid; gap: 3px; margin-top: 6px; color: var(--muted); font-size: 12px; }
+.scr-race-progress, .scr-placement-status { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px; margin: 7px 0; padding: 7px; background: #15181d; border-left: 3px solid var(--orange); border-radius: 4px; }
+.scr-race-progress span, .scr-placement-status span { color: var(--muted); font-size: 12px; }
+.scr-race-competitors { max-height: 255px; padding-right: 3px; overflow-y: auto; overscroll-behavior: contain; }
+.scr-race-competitors li { display: grid; grid-template-columns: minmax(120px, 1fr) auto; align-items: center; }
+.scr-race-competitors li > div:last-child { grid-column: 1 / -1; display: flex; flex-wrap: wrap; }
 .scr-block-reason { padding: 7px; background: #24272d; border: 1px solid var(--line); border-radius: 4px; }
 .scr-toggle-row { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 7px; }
 .scr-lock-summary { display: flex; align-items: center; gap: 6px; margin: 7px 0; }
@@ -98,10 +115,18 @@ soturine-chaos-randomizer { display: block; width: 100%; height: 100%; min-width
 .scr-mode-collapsed .scr-brand h1 { font-size: 16px; }
 .scr-mode-collapsed .scr-fox { width: 28px; height: 28px; flex-basis: 28px; }
 .scr-mode-collapsed .scr-collapsed { flex: 1 1 auto; display: grid; align-content: center; gap: 5px; padding: 6px; }
+.scr-compact-heading { display: flex; justify-content: space-between; color: #ff9b5c; font-size: 11px; letter-spacing: .08em; }
+.scr-compact-panel { display: grid; gap: 5px; min-width: 0; }
 .scr-collapsed-status { display: flex; justify-content: space-between; gap: 5px; min-width: 0; }
-.scr-collapsed-status strong { overflow: hidden; font-size: 12px; white-space: nowrap; text-overflow: ellipsis; }
+.scr-collapsed-status strong { display: -webkit-box; overflow: hidden; font-size: 12px; line-height: 1.25; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .scr-collapsed-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
 .scr-collapsed-actions button, .scr-mode-collapsed .scr-cancel { min-height: 36px; padding: 3px; font-size: 12px; font-weight: 800; }
+.scr-compact-summary { display: grid; min-width: 0; font-size: 12px; }
+.scr-compact-summary strong, .scr-compact-summary span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.scr-compact-summary span { color: var(--muted); }
+.scr-compact-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.scr-compact-actions button { flex: 1 1 auto; min-height: 32px; padding: 3px 5px; font-size: 11px; }
+.scr-settings-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 3px 8px; color: var(--muted); font-size: 11px; }
 
 @media (max-width: 319px) {
   .scr-app { min-width: 0; }

@@ -553,8 +553,8 @@ local function summary(lineup)
     failed = 0, pending = 0, retries = 0, quarantinedCandidates = 0,
     totalGenerationTime = lineup and math.max(0, os.time() - (tonumber(lineup.createdAt) or os.time())) or 0,
     generationState = lineup and lineup.generationState or "failed",
-    totalVehicles = lineup and lineup.totalVehicles or 0,
-    aiOpponents = lineup and lineup.aiOpponentCount or 0,
+    totalVehicles = lineup and (lineup.totalVehicles or #(lineup.competitors or {})) or 0,
+    aiOpponents = lineup and (lineup.aiOpponentCount or #(lineup.competitors or {})) or 0,
     playerParticipates = lineup and lineup.playerParticipates == true,
   }
   for _, competitor in ipairs(lineup and lineup.competitors or {}) do
