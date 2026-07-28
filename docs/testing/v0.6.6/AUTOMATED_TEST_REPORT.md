@@ -10,7 +10,7 @@ behavior in a running BeamNG world.
 
 | Gate | Result |
 | --- | --- |
-| `python -m pytest -q` | Passed: 60 tests, 898 subtests |
+| `python -m pytest -q` | Passed: 60 tests, 904 subtests |
 | Lua production runner | Passed: 366 unique/executed cases, 7,911 assertions, 451 requirement mappings |
 | `node --check ui/modules/apps/soturineChaosRandomizer/app.js` | Passed |
 | `node tests/js/ui_math.test.js` | Passed: 27 checks |
@@ -23,8 +23,8 @@ behavior in a running BeamNG world.
 | Field | Value |
 | --- | --- |
 | Filename | `soturine_chaos_randomizer_0.6.6.zip` |
-| Bytes | `FINAL_ZIP_BYTES` |
-| SHA-256 | `FINAL_ZIP_SHA256` |
+| Bytes | `342933` |
+| SHA-256 | `bac1d6026bc758bd0ffd419b83cfa6456fe14e7e0ab4b8c236d835ac4efb5278` |
 | Entries | 89 |
 | Reproducibility | Three builds with identical bytes and SHA-256 |
 | Manifest | `dist/release-manifest.json`; final source commit is recorded at build time |

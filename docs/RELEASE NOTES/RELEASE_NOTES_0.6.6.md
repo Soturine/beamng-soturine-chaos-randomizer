@@ -31,7 +31,7 @@ Live cases: 0 executed / 0 passed / 0 failed / 99 pending / 0 blocked
 
 ## Automated validation
 
-- Python: 60 tests and 898 subtests.
+- Python: 60 tests and 904 subtests.
 - Lua: 366 executed cases, 7,911 assertions and 451 requirement mappings.
 - JavaScript: syntax validation plus 27 UI checks.
 - Package, checksum, manifest, version, assets and prerelease gate: Passed.
@@ -53,8 +53,8 @@ world. The 99 interactive cases remain available in the versioned live plan.
 ## Integrity
 
 - ZIP: `soturine_chaos_randomizer_0.6.6.zip`
-- Bytes: `FINAL_ZIP_BYTES`
-- SHA-256: `FINAL_ZIP_SHA256`
+- Bytes: `342933`
+- SHA-256: `bac1d6026bc758bd0ffd419b83cfa6456fe14e7e0ab4b8c236d835ac4efb5278`
 - Commit: recorded in `release-manifest.json`
 - Tag: `v0.6.6`
 - Target: BeamNG.drive `0.38.6.0.19963`

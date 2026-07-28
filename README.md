@@ -38,6 +38,9 @@ or part catalog.
    **Soturine's Chaos Randomizer**.
 5. Confirm `0.6.6` appears in the orange header.
 
+Official ZIP integrity: `342933` bytes, SHA-256
+`bac1d6026bc758bd0ffd419b83cfa6456fe14e7e0ab4b8c236d835ac4efb5278`.
+
 A valid ZIP has `lua/`, `ui/`, `settings/`, `LICENSE`, `NOTICE`, and `VERSION`
 at its root. If the app does not appear, clear BeamNG's UI cache, reload the UI,
 and inspect `beamng.log` for `SoturineChaosRandomizer`.
