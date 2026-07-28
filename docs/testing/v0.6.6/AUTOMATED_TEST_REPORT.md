@@ -10,7 +10,7 @@ behavior in a running BeamNG world.
 
 | Gate | Result |
 | --- | --- |
-| `python -m pytest -q` | Passed: 60 tests, 904 subtests |
+| `python -m pytest -q` | Passed: 61 tests, 907 subtests |
 | Lua production runner | Passed: 366 unique/executed cases, 7,911 assertions, 451 requirement mappings |
 | `node --check ui/modules/apps/soturineChaosRandomizer/app.js` | Passed |
 | `node tests/js/ui_math.test.js` | Passed: 27 checks |
@@ -29,7 +29,7 @@ behavior in a running BeamNG world.
 | Reproducibility | Three builds with identical bytes and SHA-256 |
 | Manifest | `dist/release-manifest.json`; final source commit is recorded at build time |
 
-The manifest also records 60 unique Python test methods, 18 package-test
+The manifest also records 61 unique Python test methods, 19 package-test
 methods, one Node syntax file, two JSON files and three YAML files.
 
 Live BeamNG gameplay: **0 executed / 0 passed / 0 failed / 99 pending / 0 blocked**.

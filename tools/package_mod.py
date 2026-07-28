@@ -51,7 +51,13 @@ def get_branch_name(root: Path = REPOSITORY_ROOT) -> str:
         capture_output=True,
         check=False,
     )
-    return result.stdout.strip() if result.returncode == 0 else "unknown"
+    branch = result.stdout.strip() if result.returncode == 0 else ""
+    if branch:
+        return branch
+    # Actions checks out annotated release tags in detached-HEAD mode. This
+    # project publishes only from main, and the workflow verifies tag/version
+    # identity before building the manifest.
+    return os.environ.get("SCR_RELEASE_BRANCH", "main")
 
 
 def get_commit_timestamp(root: Path = REPOSITORY_ROOT) -> str:

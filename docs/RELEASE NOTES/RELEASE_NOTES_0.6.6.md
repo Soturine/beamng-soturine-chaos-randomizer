@@ -31,7 +31,7 @@ Live cases: 0 executed / 0 passed / 0 failed / 99 pending / 0 blocked
 
 ## Automated validation
 
-- Python: 60 tests and 904 subtests.
+- Python: 61 tests and 907 subtests.
 - Lua: 366 executed cases, 7,911 assertions and 451 requirement mappings.
 - JavaScript: syntax validation plus 27 UI checks.
 - Package, checksum, manifest, version, assets and prerelease gate: Passed.

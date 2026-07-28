@@ -15,6 +15,12 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PackageTests(unittest.TestCase):
+    def test_release_branch_falls_back_to_main_for_detached_tag_checkout(self) -> None:
+        detached = mock.Mock(returncode=0, stdout="")
+        with mock.patch.object(package_mod.subprocess, "run", return_value=detached):
+            with mock.patch.dict("os.environ", {}, clear=True):
+                self.assertEqual(package_mod.get_branch_name(ROOT), "main")
+
     def test_package_paths_and_reproducibility(self) -> None:
         version = package_mod.read_version(ROOT)
         with tempfile.TemporaryDirectory() as temporary:
