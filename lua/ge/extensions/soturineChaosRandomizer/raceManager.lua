@@ -16,6 +16,12 @@ local RULE_DEFAULTS = {
   allowAutomationVehicles = false, allowTrailers = false, allowProps = false,
 }
 
+local PARTICIPATION_MODES = {player = true, spectator = true}
+local GENERATION_STATES = {
+  planning = true, validating_slots = true, spawning = true, binding = true,
+  placing = true, ready = true, partial_ready = true, failed = true, cancelled = true,
+}
+
 local TRAIT_FIELDS = {
   family = {"family", "Family", "platform", "Platform"},
   vehicleClass = {"vehicleClass", "VehicleClass", "class", "Class", "type", "Type"},
@@ -239,6 +245,11 @@ local function create(options)
   local count = math.floor(tonumber(options.count) or 2)
   local minimum = options.advancedAllowOne == true and 1 or schema.MIN_COMPETITORS
   if count < minimum or count > schema.MAX_COMPETITORS then return nil, "lineup_competitor_limit" end
+  local participationMode = PARTICIPATION_MODES[options.participationMode]
+    and options.participationMode or "spectator"
+  local playerParticipates = participationMode == "player"
+  local opponentCount = playerParticipates and count - 1 or count
+  if opponentCount < 1 then return nil, "lineup_opponent_limit" end
   local episodeSeed = raceSeed(options.episodeSeed)
   local preset = PRESETS[options.preset] and options.preset or "Balanced"
   options = presetOptions(preset, options)
@@ -255,11 +266,22 @@ local function create(options)
     episodeSeed = episodeSeed, preset = preset, createdAt = os.time(), updatedAt = os.time(),
     settings = {
       preset = preset, count = count,
+      countSemantics = "total_vehicles",
+      participationMode = participationMode,
+      playerParticipates = playerParticipates,
+      totalVehicles = count,
+      aiOpponents = opponentCount,
       acceptPartial = options.acceptPartial == true,
       acceptMetadataUncertain = options.acceptMetadataUncertain == true,
       acceptPotentiallyUndrivable = options.acceptPotentiallyUndrivable == true,
       maxAttemptsPerCompetitor = math.max(1, math.min(10, math.floor(tonumber(options.maxAttemptsPerCompetitor) or 3))),
       maxConsecutiveFailures = math.max(1, math.min(16, math.floor(tonumber(options.maxConsecutiveFailures) or 4))),
+      retainAcceptedOnCancel = options.retainAcceptedOnCancel ~= false,
+      formation = options.formation or "Automatic Best Fit",
+      spacingMode = options.spacingMode == "manual" and "manual" or "automatic",
+      longitudinalSpacing = tonumber(options.longitudinalSpacing) or 8,
+      lateralSpacing = tonumber(options.lateralSpacing) or 5,
+      safetyMargin = tonumber(options.safetyMargin) or 1.5,
       actionSettings = {
         chaos = options.chaos,
         contentFilter = options.contentFilter,
@@ -274,6 +296,11 @@ local function create(options)
     spawnPlan = {}, aiPlan = {}, warnings = {}, dependencies = {},
     collectionName = "Chaos Lineup — " .. os.date("%Y-%m-%d"),
     competitors = {}, nextIndex = 1, active = true,
+    generationState = "planning",
+    participationMode = participationMode,
+    playerParticipates = playerParticipates,
+    totalVehicles = count,
+    aiOpponentCount = opponentCount,
     acceptPartial = options.acceptPartial == true,
     acceptMetadataUncertain = options.acceptMetadataUncertain == true,
     acceptPotentiallyUndrivable = options.acceptPotentiallyUndrivable == true,
@@ -281,21 +308,24 @@ local function create(options)
     maxConsecutiveFailures = math.max(1, math.min(16, math.floor(tonumber(options.maxConsecutiveFailures) or 4))),
     consecutiveFailures = 0,
   }
-  for index = 1, count do
+  for index = 1, opponentCount do
     local seed = rng.new(episodeSeed .. ":competitor:" .. tostring(index)).seed
     lineup.competitors[index] = {
       index = index, id = lineup.id .. "-" .. tostring(index),
       competitorId = lineup.id .. "-" .. tostring(index), requestedIndex = index,
       name = "Competitor " .. tostring(index), seed = seed,
+      selectionSeed = rng.new(seed .. ":selection").seed,
+      mutationSeed = rng.new(seed .. ":mutation").seed,
+      placementSeed = rng.new(seed .. ":placement").seed,
       status = "Pending", raceStatus = "Pending", traits = {verified = {}},
       compatibility = {status = "local"},
       attemptCount = 0, position = index, targetGeneration = 0,
       generationClosed = false,
       vehicleDNAId = nil, thumbnail = nil, notes = "",
       operationId = nil, generation = 0, logicalCandidate = nil,
-      currentVehicleId = nil, spawnState = "pending",
+      currentVehicleId = nil, spawnState = "planned",
       randomizationState = "pending", validationState = "pending",
-      placementState = "staging_pending", terminalResult = nil,
+      placementState = "planned", terminalResult = nil,
     }
   end
   return lineup
@@ -312,16 +342,22 @@ local function nextCompetitor(lineup)
       competitor.pendingTimers = 0
       competitor.pendingCallbacks = 0
       competitor.status = "Selecting"
-      competitor.spawnState = "staging_pending"
+      competitor.spawnState = "spawning"
       competitor.randomizationState = "selecting"
       competitor.validationState = "pending"
+      competitor.placementState = "staging"
       competitor.generation = competitor.targetGeneration
+      lineup.generationState = "spawning"
       lineup.nextIndex = index
       lineup.updatedAt = os.time()
       return competitor
     end
   end
   lineup.active = false
+  local summaryResult = M.summary and M.summary(lineup) or nil
+  if summaryResult and summaryResult.ready == summaryResult.total then lineup.generationState = "ready"
+  elseif summaryResult and summaryResult.ready + summaryResult.partial > 0 then lineup.generationState = "partial_ready"
+  else lineup.generationState = "failed" end
   lineup.updatedAt = os.time()
   return nil
 end
@@ -337,6 +373,8 @@ local function setPhase(lineup, index, phase, progress)
     or phase == "Loading" and "loading" or phase == "Randomizing" and "randomizing"
     or "verifying"
   competitor.progress = progress
+  lineup.generationState = phase == "Loading" and "binding"
+    or phase == "Verifying" and "placing" or "spawning"
   lineup.updatedAt = os.time()
   return true
 end
@@ -352,9 +390,13 @@ local function cancel(lineup, reason)
       competitor.generationStatus = "Cancelled"
       competitor.generationClosed = true
       competitor.warning = reason or "Race generation cancelled by user"
+      competitor.spawnState = "cancelled"
+      competitor.validationState = "cancelled"
+      competitor.placementState = "cancelled"
     end
   end
   lineup.active = false
+  lineup.generationState = "cancelled"
   lineup.updatedAt = os.time()
   return true
 end
@@ -410,6 +452,12 @@ local function record(lineup, index, result, dna, targetGeneration)
   competitor.generationClosed = true
   competitor.validationState = result.success == true and "validated" or "failed"
   competitor.randomizationState = result.success == true and "complete" or "failed"
+  if result.success ~= true then
+    competitor.spawnState = "failed"
+    competitor.placementState = "failed"
+  elseif competitor.status == "Partial" then
+    competitor.placementState = "partial_ready"
+  end
   if acceptanceBlocked then
     competitor.warning = uncertain and not lineup.acceptMetadataUncertain
       and "Metadata-uncertain result requires explicit acceptance"
@@ -476,18 +524,21 @@ local function resolveFailure(lineup, index, action)
     if (competitor.attemptCount or 0) >= (lineup.maxAttemptsPerCompetitor or 3) then return false, "lineup_attempt_limit" end
     competitor.status, competitor.generationStatus, competitor.generationClosed = "Pending", "Pending", false
     competitor.warning = "Retry requested with a new target generation and independent retry substream"
+    competitor.spawnState, competitor.validationState, competitor.placementState = "planned", "pending", "planned"
     lineup.nextIndex, lineup.active = index, true
   elseif action == "fallback" then
     competitor.status, competitor.generationStatus, competitor.generationClosed = "Pending", "Pending", false
     competitor.forceOfficialFallback = true
     competitor.warning = "Verified official fallback requested"
+    competitor.spawnState, competitor.validationState, competitor.placementState = "planned", "pending", "planned"
     lineup.nextIndex, lineup.active = index, true
   elseif action == "skip" then
     competitor.status, competitor.generationStatus, competitor.generationClosed = "Skipped", "Skipped", true
     competitor.warning = "Slot skipped by user"
+    competitor.spawnState, competitor.validationState, competitor.placementState = "skipped", "skipped", "skipped"
     lineup.nextIndex, lineup.active = math.max(lineup.nextIndex or 1, index + 1), true
   elseif action == "stop" then
-    lineup.active = false
+    cancel(lineup, "Generation stopped by user")
     competitor.warning = "Generation stopped by user"
   else
     return false, "lineup_failure_action_invalid"
@@ -501,6 +552,10 @@ local function summary(lineup)
     active = lineup and lineup.active == true, total = 0, ready = 0, partial = 0,
     failed = 0, pending = 0, retries = 0, quarantinedCandidates = 0,
     totalGenerationTime = lineup and math.max(0, os.time() - (tonumber(lineup.createdAt) or os.time())) or 0,
+    generationState = lineup and lineup.generationState or "failed",
+    totalVehicles = lineup and lineup.totalVehicles or 0,
+    aiOpponents = lineup and lineup.aiOpponentCount or 0,
+    playerParticipates = lineup and lineup.playerParticipates == true,
   }
   for _, competitor in ipairs(lineup and lineup.competitors or {}) do
     result.total = result.total + 1
@@ -518,6 +573,8 @@ end
 
 M.PRESETS = PRESETS
 M.RULE_DEFAULTS = RULE_DEFAULTS
+M.PARTICIPATION_MODES = PARTICIPATION_MODES
+M.GENERATION_STATES = GENERATION_STATES
 M.raceSeed = raceSeed
 M.verifiedTraits = verifiedTraits
 M.metadataUncertain = metadataUncertain

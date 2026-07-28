@@ -322,12 +322,23 @@ local function publicState()
       id = runtime.lineup.current.id, name = runtime.lineup.current.name,
       episodeSeed = runtime.lineup.current.episodeSeed, preset = runtime.lineup.current.preset,
       active = runtime.lineup.current.active == true,
+      generationState = runtime.lineup.current.generationState,
+      participationMode = runtime.lineup.current.participationMode,
+      playerParticipates = runtime.lineup.current.playerParticipates == true,
+      playerVehicleId = runtime.lineup.current.playerVehicleId,
+      totalVehicles = runtime.lineup.current.totalVehicles,
+      aiOpponentCount = runtime.lineup.current.aiOpponentCount,
+      settings = util.deepCopy(runtime.lineup.current.settings),
+      stagingPreview = util.deepCopy(runtime.lineup.current.stagingPreview),
+      placementPreview = util.deepCopy(runtime.lineup.current.placementPreview),
       summary = productionModules.raceManager.summary(runtime.lineup.current), competitors = {},
     }
     for _, competitor in ipairs(runtime.lineup.current.competitors or {}) do
       publicLineup.competitors[#publicLineup.competitors + 1] = {
         index = competitor.index, id = competitor.id, name = competitor.name,
-        seed = competitor.seed, status = competitor.status, warning = competitor.warning,
+        seed = competitor.seed, selectionSeed = competitor.selectionSeed,
+        mutationSeed = competitor.mutationSeed, placementSeed = competitor.placementSeed,
+        status = competitor.status, warning = competitor.warning,
         dnaId = competitor.dnaId, modelKey = competitor.modelKey,
         position = competitor.position, configuration = competitor.configuration,
         source = util.deepCopy(competitor.source), dependencies = util.deepCopy(competitor.dependencies),
@@ -1008,6 +1019,8 @@ local function finishOperation(success, code, message, details, terminalState)
       lineup.consecutiveFailures = (lineup.consecutiveFailures or 0) + 1
       if lineup.consecutiveFailures >= (lineup.maxConsecutiveFailures or 4) then
         lineup.active = false
+        lineup.generationState = productionModules.raceManager.summary(lineup).ready > 0
+          and "partial_ready" or "failed"
         lineup.warnings[#lineup.warnings + 1] = "Generation stopped at the consecutive failure limit"
       end
     end
@@ -3587,6 +3600,18 @@ local function runAction(action, settingsSnapshot)
     publishState()
     return false
   end
+  if action == "randomConfig" or action == "scramble" or action == "fullRandom" then
+    local lineup = runtime.lineup.current
+    if lineup and (lineup.active or runtime.lineup.pendingNext) then
+      runtime.lineup.pendingNext = false
+      productionModules.raceManager.cancel(
+        lineup, "Race generation stopped before starting an independent Chaos action"
+      )
+      diagnosticsModule.write(runtime.diagnostics, "I", "race_generation_isolated_from_chaos", {
+        chaosAction = action, lineupId = lineup.id,
+      }, true)
+    end
+  end
   applySettingsSnapshot(settingsSnapshot)
   return runActionInternal(action, {})
 end
@@ -5800,6 +5825,56 @@ local function getDeveloperStressState()
   return publicStressState()
 end
 
+function production.clearManagedRaceVehicles(reason)
+  local result = {removed = {}, failed = {}, skipped = {}}
+  for _, entry in ipairs(productionModules.managedRegistry.list(runtime.managedVehicles)) do
+    local metadata = type(entry.metadata) == "table" and entry.metadata or {}
+    if entry.lineupCompetitorId or metadata.lineupId then
+      productionModules.aiAdapter.stop(entry.vehicleId, true)
+      local deleted, deleteReason = productionModules.spawnAdapter.deleteVehicle(entry.vehicleId)
+      if deleted or deleteReason == "vehicle_missing" then
+        result.removed[#result.removed + 1] = entry.vehicleId
+        productionModules.domainOperations.recordRemoval(
+          runtime.domainOperations, entry.vehicleId, reason or "race_generation_replaced"
+        )
+        productionModules.managedRegistry.remove(runtime.managedVehicles, entry.handle)
+      else
+        result.failed[#result.failed + 1] = {vehicleId = entry.vehicleId, reason = deleteReason}
+      end
+    else
+      result.skipped[#result.skipped + 1] = entry.vehicleId
+    end
+  end
+  return result
+end
+
+function production.cancelRaceGeneration(reason)
+  local lineup = runtime.lineup.current
+  if not lineup then return false end
+  reason = reason or "Race generation cancelled by user"
+  runtime.lineup.pendingNext = false
+  productionModules.raceManager.cancel(lineup, reason)
+  if runtime.active and runtime.active.domain == "race" then
+    cancelCurrentOperation()
+  else
+    local domainContext = productionModules.domainOperations.active(runtime.domainOperations, "race")
+    if domainContext and domainContext.terminalState == nil then
+      productionModules.domainOperations.terminal(
+        runtime.domainOperations, domainContext, "cancelled",
+        {rollbackReason = reason, endedAt = runtime.time.realMonotonicTime}
+      )
+      productionModules.domainOperations.reap(
+        runtime.domainOperations, productionModules.spawnAdapter.deleteVehicle,
+        {domain = "race", operationId = domainContext.operationId}
+      )
+    end
+  end
+  production.persistCurrentLineup()
+  setResult(true, "race_generation_cancelled", reason)
+  publishState()
+  return true
+end
+
 function production.persistCurrentLineup()
   local current = runtime.lineup.current
   if not current then return false, "lineup_missing" end
@@ -5816,18 +5891,29 @@ end
 
 function production.createChaosLineup(options)
   initialize()
-  if runtime.state.busy or (runtime.lineup.current and runtime.lineup.current.active) then
+  if runtime.state.busy then
     setResult(false, "lineup_busy", "A lineup or vehicle operation is already running"); publishState(); return false
+  end
+  if runtime.lineup.current and runtime.lineup.current.active then
+    productionModules.raceManager.cancel(runtime.lineup.current, "Superseded by a new Race generation")
+    runtime.lineup.pendingNext = false
+  end
+  local cleanup = production.clearManagedRaceVehicles("new_race_generation")
+  if #cleanup.failed > 0 then
+    setResult(false, "race_cleanup_failed", "Previous managed Race vehicles could not be cleaned safely", cleanup)
+    publishState()
+    return false
   end
   local lineup, reason = productionModules.raceManager.create(options)
   if not lineup then setResult(false, reason, "Chaos Lineup options are invalid"); publishState(); return false end
   local playerOk, playerVehicleId = adapter.getCurrentVehicleId()
-  if not playerOk or type(playerVehicleId) ~= "number" then
+  if lineup.playerParticipates and (not playerOk or type(playerVehicleId) ~= "number") then
     setResult(false, "lineup_player_vehicle_required",
-      "Enter a player vehicle before Generate Cars so it can be preserved independently")
+      "Player participates requires an active player vehicle. Choose Spectator / camera only to generate without one.")
     publishState()
     return false
   end
+  lineup.generationState = "validating_slots"
   local frameOk, frame = productionModules.spawnAdapter.cameraFrame()
   if not frameOk then
     setResult(false, "lineup_staging_frame_unavailable", "Safe Race staging positions are unavailable", {reason = frame})
@@ -5835,23 +5921,41 @@ function production.createChaosLineup(options)
     return false
   end
   local staging, stagingReason = productionModules.spawnDirector.plan(frame, {
-    mode = "Grid", count = #lineup.competitors, spacing = 8,
+    mode = lineup.settings.formation or "Automatic Best Fit",
+    count = #lineup.competitors,
+    spacingMode = lineup.settings.spacingMode,
+    longitudinalSpacing = lineup.settings.longitudinalSpacing,
+    lateralSpacing = lineup.settings.lateralSpacing,
+    safetyMargin = lineup.settings.safetyMargin,
     columns = math.max(1, math.ceil(math.sqrt(#lineup.competitors))),
     headingMode = "camera", minimumObjectDistance = 3, interval = 0.25,
   }, productionModules.spawnAdapter.raycastGround, production.occupiedManagedPositions())
   if not staging then
+    lineup.generationState = "failed"
     setResult(false, "lineup_staging_unsafe", "Race cars were not generated because safe staging failed", {
       reason = stagingReason,
     })
     publishState()
     return false
   end
-  lineup.playerVehicleId = playerVehicleId
+  lineup.playerVehicleId = playerOk and playerVehicleId or nil
+  lineup.playerParticipantVehicleId = lineup.playerParticipates and playerVehicleId or nil
+  lineup.preservedExternalVehicleId = playerOk and playerVehicleId or nil
   lineup.stagingPlan = util.deepCopy(staging.placements)
+  lineup.stagingPreview = {
+    status = "validated",
+    requestedMode = staging.options.requestedMode,
+    effectiveMode = staging.options.mode,
+    fallbackReason = staging.options.fallbackReason,
+    count = #staging.placements,
+    resolvedLateralSpacing = staging.options.resolvedLateralSpacing,
+    resolvedLongitudinalSpacing = staging.options.resolvedLongitudinalSpacing,
+  }
   for index, competitor in ipairs(lineup.competitors) do
     competitor.stagingPlacement = util.deepCopy(staging.placements[index])
   end
   runtime.lineup.current = lineup
+  lineup.generationState = "spawning"
   runtime.lineup.pendingNext = true
   local persisted, persistReason = production.persistCurrentLineup()
   if not persisted then
@@ -5860,7 +5964,10 @@ function production.createChaosLineup(options)
   end
   setResult(persisted, persisted and "lineup_started" or "lineup_storage_failed",
     persisted and "Chaos Lineup generation started" or "Chaos Lineup was created but its initial checkpoint could not be saved",
-    {episodeSeed = lineup.episodeSeed, count = #lineup.competitors, storageReason = persistReason})
+    {episodeSeed = lineup.episodeSeed, count = #lineup.competitors,
+      totalVehicles = lineup.totalVehicles, aiOpponents = lineup.aiOpponentCount,
+      playerParticipates = lineup.playerParticipates, cleanup = cleanup,
+      stagingPreview = util.deepCopy(lineup.stagingPreview), storageReason = persistReason})
   publishState()
   return persisted
 end
@@ -5917,6 +6024,9 @@ function production.startNextLineupCompetitor()
     end
   end
   local started = runActionInternal("fullRandom", {
+    domain = "race",
+    expectedSlot = competitor.index,
+    expectedLogicalTarget = {competitorId = competitor.id, requestedIndex = competitor.index},
     lineupExcludedModels = excludedModels,
     lineupExcludedConfigurations = excludedConfigurations,
     lineupRules = rules,
@@ -6093,7 +6203,16 @@ function production.previewLineupSpawn(options)
     publishState()
     return false
   end
-  options.count = math.min(#competitors, tonumber(options.count) or #competitors)
+  options.count = options.spawnAll == false
+    and math.min(#competitors, tonumber(options.count) or 1) or #competitors
+  if options.spacingMode == "automatic" then
+    options.vehicleDimensions = {}
+    for index, competitor in ipairs(competitors) do
+      local dimensions = type(competitor.currentVehicleId) == "number"
+        and productionModules.spawnAdapter.vehicleDimensions(competitor.currentVehicleId) or nil
+      options.vehicleDimensions[index] = dimensions or {width = 2, length = 4.8, source = "safe_fallback"}
+    end
+  end
   if options.mode == "Custom point" or options.mode == "Custom" then
     options.customPoint = {
       x = tonumber(options.customPointX), y = tonumber(options.customPointY), z = tonumber(options.customPointZ),
@@ -6129,7 +6248,22 @@ function production.previewLineupSpawn(options)
   if not plan then setResult(false, reason, "Spawn preview is unsafe: " .. tostring(reason)); publishState(); return false end
   plan.competitors = competitors
   runtime.spawnDirector.preview = plan
-  setResult(true, "spawn_preview_ready", "Spawn preview is ready", {count = #plan.placements, mode = plan.options.mode})
+  if lineup then
+    lineup.generationState = lineup.generationState == "failed" and "partial_ready" or lineup.generationState
+    lineup.placementPreview = {
+      status = "preview_ready", count = #plan.placements,
+      requestedMode = plan.options.requestedMode, effectiveMode = plan.options.mode,
+      fallbackReason = plan.options.fallbackReason,
+      resolvedLateralSpacing = plan.options.resolvedLateralSpacing,
+      resolvedLongitudinalSpacing = plan.options.resolvedLongitudinalSpacing,
+    }
+  end
+  setResult(true, "spawn_preview_ready", "Placement preview is ready; confirm to apply it", {
+    count = #plan.placements, requestedMode = plan.options.requestedMode,
+    mode = plan.options.mode, fallbackReason = plan.options.fallbackReason,
+    resolvedLateralSpacing = plan.options.resolvedLateralSpacing,
+    resolvedLongitudinalSpacing = plan.options.resolvedLongitudinalSpacing,
+  })
   publishState()
   return true
 end
@@ -6141,13 +6275,18 @@ function production.startLineupSpawn(options)
   if runtime.spawnDirector.run and runtime.spawnDirector.run.active then
     setResult(false, "spawn_director_busy", "Spawn Director is already running"); publishState(); return false
   end
-  if not runtime.spawnDirector.preview and not production.previewLineupSpawn(options) then return false end
+  if not runtime.spawnDirector.preview then
+    setResult(false, "placement_preview_required", "Preview the complete formation before confirming Placement")
+    publishState()
+    return false
+  end
   local plan = runtime.spawnDirector.preview
   if options and options.spawnAll == false then
     plan.placements = {plan.placements[1]}
     plan.competitors = {plan.competitors[1]}
   end
   plan.active, plan.cursor, plan.nextAt = true, 1, adapter.clock()
+  if runtime.lineup.current then runtime.lineup.current.generationState = "placing" end
   runtime.spawnDirector.run = plan
   runtime.spawnDirector.preview = nil
   setResult(true, "spawn_director_started", "Spawn Director started sequential spawning")
@@ -6283,6 +6422,10 @@ function production.processSpawnDirector()
   if not placement or not competitor then
     run.active = false
     runtime.spawnDirector.lastResult = {success = #run.failures == 0, spawned = #run.spawned, failed = #run.failures}
+    if runtime.lineup.current then
+      runtime.lineup.current.generationState = #run.failures == 0 and "ready" or "partial_ready"
+      runtime.lineup.current.placementPreview = nil
+    end
     production.persistCurrentLineup()
     publishState()
     return false
@@ -7129,6 +7272,7 @@ M.retryQuarantinedConfigurations = retryQuarantinedConfigurations
 M.runDeveloperStress = runDeveloperStress
 M.cancelDeveloperStress = cancelDeveloperStress
 M.cancelCurrentOperation = cancelCurrentOperation
+M.cancelRaceGeneration = production.cancelRaceGeneration
 M.getDeveloperStressState = getDeveloperStressState
 M.createChaosLineup = production.createChaosLineup
 M.renameLineupCompetitor = production.renameLineupCompetitor

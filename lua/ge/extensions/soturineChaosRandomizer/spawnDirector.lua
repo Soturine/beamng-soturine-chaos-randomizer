@@ -2,8 +2,30 @@ local util = require("ge/extensions/soturineChaosRandomizer/util")
 
 local M = {}
 
-local MODES = {Front = true, Behind = true, Left = true, Right = true, ["Front Left"] = true, ["Front Right"] = true, ["Behind Left"] = true, ["Behind Right"] = true, Line = true, Grid = true, Circle = true, Custom = true}
-local MODE_ALIASES = { ["Front-left"] = "Front Left", ["Front-right"] = "Front Right", ["Back-left"] = "Behind Left", ["Back-right"] = "Behind Right", ["Custom point"] = "Custom" }
+local MODES = {
+  Front = true, Behind = true, Left = true, Right = true,
+  ["Front Left"] = true, ["Front Right"] = true,
+  ["Behind Left"] = true, ["Behind Right"] = true,
+  Line = true, Grid = true, Circle = true, Custom = true,
+  ["Left of Origin"] = true, ["Right of Origin"] = true,
+  ["Split Left and Right"] = true, ["Single File Behind"] = true,
+  ["Single File Ahead"] = true, ["Staggered Grid"] = true,
+  ["Side-by-side Grid"] = true, ["Circular / Radial"] = true,
+  ["Automatic Best Fit"] = true,
+}
+local MODE_ALIASES = {
+  ["Front-left"] = "Front Left", ["Front-right"] = "Front Right",
+  ["Back-left"] = "Behind Left", ["Back-right"] = "Behind Right",
+  ["Custom point"] = "Custom", ["Left of player/origin"] = "Left of Origin",
+  ["Right of player/origin"] = "Right of Origin",
+  ["Split left and right"] = "Split Left and Right",
+  ["Single file behind"] = "Single File Behind",
+  ["Single file ahead"] = "Single File Ahead",
+  ["Staggered grid"] = "Staggered Grid",
+  ["Side-by-side grid"] = "Side-by-side Grid",
+  ["Circular / radial"] = "Circular / Radial",
+  ["Automatic best fit"] = "Automatic Best Fit",
+}
 local HEADING_MODES = {
   camera = true, player = true, road = true, destination = true, custom = true,
 }
@@ -15,6 +37,27 @@ local HEADING_ALIASES = {
 
 local function offset(mode, index, count, options)
   local spacing = options.spacing
+  local lateralSpacing = options.resolvedLateralSpacing or spacing
+  local longitudinalSpacing = options.resolvedLongitudinalSpacing or spacing
+  if mode == "Left of Origin" then return -lateralSpacing * index, 0 end
+  if mode == "Right of Origin" then return lateralSpacing * index, 0 end
+  if mode == "Split Left and Right" then
+    local rank = math.ceil(index * 0.5)
+    return (index % 2 == 1 and -1 or 1) * lateralSpacing * rank, 0
+  end
+  if mode == "Single File Behind" then return 0, -longitudinalSpacing * index end
+  if mode == "Single File Ahead" then return 0, longitudinalSpacing * index end
+  if mode == "Staggered Grid" or mode == "Side-by-side Grid" then
+    local columns = math.max(1, options.columns)
+    local row, column = math.floor((index - 1) / columns), (index - 1) % columns
+    local stagger = mode == "Staggered Grid" and row % 2 == 1 and lateralSpacing * 0.5 or 0
+    return (column - (columns - 1) * 0.5) * lateralSpacing + stagger,
+      (row + 1) * longitudinalSpacing
+  end
+  if mode == "Circular / Radial" then
+    local angle = (index - 1) * math.pi * 2 / count
+    return math.cos(angle) * options.radius, math.sin(angle) * options.radius
+  end
   if mode == "Front" then return 0, spacing * index end
   if mode == "Behind" then return 0, -spacing * index end
   if mode == "Left" then return -spacing * index, 0 end
@@ -23,11 +66,11 @@ local function offset(mode, index, count, options)
   if mode == "Front Right" then return spacing * index, spacing * index end
   if mode == "Behind Left" then return -spacing * index, -spacing * index end
   if mode == "Behind Right" then return spacing * index, -spacing * index end
-  if mode == "Line" then return (index - (count + 1) * 0.5) * spacing, spacing end
+  if mode == "Line" then return (index - (count + 1) * 0.5) * lateralSpacing, longitudinalSpacing end
   if mode == "Grid" then
     local columns = math.max(1, options.columns)
     local row, column = math.floor((index - 1) / columns), (index - 1) % columns
-    return (column - (columns - 1) * 0.5) * spacing, (row + 1) * spacing
+    return (column - (columns - 1) * 0.5) * lateralSpacing, (row + 1) * longitudinalSpacing
   end
   if mode == "Circle" then
     local angle = (index - 1) * math.pi * 2 / count
@@ -43,12 +86,60 @@ local function normalize(options)
   options = type(options) == "table" and options or {}
   local mode = MODE_ALIASES[options.mode] or options.mode
   local headingMode = HEADING_ALIASES[options.headingMode or options.heading] or options.headingMode or options.heading
+  local requestedMode = MODES[mode] and mode or "Grid"
+  local spacingMode = options.spacingMode == "automatic" and "automatic" or "manual"
+  local dimensions = {}
+  local maximumWidth, maximumLength = 2, 4.8
+  for index, raw in ipairs(type(options.vehicleDimensions) == "table" and options.vehicleDimensions or {}) do
+    local width = util.clamp(tonumber(raw.width) or 2, 0.5, 8)
+    local length = util.clamp(tonumber(raw.length) or 4.8, 1, 30)
+    dimensions[index] = {width = width, length = length}
+    maximumWidth, maximumLength = math.max(maximumWidth, width), math.max(maximumLength, length)
+  end
+  local margin = util.clamp(tonumber(options.safetyMargin) or 1.5, 0.25, 10)
+  local lateralSpacing = spacingMode == "automatic" and maximumWidth + margin
+    or util.clamp(tonumber(options.lateralSpacing or options.spacing) or 6, 2, 40)
+  local longitudinalSpacing = spacingMode == "automatic" and maximumLength + margin
+    or util.clamp(tonumber(options.longitudinalSpacing or options.spacing) or 6, 3, 60)
+  local effectiveMode, fallbackReason = requestedMode, nil
+  local availableWidth = tonumber(options.availableWidth)
+  local columns = math.max(1, math.min(8, math.floor(tonumber(options.columns) or 2)))
+  if requestedMode == "Automatic Best Fit" then
+    if util.isFinite(availableWidth) and availableWidth >= lateralSpacing * 2 then
+      columns = math.max(2, math.min(columns, math.floor(availableWidth / lateralSpacing)))
+      effectiveMode = "Staggered Grid"
+    else
+      effectiveMode = "Single File Behind"
+      fallbackReason = util.isFinite(availableWidth) and "narrow_area_single_file"
+        or "available_width_unknown_single_file"
+      columns = 1
+    end
+  elseif (requestedMode == "Grid" or requestedMode == "Staggered Grid"
+    or requestedMode == "Side-by-side Grid") and util.isFinite(availableWidth)
+  then
+    local fittingColumns = math.max(1, math.floor(availableWidth / lateralSpacing))
+    if fittingColumns < columns then
+      columns = fittingColumns
+      fallbackReason = columns == 1 and "narrow_area_single_file" or "columns_reduced_for_available_width"
+      if columns == 1 then effectiveMode = "Single File Behind" end
+    end
+  end
   local normalized = {
-    mode = MODES[mode] and mode or "Grid",
+    mode = effectiveMode,
+    requestedMode = requestedMode,
+    fallbackReason = fallbackReason,
     count = math.max(1, math.min(16, math.floor(tonumber(options.count) or 1))),
     spacing = util.clamp(tonumber(options.spacing) or 6, 3, 40),
+    spacingMode = spacingMode,
+    lateralSpacing = lateralSpacing,
+    longitudinalSpacing = longitudinalSpacing,
+    resolvedLateralSpacing = lateralSpacing,
+    resolvedLongitudinalSpacing = longitudinalSpacing,
+    safetyMargin = margin,
+    vehicleDimensions = dimensions,
+    availableWidth = availableWidth,
     rows = math.max(1, math.min(8, math.floor(tonumber(options.rows) or 2))),
-    columns = math.max(1, math.min(8, math.floor(tonumber(options.columns) or 2))),
+    columns = columns,
     radius = util.clamp(tonumber(options.radius) or 12, 5, 100),
     headingOffset = util.clamp(tonumber(options.headingOffset) or 0, -180, 180),
     groundOffset = util.clamp(tonumber(options.groundOffset) or 0.2, 0, 3),
@@ -137,6 +228,8 @@ local function plan(frame, options, raycastGround, occupied)
     placements[#placements + 1] = {
       index = index, position = position, normal = ground.normal,
       forward = forward,
+      dimensions = util.deepCopy(options.vehicleDimensions[index]
+        or {width = 2, length = 4.8}),
     }
   end
   return {options = options, placements = placements, cursor = 1, active = false, nextAt = 0, spawned = {}, failures = {}}

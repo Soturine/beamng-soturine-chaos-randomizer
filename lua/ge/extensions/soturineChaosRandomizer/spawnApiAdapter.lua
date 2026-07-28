@@ -126,6 +126,33 @@ local function objectExists(vehicleId)
   return ok and object ~= nil
 end
 
+local function vehicleDimensions(vehicleId)
+  if type(getObjectByID) ~= "function" then return nil, "vehicle_lookup_unavailable" end
+  local ok, object = pcall(getObjectByID, vehicleId)
+  if not ok or not object then return nil, "vehicle_missing" end
+  local dimensions
+  pcall(function()
+    local box = object:getSpawnWorldOOBB()
+    local extents = box and box:getHalfExtents()
+    local value = extents and xyz(extents)
+    if value then
+      dimensions = {width = math.abs(value.x) * 2, length = math.abs(value.y) * 2, height = math.abs(value.z) * 2}
+    end
+  end)
+  if not dimensions then
+    pcall(function()
+      local box = object:getWorldBox()
+      local extents = box and box:getExtents()
+      local value = extents and xyz(extents)
+      if value then dimensions = {width = math.abs(value.x), length = math.abs(value.y), height = math.abs(value.z)} end
+    end)
+  end
+  if not dimensions or not util.isFinite(dimensions.width) or not util.isFinite(dimensions.length)
+    or dimensions.width <= 0 or dimensions.length <= 0
+  then return nil, "vehicle_dimensions_unavailable" end
+  return dimensions
+end
+
 local function vehicleIds()
   if type(getAllVehicles) ~= "function" then return nil, "vehicle_enumeration_unavailable" end
   local ok, vehicles = pcall(getAllVehicles)
@@ -161,7 +188,13 @@ local function occupiedVehiclePositions()
     if position then
       local id
       pcall(function() id = tonumber(vehicle:getID()) end)
-      result[#result + 1] = {x = position.x, y = position.y, z = position.z, radius = 3, vehicleId = id}
+      local dimensions = id and vehicleDimensions(id) or nil
+      local radius = dimensions and math.sqrt(dimensions.width * dimensions.width
+        + dimensions.length * dimensions.length) * 0.5 or 3
+      result[#result + 1] = {
+        x = position.x, y = position.y, z = position.z,
+        radius = radius, dimensions = util.deepCopy(dimensions), vehicleId = id,
+      }
     end
   end
   return true, result
@@ -245,6 +278,7 @@ M.spawnVehicle = spawnVehicle
 M.placeVehicle = placeVehicle
 M.objectPosition = objectPosition
 M.objectExists = objectExists
+M.vehicleDimensions = vehicleDimensions
 M.vehicleIds = vehicleIds
 M.objectSpeed = objectSpeed
 M.occupiedVehiclePositions = occupiedVehiclePositions
