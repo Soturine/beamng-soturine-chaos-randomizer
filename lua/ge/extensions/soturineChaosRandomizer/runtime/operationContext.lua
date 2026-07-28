@@ -32,8 +32,22 @@ local function sync(context, state)
   return context
 end
 
-local function create(state, cancellationToken, now)
+local function create(state, cancellationToken, now, options)
+  options = type(options) == "table" and options or {}
   local context = {
+    domain = options.domain or "chaos",
+    action = options.action,
+    generation = options.generation or state.operationGeneration,
+    expectedSlot = options.expectedSlot,
+    expectedLogicalTarget = util.deepCopy(options.expectedLogicalTarget),
+    sourceVehicleId = options.sourceVehicleId,
+    sourceStillExists = options.sourceVehicleId ~= nil,
+    candidateVehicleIds = {},
+    acceptedVehicleId = nil,
+    restoredVehicleId = nil,
+    removedVehicleIds = {},
+    playerVehicleIdAfter = nil,
+    terminalState = nil,
     recoveryGeneration = 0,
     cancellationToken = cancellationToken,
     logicalTarget = nil,
@@ -103,6 +117,7 @@ local function recordCandidate(context, state, candidate)
     }
     context.candidates[#context.candidates + 1] = entry
     context.candidateById[key] = entry
+    context.candidateVehicleIds[#context.candidateVehicleIds + 1] = vehicleId
   end
   local source = tostring(candidate.source or "unknown")
   entry.sources[source] = true
@@ -232,8 +247,39 @@ local function markDestroyed(context, vehicleId)
   if context.concreteTarget and context.concreteTarget.vehicleId == vehicleId then context.concreteTarget = nil end
 end
 
+local function markAccepted(context, vehicleId, playerVehicleIdAfter)
+  context.acceptedVehicleId = tonumber(vehicleId)
+  context.playerVehicleIdAfter = tonumber(playerVehicleIdAfter) or context.acceptedVehicleId
+  context.lastAcceptedCheckpoint = "vehicle_accepted"
+  return context.acceptedVehicleId ~= nil
+end
+
+local function markTerminal(context, terminalState, options)
+  options = type(options) == "table" and options or {}
+  if context.terminalState ~= nil then return context.terminalState == terminalState end
+  context.terminalState = terminalState
+  context.restoredVehicleId = tonumber(options.restoredVehicleId)
+  context.sourceStillExists = options.sourceStillExists == true
+  context.playerVehicleIdAfter = tonumber(options.playerVehicleIdAfter) or context.playerVehicleIdAfter
+  context.removedVehicleIds = util.deepCopy(options.removedVehicleIds or context.removedVehicleIds)
+  return true
+end
+
 local function summary(context)
   return {
+    domain = context.domain,
+    action = context.action,
+    generation = context.generation,
+    expectedSlot = context.expectedSlot,
+    expectedLogicalTarget = util.deepCopy(context.expectedLogicalTarget),
+    sourceVehicleId = context.sourceVehicleId,
+    sourceStillExists = context.sourceStillExists,
+    candidateVehicleIds = util.deepCopy(context.candidateVehicleIds),
+    acceptedVehicleId = context.acceptedVehicleId,
+    restoredVehicleId = context.restoredVehicleId,
+    removedVehicleIds = util.deepCopy(context.removedVehicleIds),
+    playerVehicleIdAfter = context.playerVehicleIdAfter,
+    terminalState = context.terminalState,
     operationId = context.operationId,
     operationGeneration = context.operationGeneration,
     phaseGeneration = context.phaseGeneration,
@@ -262,6 +308,8 @@ M.recordCandidate = recordCandidate
 M.releaseConcreteTarget = releaseConcreteTarget
 M.rebindConcreteTarget = rebindConcreteTarget
 M.markDestroyed = markDestroyed
+M.markAccepted = markAccepted
+M.markTerminal = markTerminal
 M.summary = summary
 
 return M

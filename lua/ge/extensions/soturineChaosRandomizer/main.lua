@@ -58,6 +58,7 @@ local productionModules = {
   destinationMarker = require("ge/extensions/soturineChaosRandomizer/destinationMarker"),
   routePlanner = require("ge/extensions/soturineChaosRandomizer/routePlanner"),
   operationContext = require("ge/extensions/soturineChaosRandomizer/runtime/operationContext"),
+  domainOperations = require("ge/extensions/soturineChaosRandomizer/runtime/domainOperations"),
   energyStorageGuard = require("ge/extensions/soturineChaosRandomizer/energyStorageGuard"),
   engineFluidGuard = require("ge/extensions/soturineChaosRandomizer/engineFluidGuard"),
   baselineSemantics = require("ge/extensions/soturineChaosRandomizer/baselineSemantics"),
@@ -108,6 +109,7 @@ local runtime = {
     pendingNext = false,
   },
   managedVehicles = productionModules.managedRegistry.create(32),
+  domainOperations = productionModules.domainOperations.create(),
   spawnDirector = {preview = nil, run = nil, lastResult = nil},
   aiDirector = productionModules.aiDirector.create(32),
   destination = productionModules.destinationMarker.create(),
@@ -165,7 +167,14 @@ local startVehicleDNABaseOperation
 production.ensureOperationContext = function(active)
   if not active.operationContext then
     active.operationContext = productionModules.operationContext.create(
-      runtime.state, active.token, runtime.time.realMonotonicTime
+      runtime.state, active.token, runtime.time.realMonotonicTime, {
+        domain = active.domain,
+        action = active.kind,
+        generation = active.domainGeneration,
+        expectedSlot = active.expectedSlot,
+        expectedLogicalTarget = active.logicalTarget,
+        sourceVehicleId = active.originalVehicleId,
+      }
     )
   else
     productionModules.operationContext.sync(active.operationContext, runtime.state)
@@ -249,6 +258,36 @@ function production.publicPerformance()
   return result
 end
 
+production.operationDomain = function(kind, context)
+  context = type(context) == "table" and context or {}
+  if context.domain == "chaos" or context.domain == "race" or context.domain == "garage" then
+    return context.domain
+  end
+  if context.lineupIndex ~= nil then return "race" end
+  if type(kind) == "string" and kind:sub(1, 3) == "dna" then return "garage" end
+  return "chaos"
+end
+
+production.domainCallbackToken = function(active, kind, values)
+  if not active or not active.domainContext then return nil end
+  return productionModules.domainOperations.callbackToken(active.domainContext, kind, values)
+end
+
+production.reapOwnedOrphans = function(active, reason)
+  if not active or not active.domainContext then return {removed = {}, failed = {}, skipped = {}} end
+  local result = productionModules.domainOperations.reap(
+    runtime.domainOperations, productionModules.spawnAdapter.deleteVehicle,
+    {domain = active.domain, operationId = active.domainContext.operationId}
+  )
+  if #result.removed > 0 or #result.failed > 0 then
+    diagnosticsModule.write(runtime.diagnostics, #result.failed == 0 and "I" or "W", "orphan_cleanup", {
+      domain = active.domain, operationId = active.domainContext.operationId,
+      reason = reason, cleanupResult = result,
+    }, true)
+  end
+  return result
+end
+
 function production.placementAvailability()
   return productionModules.raceManager.placementAvailability(
     runtime.lineup.current, runtime.managedVehicles, runtime.state.busy,
@@ -327,6 +366,7 @@ local function publicState()
     targetMetrics = trackerMetrics,
     activeVehicleAvailable = okActiveVehicle and activeVehicleId ~= nil,
     uiMode = runtime.uiMode,
+    domainOperations = productionModules.domainOperations.summary(runtime.domainOperations),
     recovery = recoveryMetrics,
     token = runtime.state.token,
     transaction = runtime.active and {
@@ -685,6 +725,21 @@ end
 local function finishOperation(success, code, message, details, terminalState)
   local active = runtime.active
   terminalState = terminalState or (success and "completed" or "failed")
+  details = type(details) == "table" and details or {}
+  if active and success == true and active.kind == "scramble" then
+    local currentOk, currentVehicleId = adapter.getCurrentVehicleId()
+    if not currentOk or currentVehicleId ~= active.originalVehicleId then
+      if productionModules.spawnAdapter.objectExists(active.originalVehicleId) then
+        adapter.enterVehicle(active.originalVehicleId)
+        active.vehicleId = active.originalVehicleId
+      end
+      success = false
+      code = "scramble_cardinality_violation"
+      message = "Scramble stopped because the controlled vehicle identity changed"
+      terminalState = "failed"
+      details.cardinalityViolation = true
+    end
+  end
   if active and success == true then
     active.operationMutationPlan = nil
     active.pendingTuningPlan = nil
@@ -705,7 +760,63 @@ local function finishOperation(success, code, message, details, terminalState)
   end
   operationState.finish(runtime.state, terminalState, success and nil or code)
   if active then vehicleRecovery.cleanup(active) end
-  details = type(details) == "table" and details or {}
+  if active and active.domainContext then
+    local currentOk, currentVehicleId = adapter.getCurrentVehicleId()
+    local acceptedVehicleId = tonumber(active.vehicleId) or (currentOk and currentVehicleId or nil)
+    if success == true and acceptedVehicleId ~= nil then
+      local role = active.domain == "race" and "race_competitor" or "player_result"
+      productionModules.domainOperations.acceptVehicle(
+        runtime.domainOperations, active.domainContext, acceptedVehicleId, role,
+        currentOk and currentVehicleId or acceptedVehicleId
+      )
+      productionModules.operationContext.markAccepted(
+        production.ensureOperationContext(active), acceptedVehicleId,
+        currentOk and currentVehicleId or acceptedVehicleId
+      )
+      if active.domain == "chaos" and active.kind ~= "scramble"
+        and type(active.originalVehicleId) == "number"
+        and active.originalVehicleId ~= acceptedVehicleId
+        and productionModules.spawnAdapter.objectExists(active.originalVehicleId)
+      then
+        local deleted, deleteReason = productionModules.spawnAdapter.deleteVehicle(active.originalVehicleId)
+        if deleted then
+          productionModules.domainOperations.recordRemoval(
+            runtime.domainOperations, active.originalVehicleId, "replaced_player_source_removed"
+          )
+          details.sourceVehicleRemoved = active.originalVehicleId
+        else
+          details.cardinalityCleanupWarning = deleteReason
+        end
+      end
+    elseif details.rollback == "completed" and acceptedVehicleId ~= nil then
+      productionModules.domainOperations.acceptVehicle(
+        runtime.domainOperations, active.domainContext, acceptedVehicleId, "player_result",
+        currentOk and currentVehicleId or acceptedVehicleId
+      )
+      productionModules.domainOperations.rollback(
+        active.domainContext, acceptedVehicleId, active.rollbackFailure and active.rollbackFailure.code
+      )
+    end
+    local domainTerminal = details.rollback == "completed" and "rolled_back"
+      or terminalState == "partial" and "partial_success"
+      or terminalState == "completed" and "completed"
+      or terminalState == "cancelled" and "cancelled" or "failed"
+    productionModules.domainOperations.terminal(runtime.domainOperations, active.domainContext, domainTerminal, {
+      restoredVehicleId = details.rollback == "completed" and acceptedVehicleId or nil,
+      sourceStillExists = productionModules.spawnAdapter.objectExists(active.originalVehicleId),
+      playerVehicleIdAfter = currentOk and currentVehicleId or acceptedVehicleId,
+      rollbackReason = active.rollbackFailure and active.rollbackFailure.code,
+      endedAt = runtime.time.realMonotonicTime,
+    })
+    local cleanup = production.reapOwnedOrphans(active, domainTerminal)
+    details.cleanupResult = util.deepCopy(cleanup)
+    productionModules.operationContext.markTerminal(production.ensureOperationContext(active), domainTerminal, {
+      restoredVehicleId = details.rollback == "completed" and acceptedVehicleId or nil,
+      sourceStillExists = productionModules.spawnAdapter.objectExists(active.originalVehicleId),
+      playerVehicleIdAfter = currentOk and currentVehicleId or acceptedVehicleId,
+      removedVehicleIds = cleanup.removed,
+    })
+  end
   if active and active.criticalRepairSucceeded == true then
     details.criticalRepairSucceeded = true
   end
@@ -1032,6 +1143,16 @@ local function beginOperation(kind, context)
     return false, adapter.errorValue("no_active_vehicle", "Scramble requires an active vehicle. Use Random Car or Spawn Safe Vehicle.")
   end
   if not okId and context.startWithoutVehicle ~= true then vehicleId = nil end
+  local domain = production.operationDomain(kind, context)
+  if type(vehicleId) == "number" then
+    local owner = productionModules.domainOperations.ownership(runtime.domainOperations, vehicleId)
+    if owner and owner.domain ~= domain and owner.role == "race_competitor" then
+      return false, adapter.errorValue("race_competitor_transfer_required",
+        "This vehicle belongs to Race. Remove it from Race or explicitly transfer ownership before using Chaos.", {
+          vehicleId = vehicleId, ownerDomain = owner.domain, requestedDomain = domain,
+        })
+    end
+  end
   local seed, generator, seedSource = operationSeed()
   runtime.lastSeed = seed
   local operationTimeout = context.operationTimeout
@@ -1123,9 +1244,42 @@ local function beginOperation(kind, context)
     baselines = productionModules.baselineSemantics.create(nil),
     criticalRepairAttempts = {},
     engineFluidEvidence = nil,
+    domain = domain,
+    expectedSlot = context.expectedSlot or context.lineupIndex,
   }
+  local domainContext, superseded = productionModules.domainOperations.begin(runtime.domainOperations, {
+    domain = domain,
+    operationId = runtime.state.operationId,
+    action = kind,
+    expectedSlot = context.expectedSlot or context.lineupIndex,
+    expectedLogicalTarget = context.expectedLogicalTarget,
+    sourceVehicleId = vehicleId,
+    seed = seed,
+    createdAt = runtime.time.realMonotonicTime,
+  })
+  if not domainContext then
+    operationState.finish(runtime.state, "failed", superseded)
+    runtime.active = nil
+    return false, adapter.errorValue(superseded, "The operation domain context could not start")
+  end
+  runtime.active.domainContext = domainContext
+  runtime.active.domainGeneration = domainContext.generation
+  runtime.active.callbackToken = production.domainCallbackToken(runtime.active, "operation")
+  if type(vehicleId) == "number" then
+    productionModules.domainOperations.ownVehicle(runtime.domainOperations, vehicleId, {
+      domain = domain, operationId = domainContext.operationId, generation = domainContext.generation,
+      role = "player_source", managed = false, created = false, accepted = false,
+    })
+  end
   runtime.active.operationContext = productionModules.operationContext.create(
-    runtime.state, token, runtime.time.realMonotonicTime
+    runtime.state, token, runtime.time.realMonotonicTime, {
+      domain = domain,
+      action = kind,
+      generation = domainContext.generation,
+      expectedSlot = context.expectedSlot or context.lineupIndex,
+      expectedLogicalTarget = context.expectedLogicalTarget,
+      sourceVehicleId = vehicleId,
+    }
   )
   diagnosticsModule.write(runtime.diagnostics, "D", "operation_started", {
     kind = kind,
@@ -1137,6 +1291,9 @@ local function beginOperation(kind, context)
     operationGeneration = runtime.state.operationGeneration,
     phaseGeneration = runtime.state.phaseGeneration,
     targetGeneration = runtime.state.targetGeneration,
+    domain = domain,
+    domainGeneration = domainContext.generation,
+    supersededOperation = superseded and superseded.operationId or nil,
   })
   setProgress("Starting " .. kind, 0.02)
   return true, runtime.active
@@ -1213,7 +1370,11 @@ local function chooseConfiguration(active)
     local availableConfigs = {}
     for _, config in ipairs(model.configs or {}) do
       local allowedByCircuit = (not runtime.recovery.circuitOpen and not active.safeOfficial) or config.sourceKind == "official"
-      if allowedByCircuit and not vehicleRecovery.isQuarantined(runtime.recovery, config.modelKey, config.key) then
+      if allowedByCircuit and not vehicleRecovery.isQuarantined(runtime.recovery, config.modelKey, config.key)
+        and not productionModules.domainOperations.isQuarantined(
+          runtime.domainOperations, active.domain, config.modelKey, config.key
+        )
+      then
         availableConfigs[#availableConfigs + 1] = config
       end
     end
@@ -1282,6 +1443,9 @@ local function chooseConfiguration(active)
     for _, config in ipairs(configs) do
       if allowedModels[config.modelKey] and allowedConfigs[configSelector.identifier(config)]
         and not vehicleRecovery.isQuarantined(runtime.recovery, config.modelKey, config.key)
+        and not productionModules.domainOperations.isQuarantined(
+          runtime.domainOperations, active.domain, config.modelKey, config.key
+        )
         and (not (active.lockProfileSnapshot and active.lockProfileSnapshot.configuration)
           or configVerification.normalizePath(config.path or config.key) == active.lockProfileSnapshot.boundConfigKey)
       then
@@ -1453,6 +1617,18 @@ local function recordReplacementCandidate(active, result, phase)
     vehicleTargetTracker.bindReturned(active.targetTracker, result.vehicleId, result.correlationStrategy)
   end
   if type(result.vehicleId) == "number" then
+    local callbackToken = production.domainCallbackToken(active, phase, {expectedSlot = active.expectedSlot})
+    if callbackToken then
+      local registered, registerReason = productionModules.domainOperations.registerCandidate(
+        runtime.domainOperations, callbackToken, result.vehicleId, {
+          source = "replace_return", created = result.vehicleId ~= active.originalVehicleId,
+          observedAt = runtime.time.realMonotonicTime,
+        }
+      )
+      if not registered then
+        return false, adapter.errorValue(registerReason, "The replacement candidate belongs to a stale or foreign operation")
+      end
+    end
     productionModules.operationContext.recordCandidate(production.ensureOperationContext(active), runtime.state, {
       vehicleId = result.vehicleId,
       source = "replace_return",
@@ -1608,6 +1784,49 @@ local function startNextRecovery(active)
           originalFailure = originalFailure,
         })
       return true
+    end
+  end
+  if step.kind == "original_player_vehicle" and active.domain == "chaos" then
+    local sourceId = tonumber(active.operationOriginalSnapshot and active.operationOriginalSnapshot.vehicleId)
+      or tonumber(active.originalVehicleId)
+    if sourceId and productionModules.spawnAdapter.objectExists(sourceId) then
+      local focused, focusReason = adapter.enterVehicle(sourceId)
+      if focused then
+        active.vehicleId = sourceId
+        runtime.state.vehicleId = sourceId
+        active.operationCurrentTarget = {
+          vehicleId = sourceId,
+          modelKey = snapshot.modelKey,
+          source = "existing_player_source_reused",
+        }
+        for _, candidateId in ipairs(active.domainContext and active.domainContext.candidateVehicleIds or {}) do
+          if candidateId ~= sourceId then
+            productionModules.domainOperations.markOrphan(
+              runtime.domainOperations, candidateId, "rollback_reused_existing_source"
+            )
+          end
+        end
+        local cleanup = production.reapOwnedOrphans(active, "rollback_reused_existing_source")
+        productionModules.domainOperations.rollback(
+          active.domainContext, sourceId, active.rollbackFailure and active.rollbackFailure.code
+        )
+        historyTransaction.rollbackSucceeded(active, runtime.history, historyModule.pop)
+        local originalFailure = active.rollbackFailure
+          or failureRecord(active, "rollback", adapter.errorValue("operation_failed", "Operation failed"))
+        finishOperation(false, originalFailure.code,
+          originalFailure.message .. "; the existing player source was reused without spawning another vehicle", {
+            rollback = "completed",
+            recoveryStep = step.kind,
+            recoveryTier = step.tier,
+            recoveryOutcome = "existing_player_source_reused",
+            cleanupResult = cleanup,
+            originalFailure = originalFailure,
+          })
+        return true
+      end
+      diagnosticsModule.write(runtime.diagnostics, "W", "existing_source_focus_failed", {
+        vehicleId = sourceId, reason = focusReason,
+      }, true)
     end
   end
   local configValue = snapshot.config or snapshot.selectedConfiguration
@@ -1921,6 +2140,16 @@ local function failActive(errorData, attemptRollback, phase, context)
       modelKey = active.selectedConfig.modelKey,
       configKey = active.selectedConfig.key,
     }, failure.code)
+    if active.domainContext then
+      local quarantined, quarantineRecord = productionModules.domainOperations.quarantine(
+        runtime.domainOperations, active.domainContext,
+        active.selectedConfig.modelKey or (active.selectedModel and active.selectedModel.key),
+        active.selectedConfig.key, failure.code, runtime.time.realMonotonicTime
+      )
+      if quarantined then
+        diagnosticsModule.write(runtime.diagnostics, "W", "config_quarantined", quarantineRecord, true)
+      end
+    end
   end
   attributeFailure(active, failure)
   diagnosticsModule.write(runtime.diagnostics, "E", "operation_error", failure, true)
@@ -3217,9 +3446,42 @@ local function startUndo()
     targetGeneration = runtime.state.targetGeneration,
     recoveryOnly = false,
     lastAcceptedCheckpoint = "operation_started",
+    domain = "chaos",
   }
+  local undoDomainContext, undoDomainError = productionModules.domainOperations.begin(runtime.domainOperations, {
+    domain = "chaos",
+    operationId = runtime.state.operationId,
+    action = "undo",
+    sourceVehicleId = entry.vehicleId,
+    seed = entry.seed,
+    createdAt = runtime.time.realMonotonicTime,
+  })
+  if not undoDomainContext then
+    operationState.finish(runtime.state, "failed", undoDomainError)
+    runtime.active = nil
+    setResult(false, undoDomainError, "Undo could not acquire its Chaos operation context")
+    publishState()
+    return false
+  end
+  runtime.active.domainContext = undoDomainContext
+  runtime.active.domainGeneration = undoDomainContext.generation
+  runtime.active.callbackToken = production.domainCallbackToken(runtime.active, "operation")
+  productionModules.domainOperations.ownVehicle(runtime.domainOperations, entry.vehicleId, {
+    domain = "chaos",
+    operationId = undoDomainContext.operationId,
+    generation = undoDomainContext.generation,
+    role = "player_source",
+    managed = false,
+    created = false,
+    accepted = false,
+  })
   runtime.active.operationContext = productionModules.operationContext.create(
-    runtime.state, token, runtime.time.realMonotonicTime
+    runtime.state, token, runtime.time.realMonotonicTime, {
+      domain = "chaos",
+      action = "undo",
+      generation = undoDomainContext.generation,
+      sourceVehicleId = entry.vehicleId,
+    }
   )
   local undoLogicalTarget = {
     modelKey = entry.modelKey,
@@ -5097,6 +5359,40 @@ local function onVehicleSpawned(vehicleId)
   nominateSpawnDirectorCandidate(vehicleId, "spawn")
   if not runtime.state.busy or not runtime.active or not runtime.active.targetTracker then return end
   local active = runtime.active
+  local owner = productionModules.domainOperations.ownership(runtime.domainOperations, vehicleId)
+  if owner and (owner.domain ~= active.domain or owner.operationId ~= active.domainContext.operationId
+    or owner.generation ~= active.domainContext.generation)
+  then
+    if owner.managed and not owner.accepted then
+      productionModules.domainOperations.markOrphan(runtime.domainOperations, vehicleId, "ignored_stale_callback")
+      productionModules.domainOperations.reap(
+        runtime.domainOperations, productionModules.spawnAdapter.deleteVehicle,
+        {domain = owner.domain, operationId = owner.operationId}
+      )
+    end
+    runtime.state.staleCallbackCount = runtime.state.staleCallbackCount + 1
+    diagnosticsModule.write(runtime.diagnostics, "W", "ignored_stale_callback", {
+      source = "onVehicleSpawned", vehicleId = vehicleId,
+      callbackDomain = owner.domain, activeDomain = active.domain,
+      callbackOperationId = owner.operationId, activeOperationId = active.domainContext.operationId,
+      cleanupResult = owner.managed and not owner.accepted and "orphan_removed" or "foreign_vehicle_preserved",
+    }, true)
+    return
+  end
+  local domainToken = production.domainCallbackToken(active, "onVehicleSpawned", {vehicleId = vehicleId, expectedSlot = active.expectedSlot})
+  local domainAccepted, domainReason = productionModules.domainOperations.registerCandidate(
+    runtime.domainOperations, domainToken, vehicleId, {
+      source = "onVehicleSpawned", created = vehicleId ~= active.originalVehicleId,
+      observedAt = runtime.time.realMonotonicTime,
+    }
+  )
+  if not domainAccepted then
+    runtime.state.staleCallbackCount = runtime.state.staleCallbackCount + 1
+    diagnosticsModule.write(runtime.diagnostics, "W", domainReason, {
+      source = "onVehicleSpawned", vehicleId = vehicleId, activeDomain = active.domain,
+    }, true)
+    return
+  end
   productionModules.operationContext.recordCandidate(production.ensureOperationContext(active), runtime.state, {
     vehicleId = vehicleId,
     source = "onVehicleSpawned",
@@ -5317,8 +5613,39 @@ local function onVehicleSwitched(oldId, newId, player)
   end
   if not runtime.state.busy or not runtime.active then return end
   local active = runtime.active
+  if player == nil or player == 0 then
+    local owner = productionModules.domainOperations.ownership(runtime.domainOperations, newId)
+    if owner and (owner.domain ~= active.domain or owner.operationId ~= active.domainContext.operationId
+      or owner.generation ~= active.domainContext.generation)
+    then
+      runtime.state.staleCallbackCount = runtime.state.staleCallbackCount + 1
+      diagnosticsModule.write(runtime.diagnostics, "W", "ignored_stale_callback", {
+        source = "onVehicleSwitched", oldId = oldId, newId = newId,
+        callbackDomain = owner.domain, activeDomain = active.domain,
+        callbackOperationId = owner.operationId, activeOperationId = active.domainContext.operationId,
+      }, true)
+      cancelOperation("foreign_vehicle_switch", "Operation cancelled because the player switched to a vehicle owned by another domain")
+      return
+    end
+  end
   if active.targetTracker then
     if player == nil or player == 0 then
+      local domainToken = production.domainCallbackToken(active, "onVehicleSwitched", {
+        vehicleId = newId, expectedSlot = active.expectedSlot,
+      })
+      local registered, registerReason = productionModules.domainOperations.registerCandidate(
+        runtime.domainOperations, domainToken, newId, {
+          source = "onVehicleSwitched", created = newId ~= active.originalVehicleId,
+          observedAt = runtime.time.realMonotonicTime,
+        }
+      )
+      if not registered then
+        runtime.state.staleCallbackCount = runtime.state.staleCallbackCount + 1
+        diagnosticsModule.write(runtime.diagnostics, "W", registerReason, {
+          source = "onVehicleSwitched", oldId = oldId, newId = newId,
+        }, true)
+        return
+      end
       productionModules.operationContext.recordCandidate(production.ensureOperationContext(active), runtime.state, {
         vehicleId = newId,
         source = "onVehicleSwitched",
@@ -5363,6 +5690,7 @@ local function onVehicleSwitched(oldId, newId, player)
 end
 
 local function onVehicleDestroyed(vehicleId)
+  productionModules.domainOperations.recordRemoval(runtime.domainOperations, vehicleId, "vehicle_destroyed")
   local spawnPending = runtime.spawnDirector.run and runtime.spawnDirector.run.pendingVerification
   local expectedSpawnReplacement = spawnPending and spawnPending.vehicleId == vehicleId
   local managed, managedEntry = productionModules.managedRegistry.destroyed(runtime.managedVehicles, vehicleId)

@@ -120,6 +120,26 @@ local function objectPosition(vehicleId)
   return true, position
 end
 
+local function objectExists(vehicleId)
+  if type(getObjectByID) ~= "function" or type(vehicleId) ~= "number" then return false end
+  local ok, object = pcall(getObjectByID, vehicleId)
+  return ok and object ~= nil
+end
+
+local function vehicleIds()
+  if type(getAllVehicles) ~= "function" then return nil, "vehicle_enumeration_unavailable" end
+  local ok, vehicles = pcall(getAllVehicles)
+  if not ok or type(vehicles) ~= "table" then return nil, "vehicle_enumeration_unavailable" end
+  local result = {}
+  for _, vehicle in ipairs(vehicles) do
+    local id
+    pcall(function() id = tonumber(vehicle:getID()) end)
+    if id ~= nil then result[#result + 1] = id end
+  end
+  table.sort(result)
+  return result
+end
+
 local function objectSpeed(vehicleId)
   if type(getObjectByID) ~= "function" then return false, "vehicle_lookup_unavailable" end
   local ok, object = pcall(getObjectByID, vehicleId)
@@ -224,6 +244,8 @@ M.raycastGround = raycastGround
 M.spawnVehicle = spawnVehicle
 M.placeVehicle = placeVehicle
 M.objectPosition = objectPosition
+M.objectExists = objectExists
+M.vehicleIds = vehicleIds
 M.objectSpeed = objectSpeed
 M.occupiedVehiclePositions = occupiedVehiclePositions
 M.deleteVehicle = deleteVehicle

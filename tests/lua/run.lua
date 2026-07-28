@@ -25,6 +25,7 @@ local mutationEngine = require("ge/extensions/soturineChaosRandomizer/mutationEn
 local mutationPolicy = require("ge/extensions/soturineChaosRandomizer/mutationPolicy")
 local operationState = require("ge/extensions/soturineChaosRandomizer/operationState")
 local operationContext = require("ge/extensions/soturineChaosRandomizer/runtime/operationContext")
+local domainOperations = require("ge/extensions/soturineChaosRandomizer/runtime/domainOperations")
 local progressWatchdog = require("ge/extensions/soturineChaosRandomizer/progressWatchdog")
 local paintRandomizer = require("ge/extensions/soturineChaosRandomizer/paintRandomizer")
 local paintVerification = require("ge/extensions/soturineChaosRandomizer/paintVerification")
@@ -5046,6 +5047,131 @@ tests.v066_known_conflicts_are_warning_only_and_never_disabled = function()
   end
 end
 
+tests.v067_domain_operations_isolate_chaos_race_and_garage = function()
+  local state = domainOperations.create()
+  local race = assert(domainOperations.begin(state, {
+    domain = "race", operationId = "race-1", action = "generate_cars",
+    expectedSlot = 3, sourceVehicleId = 1, createdAt = 1,
+  }))
+  local raceToken = domainOperations.callbackToken(race, "spawn", {expectedSlot = 3})
+  truthy(domainOperations.registerCandidate(state, raceToken, 103, {created = true}))
+  truthy(domainOperations.acceptVehicle(state, race, 103, "race_competitor"))
+
+  local chaos = assert(domainOperations.begin(state, {
+    domain = "chaos", operationId = "chaos-1", action = "fullRandom",
+    sourceVehicleId = 1, createdAt = 2,
+  }))
+  local chaosToken = domainOperations.callbackToken(chaos, "replace")
+  truthy(domainOperations.registerCandidate(state, chaosToken, 2, {created = true}))
+  local allowed, reason = domainOperations.canMutate(state, chaos, 103)
+  equal(allowed, false); equal(reason, "race_competitor_requires_explicit_transfer")
+  truthy(domainOperations.validateCallback(state, raceToken))
+
+  local nextRace, superseded = domainOperations.begin(state, {
+    domain = "race", operationId = "race-2", action = "generate_cars", createdAt = 3,
+  })
+  truthy(nextRace); equal(superseded.terminalState, "superseded")
+  local valid, staleReason = domainOperations.validateCallback(state, raceToken)
+  equal(valid, false); equal(staleReason, "ignored_stale_callback")
+  truthy(domainOperations.validateCallback(state, chaosToken))
+
+  local garage = assert(domainOperations.begin(state, {
+    domain = "garage", operationId = "garage-1", action = "restore", sourceVehicleId = 7,
+  }))
+  equal(garage.generation, 1)
+  local report = domainOperations.summary(state)
+  equal(report.domains.chaos.operationId, "chaos-1")
+  equal(report.domains.race.operationId, "race-2")
+  equal(report.domains.garage.operationId, "garage-1")
+end
+
+tests.v067_stale_callbacks_are_rejected_and_owned_orphans_are_reaped = function()
+  local state = domainOperations.create()
+  local context = assert(domainOperations.begin(state, {
+    domain = "chaos", operationId = "chaos-timeout", action = "randomConfig",
+    sourceVehicleId = 1, createdAt = 1,
+  }))
+  truthy(domainOperations.ownVehicle(state, 1, {
+    domain = "chaos", operationId = context.operationId, generation = context.generation,
+    role = "player_source", managed = false, created = false,
+  }))
+  local token = domainOperations.callbackToken(context, "replace")
+  truthy(domainOperations.registerCandidate(state, token, 2, {created = true}))
+  truthy(domainOperations.terminal(state, context, "rolled_back", {
+    restoredVehicleId = 1, sourceStillExists = true, playerVehicleIdAfter = 1,
+  }))
+  local accepted, reason = domainOperations.registerCandidate(state, token, 3, {created = true})
+  equal(accepted, false); equal(reason, "ignored_stale_callback")
+  local deleted = {}
+  local cleanup = domainOperations.reap(state, function(vehicleId)
+    deleted[#deleted + 1] = vehicleId
+    return true, "vehicle_deleted"
+  end)
+  equal(#cleanup.removed, 1); equal(cleanup.removed[1], 2)
+  equal(#deleted, 1); equal(deleted[1], 2)
+  equal(domainOperations.ownership(state, 1).role, "player_source")
+  equal(domainOperations.summary(state).orphanVehicles, 0)
+end
+
+tests.v067_cardinality_and_rollback_are_idempotent = function()
+  local state = domainOperations.create()
+  local context = assert(domainOperations.begin(state, {
+    domain = "chaos", operationId = "full-1", action = "fullRandom", sourceVehicleId = 10,
+  }))
+  local token = domainOperations.callbackToken(context, "replace")
+  truthy(domainOperations.registerCandidate(state, token, 11, {created = true}))
+  truthy(domainOperations.registerCandidate(state, token, 12, {created = true}))
+  truthy(domainOperations.acceptVehicle(state, context, 11, "player_result", 11))
+  truthy(domainOperations.terminal(state, context, "completed", {playerVehicleIdAfter = 11}))
+  equal(context.acceptedVehicleId, 11); equal(context.playerVehicleIdAfter, 11)
+  equal(domainOperations.ownership(state, 11).accepted, true)
+  equal(domainOperations.ownership(state, 12).role, "orphan")
+
+  local rollbackContext = assert(domainOperations.begin(state, {
+    domain = "chaos", operationId = "full-2", action = "fullRandom", sourceVehicleId = 20,
+  }))
+  local first, firstReason, restored = domainOperations.rollback(rollbackContext, 20, "target_timeout")
+  truthy(first); equal(firstReason, "rollback_applied"); equal(restored, 20)
+  local repeated, repeatedReason, repeatedId = domainOperations.rollback(rollbackContext, 99, "again")
+  truthy(repeated); equal(repeatedReason, "rollback_already_applied"); equal(repeatedId, 20)
+end
+
+tests.v067_quarantine_is_generation_scoped_and_non_persistent = function()
+  local state = domainOperations.create()
+  local race = assert(domainOperations.begin(state, {
+    domain = "race", operationId = "race-q", action = "generate_cars",
+  }))
+  local added, record = domainOperations.quarantine(state, race, "vivace", "broken.pc", "load_failed", 4)
+  truthy(added); equal(record.retryPolicy, "next_configuration_same_generation")
+  truthy(domainOperations.isQuarantined(state, "race", "vivace", "broken.pc"))
+  equal(domainOperations.isQuarantined(state, "chaos", "vivace", "broken.pc"), false)
+  local repeated, repeatedReason = domainOperations.quarantine(
+    state, race, "vivace", "broken.pc", "load_failed_again", 5
+  )
+  equal(repeated, false); equal(repeatedReason, "config_already_quarantined")
+  truthy(domainOperations.clearQuarantine(state, "race"))
+  equal(domainOperations.isQuarantined(state, "race", "vivace", "broken.pc"), false)
+end
+
+tests.v067_operation_context_exposes_domain_cardinality_contract = function()
+  local state = {operationId = 7, operationGeneration = 4, phaseGeneration = 2, targetGeneration = 9}
+  local context = operationContext.create(state, "token", 1, {
+    domain = "chaos", action = "randomConfig", generation = 4,
+    expectedSlot = "player", expectedLogicalTarget = {modelKey = "car"}, sourceVehicleId = 1,
+  })
+  operationContext.beginLogicalTarget(context, state, {modelKey = "car", configKey = "base.pc"}, 1)
+  truthy(operationContext.recordCandidate(context, state, {vehicleId = 2, source = "replace"}))
+  truthy(operationContext.markAccepted(context, 2, 2))
+  truthy(operationContext.markTerminal(context, "completed", {
+    sourceStillExists = false, playerVehicleIdAfter = 2, removedVehicleIds = {1},
+  }))
+  local report = operationContext.summary(context)
+  equal(report.domain, "chaos"); equal(report.action, "randomConfig")
+  equal(report.sourceVehicleId, 1); equal(report.candidateVehicleIds[1], 2)
+  equal(report.acceptedVehicleId, 2); equal(report.playerVehicleIdAfter, 2)
+  equal(report.removedVehicleIds[1], 1); equal(report.terminalState, "completed")
+end
+
 tests.all_lua_sources_compile = function()
   local paths = {
     "/lua/ge/extensions/soturineChaosRandomizer.lua",
@@ -5077,6 +5203,8 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/mutationPolicy.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/managedVehicleRegistry.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/operationState.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/runtime/domainOperations.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/runtime/operationContext.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/progressWatchdog.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/paintRandomizer.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/paintCoverageLedger.lua",
@@ -5599,6 +5727,49 @@ local v066Required = {
   {"known_conflicts_are_warning_only", tests.v066_known_conflicts_are_warning_only_and_never_disabled},
 }
 
+local v067Required = {
+  {"chaos_race_domain_state_is_independent", tests.v067_domain_operations_isolate_chaos_race_and_garage},
+  {"garage_domain_state_is_independent", tests.v067_domain_operations_isolate_chaos_race_and_garage},
+  {"race_callback_cannot_complete_chaos", tests.v067_domain_operations_isolate_chaos_race_and_garage},
+  {"chaos_callback_cannot_complete_race", tests.v067_domain_operations_isolate_chaos_race_and_garage},
+  {"old_generation_callback_is_rejected", tests.v067_domain_operations_isolate_chaos_race_and_garage},
+  {"race_competitor_requires_transfer", tests.v067_domain_operations_isolate_chaos_race_and_garage},
+  {"operation_context_has_domain", tests.v067_operation_context_exposes_domain_cardinality_contract},
+  {"operation_context_has_source", tests.v067_operation_context_exposes_domain_cardinality_contract},
+  {"operation_context_has_candidates", tests.v067_operation_context_exposes_domain_cardinality_contract},
+  {"operation_context_has_accepted_vehicle", tests.v067_operation_context_exposes_domain_cardinality_contract},
+  {"operation_context_has_terminal_state", tests.v067_operation_context_exposes_domain_cardinality_contract},
+  {"random_car_cardinality_is_recorded", tests.v067_cardinality_and_rollback_are_idempotent},
+  {"full_random_cardinality_is_recorded", tests.v067_cardinality_and_rollback_are_idempotent},
+  {"unaccepted_candidate_becomes_orphan", tests.v067_cardinality_and_rollback_are_idempotent},
+  {"accepted_candidate_is_preserved", tests.v067_cardinality_and_rollback_are_idempotent},
+  {"rollback_once_restores_source", tests.v067_cardinality_and_rollback_are_idempotent},
+  {"rollback_repeated_is_idempotent", tests.v067_cardinality_and_rollback_are_idempotent},
+  {"callback_after_timeout_is_ignored", tests.v067_stale_callbacks_are_rejected_and_owned_orphans_are_reaped},
+  {"callback_after_rollback_is_ignored", tests.v067_stale_callbacks_are_rejected_and_owned_orphans_are_reaped},
+  {"callback_after_cancel_is_ignored", tests.v067_stale_callbacks_are_rejected_and_owned_orphans_are_reaped},
+  {"obsolete_owned_vehicle_is_orphan", tests.v067_stale_callbacks_are_rejected_and_owned_orphans_are_reaped},
+  {"owned_orphan_is_removed", tests.v067_stale_callbacks_are_rejected_and_owned_orphans_are_reaped},
+  {"external_vehicle_is_not_removed", tests.v067_stale_callbacks_are_rejected_and_owned_orphans_are_reaped},
+  {"cleanup_is_ownership_scoped", tests.v067_stale_callbacks_are_rejected_and_owned_orphans_are_reaped},
+  {"config_failure_enters_quarantine", tests.v067_quarantine_is_generation_scoped_and_non_persistent},
+  {"quarantined_config_is_not_readded", tests.v067_quarantine_is_generation_scoped_and_non_persistent},
+  {"quarantine_is_domain_scoped", tests.v067_quarantine_is_generation_scoped_and_non_persistent},
+  {"quarantine_clears_by_policy", tests.v067_quarantine_is_generation_scoped_and_non_persistent},
+  {"source_vehicle_is_not_owned_as_created", tests.v067_stale_callbacks_are_rejected_and_owned_orphans_are_reaped},
+  {"player_result_has_explicit_role", tests.v067_cardinality_and_rollback_are_idempotent},
+  {"race_competitor_has_explicit_role", tests.v067_domain_operations_isolate_chaos_race_and_garage},
+  {"domain_generations_advance_independently", tests.v067_domain_operations_isolate_chaos_race_and_garage},
+  {"superseded_operation_is_terminal", tests.v067_domain_operations_isolate_chaos_race_and_garage},
+  {"terminal_operation_invalidates_callbacks", tests.v067_stale_callbacks_are_rejected_and_owned_orphans_are_reaped},
+  {"cleanup_reports_removed_ids", tests.v067_stale_callbacks_are_rejected_and_owned_orphans_are_reaped},
+  {"summary_reports_domain_contexts", tests.v067_domain_operations_isolate_chaos_race_and_garage},
+  {"summary_reports_orphan_count", tests.v067_stale_callbacks_are_rejected_and_owned_orphans_are_reaped},
+  {"accepted_vehicle_not_reaped", tests.v067_cardinality_and_rollback_are_idempotent},
+  {"candidate_ids_are_unique", tests.v067_operation_context_exposes_domain_cardinality_contract},
+  {"removed_vehicle_ids_are_diagnostic", tests.v067_operation_context_exposes_domain_cardinality_contract},
+}
+
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")
 equal(#v060Required, 104, "0.6.0 required scenario registry")
 equal(#v060PauseLifecycleRequired, 52, "0.6.0 pause lifecycle scenario registry")
@@ -5621,6 +5792,9 @@ for _, scenario in ipairs(v062Required) do
 end
 for _, scenario in ipairs(v066Required) do
   requirementMappings[#requirementMappings + 1] = {"0.6.6:" .. scenario[1], scenario[2]}
+end
+for _, scenario in ipairs(v067Required) do
+  requirementMappings[#requirementMappings + 1] = {"0.6.7:" .. scenario[1], scenario[2]}
 end
 
 local canonicalByFunction = {}
