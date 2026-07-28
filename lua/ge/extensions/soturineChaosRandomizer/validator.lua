@@ -2,6 +2,19 @@ local util = require("ge/extensions/soturineChaosRandomizer/util")
 
 local M = {}
 
+local DECISIONS = {
+  VALID = "VALID",
+  INVALID_CONFIRMED = "INVALID_CONFIRMED",
+  UNKNOWN_OR_PENDING = "UNKNOWN_OR_PENDING",
+}
+
+local function withDecision(result)
+  if result.valid == false then result.decision = DECISIONS.INVALID_CONFIRMED
+  elseif result.status == "uncertain" then result.decision = DECISIONS.UNKNOWN_OR_PENDING
+  else result.decision = DECISIONS.VALID end
+  return result
+end
+
 local ROLE_ORDER = {
   "structure",
   "energy_electric",
@@ -418,19 +431,19 @@ local function validateGraph(graph, baseline, protectCriticalParts)
     end
   end
   if #failures > 0 then
-    return {status = "unsafe", valid = false, profile = baseline.profile,
+    return withDecision({status = "unsafe", valid = false, profile = baseline.profile,
       classification = baseline.classification or graph.classification, failures = failures,
-      warnings = warnings, missingParts = util.deepCopy(graph.missingParts or {})}
+      warnings = warnings, missingParts = util.deepCopy(graph.missingParts or {})})
   end
   if baseline.profile == "prop" then
-    return {status = "not_applicable", valid = true, profile = baseline.profile,
+    return withDecision({status = "not_applicable", valid = true, profile = baseline.profile,
       classification = baseline.classification or graph.classification, failures = {},
-      warnings = warnings, missingParts = util.deepCopy(graph.missingParts or {})}
+      warnings = warnings, missingParts = util.deepCopy(graph.missingParts or {})})
   end
   if baseline.profile == "unknown" or baseline.profile == "special" then
-    return {status = "uncertain", valid = true, profile = baseline.profile,
+    return withDecision({status = "uncertain", valid = true, profile = baseline.profile,
       classification = baseline.classification or graph.classification, failures = {}, reason = "insufficient_profile_evidence",
-      warnings = warnings, missingParts = util.deepCopy(graph.missingParts or {})}
+      warnings = warnings, missingParts = util.deepCopy(graph.missingParts or {})})
   end
   if baseline.profile == "standard_road" or baseline.profile == "automation" then
     local applicableEvidence = 0
@@ -438,20 +451,20 @@ local function validateGraph(graph, baseline, protectCriticalParts)
       applicableEvidence = applicableEvidence + (baseline.roles and baseline.roles[role] or 0)
     end
     if applicableEvidence == 0 then
-      return {status = "uncertain", valid = true, profile = baseline.profile,
+      return withDecision({status = "uncertain", valid = true, profile = baseline.profile,
         classification = baseline.classification or graph.classification, failures = {}, reason = "insufficient_functional_evidence",
-        warnings = warnings, missingParts = util.deepCopy(graph.missingParts or {})}
+        warnings = warnings, missingParts = util.deepCopy(graph.missingParts or {})})
     end
   end
   local hasUnprovenMetadata = false
   for _, warning in ipairs(warnings) do
     if warning.reason == "mod_metadata_required_unproven" then hasUnprovenMetadata = true; break end
   end
-  return {status = hasUnprovenMetadata and "uncertain" or "safe", valid = true,
+  return withDecision({status = hasUnprovenMetadata and "uncertain" or "safe", valid = true,
     profile = baseline.profile, classification = baseline.classification or graph.classification,
     failures = {}, warnings = warnings,
     reason = hasUnprovenMetadata and "mod_metadata_incomplete" or nil,
-    missingParts = util.deepCopy(graph.missingParts or {})}
+    missingParts = util.deepCopy(graph.missingParts or {})})
 end
 
 local function validateProtectedScan(scan, protectCriticalParts, context, baseline, options)
@@ -470,6 +483,7 @@ M.protectedSelection = protectedSelection
 M.validateProtectedScan = validateProtectedScan
 M.buildGraph = buildGraph
 M.validateGraph = validateGraph
+M.DECISIONS = DECISIONS
 M.candidateClassification = candidateClassification
 M.nodeHasFunctionalCore = nodeHasFunctionalCore
 

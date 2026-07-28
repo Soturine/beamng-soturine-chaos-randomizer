@@ -185,6 +185,8 @@ local function analyze(snapshot, ratio)
     or report.belowFloor > 0 and "confirmed_below_floor"
     or report.unresolved > 0 and "uncertain"
     or "confirmed"
+  report.decision = report.belowFloor > 0 and "INVALID_CONFIRMED"
+    or report.unresolved > 0 and "UNKNOWN_OR_PENDING" or "VALID"
   return report, requiredByVariable
 end
 

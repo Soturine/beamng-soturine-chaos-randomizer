@@ -2,6 +2,21 @@ local util = require("ge/extensions/soturineChaosRandomizer/util")
 
 local M = {}
 
+local DECISIONS = {
+  VALID = "VALID",
+  INVALID_CONFIRMED = "INVALID_CONFIRMED",
+  UNKNOWN_OR_PENDING = "UNKNOWN_OR_PENDING",
+}
+
+local function withDecision(report)
+  if report.valid == false then report.decision = DECISIONS.INVALID_CONFIRMED
+  elseif report.valid == nil or report.status == "uncertain" or report.status == "unavailable"
+    or report.status == "combustion_engine_runtime_missing"
+  then report.decision = DECISIONS.UNKNOWN_OR_PENDING
+  else report.decision = DECISIONS.VALID end
+  return report
+end
+
 local function text(variable)
   variable = type(variable) == "table" and variable or {}
   return util.normalizeText(table.concat({
@@ -82,16 +97,16 @@ end
 
 local function assess(evidence, classification)
   if classification ~= "drivable_combustion" and classification ~= "drivable_hybrid" then
-    return {valid = true, status = "not_applicable", classification = classification, engines = {}}
+    return withDecision({valid = true, status = "not_applicable", classification = classification, engines = {}})
   end
   if type(evidence) ~= "table" or evidence.available ~= true then
-    return {valid = nil, status = "unavailable", classification = classification,
-      source = evidence and evidence.source, confidence = evidence and evidence.confidence}
+    return withDecision({valid = nil, status = "unavailable", classification = classification,
+      source = evidence and evidence.source, confidence = evidence and evidence.confidence})
   end
   local engines = type(evidence.engines) == "table" and evidence.engines or {}
   if #engines == 0 then
-    return {valid = false, status = "combustion_engine_runtime_missing", classification = classification,
-      source = evidence.source, confidence = evidence.confidence, engines = {}}
+    return withDecision({valid = nil, status = "combustion_engine_runtime_missing", classification = classification,
+      source = evidence.source, confidence = evidence.confidence, engines = {}})
   end
   local failures, warnings = {}, {}
   for _, engine in ipairs(engines) do
@@ -113,12 +128,12 @@ local function assess(evidence, classification)
       failures[#failures + 1] = {engine = engine.name, reason = "engine_coolant_zero", observed = coolantMass}
     end
   end
-  return {
+  return withDecision({
     valid = #failures == 0, status = #failures > 0 and "unsafe" or (#warnings > 0 and "uncertain" or "safe"),
     classification = classification, source = evidence.source, confidence = evidence.confidence,
     vehicleId = evidence.vehicleId, engines = util.deepCopy(engines),
     failures = failures, warnings = warnings,
-  }
+  })
 end
 
 local function signature(evidence)
@@ -138,5 +153,6 @@ M.safeValue = safeValue
 M.protectTuning = protectTuning
 M.assess = assess
 M.signature = signature
+M.DECISIONS = DECISIONS
 
 return M
