@@ -655,6 +655,12 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
           var entry = managed[index]
           return (index + 1) + '/' + managed.length + '  ' + (entry.metadata && entry.metadata.name || entry.handle)
         }
+        scope.chaos.currentManaged = function () {
+          var managed = scope.chaos.state.spawnDirector && scope.chaos.state.spawnDirector.managed || []
+          if (!managed.length) return null
+          var index = Math.max(0, Math.min(managed.length - 1, scope.chaos.managedIndex))
+          return managed[index]
+        }
         scope.chaos.compactGarageDNA = function () {
           if (scope.chaos.dnaDetails && scope.chaos.dnaDetails.entry) return scope.chaos.dnaDetails.entry
           var entries = scope.chaos.state.garage && scope.chaos.state.garage.entries || []

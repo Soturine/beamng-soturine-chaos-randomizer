@@ -100,6 +100,8 @@ soturine-chaos-randomizer { display: block; width: 100%; height: 100%; min-width
 .scr-race-policy fieldset > label { display: grid; gap: 3px; margin-top: 6px; color: var(--muted); font-size: 12px; }
 .scr-race-progress, .scr-placement-status { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px; margin: 7px 0; padding: 7px; background: #15181d; border-left: 3px solid var(--orange); border-radius: 4px; }
 .scr-race-progress span, .scr-placement-status span { color: var(--muted); font-size: 12px; }
+.scr-race-focus { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 5px; margin-bottom: 7px; padding: 6px; background: #171a1f; border: 1px solid var(--line); border-radius: 4px; }
+.scr-race-focus span { flex: 1 1 130px; overflow: hidden; text-align: center; white-space: nowrap; text-overflow: ellipsis; }
 .scr-race-competitors { max-height: 255px; padding-right: 3px; overflow-y: auto; overscroll-behavior: contain; }
 .scr-race-competitors li { display: grid; grid-template-columns: minmax(120px, 1fr) auto; align-items: center; }
 .scr-race-competitors li > div:last-child { grid-column: 1 / -1; display: flex; flex-wrap: wrap; }
