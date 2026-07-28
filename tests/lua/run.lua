@@ -5172,6 +5172,144 @@ tests.v067_operation_context_exposes_domain_cardinality_contract = function()
   equal(report.removedVehicleIds[1], 1); equal(report.terminalState, "completed")
 end
 
+tests.v067_race_participation_rng_and_state_machine = function()
+  local spectator = assert(raceManager.create({
+    count = 4, participationMode = "spectator", episodeSeed = "v067-participation",
+  }))
+  equal(spectator.totalVehicles, 4); equal(spectator.aiOpponentCount, 4)
+  equal(#spectator.competitors, 4); equal(spectator.settings.countSemantics, "total_vehicles")
+  equal(spectator.generationState, "planning")
+  local player = assert(raceManager.create({
+    count = 4, participationMode = "player", episodeSeed = "v067-participation",
+  }))
+  equal(player.totalVehicles, 4); equal(player.aiOpponentCount, 3)
+  equal(#player.competitors, 3); truthy(player.playerParticipates)
+  local seeds = {}
+  for _, competitor in ipairs(spectator.competitors) do
+    truthy(not seeds[competitor.seed]); seeds[competitor.seed] = true
+    truthy(competitor.selectionSeed ~= competitor.mutationSeed)
+    truthy(competitor.mutationSeed ~= competitor.placementSeed)
+  end
+  local slotThreeAttemptOne = raceManager.domainSeed(spectator, spectator.competitors[3], "operation", 1)
+  local slotThreeAttemptTwo = raceManager.domainSeed(spectator, spectator.competitors[3], "operation", 2)
+  truthy(slotThreeAttemptOne ~= slotThreeAttemptTwo)
+  local clone = assert(raceManager.create({
+    count = 4, participationMode = "spectator", episodeSeed = "v067-participation",
+  }))
+  equal(raceManager.domainSeed(clone, clone.competitors[3], "operation", 1), slotThreeAttemptOne)
+  spectator.competitors[1].traits.verified.family = "changed"
+  equal(spectator.competitors[2].traits.verified.family, nil)
+  local first = assert(raceManager.nextCompetitor(spectator))
+  equal(first.spawnState, "spawning"); equal(first.placementState, "staging")
+  truthy(raceManager.record(spectator, 1, {success = false, message = "fixture failure"}, nil, first.targetGeneration))
+  equal(first.spawnState, "failed"); equal(first.placementState, "failed")
+  truthy(raceManager.resolveFailure(spectator, 1, "retry"))
+  equal(first.spawnState, "planned"); equal(first.placementState, "planned")
+  truthy(raceManager.cancel(spectator, "fixture cancellation"))
+  equal(spectator.generationState, "cancelled")
+end
+
+tests.v067_dynamic_race_formations_and_spacing = function()
+  local frame = {
+    position = {x = 0, y = 0, z = 5}, forward = {x = 0, y = 1, z = 0},
+    right = {x = 1, y = 0, z = 0},
+  }
+  local ground = function(position)
+    return true, {point = {x = position.x, y = position.y, z = 0}, normal = {x = 0, y = 0, z = 1}}
+  end
+  local dimensions = {
+    {width = 2.2, length = 4.5}, {width = 3.2, length = 9},
+    {width = 1.8, length = 3.8}, {width = 2.5, length = 5},
+  }
+  local automatic = assert(spawnDirector.plan(frame, {
+    mode = "Automatic Best Fit", count = 4, spacingMode = "automatic",
+    safetyMargin = 1.5, availableWidth = 18, columns = 3, vehicleDimensions = dimensions,
+  }, ground, {}))
+  equal(automatic.options.requestedMode, "Automatic Best Fit")
+  equal(automatic.options.mode, "Staggered Grid")
+  truthy(automatic.options.resolvedLateralSpacing >= 4.7)
+  truthy(automatic.options.resolvedLongitudinalSpacing >= 10.5)
+  equal(automatic.placements[2].dimensions.width, 3.2)
+  local unknownWidth = assert(spawnDirector.plan(frame, {
+    mode = "Automatic Best Fit", count = 3, spacingMode = "automatic",
+    vehicleDimensions = dimensions,
+  }, ground, {}))
+  equal(unknownWidth.options.mode, "Single File Behind")
+  equal(unknownWidth.options.fallbackReason, "available_width_unknown_single_file")
+  local narrow = assert(spawnDirector.plan(frame, {
+    mode = "Side-by-side Grid", count = 3, spacingMode = "automatic",
+    availableWidth = 4, columns = 3, vehicleDimensions = dimensions,
+  }, ground, {}))
+  equal(narrow.options.mode, "Single File Behind")
+  equal(narrow.options.fallbackReason, "narrow_area_single_file")
+  local split = assert(spawnDirector.plan(frame, {
+    mode = "Split Left and Right", count = 4, spacingMode = "manual",
+    lateralSpacing = 5, longitudinalSpacing = 8,
+  }, ground, {}))
+  truthy(split.placements[1].position.x < 0); truthy(split.placements[2].position.x > 0)
+  local ahead = assert(spawnDirector.plan(frame, {
+    mode = "Single File Ahead", count = 2, longitudinalSpacing = 9,
+  }, ground, {}))
+  truthy(ahead.placements[2].position.y > ahead.placements[1].position.y)
+end
+
+tests.v067_ternary_safety_decisions_are_evidence_based = function()
+  local unknownGraph = validator.buildGraph({slots = {}}, {type = "Car"}, {})
+  local unknown = validator.validateGraph(unknownGraph, unknownGraph, true)
+  equal(unknown.decision, "UNKNOWN_OR_PENDING"); truthy(unknown.valid)
+  local unsafeGraph = validator.buildGraph({slots = {{
+    path = "main", id = "main", currentPart = "", required = true, coreSlot = true,
+    candidates = {}, allowTypes = {}, depth = 0,
+  }}}, {type = "Car"}, {})
+  local unsafe = validator.validateGraph(unsafeGraph, unsafeGraph, true)
+  equal(unsafe.decision, "INVALID_CONFIRMED"); equal(unsafe.valid, false)
+  local unavailable = engineFluidGuard.assess({available = false}, "drivable_combustion")
+  equal(unavailable.decision, "UNKNOWN_OR_PENDING"); equal(unavailable.valid, nil)
+  local missingRuntime = engineFluidGuard.assess({available = true, engines = {}}, "drivable_combustion")
+  equal(missingRuntime.decision, "UNKNOWN_OR_PENDING"); equal(missingRuntime.valid, nil)
+  local zeroOil = engineFluidGuard.assess({available = true, engines = {{
+    name = "engine", oilMass = 0, minimumSafeOilMass = 1,
+  }}}, "drivable_combustion")
+  equal(zeroOil.decision, "INVALID_CONFIRMED"); equal(zeroOil.valid, false)
+  local healthy = engineFluidGuard.assess({available = true, engines = {{
+    name = "engine", oilMass = 4, minimumSafeOilMass = 1,
+  }}}, "drivable_combustion")
+  equal(healthy.decision, "VALID"); truthy(healthy.valid)
+  local fuelUnknown = energyStorageGuard.analyze({energyStorages = {{
+    name = "tank", type = "fuelTank", fuelCapacity = 50,
+  }}}, 0.1)
+  equal(fuelUnknown.decision, "UNKNOWN_OR_PENDING")
+end
+
+tests.v067_race_policy_inventory_and_roundtrip = function()
+  local expected = {
+    "avoidDuplicateModels", "avoidDuplicateConfigurations", "avoidDuplicateFamilies",
+    "maximumSameFamily", "diversifyVehicleClasses", "diversifyPropulsion",
+    "diversifyDrivetrain", "diversifySource", "diversifyWheelStyles",
+    "diversifyBodyTypes", "allowOfficialVehicles", "allowModVehicles",
+    "allowAutomationVehicles", "allowTrailers", "allowProps",
+  }
+  for _, key in ipairs(expected) do truthy(raceManager.RULE_DEFAULTS[key] ~= nil, "missing policy " .. key) end
+  local lineup = assert(raceManager.create({
+    count = 5, participationMode = "player", preset = "Custom",
+    episodeSeed = "policy-roundtrip", avoidDuplicateFamilies = true,
+    maximumSameFamily = 1, diversifyPropulsion = true,
+    allowOfficialVehicles = false, allowModVehicles = true,
+    formation = "Split Left and Right", spacingMode = "manual",
+    longitudinalSpacing = 11, lateralSpacing = 6, safetyMargin = 2,
+  }))
+  truthy(lineup.varietyRules.avoidDuplicateFamilies)
+  equal(lineup.varietyRules.maximumSameFamily, 1)
+  truthy(lineup.varietyRules.diversifyPropulsion)
+  equal(lineup.settings.formation, "Split Left and Right")
+  equal(lineup.settings.longitudinalSpacing, 11)
+  local imported = assert(lineupSchema.sanitizedImport(lineup))
+  equal(imported.settings.participationMode, "player")
+  equal(imported.settings.countSemantics, "total_vehicles")
+  equal(imported.settings.formation, "Split Left and Right")
+  truthy(imported.varietyRules.avoidDuplicateFamilies)
+end
+
 tests.all_lua_sources_compile = function()
   local paths = {
     "/lua/ge/extensions/soturineChaosRandomizer.lua",
@@ -5768,6 +5906,46 @@ local v067Required = {
   {"accepted_vehicle_not_reaped", tests.v067_cardinality_and_rollback_are_idempotent},
   {"candidate_ids_are_unique", tests.v067_operation_context_exposes_domain_cardinality_contract},
   {"removed_vehicle_ids_are_diagnostic", tests.v067_operation_context_exposes_domain_cardinality_contract},
+  {"spectator_count_means_ai_competitors", tests.v067_race_participation_rng_and_state_machine},
+  {"player_count_means_total_vehicles", tests.v067_race_participation_rng_and_state_machine},
+  {"player_participation_subtracts_one_opponent", tests.v067_race_participation_rng_and_state_machine},
+  {"race_count_semantics_are_exported", tests.v067_race_participation_rng_and_state_machine},
+  {"competitor_primary_seeds_are_unique", tests.v067_race_participation_rng_and_state_machine},
+  {"competitor_substream_seeds_are_independent", tests.v067_race_participation_rng_and_state_machine},
+  {"retry_seed_changes_only_attempt", tests.v067_race_participation_rng_and_state_machine},
+  {"slot_seed_replays_independently", tests.v067_race_participation_rng_and_state_machine},
+  {"competitor_mutable_state_is_not_shared", tests.v067_race_participation_rng_and_state_machine},
+  {"race_state_machine_starts_planning", tests.v067_race_participation_rng_and_state_machine},
+  {"race_slot_enters_spawning", tests.v067_race_participation_rng_and_state_machine},
+  {"failed_slot_has_terminal_placement_state", tests.v067_race_participation_rng_and_state_machine},
+  {"retry_resets_only_failed_slot", tests.v067_race_participation_rng_and_state_machine},
+  {"race_cancel_has_terminal_state", tests.v067_race_participation_rng_and_state_machine},
+  {"automatic_best_fit_uses_available_width", tests.v067_dynamic_race_formations_and_spacing},
+  {"automatic_spacing_uses_vehicle_width", tests.v067_dynamic_race_formations_and_spacing},
+  {"automatic_spacing_uses_vehicle_length", tests.v067_dynamic_race_formations_and_spacing},
+  {"placement_keeps_per_vehicle_dimensions", tests.v067_dynamic_race_formations_and_spacing},
+  {"unknown_width_falls_back_to_single_file", tests.v067_dynamic_race_formations_and_spacing},
+  {"narrow_area_reduces_grid_to_single_file", tests.v067_dynamic_race_formations_and_spacing},
+  {"split_formation_uses_both_sides", tests.v067_dynamic_race_formations_and_spacing},
+  {"single_file_ahead_is_longitudinal", tests.v067_dynamic_race_formations_and_spacing},
+  {"formation_reports_requested_and_effective_modes", tests.v067_dynamic_race_formations_and_spacing},
+  {"formation_reports_fallback_reason", tests.v067_dynamic_race_formations_and_spacing},
+  {"unknown_graph_is_not_confirmed_invalid", tests.v067_ternary_safety_decisions_are_evidence_based},
+  {"confirmed_core_missing_is_invalid", tests.v067_ternary_safety_decisions_are_evidence_based},
+  {"fluid_probe_unavailable_is_unknown", tests.v067_ternary_safety_decisions_are_evidence_based},
+  {"engine_runtime_missing_is_unknown", tests.v067_ternary_safety_decisions_are_evidence_based},
+  {"zero_oil_is_confirmed_invalid", tests.v067_ternary_safety_decisions_are_evidence_based},
+  {"healthy_oil_is_valid", tests.v067_ternary_safety_decisions_are_evidence_based},
+  {"unresolved_fuel_is_unknown", tests.v067_ternary_safety_decisions_are_evidence_based},
+  {"race_policy_keeps_duplicate_controls", tests.v067_race_policy_inventory_and_roundtrip},
+  {"race_policy_keeps_diversity_controls", tests.v067_race_policy_inventory_and_roundtrip},
+  {"race_policy_keeps_source_controls", tests.v067_race_policy_inventory_and_roundtrip},
+  {"race_policy_keeps_automation_trailer_prop_controls", tests.v067_race_policy_inventory_and_roundtrip},
+  {"custom_policy_preserves_maximum_family", tests.v067_race_policy_inventory_and_roundtrip},
+  {"custom_policy_preserves_formation", tests.v067_race_policy_inventory_and_roundtrip},
+  {"custom_policy_preserves_spacing", tests.v067_race_policy_inventory_and_roundtrip},
+  {"lineup_import_preserves_participation", tests.v067_race_policy_inventory_and_roundtrip},
+  {"lineup_import_preserves_race_policy", tests.v067_race_policy_inventory_and_roundtrip},
 }
 
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")

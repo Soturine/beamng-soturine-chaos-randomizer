@@ -36,4 +36,34 @@ for (let index = 0; index < 20; index += 1) {
 assert.strictEqual(ui.sliderPercent(1), '1%')
 assert.strictEqual(ui.sliderPercent(99), '99%')
 
-console.log('SCR_UI_JS_TESTS_PASSED 27')
+const tabSizes = ui.tabSizes()
+assert.strictEqual(tabSizes.expanded.chaos, 360)
+assert.strictEqual(tabSizes.expanded.garage, 520)
+assert.strictEqual(tabSizes.expanded.race, 620)
+assert.strictEqual(tabSizes.expanded.settings, 640)
+assert.strictEqual(tabSizes.collapsed.chaos, 180)
+assert.strictEqual(tabSizes.collapsed.garage, 194)
+assert.strictEqual(tabSizes.collapsed.race, 214)
+assert.strictEqual(tabSizes.collapsed.settings, 220)
+assert.strictEqual(ui.tabHeight('chaos', 'expanded', tabSizes), 360)
+assert.strictEqual(ui.tabHeight('garage', 'expanded', tabSizes), 520)
+assert.strictEqual(ui.tabHeight('race', 'expanded', tabSizes), 620)
+assert.strictEqual(ui.tabHeight('settings', 'expanded', tabSizes), 640)
+assert.strictEqual(ui.tabHeight('chaos', 'collapsed', tabSizes), 180)
+assert.strictEqual(ui.tabHeight('garage', 'collapsed', tabSizes), 194)
+assert.strictEqual(ui.tabHeight('race', 'collapsed', tabSizes), 214)
+assert.strictEqual(ui.tabHeight('settings', 'collapsed', tabSizes), 220)
+
+for (let index = 0; index < 50; index += 1) {
+  const tab = ['chaos', 'garage', 'race', 'settings'][index % 4]
+  const expanded = ui.tabHeight(tab, 'expanded', tabSizes, {open: true, measuredHeight: 700, maximum: 720})
+  assert.ok(expanded >= tabSizes.expanded[tab])
+  assert.strictEqual(ui.tabHeight(tab, 'expanded', tabSizes, {open: false, measuredHeight: expanded, maximum: 720}), tabSizes.expanded[tab])
+  assert.strictEqual(ui.tabHeight(tab, 'collapsed', tabSizes, {open: true, measuredHeight: 700, maximum: 720}), tabSizes.collapsed[tab])
+}
+
+assert.strictEqual(ui.changedPolicyCount({a: true, b: 2}, {a: true, b: 2}), 0)
+assert.strictEqual(ui.changedPolicyCount({a: false, b: 2}, {a: true, b: 2}), 1)
+assert.strictEqual(ui.changedPolicyCount({a: false, b: 3}, {a: true, b: 2}), 2)
+
+console.log('SCR_UI_JS_TESTS_PASSED 49')

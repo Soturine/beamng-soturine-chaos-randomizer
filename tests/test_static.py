@@ -289,13 +289,16 @@ class StaticValidationTests(unittest.TestCase):
         html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
         css = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.css").read_text(encoding="utf-8")
         source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
-        panel = html[html.index("scr-chaos-view"):html.index("chaos.view === 'garage'")]
+        panel = html[
+            html.index('<section class="scr-chaos-view"'):
+            html.index('<section ng-if="chaos.view === \'garage\'" aria-labelledby="scr-garage-title">')
+        ]
         self.assertLess(panel.index("scr-chaos-control"), panel.index("scr-status"))
         self.assertLess(panel.index("scr-status"), panel.index("scr-warning"))
         self.assertNotRegex(css, r"\.scr-status\s*\{[^}]*margin-top:\s*auto")
         self.assertIn("body.scrollHeight", source)
         self.assertIn("function contentHeight", source)
-        self.assertIn("SoturineChaosUiMath.resolvedHeight", source)
+        self.assertIn("SoturineChaosUiMath.tabHeight", source)
         self.assertIn("SoturineChaosUiMath.resizeMode", source)
         self.assertNotIn("function manualHeight", source)
         self.assertIn("SoturineChaosUiMath.shouldApplyResize", source)
@@ -413,7 +416,9 @@ class StaticValidationTests(unittest.TestCase):
 
         main = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/main.lua").read_text(encoding="utf-8")
         exported = set(re.findall(r"^M\.([A-Za-z0-9_]+)\s*=", main, re.MULTILINE))
-        infrastructure = {"dependencies"}
+        # Keep the archived 0.6.2 surface immutable. Later controls are
+        # covered by their release-specific audits.
+        infrastructure = {"dependencies", "cancelRaceGeneration", "focusManagedVehicle"}
         for name in sorted(exported - infrastructure):
             with self.subTest(public_entry_point=name):
                 self.assertIn(f"`{name}`", audit)
@@ -439,6 +444,56 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("python tools/validate_release_gate.py --channel prerelease", package)
         self.assertIn("--verify-tag", package)
         self.assertIn("--prerelease", package)
+
+    def test_v067_race_ui_preserves_policy_and_requires_placement_preview(self) -> None:
+        html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
+        source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        for label in (
+            "Player participates", "Spectator / camera only", "Total vehicles", "AI opponents",
+            "Automatic Best Fit", "Split Left and Right", "Single File Behind",
+            "Single File Ahead", "Staggered Grid", "Side-by-side Grid", "Circular / Radial",
+            "Preview Formation", "Confirm Placement", "Cancel Generation",
+        ):
+            with self.subTest(label=label):
+                self.assertIn(label, html)
+        policy_keys = (
+            "avoidDuplicateModels", "avoidDuplicateConfigurations", "avoidDuplicateFamilies",
+            "maximumSameFamily", "diversifyVehicleClasses", "diversifyPropulsion",
+            "diversifyDrivetrain", "diversifySource", "diversifyWheelStyles",
+            "diversifyBodyTypes", "allowOfficialVehicles", "allowModVehicles",
+            "allowAutomationVehicles", "allowTrailers", "allowProps",
+        )
+        for key in policy_keys:
+            with self.subTest(policy=key):
+                self.assertIn(f"chaos.lineupOptions.{key}", html)
+        self.assertIn("racePolicy.v067", source)
+        self.assertIn("placement_preview_required", (ROOT / "lua/ge/extensions/soturineChaosRandomizer/main.lua").read_text(encoding="utf-8"))
+
+    def test_v067_compact_layout_and_details_are_tab_scoped(self) -> None:
+        html = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.html").read_text(encoding="utf-8")
+        source = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        for tab in ("chaos", "garage", "race", "settings"):
+            with self.subTest(tab=tab):
+                self.assertIn(f"chaos.view === '{tab}'", html)
+                self.assertIn(f"{tab}:", source)
+        self.assertIn("expandedSizeByTab", source)
+        self.assertIn("compactSizeByTab", source)
+        self.assertIn("detailsExpandedByTab", source)
+        self.assertIn("function tabHeight", source)
+        self.assertIn("measuredHeight", source)
+
+    def test_v067_backend_has_explicit_domain_safety_and_race_isolation(self) -> None:
+        main = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/main.lua").read_text(encoding="utf-8")
+        domains = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/runtime/domainOperations.lua").read_text(encoding="utf-8")
+        safety = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/validator.lua").read_text(encoding="utf-8")
+        fluids = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/engineFluidGuard.lua").read_text(encoding="utf-8")
+        self.assertIn("race_generation_isolated_from_chaos", main)
+        self.assertIn('domain = "race"', main)
+        self.assertIn("race_competitor_requires_explicit_transfer", domains)
+        self.assertIn("ignored_stale_callback", domains)
+        for decision in ("VALID", "INVALID_CONFIRMED", "UNKNOWN_OR_PENDING"):
+            self.assertIn(decision, safety)
+            self.assertIn(decision, fluids)
 
     def test_workflow_actions_are_sha_pinned(self) -> None:
         uses = re.compile(r"^\s*uses:\s*([^\s#]+)", re.MULTILINE)
