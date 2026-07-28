@@ -2,10 +2,10 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.6-live-fix-candidate] - 2026-07-27
+## [0.6.6] - 2026-07-27
 
-Unpublished Stage A candidate. Automated validation is separate from the 99
-Pending owner live cases; no `v0.6.6` tag or release is authorized.
+Experimental prerelease published for additional owner live validation.
+Automated validation is separate from the 99 Pending interactive cases.
 
 ### Fixed
 

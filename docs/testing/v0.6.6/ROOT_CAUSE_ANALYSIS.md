@@ -1,4 +1,4 @@
-# Root-cause analysis — v0.6.6 live-fix candidate
+# Root-cause analysis — v0.6.6
 
 Status: implementation diagnosis complete; live validation pending owner execution.
 
@@ -6,7 +6,7 @@ Status: implementation diagnosis complete; live validation pending owner executi
 
 The owner evidence in [OWNER_EVIDENCE.md](OWNER_EVIDENCE.md) proves that removing
 BeamLR and `scripts/driver_assistance_angelo234` stopped the old 22%/57% hard
-freeze and pause/unpause dependency. It does not prove the candidate fixes the
+freeze and pause/unpause dependency. It does not prove the release fixes the
 remaining internal failures. The conclusions below come from source tracing,
 mocked lifecycle execution, and the installed BeamNG 0.38.6 source. They remain
 subject to the live matrix.
@@ -37,7 +37,7 @@ The installed 0.38.6 source exposes combustion engine thermal evidence under
 `powertrain.getDevicesByType("combustionEngine")` and
 `engine.thermals.debugData.engineThermalData`. The source spells the minimum
 field `miniumSafeOilMass` in the relevant thermal implementation. No supported
-public runtime oil-mass setter was found. The candidate therefore does not
+public runtime oil-mass setter was found. The implementation therefore does not
 invent one: it prevents unsafe exposed tuning values, verifies the actual VM
 state, and fails into verified recovery when unsafe. A full reload/reset of a
 safe accepted configuration is the supported restoration boundary.

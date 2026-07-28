@@ -1,6 +1,6 @@
-# Automated test report — 0.6.6-live-fix-candidate
+# Automated test report — 0.6.6
 
-Status: **Passed on the committed Stage A candidate source**.
+Status: **Passed on the committed v0.6.6 release source**.
 
 This report is deliberately separate from live validation. The automated gates
 prove deterministic source behavior and package contracts; they do not prove
@@ -15,18 +15,18 @@ behavior in a running BeamNG world.
 | `node --check ui/modules/apps/soturineChaosRandomizer/app.js` | Passed |
 | `node tests/js/ui_math.test.js` | Passed: 27 checks |
 | `python tools/validate_package.py` | Passed: 89 ZIP entries; PNG 250x120 RGBA |
-| `python tools/validate_release_gate.py --channel prerelease` | Passed: candidate-only gate, publication remains closed |
+| `python tools/validate_release_gate.py --channel prerelease` | Passed: experimental prerelease with live Pending disclosed |
 | Three independent deterministic builds | Passed: identical byte count and SHA-256 |
 
-## Candidate artifact
+## Release artifact
 
 | Field | Value |
 | --- | --- |
-| Filename | `soturine_chaos_randomizer_0.6.6-live-fix-candidate.zip` |
-| Bytes | 342988 |
-| SHA-256 | `5722af4b80c7bf32520ee15888881132355b96abbdc2645e97465915bed96d97` |
+| Filename | `soturine_chaos_randomizer_0.6.6.zip` |
+| Bytes | `FINAL_ZIP_BYTES` |
+| SHA-256 | `FINAL_ZIP_SHA256` |
 | Entries | 89 |
-| Reproducibility | Three builds: 342988 bytes and identical SHA-256 |
+| Reproducibility | Three builds with identical bytes and SHA-256 |
 | Manifest | `dist/release-manifest.json`; final source commit is recorded at build time |
 
 The manifest also records 60 unique Python test methods, 18 package-test

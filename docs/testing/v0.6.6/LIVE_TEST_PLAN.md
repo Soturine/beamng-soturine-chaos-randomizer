@@ -2,7 +2,7 @@
 
 Status: **Pending owner validation; not executed**.
 
-Candidate: `soturine_chaos_randomizer_0.6.6-live-fix-candidate.zip`
+Release asset: `soturine_chaos_randomizer_0.6.6.zip`
 
 All 99 cases begin Pending. Automated tests cannot update this file to Passed.
 Record the exact ZIP bytes/SHA-256, BeamNG build, profile, map, mod list, seed,
@@ -13,7 +13,7 @@ failure.
 
 1. Start a clean BeamNG 0.38.6 profile with no older Randomizer ZIP.
 2. First run with BeamLR and `scripts/driver_assistance_angelo234` absent.
-3. Install the exact candidate ZIP without extracting it and verify the header version.
+3. Install the exact release ZIP without extracting it and verify the header version.
 4. Use one stable flat map for baseline runs; record any additional map.
 5. Do not pause/unpause to advance an operation and do not suppress Lua errors.
 

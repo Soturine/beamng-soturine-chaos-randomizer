@@ -1,27 +1,26 @@
-# v0.6.6 live-fix candidate
+# v0.6.6 validation evidence
 
-This workspace is the Stage A evidence and validation area for
-`0.6.6-live-fix-candidate`.
+This workspace records implementation, automated and pending interactive
+evidence for the published experimental prerelease `0.6.6`.
 
-The candidate is being implemented directly on `main` and will be pushed only
-after all automated gates pass. It must not be
-tagged or published as `v0.6.6` until the repository owner executes and
-approves the live matrix.
+The release is built from `main`, tagged `v0.6.6`, and published for additional
+live validation. Pending interactive cases remain evidence gaps and are never
+reported as Passed.
 
 Current evidence state:
 
-- automated validation: pending final verification;
-- owner live validation of this candidate: not started;
-- release authorization: not granted;
-- public tag/release: forbidden during Stage A.
+- automated validation: passed;
+- owner live validation: not started;
+- publication status: experimental prerelease;
+- public tag/release: `v0.6.6`.
 
 The environment-cleanup observations and remaining reproduced failures are
 recorded in [OWNER_EVIDENCE.md](OWNER_EVIDENCE.md). Root-cause conclusions,
-candidate identity, automated results, and the executable live matrix are kept
+release identity, automated results, and the executable live matrix are kept
 in separate files so automated evidence cannot be confused with gameplay
 evidence.
 
-Candidate evidence:
+Release evidence:
 
 - [root-cause analysis](ROOT_CAUSE_ANALYSIS.md)
 - [safety precedence](SAFETY_PRECEDENCE.md)
@@ -29,3 +28,5 @@ Candidate evidence:
 - [live test plan](LIVE_TEST_PLAN.md)
 - [live test report](LIVE_TEST_REPORT.md)
 - [owner checklist](OWNER_TEST_CHECKLIST.md)
+- [requirements matrix](REQUIREMENTS_MATRIX.md)
+- [research notes](RESEARCH_NOTES.md)

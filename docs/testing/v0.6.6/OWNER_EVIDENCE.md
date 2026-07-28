@@ -51,12 +51,11 @@ official vehicles, mod vehicles, and mod configuration packs.
 ## Visual identity evidence
 
 The current mark is not immediately recognizable as a fox at small sizes and
-can read as a dog, husky, skull, or mask. Stage A therefore requires a new,
+can read as a dog, husky, skull, or mask. Version 0.6.6 therefore requires a new,
 original vector identity and deterministic transparent raster variants.
 
 ## Evidence boundary
 
 These are owner-reproduced inputs to the implementation. No item in this file is
-a v0.6.6 pass result. The candidate live report must remain all-pending until
+a v0.6.6 pass result. The release live report must remain all-pending until
 the owner executes the final ZIP in BeamNG and records evidence.
-

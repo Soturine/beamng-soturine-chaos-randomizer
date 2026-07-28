@@ -6,10 +6,10 @@ a random vehicle/configuration, scramble the active vehicle's parts, tuning and
 paint, or run the complete pipeline as one bounded transaction. It also
 includes Vehicle DNA, a local Garage, and Race/Placement/AI workflows.
 
-Current development version: **0.6.6-live-fix-candidate**. It is an unpublished
-Stage A artifact, not `v0.6.6`. Automated validation is recorded separately;
-live BeamNG validation is **Pending owner validation** (0 executed / 0 passed /
-0 failed / 99 pending / 0 blocked).
+Current release: **0.6.6**, published as an experimental prerelease for
+additional live validation. Automated validation is recorded separately; live
+BeamNG validation is **Pending owner validation** (0 executed / 0 passed / 0
+failed / 99 pending / 0 blocked).
 That wording matters: mocked pipelines and source inspection are not gameplay,
 physics, rendering, performance, or mod-compatibility proof.
 
@@ -28,16 +28,15 @@ or part catalog.
 
 ## Install or update
 
-1. For owner validation, use the exact local Stage A artifact
-   `soturine_chaos_randomizer_0.6.6-live-fix-candidate.zip`. No `v0.6.6`
-   release exists until the owner approves the live matrix. Do not use
-   GitHub's automatic source archive.
+1. Download `soturine_chaos_randomizer_0.6.6.zip` from the official
+   [GitHub Release v0.6.6](https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases/tag/v0.6.6).
+   Do not use GitHub's automatic source archive.
 2. Copy the ZIP, without extracting it, into your BeamNG user folder's
    `mods` directory.
 3. Remove or disable older Chaos Randomizer ZIPs so only one version is active.
 4. Start BeamNG, enable the mod, open UI Apps, and add
    **Soturine's Chaos Randomizer**.
-5. Confirm `0.6.6-live-fix-candidate` appears in the orange header.
+5. Confirm `0.6.6` appears in the orange header.
 
 A valid ZIP has `lua/`, `ui/`, `settings/`, `LICENSE`, `NOTICE`, and `VERSION`
 at its root. If the app does not appear, clear BeamNG's UI cache, reload the UI,
@@ -193,7 +192,7 @@ is allowed state, including an intentional Allow Missing choice. A third-party
 so it becomes an uncertain warning rather than invented proof. Proven loss of a
 baseline functional role can still be fatal when critical protection is on.
 
-Combustion oil is separate from fuel. The candidate blocks exposed oil/coolant
+Combustion oil is separate from fuel. The implementation blocks exposed oil/coolant
 volume tuning from reaching zero and uses a generation-bound vehicle-VM probe
 to read combustion engine thermal `oilMass`, safe-minimum metadata, coolant,
 disabled state and oil-critical damage. Two stable samples are required.
@@ -231,7 +230,7 @@ unsupported, or rejected safely. Protect Critical Parts cannot simulate
 drivability; Vehicle DNA fingerprints detect changes but are not cryptographic
 mod hashes; session Undo is not durable across restart; live rendering,
 physics, performance, controller, DPI, clean-profile, and representative-mod
-results remain Pending until the owner executes the exact candidate plan.
+results remain Pending until the owner executes the exact release plan.
 
 See [Compatibility](docs/COMPATIBILITY.md) and the
 [current matrix](docs/status/CURRENT_COMPATIBILITY_MATRIX.md).

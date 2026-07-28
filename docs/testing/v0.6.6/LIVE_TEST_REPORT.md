@@ -4,12 +4,12 @@ Status: **Pending owner validation; not executed**.
 
 | Field | Value |
 | --- | --- |
-| Candidate version | 0.6.6-live-fix-candidate |
+| Release version | 0.6.6 |
 | Validation owner | repository owner |
-| Exact artifact | `soturine_chaos_randomizer_0.6.6-live-fix-candidate.zip` |
-| Bytes | 342988 |
-| SHA-256 | `5722af4b80c7bf32520ee15888881132355b96abbdc2645e97465915bed96d97` |
-| Target commit | Final Stage A `main` commit recorded in `release-manifest.json` |
+| Exact artifact | `soturine_chaos_randomizer_0.6.6.zip` |
+| Bytes | `FINAL_ZIP_BYTES` |
+| SHA-256 | `FINAL_ZIP_SHA256` |
+| Target commit | Final `main` commit recorded in `release-manifest.json` |
 | BeamNG build | 0.38.6 required; execution pending |
 
 | Result | Count |
@@ -20,7 +20,7 @@ Status: **Pending owner validation; not executed**.
 | Pending | 99 |
 | Blocked | 0 |
 
-No case has been executed in BeamNG for this candidate. Automated Lua/Python/
+No case has been executed in BeamNG for this release. Automated Lua/Python/
 JavaScript/package results belong in [AUTOMATED_TEST_REPORT.md](AUTOMATED_TEST_REPORT.md)
 and are not live evidence.
 
