@@ -15,3 +15,19 @@ Only retained Ready cars (or explicitly accepted Partial cars) are eligible. The
 AI commands operate only on confirmed managed vehicles. Destination and Route require a reachable NavGraph; Chase and Follow require a distinct existing target; Traffic requires Vehicle Lua queue support. Scripted mode is visibly unsupported because no bounded portable path-transfer contract is enabled. Start, pause, resume, stop, reset, and damaged respawn are bounded and do not rely on simulation pause toggles.
 
 Capabilities are reported as `available`, `degraded`, `unavailable`, or `unsupported`. A disabled control includes a reason rather than claiming an API exists.
+# v0.6.7 Race lifecycle
+
+Race generation uses explicit `planning → validating_slots → spawning → binding
+→ placing → ready/partial_ready/failed/cancelled` states. Each AI competitor has
+independent selection/mutation/placement/retry seeds and one managed vehicle ID.
+The player can participate in a total-vehicle count or remain a spectator while
+exactly N independent AI competitors are generated.
+
+Placement requires a complete preview before confirmation. Automatic Best Fit
+uses known vehicle width/length plus a safety margin and reports its effective
+layout/fallback. A narrow or width-unknown area uses explicit single-file
+fallback. Confirm moves retained managed IDs; generation cleanup and cancel are
+Race-scoped.
+
+The full option/default inventory is in
+[v0.6.7 Race policy inventory](testing/v0.6.7/RACE_POLICY_INVENTORY.md).

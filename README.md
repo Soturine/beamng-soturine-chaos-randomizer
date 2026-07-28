@@ -6,10 +6,10 @@ a random vehicle/configuration, scramble the active vehicle's parts, tuning and
 paint, or run the complete pipeline as one bounded transaction. It also
 includes Vehicle DNA, a local Garage, and Race/Placement/AI workflows.
 
-Current release: **0.6.6**, published as an experimental prerelease for
+Current release: **0.6.7**, published as an experimental prerelease for
 additional live validation. Automated validation is recorded separately; live
 BeamNG validation is **Pending owner validation** (0 executed / 0 passed / 0
-failed / 99 pending / 0 blocked).
+failed / 48 pending / 0 blocked).
 That wording matters: mocked pipelines and source inspection are not gameplay,
 physics, rendering, performance, or mod-compatibility proof.
 
@@ -28,18 +28,20 @@ or part catalog.
 
 ## Install or update
 
-1. Download `soturine_chaos_randomizer_0.6.6.zip` from the official
-   [GitHub Release v0.6.6](https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases/tag/v0.6.6).
+1. Download `soturine_chaos_randomizer_0.6.7.zip` from the official
+   [GitHub Release v0.6.7](https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases/tag/v0.6.7).
    Do not use GitHub's automatic source archive.
 2. Copy the ZIP, without extracting it, into your BeamNG user folder's
    `mods` directory.
 3. Remove or disable older Chaos Randomizer ZIPs so only one version is active.
 4. Start BeamNG, enable the mod, open UI Apps, and add
    **Soturine's Chaos Randomizer**.
-5. Confirm `0.6.6` appears in the orange header.
+5. Confirm `0.6.7` appears in the orange header.
 
-Official ZIP integrity: `342933` bytes, SHA-256
-`bac1d6026bc758bd0ffd419b83cfa6456fe14e7e0ab4b8c236d835ac4efb5278`.
+The release page attaches the versioned ZIP, `.zip.sha256`, and `.manifest.json`.
+The ZIP is `358742` bytes with SHA-256
+`f0d0967c3f3052e0c93a020d7974995303569734780e4e80150ef794c90857c3`.
+Verify both integrity files before owner testing.
 
 A valid ZIP has `lua/`, `ui/`, `settings/`, `LICENSE`, `NOTICE`, and `VERSION`
 at its root. If the app does not appear, clear BeamNG's UI cache, reload the UI,
@@ -88,11 +90,12 @@ input.
 - **Settings** contains filters, safety, seeds, locks, history, capability
   notes, and diagnostics.
 
-In automatic mode the window measures the currently rendered tab after the
-Angular digest. A tall Settings tab therefore shrinks again when Chaos is
-opened. Only a real external/user resize enters user-size mode; the app's own
-resize events are debounced and cannot create a sticky height. Collapsed mode
-always uses its compact content height.
+Expanded and compact sizes are cached separately for Chaos, Garage, Race, and
+Settings. Switching tabs restores that tab's size immediately. Compact mode
+keeps the active tab and shows only relevant controls: Chaos actions, selected
+Garage DNA, Race generation/AI state, or the Settings summary. Details height
+is tab-scoped; closing Details restores the exact base size without cumulative
+growth.
 
 ## Settings that change results
 
@@ -151,19 +154,31 @@ non-finite values, and excessive depth/size are rejected.
 
 ## Race, Placement, and AI
 
-Race creates competitors sequentially with independent seeds, operation
-contexts and physical targets. Generate Cars spawns a new vehicle at a safe
-staging transform, temporarily focuses that owned target for player-global
-part APIs, retains its unique managed ID, restores the original player focus,
-and advances only after a terminal result. Placement reorders and repositions
-those existing managed IDs; it does not duplicate them. Drive/AI operates only
-on confirmed managed targets.
+Race creates competitors sequentially with independent selection, mutation,
+placement, and retry seeds, operation contexts, and physical targets. **Player
+participates** treats the count as total vehicles (one player plus AI
+opponents); **Spectator / camera only** creates exactly the requested number of
+AI competitors and needs no player vehicle. Generate Cars is the only action
+that creates a Race lineup.
+
+Placement calculates and validates the whole preview before confirmation. It
+supports left/right, split, single-file ahead/behind, staggered/side-by-side
+grid, circular, and automatic-best-fit formations. Automatic spacing uses
+available vehicle dimensions and safety margin; unknown/narrow width falls
+back visibly to a longitudinal line. Confirmation repositions retained managed
+IDs and does not duplicate them. The complete preset-aware Race policy remains
+editable and survives close/reopen, tab/compact changes, and lineup
+export/import.
 Destination and Route require a reachable NavGraph; Chase/Follow require a real
 distinct target. Unsupported Scripted playback remains disabled with a reason.
 
 ## Lifecycle, pause, and recovery
 
-Callbacks nominate candidates; they never prove completion. Each wait keeps a
+Chaos, Race, and Garage own independent generations and ownership contexts.
+Callbacks nominate candidates; they never prove completion. Each callback is
+bound to domain, operation, generation, slot, and logical target. A delayed or
+cross-domain callback is ignored; an owned unaccepted object from it is reaped,
+while external and accepted vehicles are preserved. Each wait keeps a
 logical target, bounded concrete candidates, generation tokens, readiness,
 configuration/parts/tuning evidence, and a wall-clock deadline. The current
 player configuration and ID-specific manager bundle are observed independently,
@@ -199,9 +214,10 @@ Combustion oil is separate from fuel. The implementation blocks exposed oil/cool
 volume tuning from reaching zero and uses a generation-bound vehicle-VM probe
 to read combustion engine thermal `oilMass`, safe-minimum metadata, coolant,
 disabled state and oil-critical damage. Two stable samples are required.
-Unavailable evidence produces a visible partial result without an oil-safety
-claim; proven zero/below-safe/disabled state is not accepted. EVs, trailers,
-props and explicit shells do not receive a combustion-oil requirement.
+Unavailable evidence produces `UNKNOWN_OR_PENDING` without an oil-safety
+claim; only proven zero/below-safe/disabled state is `INVALID_CONFIRMED`.
+Evidence-backed safe/not-applicable state is `VALID`. EVs, trailers, props and
+explicit shells do not receive a combustion-oil requirement.
 
 ## Diagnostics and troubleshooting
 
@@ -240,13 +256,12 @@ See [Compatibility](docs/COMPATIBILITY.md) and the
 
 ## Validation evidence
 
-- [v0.6.6 evidence index](docs/testing/v0.6.6/README.md)
-- [root-cause analysis](docs/testing/v0.6.6/ROOT_CAUSE_ANALYSIS.md)
-- [safety precedence](docs/testing/v0.6.6/SAFETY_PRECEDENCE.md)
-- [automated report](docs/testing/v0.6.6/AUTOMATED_TEST_REPORT.md)
-- [99-case live plan](docs/testing/v0.6.6/LIVE_TEST_PLAN.md)
-- [live report](docs/testing/v0.6.6/LIVE_TEST_REPORT.md)
-- [owner checklist](docs/testing/v0.6.6/OWNER_TEST_CHECKLIST.md)
+- [v0.6.7 evidence index](docs/testing/v0.6.7/README.md)
+- [automated report](docs/testing/v0.6.7/AUTOMATED_TEST_REPORT.md)
+- [48-case live plan](docs/testing/v0.6.7/LIVE_TEST_PLAN.md)
+- [live report](docs/testing/v0.6.7/LIVE_TEST_REPORT.md)
+- [requirements matrix](docs/testing/v0.6.7/REQUIREMENTS_MATRIX.md)
+- [Race policy inventory](docs/testing/v0.6.7/RACE_POLICY_INVENTORY.md)
 
 Automated tests include real production Lua executed by BeamNG's console, a
 mocked BeamNG adapter pipeline, property/state-machine cases, JavaScript sizing

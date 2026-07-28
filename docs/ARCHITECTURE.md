@@ -90,3 +90,17 @@ Timeout handling performs one final coherent player read without a fixed ID. Cor
 `performanceMetrics.lua` keeps circular windows for `onUpdate`, target tracking, tree scanning, mutation planning, tuning discovery, UI state/payload, indexing, Spawn Director, AI Director, and preview. Reports expose `count`, `p50`, `p95`, `p99`, and `max`, plus bounded UI event rates. Normal gameplay does not emit per-sample logs.
 
 Production modules must be reachable from the BeamNG entrypoint or a documented compatibility entrypoint. `tests/test_architecture.py` fails on unresolved internal requires and orphaned production modules.
+# v0.6.7 operation domains
+
+Chaos, Race, and Garage have independent domain generations even though BeamNG
+still exposes some player-global APIs. Every mutating operation records domain,
+operation ID, generation, action, expected slot/logical target, source,
+candidates, accepted/restored/removed IDs, player ID after completion, and one
+terminal state. Vehicle ownership distinguishes player source/result, Race
+competitor/candidate, orphan, and external objects.
+
+Callback tokens must match domain, operation, generation, slot, and target.
+Terminal/superseded operations invalidate callbacks. Cleanup is limited to
+managed, created, unaccepted ownership entries; it never sweeps arbitrary world
+vehicles. Chaos cannot mutate a retained Race competitor without an explicit
+ownership transfer.

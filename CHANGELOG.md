@@ -2,6 +2,39 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.7] - 2026-07-27
+
+Experimental prerelease for owner validation. Automated validation passes;
+all 48 live BeamNG cases remain Pending.
+
+### Added
+
+- Independent Chaos, Race, and Garage operation generations with vehicle
+  ownership, callback tokens, terminal invalidation, and orphan cleanup.
+- Explicit Race participant semantics, derived per-slot RNG domains, dynamic
+  formations, dimension-aware spacing, preview-before-confirm Placement, and
+  a focus command for spectator competitors.
+- Per-tab expanded/compact sizing, tab-specific compact controls, bounded Race
+  lists/policy, and non-sticky Details restoration.
+
+### Changed
+
+- Safety reports `VALID`, `INVALID_CONFIRMED`, or `UNKNOWN_OR_PENDING`.
+- Race policy remains fully configurable and now persists through UI lifecycle
+  and lineup export/import with visible preset/custom state.
+- Release manifests use the versioned required asset name and contain explicit
+  automated/live validation summaries.
+
+### Fixed
+
+- Prevent Chaos actions from consuming pending Race slots or resuming Race
+  generation afterward.
+- Enforce one accepted replacement for Random Car/Full Random, same identity
+  for Scramble, idempotent rollback, stale-callback rejection, and bounded
+  session quarantine for invalid configurations.
+- Repair Race staging terminal states, cancel scope, retained-ID Placement, and
+  narrow-area fallback without accumulating invisible managed vehicles.
+
 ## [0.6.6] - 2026-07-27
 
 Experimental prerelease published for additional owner live validation.

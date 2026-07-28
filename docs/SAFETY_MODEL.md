@@ -47,3 +47,11 @@ An `uncertain` or `not_applicable` result is never described as drivable. Only a
 ## Determinism and scope
 
 Safety inspection consumes no random values. Parent replacement still defers descendants, reloads once, and rebuilds both candidates and evidence before the next bounded pass. The graph evaluates only mounted metadata exposed by BeamNG; it does not open archives, download content, infer relationships from brands, or execute unbounded probes.
+# v0.6.7 ternary decision contract
+
+Final safety uses `VALID`, `INVALID_CONFIRMED`, and `UNKNOWN_OR_PENDING`.
+Confirmed loss of core/proven functional structure or a positive runtime proof
+such as zero oil is invalid. Missing probes, temporarily unreadable metadata,
+unknown mod roles, and pending read-back are unknown; they cannot be relabeled
+as confirmed unsafe. Existing `valid` fields remain for compatibility, but
+rollback decisions must follow the evidence-bearing decision and failure list.
