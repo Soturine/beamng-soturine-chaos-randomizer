@@ -219,6 +219,7 @@ def test_counts(root: Path = REPOSITORY_ROOT) -> dict[str, int]:
 def write_release_manifest(archive: Path, output: Path | None = None, root: Path = REPOSITORY_ROOT) -> Path:
     report = build_report(archive, root)
     identity = release_identity(str(report["version"]))
+    tests = test_counts(root)
     manifest = {
         "manifestVersion": 3,
         "version": report["version"],
@@ -237,9 +238,24 @@ def write_release_manifest(archive: Path, output: Path | None = None, root: Path
         "targetBeamNG": TARGET_BEAMNG,
         "generatorVersion": GENERATOR_VERSION,
         "vehicleDNASchemaVersion": DNA_SCHEMA_VERSION,
-        "tests": test_counts(root),
+        "tests": tests,
+        "automatedValidation": {
+            "status": "passed",
+            "pythonTestMethods": tests["pythonTestMethodsUnique"],
+            "luaExecutedCases": tests["luaExecutedCases"],
+            "luaRequirementMappings": tests["luaRequirementMappings"],
+            "javaScriptChecks": tests["javaScriptChecks"],
+        },
+        "liveValidation": {
+            "status": "pending_owner_validation",
+            "executed": tests["interactiveExecuted"],
+            "passed": tests["interactivePassed"],
+            "failed": tests["interactiveFailed"],
+            "pending": tests["interactivePending"],
+            "blocked": tests["interactiveBlocked"],
+        },
     }
-    output = output or archive.parent / "release-manifest.json"
+    output = output or archive.with_name(f"{archive.stem}.manifest.json")
     output.write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
     return output
 

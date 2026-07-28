@@ -102,7 +102,8 @@ class PackageTests(unittest.TestCase):
     def test_release_manifest_matches_zip(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             archive, _ = package_mod.package(Path(temporary), ROOT)
-            package_mod.write_release_manifest(archive, root=ROOT)
+            manifest_path = package_mod.write_release_manifest(archive, root=ROOT)
+            self.assertEqual(manifest_path.name, f"{archive.stem}.manifest.json")
             manifest = validate_package.validate_release_manifest(archive)
             identity = package_mod.release_identity(package_mod.read_version(ROOT))
             self.assertEqual(manifest["tag"], identity["tag"])
@@ -121,8 +122,13 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(manifest["tests"]["interactiveExecuted"], 0)
             self.assertEqual(manifest["tests"]["interactivePassed"], 0)
             self.assertEqual(manifest["tests"]["interactiveFailed"], 0)
+            self.assertEqual(manifest["automatedValidation"]["status"], "passed")
+            self.assertEqual(manifest["liveValidation"]["status"], "pending_owner_validation")
+            self.assertEqual(manifest["liveValidation"]["executed"], 0)
             if package_mod.read_version(ROOT) == "0.6.3":
                 self.assertEqual(manifest["tests"]["interactivePending"], 110)
+            if package_mod.read_version(ROOT) == "0.6.7":
+                self.assertEqual(manifest["tests"]["interactivePending"], 48)
             self.assertEqual(manifest["tests"]["interactiveBlocked"], 0)
 
     def test_release_manifest_is_reproducible(self) -> None:

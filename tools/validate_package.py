@@ -201,7 +201,7 @@ def validate_reproducible(archive_path: Path, root: Path = REPOSITORY_ROOT) -> N
 def validate_release_manifest(
     archive_path: Path, root: Path = REPOSITORY_ROOT,
 ) -> dict[str, object]:
-    manifest_path = archive_path.parent / "release-manifest.json"
+    manifest_path = archive_path.with_name(f"{archive_path.stem}.manifest.json")
     if not manifest_path.is_file():
         raise PackageValidationError(f"Release manifest does not exist: {manifest_path}")
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
@@ -226,6 +226,22 @@ def validate_release_manifest(
             raise PackageValidationError(f"Release manifest {key} does not match the ZIP")
     if manifest.get("branch") != "main":
         raise PackageValidationError("Release manifest branch must be main")
+    tests = manifest.get("tests")
+    automated = manifest.get("automatedValidation")
+    live = manifest.get("liveValidation")
+    if not isinstance(tests, dict) or not isinstance(automated, dict) or not isinstance(live, dict):
+        raise PackageValidationError("Release manifest validation summaries are missing")
+    if automated.get("status") != "passed":
+        raise PackageValidationError("Release manifest automated validation is not passed")
+    if live.get("status") != "pending_owner_validation":
+        raise PackageValidationError("Release manifest live validation status is not pending owner validation")
+    for manifest_key, tests_key in (
+        ("executed", "interactiveExecuted"), ("passed", "interactivePassed"),
+        ("failed", "interactiveFailed"), ("pending", "interactivePending"),
+        ("blocked", "interactiveBlocked"),
+    ):
+        if live.get(manifest_key) != tests.get(tests_key):
+            raise PackageValidationError(f"Release manifest live {manifest_key} count is inconsistent")
     return manifest
 
 

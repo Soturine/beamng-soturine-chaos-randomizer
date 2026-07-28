@@ -436,7 +436,7 @@ class StaticValidationTests(unittest.TestCase):
         for source in (ci, package):
             self.assertIn("dist/*.zip", source)
             self.assertIn("dist/*.sha256", source)
-            self.assertIn("dist/release-manifest.json", source)
+            self.assertIn("dist/*.manifest.json", source)
         self.assertIn('expected="v$(tr -d \'\\r\\n\' < VERSION)"', package)
         self.assertIn('notes="docs/RELEASE NOTES/RELEASE_NOTES_${version}.md"', package)
         self.assertIn("Refuse to overwrite an existing release", package)

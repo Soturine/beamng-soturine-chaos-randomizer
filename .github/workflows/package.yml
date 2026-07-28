@@ -73,7 +73,7 @@ jobs:
           path: |
             dist/*.zip
             dist/*.sha256
-            dist/release-manifest.json
+            dist/*.manifest.json
           if-no-files-found: error
           retention-days: 14
 
@@ -116,7 +116,7 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             "dist/soturine_chaos_randomizer_${version}.zip" \
             "dist/soturine_chaos_randomizer_${version}.sha256" \
-            "dist/release-manifest.json" \
+            "dist/soturine_chaos_randomizer_${version}.manifest.json" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Soturine's Chaos Randomizer ${version}" \
             --notes-file "$notes" \

@@ -64,7 +64,7 @@ jobs:
           path: |
             dist/*.zip
             dist/*.sha256
-            dist/release-manifest.json
+            dist/*.manifest.json
           if-no-files-found: error
           retention-days: 14
 
@@ -92,4 +92,4 @@ jobs:
         run: |
           cmp artifacts/ubuntu/*.zip artifacts/windows/*.zip
           cmp artifacts/ubuntu/*.sha256 artifacts/windows/*.sha256
-          cmp artifacts/ubuntu/release-manifest.json artifacts/windows/release-manifest.json
+          cmp artifacts/ubuntu/*.manifest.json artifacts/windows/*.manifest.json
