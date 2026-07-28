@@ -59,6 +59,7 @@ class PackageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             archive, checksum = package_mod.package(Path(temporary), ROOT)
             expected = hashlib.sha256(archive.read_bytes()).hexdigest()
+            self.assertEqual(checksum.name, f"{archive.name}.sha256")
             self.assertEqual(checksum.read_text(encoding="ascii"), f"{expected}  {archive.name}\n")
 
     def test_package_contains_expected_version(self) -> None:

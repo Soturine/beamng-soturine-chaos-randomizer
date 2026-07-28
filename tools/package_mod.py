@@ -138,7 +138,7 @@ def build_archive(output: Path, root: Path = REPOSITORY_ROOT) -> Path:
 
 def write_checksum(archive: Path) -> Path:
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
-    checksum = archive.with_suffix(".sha256")
+    checksum = archive.with_name(f"{archive.name}.sha256")
     checksum.write_text(f"{digest}  {archive.name}\n", encoding="ascii", newline="\n")
     return checksum
 

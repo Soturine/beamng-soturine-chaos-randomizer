@@ -180,7 +180,7 @@ def validate_icon(path: Path) -> tuple[int, int, int]:
 
 
 def validate_checksum(archive_path: Path) -> None:
-    checksum_path = archive_path.with_suffix(".sha256")
+    checksum_path = archive_path.with_name(f"{archive_path.name}.sha256")
     if not checksum_path.is_file():
         raise PackageValidationError(f"Checksum does not exist: {checksum_path}")
     expected_line = checksum_path.read_text(encoding="ascii").strip()

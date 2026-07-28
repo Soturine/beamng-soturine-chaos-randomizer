@@ -115,7 +115,7 @@ jobs:
           test -f "$notes"
           gh release create "$GITHUB_REF_NAME" \
             "dist/soturine_chaos_randomizer_${version}.zip" \
-            "dist/soturine_chaos_randomizer_${version}.sha256" \
+            "dist/soturine_chaos_randomizer_${version}.zip.sha256" \
             "dist/soturine_chaos_randomizer_${version}.manifest.json" \
             --repo "$GITHUB_REPOSITORY" \
             --title "Soturine's Chaos Randomizer ${version}" \

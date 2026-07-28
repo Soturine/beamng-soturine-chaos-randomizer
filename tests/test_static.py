@@ -439,6 +439,7 @@ class StaticValidationTests(unittest.TestCase):
             self.assertIn("dist/*.manifest.json", source)
         self.assertIn('expected="v$(tr -d \'\\r\\n\' < VERSION)"', package)
         self.assertIn('notes="docs/RELEASE NOTES/RELEASE_NOTES_${version}.md"', package)
+        self.assertIn('"dist/soturine_chaos_randomizer_${version}.zip.sha256"', package)
         self.assertIn("Refuse to overwrite an existing release", package)
         self.assertIn("Validate experimental prerelease candidate", package)
         self.assertIn("python tools/validate_release_gate.py --channel prerelease", package)
