@@ -503,6 +503,52 @@ class StaticValidationTests(unittest.TestCase):
                 with self.subTest(path=path.name, action=action):
                     self.assertRegex(action, r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}$")
 
+    def test_v068_beamng_039_p0_contracts_are_packaged_and_auditable(self) -> None:
+        compatibility = json.loads((ROOT / "COMPATIBILITY.json").read_text(encoding="utf-8"))
+        version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+        self.assertEqual(compatibility["modVersion"], version)
+        self.assertEqual(compatibility["primaryBeamNGTarget"], "0.39")
+        self.assertEqual(compatibility["minimumBeamNGVersion"], "0.38.6")
+        self.assertEqual(compatibility["liveValidationStatus"], "Pending owner validation")
+
+        package_source = (ROOT / "tools/package_mod.py").read_text(encoding="utf-8")
+        self.assertIn('PACKAGE_FILES = ("COMPATIBILITY.json"', package_source)
+        self.assertNotIn("TARGET_BEAMNG =", package_source)
+        for field in (
+            "modVersion", "primaryBeamNGTarget", "minimumBeamNGVersion",
+            "detectedOrDeclaredCompatibility", "automatedTests", "liveTests",
+            "fileCount", "zipSize", "zipSha256",
+        ):
+            self.assertIn(f'"{field}"', package_source)
+
+        main = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/main.lua").read_text(encoding="utf-8")
+        adapter = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/apiAdapter.lua").read_text(encoding="utf-8")
+        index = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/contentIndex.lua").read_text(encoding="utf-8")
+        for field in (
+            "detectedGameVersion", "primaryTarget", "minimumSupported",
+            "compatibilityState", "compatibilityWarnings",
+        ):
+            self.assertIn(field, main)
+        for state in ("unavailable", "warming_up", "partial", "ready", "failed_confirmed"):
+            self.assertIn(state, (ROOT / "lua/ge/extensions/soturineChaosRandomizer/registryReadiness.lua").read_text(encoding="utf-8"))
+        for field in ("registryModelKey", "registryConfigKey", "physicalPathExact", "comparisonPathNormalized"):
+            self.assertIn(field, index)
+        for field in ("conflictId", "loadedExtension", "mountedPath", "recommendedAction"):
+            self.assertIn(field, adapter)
+
+        ui = (ROOT / "ui/modules/apps/soturineChaosRandomizer/app.js").read_text(encoding="utf-8")
+        for lifecycle_contract in (
+            "window.ResizeObserver", "hostResizeObserver.disconnect()",
+            "contentObserver.disconnect()", "lifecycleTimers.forEach", "destroyed = true",
+        ):
+            self.assertIn(lifecycle_contract, ui)
+
+        for fixture in ("settings.json", "vehicleDNA.library.json", "lineups.library.json"):
+            self.assertTrue((ROOT / "tests/fixtures/v0.6.7" / fixture).is_file())
+        self.assertIn("settings.last-known-good.json", adapter)
+        self.assertIn("lineups/library.last-known-good.json", adapter)
+        self.assertIn("migration-report.json", adapter)
+
     def test_repository_has_no_machine_paths(self) -> None:
         pattern = re.compile(r"(?:[A-Za-z]:\\(?:Users|home)\\|/" + r"Users/|/" + r"home/)")
         ignored = {".git", "dist", "__pycache__"}

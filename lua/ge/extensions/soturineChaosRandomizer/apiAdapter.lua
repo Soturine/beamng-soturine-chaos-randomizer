@@ -3,12 +3,14 @@ local capabilityModel = require("ge/extensions/soturineChaosRandomizer/capabilit
 local configVerification = require("ge/extensions/soturineChaosRandomizer/configVerification")
 local paintVerification = require("ge/extensions/soturineChaosRandomizer/paintVerification")
 local spawnOutcome = require("ge/extensions/soturineChaosRandomizer/spawnOutcome")
+local transactionalJSON = require("ge/extensions/soturineChaosRandomizer/transactionalJSON")
 local validator = require("ge/extensions/soturineChaosRandomizer/validator")
 
 local M = {}
 
 local LOG_TAG = "SoturineChaosRandomizer"
 local SETTINGS_PATH = "/settings/soturineChaosRandomizer/settings.json"
+local SETTINGS_BACKUP_PATH = "/settings/soturineChaosRandomizer/settings.last-known-good.json"
 local DEFAULTS_PATH = "/settings/soturineChaosRandomizer/defaults.json"
 local DNA_LIBRARY_PATH = "/settings/soturineChaosRandomizer/vehicleDNA/library.json"
 local DNA_BACKUP_PATH = "/settings/soturineChaosRandomizer/vehicleDNA/library.last-known-good.json"
@@ -17,10 +19,13 @@ local DNA_PACKAGE_EXPORT_PATH = "/settings/soturineChaosRandomizer/vehicleDNA/sh
 local DNA_PACKAGE_INBOX_PATH = "/settings/soturineChaosRandomizer/vehicleDNA/inbox/import.vdna.zip"
 local DNA_THUMBNAIL_DIRECTORY = "/settings/soturineChaosRandomizer/vehicleDNA/thumbnails/"
 local LINEUP_LIBRARY_PATH = "/settings/soturineChaosRandomizer/lineups/library.json"
+local LINEUP_BACKUP_PATH = "/settings/soturineChaosRandomizer/lineups/library.last-known-good.json"
 local LINEUP_EXPORT_PATH = "/settings/soturineChaosRandomizer/lineups/export.lineup.json"
 local LINEUP_IMPORT_PATH = "/settings/soturineChaosRandomizer/lineups/inbox.lineup.json"
 local COMPATIBILITY_PATH = "/COMPATIBILITY.json"
 local CONTENT_ALIASES_PATH = "/settings/soturineChaosRandomizer/contentAliases.json"
+local MIGRATION_REPORT_PATH = "/settings/soturineChaosRandomizer/migration-report.json"
+local MIGRATION_REPORT_BACKUP_PATH = "/settings/soturineChaosRandomizer/migration-report.last-known-good.json"
 
 local jbeamIO
 local entropySequence = 0
@@ -896,27 +901,42 @@ local function notify(message, icon, ttl)
   })
 end
 
+local function transactionalStore(path, backupPath, value, previous, failureCode)
+  if type(jsonReadFile) ~= "function" or type(jsonWriteFile) ~= "function" then
+    return false, errorValue(failureCode, "Transactional JSON persistence is unavailable")
+  end
+  local ok, result = transactionalJSON.store({
+    path = path, backupPath = backupPath, value = util.deepCopy(value), previous = util.deepCopy(previous),
+    read = function(readPath)
+      local worked, readValue = pcall(jsonReadFile, readPath)
+      return worked, worked and readValue or nil
+    end,
+    write = function(writePath, writeValue)
+      local worked, written = pcall(jsonWriteFile, writePath, util.deepCopy(writeValue), true, nil, true)
+      return worked and written ~= false
+    end,
+  })
+  if ok then return true, result end
+  return false, errorValue(failureCode, "Transactional JSON write failed", result)
+end
+
 local function loadSettings()
   if type(jsonReadFile) ~= "function" then return false, errorValue("unsupported_api", "JSON settings are unavailable") end
-  local ok, value = safeCall("jsonReadFile settings", function()
+  local ok, value, source = safeCall("jsonReadFile settings", function()
     local user = jsonReadFile(SETTINGS_PATH)
     if type(user) == "table" then return user, "user" end
+    local backup = jsonReadFile(SETTINGS_BACKUP_PATH)
+    if type(backup) == "table" then return backup, "last_known_good" end
     local defaults = jsonReadFile(DEFAULTS_PATH)
     return defaults, "defaults"
   end)
   if not ok then return false, value end
   if type(value) ~= "table" then return false, errorValue("invalid_settings", "Settings are missing or malformed") end
-  return true, util.deepCopy(value)
+  return true, util.deepCopy(value), source
 end
 
 local function saveSettings(settings)
-  if type(jsonWriteFile) ~= "function" then return false, errorValue("unsupported_api", "JSON settings persistence is unavailable") end
-  local ok, result = safeCall("jsonWriteFile settings", function()
-    return jsonWriteFile(SETTINGS_PATH, util.deepCopy(settings), true, nil, true)
-  end)
-  if not ok then return false, result end
-  if result == false then return false, errorValue("settings_write_failed", "BeamNG could not save Chaos Randomizer settings") end
-  return true
+  return transactionalStore(SETTINGS_PATH, SETTINGS_BACKUP_PATH, settings, nil, "settings_write_failed")
 end
 
 local function loadDNALibrary()
@@ -989,18 +1009,25 @@ end
 
 local function loadLineupLibrary()
   if type(jsonReadFile) ~= "function" then return false, errorValue("lineup_storage_unavailable", "Lineup JSON storage is unavailable") end
-  local ok, value = safeCall("jsonReadFile lineup library", function() return jsonReadFile(LINEUP_LIBRARY_PATH) end)
+  local ok, value, source = safeCall("jsonReadFile lineup library", function()
+    local primary = jsonReadFile(LINEUP_LIBRARY_PATH)
+    if type(primary) == "table" then return primary, "primary" end
+    local backup = jsonReadFile(LINEUP_BACKUP_PATH)
+    if type(backup) == "table" then return backup, "last_known_good" end
+    return nil, "missing"
+  end)
   if not ok then return false, value end
-  return true, type(value) == "table" and util.deepCopy(value) or nil
+  return true, type(value) == "table" and util.deepCopy(value) or nil, source
 end
 
 local function saveLineupLibrary(library)
-  if type(jsonWriteFile) ~= "function" or type(jsonReadFile) ~= "function" then return false, errorValue("lineup_storage_unavailable", "Lineup JSON storage is unavailable") end
-  local ok, value = safeCall("jsonWriteFile lineup library", function() return jsonWriteFile(LINEUP_LIBRARY_PATH, util.deepCopy(library), true, nil, true) end)
-  if not ok or value == false then return false, errorValue("lineup_write_failed", "Lineup library write failed") end
-  local readOk, readBack = pcall(jsonReadFile, LINEUP_LIBRARY_PATH)
-  if not readOk or not util.deepEqual(readBack, library, 1e-10) then return false, errorValue("lineup_readback_failed", "Lineup library read-back failed") end
-  return true, {path = LINEUP_LIBRARY_PATH, verified = true}
+  return transactionalStore(LINEUP_LIBRARY_PATH, LINEUP_BACKUP_PATH, library, nil, "lineup_write_failed")
+end
+
+local function writeMigrationReport(report)
+  return transactionalStore(
+    MIGRATION_REPORT_PATH, MIGRATION_REPORT_BACKUP_PATH, report, nil, "migration_report_write_failed"
+  )
 end
 
 local function exportLineup(lineup)
@@ -1309,6 +1336,7 @@ M.loadDNALibraryBackup = loadDNALibraryBackup
 M.saveDNALibrary = saveDNALibrary
 M.loadLineupLibrary = loadLineupLibrary
 M.saveLineupLibrary = saveLineupLibrary
+M.writeMigrationReport = writeMigrationReport
 M.exportLineup = exportLineup
 M.importLineup = importLineup
 M.encodeJSON = encodeJSON
@@ -1340,6 +1368,9 @@ M.DNA_PACKAGE_EXPORT_PATH = DNA_PACKAGE_EXPORT_PATH
 M.DNA_PACKAGE_INBOX_PATH = DNA_PACKAGE_INBOX_PATH
 M.DNA_THUMBNAIL_DIRECTORY = DNA_THUMBNAIL_DIRECTORY
 M.LINEUP_LIBRARY_PATH = LINEUP_LIBRARY_PATH
+M.SETTINGS_BACKUP_PATH = SETTINGS_BACKUP_PATH
+M.LINEUP_BACKUP_PATH = LINEUP_BACKUP_PATH
+M.MIGRATION_REPORT_PATH = MIGRATION_REPORT_PATH
 M.LINEUP_EXPORT_PATH = LINEUP_EXPORT_PATH
 M.LINEUP_IMPORT_PATH = LINEUP_IMPORT_PATH
 M.COMPATIBILITY_PATH = COMPATIBILITY_PATH

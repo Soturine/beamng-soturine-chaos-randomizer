@@ -112,12 +112,12 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(manifest["releaseStatus"], "published")
             self.assertTrue(manifest["prerelease"])
             self.assertEqual(manifest["branch"], "main")
-            self.assertEqual(manifest["generatorVersion"], 6)
+            self.assertEqual(manifest["generatorVersion"], 7)
             self.assertEqual(manifest["vehicleDNASchemaVersion"], 1)
             expected_counts = package_mod.test_counts(ROOT)
             self.assertEqual(manifest["tests"], expected_counts)
             self.assertEqual(manifest["tests"]["luaTestFunctionsUnique"], manifest["tests"]["luaExecutedCases"])
-            self.assertEqual(manifest["tests"]["luaRequirementMappings"], 531)
+            self.assertEqual(manifest["tests"]["luaRequirementMappings"], 577)
             self.assertEqual(manifest["tests"]["javaScriptChecks"], 49)
             self.assertGreater(manifest["tests"]["luaAssertions"], manifest["tests"]["luaExecutedCases"])
             self.assertEqual(manifest["tests"]["interactiveExecuted"], 0)
@@ -126,6 +126,16 @@ class PackageTests(unittest.TestCase):
             self.assertEqual(manifest["automatedValidation"]["status"], "passed")
             self.assertEqual(manifest["liveValidation"]["status"], "pending_owner_validation")
             self.assertEqual(manifest["liveValidation"]["executed"], 0)
+            for field in (
+                "modVersion", "commit", "branch", "tag", "releaseStage",
+                "primaryBeamNGTarget", "minimumBeamNGVersion",
+                "detectedOrDeclaredCompatibility", "automatedTests", "liveTests",
+                "fileCount", "zipSize", "zipSha256", "buildTimestamp",
+            ):
+                self.assertIn(field, manifest)
+            self.assertEqual(manifest["primaryBeamNGTarget"], "0.39")
+            self.assertEqual(manifest["minimumBeamNGVersion"], "0.38.6")
+            self.assertEqual(manifest["liveTests"]["status"], "Pending owner validation")
             if package_mod.read_version(ROOT) == "0.6.3":
                 self.assertEqual(manifest["tests"]["interactivePending"], 110)
             if package_mod.read_version(ROOT) == "0.6.7":

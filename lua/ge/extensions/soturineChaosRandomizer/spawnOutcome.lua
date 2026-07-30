@@ -76,8 +76,8 @@ local function finish(transaction, evidence)
   if evidence.thrown == true then
     transaction.outcome, transaction.reason = "rejected", "UNKNOWN_FAILURE"
   elseif evidence.apiResult == false then
-    -- BeamNG 0.39 core_vehicles.spawnNewVehicle returns false specifically
-    -- when canSpawnAnotherVehicle() denies the request for low memory.
+    -- The inspected BeamNG 0.39 spawn contract returns false specifically
+    -- when the bounded low-memory guard denies the request.
     transaction.outcome, transaction.reason = "denied", "DENIED_LOW_MEMORY"
   elseif #candidates == 1 then
     transaction.outcome = "observed_candidate"

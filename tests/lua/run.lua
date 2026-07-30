@@ -41,6 +41,8 @@ local slotScanner = require("ge/extensions/soturineChaosRandomizer/slotScanner")
 local stressRunner = require("ge/extensions/soturineChaosRandomizer/stressRunner")
 local tuningCoverageLedger = require("ge/extensions/soturineChaosRandomizer/tuningCoverageLedger")
 local tuningPipeline = require("ge/extensions/soturineChaosRandomizer/tuningPipeline")
+local transactionalJSON = require("ge/extensions/soturineChaosRandomizer/transactionalJSON")
+local userDataMigration = require("ge/extensions/soturineChaosRandomizer/userDataMigration")
 local paintCoverageLedger = require("ge/extensions/soturineChaosRandomizer/paintCoverageLedger")
 local lineupSchema = require("ge/extensions/soturineChaosRandomizer/lineupSchema")
 local lineupManager = require("ge/extensions/soturineChaosRandomizer/lineupManager")
@@ -423,7 +425,7 @@ tests.settings_migration = function()
     fairMode = false,
     historyLimit = 0,
   })
-  equal(migrated.schemaVersion, 6)
+  equal(migrated.schemaVersion, 7)
   equal(migrated.chaos, 100)
   equal(migrated.allowMissingParts, false)
   equal(migrated.selectionFairness, "configuration")
@@ -790,7 +792,7 @@ end
 
 tests.legacy_keep_vehicle_drivable_setting_migrates = function()
   local value = settings.validate({schemaVersion = 1, keepVehicleDrivable = true})
-  equal(value.schemaVersion, 6)
+  equal(value.schemaVersion, 7)
   equal(value.protectCriticalParts, true)
   equal(value.keepVehicleDrivable, nil)
 end
@@ -2257,7 +2259,7 @@ end
 
 tests.settings_schema_two_migrates_to_four = function()
   local value = settings.validate({schemaVersion = 2, dnaLimit = 25, autoSaveDNA = true})
-  equal(value.schemaVersion, 6)
+  equal(value.schemaVersion, 7)
   equal(value.dnaLibraryLimit, 25)
   equal(value.autoSaveDNA, false)
 end
@@ -2628,7 +2630,7 @@ end
 
 tests.lock_profile_migrates_and_persists_separately = function()
   local value = settings.validate({schemaVersion = 3})
-  equal(value.schemaVersion, 6)
+  equal(value.schemaVersion, 7)
   equal(value.lockProfile.kind, "soturineVehicleDNALockProfile")
   local locked = vehicleDNALocks.applyPatch(value.lockProfile, {
     vehicle = true, categories = {engine = true}, tuning = {all = true},
@@ -4570,7 +4572,7 @@ end
 tests.v061_settings_locks_and_seed_migration = function()
   local legacyLocks = vehicleDNALocks.applyPatch(vehicleDNALocks.empty(), {vehicle = true, categories = {body = true}})
   local migrated = settings.validate({schemaVersion = 5, manualSeed = "legacy", lockProfile = legacyLocks})
-  equal(migrated.schemaVersion, 6)
+  equal(migrated.schemaVersion, 7)
   equal(migrated.seedMode, "random")
   truthy(not migrated.rememberLocks)
   equal(vehicleDNALocks.summary(migrated.lockProfile).locked, 0)
@@ -5149,6 +5151,56 @@ tests.v068_adapter_classifies_confirmed_low_memory_without_inventing_space_failu
   equal(failure.context.spawnOutcomeReason, "DENIED_LOW_MEMORY")
   equal(failure.context.spawnTransaction.reason, "DENIED_LOW_MEMORY")
   equal(failure.context.spawnTransaction.acceptedVehicleId, nil)
+end
+
+tests.v068_user_data_writes_are_transactional_and_reported = function()
+  local files = {primary = {schemaVersion = 6, value = "old"}}
+  local function read(path) return true, util.deepCopy(files[path]) end
+  local function write(path, value) files[path] = util.deepCopy(value); return true end
+  local saved, result = transactionalJSON.store({
+    path = "primary", backupPath = "backup", value = {schemaVersion = 7, value = "new"},
+    read = read, write = write,
+  })
+  truthy(saved)
+  truthy(result.verified)
+  equal(files.backup.value, "old")
+  equal(files.primary.value, "new")
+
+  files.primary = {schemaVersion = 6, value = "stable"}
+  local primaryWrites = 0
+  local failed, failure = transactionalJSON.store({
+    path = "primary", backupPath = "backup", value = {schemaVersion = 7, value = "candidate"},
+    read = read,
+    write = function(path, value)
+      files[path] = util.deepCopy(value)
+      if path == "primary" then
+        primaryWrites = primaryWrites + 1
+        if primaryWrites == 1 then files[path].value = "corrupt-readback" end
+      end
+      return true
+    end,
+  })
+  equal(failed, false)
+  equal(failure.code, "transaction_rolled_back")
+  equal(files.primary.value, "stable")
+  equal(files.backup.value, "stable")
+
+  local writes = 0
+  local refused, refusal = transactionalJSON.store({
+    path = "unreadable", value = {value = "must-not-overwrite"},
+    read = function() return false end,
+    write = function() writes = writes + 1; return true end,
+  })
+  equal(refused, false)
+  equal(refusal.code, "transaction_previous_read_failed")
+  equal(writes, 0)
+
+  local report = userDataMigration.create("0.6.8")
+  userDataMigration.record(report, "settings", 6, 7, "migrated", {backup = true})
+  userDataMigration.record(report, "vehicleDNA", 1, 1, "preserved")
+  equal(report.status, "migrated")
+  equal(#report.records, 2)
+  equal(report.records[1].details.backup, true)
 end
 
 tests.v067_domain_operations_isolate_chaos_race_and_garage = function()
@@ -6089,6 +6141,16 @@ local v068Required = {
   {"isolated_unknown_does_not_blacklist", tests.v068_temporary_failures_never_blacklist_catalog_content},
   {"uncorrelated_destroy_does_not_blacklist", tests.v068_temporary_failures_never_blacklist_catalog_content},
   {"temporary_conditions_do_not_enter_domain_quarantine", tests.v068_temporary_failures_never_blacklist_catalog_content},
+  {"settings_write_has_backup", tests.v068_user_data_writes_are_transactional_and_reported},
+  {"lineup_write_has_backup", tests.v068_user_data_writes_are_transactional_and_reported},
+  {"transaction_has_readback", tests.v068_user_data_writes_are_transactional_and_reported},
+  {"transaction_rolls_back_on_mismatch", tests.v068_user_data_writes_are_transactional_and_reported},
+  {"rollback_is_readback_verified", tests.v068_user_data_writes_are_transactional_and_reported},
+  {"unreadable_previous_data_is_not_overwritten", tests.v068_user_data_writes_are_transactional_and_reported},
+  {"migration_report_is_structured", tests.v068_user_data_writes_are_transactional_and_reported},
+  {"migration_report_records_source_and_target", tests.v068_user_data_writes_are_transactional_and_reported},
+  {"migration_preserves_vehicle_dna", tests.v068_user_data_writes_are_transactional_and_reported},
+  {"migration_preserves_lineups", tests.v068_user_data_writes_are_transactional_and_reported},
 }
 
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")

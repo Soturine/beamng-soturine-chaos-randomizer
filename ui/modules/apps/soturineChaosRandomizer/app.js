@@ -117,6 +117,9 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
         var queryTimer = null
         var resizeTimer = null
         var contentObserver = null
+        var hostResizeObserver = null
+        var lifecycleTimers = []
+        var destroyed = false
         var lastAppliedHeight = null
         var sizeModeByTab = {chaos: 'auto', garage: 'auto', race: 'auto', settings: 'auto'}
         var userHeightByTab = {chaos: null, garage: null, race: null, settings: null}
@@ -215,7 +218,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
             spawnDirector: {managed: [], run: null},
             aiDirector: {capabilities: {}, vehicles: [], destination: {status: 'empty'}, route: {points: []}},
             settings: {
-              schemaVersion: 6,
+              schemaVersion: 7,
               chaos: 75,
               allowMissingParts: true,
               protectCriticalParts: false,
@@ -317,6 +320,19 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
           queryTimer = null
         }
 
+        function scheduleLifecycle(callback, delay) {
+          if (destroyed) return null
+          var promise = $timeout(function () {
+            var index = lifecycleTimers.indexOf(promise)
+            if (index >= 0) lifecycleTimers.splice(index, 1)
+            if (destroyed) return
+            callback()
+            if (!scope.$$phase) scope.$evalAsync()
+          }, delay, false)
+          lifecycleTimers.push(promise)
+          return promise
+        }
+
         function persistRaceOptions() {
           try {
             window.localStorage.setItem('soturineChaosRandomizer.racePolicy.v067',
@@ -335,6 +351,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
 
         function updateWindowHeight() {
           resizeTimer = null
+          if (destroyed) return
           var mode = scope.chaos.state.uiMode || 'expanded'
           var host = element && element[0]
           while (host && (!host.classList || !host.classList.contains('bng-app'))) host = host.parentNode
@@ -379,7 +396,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
         }
 
         function scheduleWindowHeight() {
-          if (resizeTimer) return
+          if (destroyed || resizeTimer) return
           resizeTimer = $timeout(updateWindowHeight, 16, false)
         }
 
@@ -424,7 +441,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
           }).slice(0, 16)
         }
 
-        function refreshLocksSoon() { $timeout(scope.chaos.requestLocks, 180) }
+        function refreshLocksSoon() { scheduleLifecycle(scope.chaos.requestLocks, 180) }
 
         scope.chaos.thumbnailUrl = function (dna) {
           var id = dna && dna.thumbnail && dna.thumbnail.kind === 'managed' ? String(dna.thumbnail.managedId || '') : ''
@@ -440,7 +457,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
         }
 
         scope.chaos.scheduleSettings = function () {
-          if (scope.chaos.state.busy) return
+          if (destroyed || scope.chaos.state.busy) return
           cancelSettingsTimer()
           settingsTimer = $timeout(persistSettings, 250)
         }
@@ -524,13 +541,13 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
           if (!allowed[view]) return
           scope.chaos.view = view
           scheduleWindowHeight()
-          if (view === 'settings') $timeout(scope.chaos.requestLocks, 0)
+          if (view === 'settings') scheduleLifecycle(scope.chaos.requestLocks, 0)
         }
 
         scope.chaos.copySeed = function () {
           copyText(scope.chaos.state.seed || '', function (copied) {
             scope.chaos.copyStatus = copied ? 'Copied' : 'Copy unavailable'
-            $timeout(function () { scope.chaos.copyStatus = '' }, 1800)
+            scheduleLifecycle(function () { scope.chaos.copyStatus = '' }, 1800)
           })
         }
 
@@ -756,6 +773,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
         }
 
         scope.chaos.scheduleGarageQuery = function () {
+          if (destroyed) return
           cancelQueryTimer()
           queryTimer = $timeout(scope.chaos.sendGarageQuery, 220)
         }
@@ -945,14 +963,20 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
           callWithArgs('setVehicleDNAPage', [page])
         }
 
-        $timeout(function () {
+        scheduleLifecycle(function () {
           var root = element[0] && element[0].querySelector('.scr-app')
           if (root && window.MutationObserver) {
             contentObserver = new window.MutationObserver(scheduleWindowHeight)
             contentObserver.observe(root, {childList: true, subtree: true, characterData: true, attributes: true})
           }
+          var host = element && element[0]
+          while (host && (!host.classList || !host.classList.contains('bng-app'))) host = host.parentNode
+          if (host && window.ResizeObserver) {
+            hostResizeObserver = new window.ResizeObserver(scheduleWindowHeight)
+            hostResizeObserver.observe(host)
+          }
           scheduleWindowHeight()
-        }, 0, false)
+        }, 0)
 
         scope.$on('SoturineChaosRandomizerState', function (event, data) { applyState(data) })
         scope.$on('SoturineChaosRandomizerLocks', function (event, data) { scope.$evalAsync(function () { scope.chaos.lockData = data }) })
@@ -979,7 +1003,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
             scope.chaos.copyStatus = copied ? 'Diagnostics copied' : 'Copy unavailable'
           })
         })
-        scope.$on('VehicleFocusChanged', function () { $timeout(requestState, 250) })
+        scope.$on('VehicleFocusChanged', function () { scheduleLifecycle(requestState, 250) })
         scope.$on('app:resized', function (event, data) {
           if (!data || data.source === 'content') return
           var host = element && element[0]
@@ -1002,15 +1026,19 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
           scheduleWindowHeight()
         })
         scope.$on('$destroy', function () {
+          destroyed = true
           cancelSettingsTimer()
           cancelQueryTimer()
           if (resizeTimer) $timeout.cancel(resizeTimer)
           if (contentObserver) contentObserver.disconnect()
+          if (hostResizeObserver) hostResizeObserver.disconnect()
+          lifecycleTimers.forEach(function (promise) { $timeout.cancel(promise) })
+          lifecycleTimers = []
         })
 
         bngApi.engineLua('extensions.load("soturineChaosRandomizer")')
-        $timeout(requestState, 100)
-        $timeout(requestState, 800)
+        scheduleLifecycle(requestState, 100)
+        scheduleLifecycle(requestState, 800)
       }
     }
   }])

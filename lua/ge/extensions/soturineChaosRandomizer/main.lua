@@ -49,6 +49,7 @@ local vehicleStabilizer = require("ge/extensions/soturineChaosRandomizer/vehicle
 local productionModules = {
   compatibility = require("ge/extensions/soturineChaosRandomizer/compatibility"),
   registryReadiness = require("ge/extensions/soturineChaosRandomizer/registryReadiness"),
+  userDataMigration = require("ge/extensions/soturineChaosRandomizer/userDataMigration"),
   raceManager = require("ge/extensions/soturineChaosRandomizer/raceManager"),
   lineupSchema = require("ge/extensions/soturineChaosRandomizer/lineupSchema"),
   lineupStorage = require("ge/extensions/soturineChaosRandomizer/lineupStorage"),
@@ -105,6 +106,7 @@ local runtime = {
   compatibility = productionModules.compatibility.evaluate({}, "unknown"),
   contentAliases = {},
   registry = productionModules.registryReadiness.create(),
+  migrationReport = productionModules.userDataMigration.create(EXTENSION_VERSION),
   recovery = vehicleRecovery.create(),
   lineup = {
     current = nil,
@@ -490,6 +492,7 @@ local function publicState()
     history = historyModule.summaries(runtime.history),
     capabilities = util.deepCopy(runtime.capabilities),
     conflicts = util.deepCopy(runtime.conflicts),
+    migration = util.deepCopy(runtime.migrationReport),
     coverage = runtime.active and {
       slots = runtime.active.slotLedger and slotCoverageLedger.summary(runtime.active.slotLedger) or nil,
       tuning = runtime.active.tuningLedger and tuningCoverageLedger.summary(runtime.active.tuningLedger) or nil,
@@ -1093,8 +1096,26 @@ local function initialize()
   if type(adapter.loadContentAliases) == "function" then okAliases, aliases = adapter.loadContentAliases() end
   runtime.contentAliases = okAliases and aliases or {}
   productionModules.registryReadiness.begin(runtime.registry, adapter.clock(), "extension_load")
-  local okSettings, stored = adapter.loadSettings()
-  if okSettings then runtime.settings = settingsModule.validate(stored) end
+  runtime.migrationReport = productionModules.userDataMigration.create(EXTENSION_VERSION)
+  local okSettings, stored, settingsSource = adapter.loadSettings()
+  if okSettings then
+    local sourceVersion = tonumber(stored.schemaVersion) or 0
+    runtime.settings = settingsModule.validate(stored)
+    if sourceVersion < runtime.settings.schemaVersion and settingsSource ~= "defaults" then
+      local saved, saveResult = adapter.saveSettings(settingsModule.forPersistence(runtime.settings))
+      productionModules.userDataMigration.record(
+        runtime.migrationReport, "settings", sourceVersion, runtime.settings.schemaVersion,
+        saved and "migrated" or "failed", {source = settingsSource, persistence = saveResult}
+      )
+    else
+      productionModules.userDataMigration.record(
+        runtime.migrationReport, "settings", sourceVersion, runtime.settings.schemaVersion,
+        "preserved", {source = settingsSource}
+      )
+    end
+  else
+    productionModules.userDataMigration.warning(runtime.migrationReport, "settings_unavailable", stored)
+  end
   runtime.dna.library.limit = runtime.settings.dnaLibraryLimit
   if type(adapter.loadDNALibrary) == "function" and runtime.capabilities.dnaRead then
     local okLibrary, storedLibrary, source = adapter.loadDNALibrary()
@@ -1108,6 +1129,10 @@ local function initialize()
         runtime.dna.library = normalized
         runtime.dna.loaded = true
         runtime.dna.loadStatus = source or "primary"
+        productionModules.userDataMigration.record(
+          runtime.migrationReport, "vehicleDNA", storedLibrary.schemaVersion,
+          normalized.schemaVersion, "preserved", {source = source}
+        )
       else
         local backupOk, backup = false, nil
         if type(adapter.loadDNALibraryBackup) == "function" then backupOk, backup = adapter.loadDNALibraryBackup() end
@@ -1121,13 +1146,28 @@ local function initialize()
           runtime.dna.loadStatus = libraryError or "invalid"
         end
       end
-    else runtime.dna.loadStatus = "unavailable" end
+    else
+      runtime.dna.loadStatus = "unavailable"
+      productionModules.userDataMigration.warning(runtime.migrationReport, "vehicle_dna_unavailable", storedLibrary)
+    end
   end
   if type(adapter.loadLineupLibrary) == "function" and runtime.capabilities.lineupRead then
-    local okLineups, storedLineups = adapter.loadLineupLibrary()
+    local okLineups, storedLineups, lineupSource = adapter.loadLineupLibrary()
     if okLineups then
       runtime.lineup.library = productionModules.lineupStorage.load(storedLineups, 20)
       runtime.lineup.loaded = true
+      productionModules.userDataMigration.record(
+        runtime.migrationReport, "lineups", storedLineups and storedLineups.schemaVersion,
+        runtime.lineup.library.schemaVersion, "preserved", {source = lineupSource}
+      )
+    else
+      productionModules.userDataMigration.warning(runtime.migrationReport, "lineups_unavailable", storedLineups)
+    end
+  end
+  if type(adapter.writeMigrationReport) == "function" then
+    local reported, reportError = adapter.writeMigrationReport(runtime.migrationReport)
+    if not reported then
+      productionModules.userDataMigration.warning(runtime.migrationReport, "migration_report_write_failed", reportError)
     end
   end
   runtime.history = historyModule.create(runtime.settings.historyLimit)
@@ -6928,7 +6968,8 @@ function production.processAIDirector()
       local ok, reason = false, managedReason
       if managed then ok, reason = productionModules.aiAdapter.start(entry.vehicleId, entry.mode, entry.options) end
       productionModules.aiDirector.setStatus(runtime.aiDirector, handle, ok and "running" or "failed", reason)
-      entry.startedAt, entry.lastProgressAt = now, now
+      entry.lastAttemptAt = now
+      if ok then entry.startedAt, entry.lastProgressAt = now, now end
     elseif entry and entry.status == "running" then
       local managed, managedReason = productionModules.managedRegistry.readyEntry(
         runtime.managedVehicles, handle, entry.targetGeneration

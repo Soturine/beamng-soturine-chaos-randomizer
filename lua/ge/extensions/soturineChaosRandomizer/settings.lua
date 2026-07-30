@@ -4,7 +4,7 @@ local vehicleDNALocks = require("ge/extensions/soturineChaosRandomizer/vehicleDN
 local M = {}
 
 local DEFAULTS = {
-  schemaVersion = 6,
+  schemaVersion = 7,
   chaos = 75,
   allowMissingParts = true,
   protectCriticalParts = false,
@@ -67,7 +67,7 @@ local function migrate(raw)
     raw.seedMode = "random"
   end
 
-  raw.schemaVersion = 6
+  raw.schemaVersion = 7
   raw.allowEmptyParts = nil
   raw.fairMode = nil
   raw.keepVehicleDrivable = nil
