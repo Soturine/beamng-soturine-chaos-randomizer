@@ -4,7 +4,7 @@
   "types": [
     "ui.apps.categories.vehicle_control"
   ],
-  "description": "Randomize vehicles and manage a compact Race workflow with best-effort mod support.",
+  "description": "Legacy Angular HUD App for vehicle randomization and compact Race workflows, hosted by the BeamNG runtime UI.",
   "css": {
     "right": "20px",
     "top": "120px",
@@ -14,7 +14,7 @@
     "min-height": "120px"
   },
   "author": "Soturine",
-  "version": "0.6.7",
+  "version": "0.6.8",
   "preserveAspectRatio": false,
   "directive": "soturineChaosRandomizer",
   "category": "Gameplay",

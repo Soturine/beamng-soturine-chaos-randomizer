@@ -1,20 +1,14 @@
 local util = require("ge/extensions/soturineChaosRandomizer/util")
+local pathIdentity = require("ge/extensions/soturineChaosRandomizer/pathIdentity")
 
 local M = {}
 
 local function normalizePath(value)
-  if type(value) ~= "string" then return nil end
-  local normalized = value:gsub("\\", "/"):gsub("/+", "/"):gsub("^%s+", ""):gsub("%s+$", "")
-  if normalized == "" then return nil end
-  if not normalized:lower():match("%.pc$") then normalized = normalized .. ".pc" end
-  if normalized:sub(1, 1) ~= "/" and normalized:find("/", 1, true) then normalized = "/" .. normalized end
-  return normalized:lower()
+  return pathIdentity.comparison(value)
 end
 
 local function stableKey(value)
-  local normalized = normalizePath(value)
-  if not normalized then return nil end
-  return normalized:match("([^/]+)%.pc$")
+  return pathIdentity.basename(value)
 end
 
 local function scopedKey(modelKey, value)
@@ -79,13 +73,14 @@ end
 local function expectation(record, loadedConfig)
   record = type(record) == "table" and record or {}
   local raw = type(record.raw) == "table" and record.raw or record
-  local pathValue = record.path or raw.pcFilename or raw.path
+  local pathValue = record.physicalPathExact or record.path or raw.pcFilename or raw.path
   local key = record.key or raw.key or stableKey(pathValue)
   if key ~= nil then key = tostring(key):lower():gsub("%.pc$", "") end
   return {
     modelKey = record.modelKey or raw.model_key or raw.modelKey or raw.model,
     key = key,
     path = normalizePath(pathValue),
+    physicalPathExact = pathIdentity.physical(pathValue),
     sourceKind = record.sourceKind,
     sourceLabel = record.sourceLabel,
     signature = signature(loadedConfig or raw.config or raw.loadedConfig),
@@ -157,6 +152,7 @@ local function resolveRegistryConfig(modelKey, pathValue, keyValue, signatureVal
 end
 
 M.normalizePath = normalizePath
+M.physicalPath = pathIdentity.physical
 M.stableKey = stableKey
 M.scopedKey = scopedKey
 M.signature = signature

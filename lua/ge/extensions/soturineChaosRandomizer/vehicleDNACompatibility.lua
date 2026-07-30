@@ -198,7 +198,7 @@ local function evaluate(entry, environment, mode)
   local currentEnvironment = {
     beamNGVersion = tostring(environment.gameVersion or "unknown"),
     extensionVersion = tostring(environment.extensionVersion or "unknown"),
-    targetBeamNG = tostring(environment.targetBeamNG or "0.38.6.0.19963"),
+    targetBeamNG = tostring(environment.targetBeamNG or "unknown"),
     schemaVersion = tonumber(entry.schemaVersion),
     generatorVersion = tonumber(environment.generatorVersion),
   }

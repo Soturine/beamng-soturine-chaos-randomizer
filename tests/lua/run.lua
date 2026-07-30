@@ -15,6 +15,9 @@ local adapter = require("ge/extensions/soturineChaosRandomizer/apiAdapter")
 local capabilities = require("ge/extensions/soturineChaosRandomizer/capabilities")
 local contentIndex = require("ge/extensions/soturineChaosRandomizer/contentIndex")
 local configVerification = require("ge/extensions/soturineChaosRandomizer/configVerification")
+local compatibility = require("ge/extensions/soturineChaosRandomizer/compatibility")
+local pathIdentity = require("ge/extensions/soturineChaosRandomizer/pathIdentity")
+local registryReadiness = require("ge/extensions/soturineChaosRandomizer/registryReadiness")
 local crc32 = require("ge/extensions/soturineChaosRandomizer/crc32")
 local failureAttribution = require("ge/extensions/soturineChaosRandomizer/failureAttribution")
 local energyStorageGuard = require("ge/extensions/soturineChaosRandomizer/energyStorageGuard")
@@ -5047,6 +5050,49 @@ tests.v066_known_conflicts_are_warning_only_and_never_disabled = function()
   end
 end
 
+tests.v068_compatibility_metadata_classification_is_explicit = function()
+  local metadata = {primaryBeamNGTarget = "0.39", minimumBeamNGVersion = "0.38.6"}
+  equal(compatibility.evaluate(metadata, "0.39.0.0").compatibilityState, "primary_target")
+  equal(compatibility.evaluate(metadata, "0.38.6.0").compatibilityState, "supported_legacy")
+  equal(compatibility.evaluate(metadata, "0.40.0.0").compatibilityState, "newer_unverified")
+  equal(compatibility.evaluate(metadata, "0.38.5.9").compatibilityState, "older_unsupported")
+  equal(compatibility.evaluate(metadata, "unknown").compatibilityState, "unknown")
+  truthy(#compatibility.evaluate(metadata, "0.40.0.0").compatibilityWarnings > 0)
+end
+
+tests.v068_paths_preserve_physical_case_and_reject_traversal = function()
+  local identity = pathIdentity.create("mods\\unpacked\\Pack\\vehicles\\Car\\Config.PC")
+  equal(identity.physicalPathExact, "/mods/unpacked/Pack/vehicles/Car/Config.PC")
+  equal(identity.comparisonPathNormalized, "/mods/unpacked/pack/vehicles/car/config.pc")
+  equal(identity.basenameKey, "config")
+  equal(configVerification.normalizePath(identity.physicalPathExact), identity.comparisonPathNormalized)
+  equal(pathIdentity.physical("/vehicles/Car/../Evil.pc"), nil)
+  equal(pathIdentity.physical("C:/outside/config.pc"), nil)
+  equal(pathIdentity.physical("https://outside/config.pc"), nil)
+end
+
+tests.v068_registry_readiness_is_bounded_and_atomic_index_is_preserved = function()
+  local state = registryReadiness.create({retryInterval = 0.5, timeout = 2, maxAttempts = 3})
+  registryReadiness.begin(state, 10, "test")
+  truthy(registryReadiness.due(state, 10))
+  equal(registryReadiness.observe(state, {modelsReady = true, configsReady = false, modelCount = 2}, 10), "partial")
+  equal(state.nextAttemptAt, 10.5)
+  equal(registryReadiness.observe(state, {modelsReady = false, configsReady = false}, 10.5), "warming_up")
+  equal(registryReadiness.observe(state, {modelsReady = false, configsReady = false}, 11), "failed_confirmed")
+  truthy(not registryReadiness.due(state, 20))
+
+  local index = contentIndex.create()
+  truthy(contentIndex.build(index, {{key = "Car"}}, {{model_key = "Car", key = "Base", pcFilename = "/vehicles/Car/Base.pc"}}, 1, 0))
+  local original = index.allConfigs[1]
+  equal(original.physicalPathExact, "/vehicles/Car/Base.pc")
+  equal(original.comparisonPathNormalized, "/vehicles/car/base.pc")
+  local rebuilt, counts = contentIndex.build(index, {}, {}, 2, 0)
+  equal(rebuilt, false)
+  equal(counts.cachePreserved, true)
+  equal(index.allConfigs[1].technicalId, original.technicalId)
+  equal(index.allConfigs[1].physicalPathExact, "/vehicles/Car/Base.pc")
+end
+
 tests.v067_domain_operations_isolate_chaos_race_and_garage = function()
   local state = domainOperations.create()
   local race = assert(domainOperations.begin(state, {
@@ -5948,6 +5994,29 @@ local v067Required = {
   {"lineup_import_preserves_race_policy", tests.v067_race_policy_inventory_and_roundtrip},
 }
 
+local v068Required = {
+  {"central_compatibility_metadata_is_classified", tests.v068_compatibility_metadata_classification_is_explicit},
+  {"primary_target_is_explicit", tests.v068_compatibility_metadata_classification_is_explicit},
+  {"minimum_supported_is_explicit", tests.v068_compatibility_metadata_classification_is_explicit},
+  {"newer_build_is_unverified", tests.v068_compatibility_metadata_classification_is_explicit},
+  {"older_build_is_unsupported", tests.v068_compatibility_metadata_classification_is_explicit},
+  {"unknown_build_has_warning", tests.v068_compatibility_metadata_classification_is_explicit},
+  {"physical_path_preserves_case", tests.v068_paths_preserve_physical_case_and_reject_traversal},
+  {"comparison_path_is_lowercase", tests.v068_paths_preserve_physical_case_and_reject_traversal},
+  {"basename_is_separate_identity", tests.v068_paths_preserve_physical_case_and_reject_traversal},
+  {"path_traversal_is_rejected", tests.v068_paths_preserve_physical_case_and_reject_traversal},
+  {"external_drive_path_is_rejected", tests.v068_paths_preserve_physical_case_and_reject_traversal},
+  {"uri_path_is_rejected", tests.v068_paths_preserve_physical_case_and_reject_traversal},
+  {"registry_partial_state_is_explicit", tests.v068_registry_readiness_is_bounded_and_atomic_index_is_preserved},
+  {"registry_retry_is_wall_clock_bounded", tests.v068_registry_readiness_is_bounded_and_atomic_index_is_preserved},
+  {"registry_failure_is_confirmed", tests.v068_registry_readiness_is_bounded_and_atomic_index_is_preserved},
+  {"registry_retry_stops_at_budget", tests.v068_registry_readiness_is_bounded_and_atomic_index_is_preserved},
+  {"valid_index_survives_empty_read", tests.v068_registry_readiness_is_bounded_and_atomic_index_is_preserved},
+  {"registry_model_key_is_internal", tests.v068_registry_readiness_is_bounded_and_atomic_index_is_preserved},
+  {"registry_config_key_is_internal", tests.v068_registry_readiness_is_bounded_and_atomic_index_is_preserved},
+  {"technical_id_is_translation_independent", tests.v068_registry_readiness_is_bounded_and_atomic_index_is_preserved},
+}
+
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")
 equal(#v060Required, 104, "0.6.0 required scenario registry")
 equal(#v060PauseLifecycleRequired, 52, "0.6.0 pause lifecycle scenario registry")
@@ -5973,6 +6042,9 @@ for _, scenario in ipairs(v066Required) do
 end
 for _, scenario in ipairs(v067Required) do
   requirementMappings[#requirementMappings + 1] = {"0.6.7:" .. scenario[1], scenario[2]}
+end
+for _, scenario in ipairs(v068Required) do
+  requirementMappings[#requirementMappings + 1] = {"0.6.8:" .. scenario[1], scenario[2]}
 end
 
 local canonicalByFunction = {}

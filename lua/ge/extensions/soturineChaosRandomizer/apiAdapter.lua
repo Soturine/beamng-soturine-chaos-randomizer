@@ -18,6 +18,8 @@ local DNA_THUMBNAIL_DIRECTORY = "/settings/soturineChaosRandomizer/vehicleDNA/th
 local LINEUP_LIBRARY_PATH = "/settings/soturineChaosRandomizer/lineups/library.json"
 local LINEUP_EXPORT_PATH = "/settings/soturineChaosRandomizer/lineups/export.lineup.json"
 local LINEUP_IMPORT_PATH = "/settings/soturineChaosRandomizer/lineups/inbox.lineup.json"
+local COMPATIBILITY_PATH = "/COMPATIBILITY.json"
+local CONTENT_ALIASES_PATH = "/settings/soturineChaosRandomizer/contentAliases.json"
 
 local jbeamIO
 local entropySequence = 0
@@ -267,7 +269,7 @@ local function captureCurrentState(operationType, seed, expectedVehicleId)
   if finalVehicleId ~= vehicleId then return false, targetError(vehicleId, finalVehicleId, "capture_readback") end
   return true, {
     modelKey = modelKey,
-    selectedConfiguration = configVerification.normalizePath(config.partConfigFilename),
+    selectedConfiguration = configVerification.physicalPath(config.partConfigFilename),
     config = util.deepCopy(config),
     partsTree = util.deepCopy(config.partsTree or {}),
     tuning = util.deepCopy(config.vars or {}),
@@ -280,27 +282,12 @@ local function captureCurrentState(operationType, seed, expectedVehicleId)
   }
 end
 
-local function getRegistryData()
-  if type(core_vehicles) ~= "table" or type(core_vehicles.getModelList) ~= "function" or type(core_vehicles.getConfigList) ~= "function" then
-    return false, errorValue("unsupported_api", "The BeamNG vehicle registry is unavailable")
-  end
-  local ok, result = safeCall("vehicle registry", function()
-    local modelResult = core_vehicles.getModelList(true)
-    local configResult = core_vehicles.getConfigList(true)
-    return {
-      models = type(modelResult) == "table" and modelResult.models or nil,
-      configs = type(configResult) == "table" and configResult.configs or nil,
-    }
-  end)
-  if not ok then return false, result end
-  if type(result.models) ~= "table" or type(result.configs) ~= "table" then
-    return false, errorValue("invalid_registry", "The vehicle registry returned an unexpected structure")
-  end
-  result = util.deepCopy(result)
+local function enrichRegistryConfigs(configs)
+  configs = util.deepCopy(type(configs) == "table" and configs or {})
   local modManager = type(core_modmanager) == "table" and core_modmanager
     or type(extensions) == "table" and extensions.core_modmanager
   if type(modManager) == "table" and type(modManager.getModFromPath) == "function" then
-    for _, config in pairs(result.configs) do
+    for _, config in pairs(configs) do
       local label = type(config) == "table" and util.normalizeText(config.Source or config.source) or ""
       local hasExplicitSource = type(config) == "table" and (
         config.userSaved == true or config.player == true or config.modID ~= nil or config.modId ~= nil
@@ -310,9 +297,7 @@ local function getRegistryData()
         local owned, mod = pcall(modManager.getModFromPath, config.pcFilename)
         if owned and type(mod) == "table" then
           config.pathOwnership = {
-            kind = "mod",
-            modID = mod.modID,
-            modName = mod.modname,
+            kind = "mod", modID = mod.modID, modName = mod.modname,
             sourceLabel = mod.modData and mod.modData.title or mod.modname,
             strategy = "core_modmanager.getModFromPath",
           }
@@ -320,7 +305,49 @@ local function getRegistryData()
       end
     end
   end
-  return true, result
+  return configs
+end
+
+local function readRegistrySnapshot()
+  if type(core_vehicles) ~= "table" or type(core_vehicles.getModelList) ~= "function" or type(core_vehicles.getConfigList) ~= "function" then
+    return true, {
+      modelsReady = false, configsReady = false, models = {}, configs = {},
+      modelCount = 0, configCount = 0, issues = {"registry_api_unavailable"},
+    }
+  end
+  local snapshot = {models = {}, configs = {}, issues = {}}
+  local okModels, modelResult = pcall(core_vehicles.getModelList, true)
+  if okModels and type(modelResult) == "table" and type(modelResult.models) == "table" then
+    snapshot.models = util.deepCopy(modelResult.models)
+    snapshot.modelsReady = next(snapshot.models) ~= nil
+  else
+    snapshot.modelsReady = false
+    snapshot.issues[#snapshot.issues + 1] = okModels and "models_unexpected_shape" or "models_api_failure"
+  end
+  local okConfigs, configResult = pcall(core_vehicles.getConfigList, true)
+  if okConfigs and type(configResult) == "table" and type(configResult.configs) == "table" then
+    snapshot.configs = enrichRegistryConfigs(configResult.configs)
+    snapshot.configsReady = next(snapshot.configs) ~= nil
+  else
+    snapshot.configsReady = false
+    snapshot.issues[#snapshot.issues + 1] = okConfigs and "configs_unexpected_shape" or "configs_api_failure"
+  end
+  for _ in pairs(snapshot.models) do snapshot.modelCount = (snapshot.modelCount or 0) + 1 end
+  for _ in pairs(snapshot.configs) do snapshot.configCount = (snapshot.configCount or 0) + 1 end
+  snapshot.modelCount = snapshot.modelCount or 0
+  snapshot.configCount = snapshot.configCount or 0
+  return true, snapshot
+end
+
+local function getRegistryData()
+  local ok, snapshot = readRegistrySnapshot()
+  if not ok then return false, snapshot end
+  if snapshot.modelsReady ~= true or snapshot.configsReady ~= true then
+    return false, errorValue("registry_not_ready", "The BeamNG vehicle registry is not fully ready", {
+      issues = snapshot.issues, models = snapshot.modelCount, configurations = snapshot.configCount,
+    })
+  end
+  return true, {models = snapshot.models, configs = snapshot.configs}
 end
 
 local function vehicleObjectId(vehicle)
@@ -379,8 +406,11 @@ local function detectKnownConflicts()
     if seen[id] then return end
     seen[id] = true
     result[#result + 1] = {
-      id = id, label = label, evidence = evidence,
-      action = "warning_only", disabledByRandomizer = false,
+      id = id, conflictId = id, label = label, evidence = evidence,
+      loadedExtension = evidence:match("^loaded_extension:(.+)$"),
+      mountedPath = evidence:find("mounted_", 1, true) and evidence or nil,
+      action = "warning_only", recommendedAction = "Temporarily disable overlapping vehicle mutation while reproducing an issue.",
+      disabledByRandomizer = false,
       message = label .. " may also replace or mutate vehicles during Chaos/Race operations.",
     }
   end
@@ -390,6 +420,12 @@ local function detectKnownConflicts()
       if normalized:find("beamlr", 1, true) then add("beamlr", "BeamLR", "loaded_extension:" .. tostring(name)) end
       if normalized:find("driver_assistance", 1, true) or normalized:find("angelo234", 1, true) then
         add("driver_assistance_angelo234", "Driver Assistance (angelo234)", "loaded_extension:" .. tostring(name))
+      end
+      if normalized:find("randomizer", 1, true) and not normalized:find("soturinechaosrandomizer", 1, true) then
+        add("other_vehicle_randomizer", "Another vehicle randomizer", "loaded_extension:" .. tostring(name))
+      end
+      if normalized:find("multiplayer", 1, true) or normalized:find("beammp", 1, true) or normalized:find("kissmp", 1, true) then
+        add("multiplayer_vehicle_sync", "Multiplayer vehicle synchronization", "loaded_extension:" .. tostring(name))
       end
     end
   end
@@ -785,7 +821,7 @@ end
 
 local function prepareConfigExpectation(configRecord)
   configRecord = type(configRecord) == "table" and configRecord or {}
-  local pathValue = configRecord.path or (configRecord.raw and configRecord.raw.pcFilename)
+  local pathValue = configRecord.physicalPathExact or configRecord.path or (configRecord.raw and configRecord.raw.pcFilename)
   local loadedConfig
   if type(pathValue) == "string" and type(jsonReadFile) == "function" then
     local ok, value = pcall(jsonReadFile, pathValue)
@@ -1195,6 +1231,18 @@ local function getGameVersion()
   return tostring(beamng_versiond or beamng_version or "unknown")
 end
 
+local function readMetadata(path, code)
+  if type(jsonReadFile) ~= "function" then return false, errorValue(code, "JSON metadata is unavailable") end
+  local ok, value = pcall(jsonReadFile, path)
+  if not ok or type(value) ~= "table" then
+    return false, errorValue(code, "JSON metadata is missing or malformed", {path = path, detail = ok and nil or tostring(value)})
+  end
+  return true, util.deepCopy(value)
+end
+
+local function loadCompatibilityMetadata() return readMetadata(COMPATIBILITY_PATH, "compatibility_metadata_unavailable") end
+local function loadContentAliases() return readMetadata(CONTENT_ALIASES_PATH, "content_aliases_unavailable") end
+
 M.errorValue = errorValue
 M.getCapabilities = getCapabilities
 M.getCurrentVehicleId = getCurrentVehicleId
@@ -1204,6 +1252,7 @@ M.getCurrentModelKey = getCurrentModelKey
 M.getCurrentConfig = getCurrentConfig
 M.captureCurrentState = captureCurrentState
 M.getRegistryData = getRegistryData
+M.readRegistrySnapshot = readRegistrySnapshot
 M.enterVehicle = enterVehicle
 M.requestFluidEvidence = requestFluidEvidence
 M.detectKnownConflicts = detectKnownConflicts
@@ -1243,6 +1292,8 @@ M.getPauseState = getPauseState
 M.getSimulationSpeed = getSimulationSpeed
 M.entropy = entropy
 M.getGameVersion = getGameVersion
+M.loadCompatibilityMetadata = loadCompatibilityMetadata
+M.loadContentAliases = loadContentAliases
 M.getVerificationState = getVerificationState
 M.flattenChosenParts = flattenChosenParts
 M._callContract = callContract
@@ -1256,5 +1307,7 @@ M.DNA_THUMBNAIL_DIRECTORY = DNA_THUMBNAIL_DIRECTORY
 M.LINEUP_LIBRARY_PATH = LINEUP_LIBRARY_PATH
 M.LINEUP_EXPORT_PATH = LINEUP_EXPORT_PATH
 M.LINEUP_IMPORT_PATH = LINEUP_IMPORT_PATH
+M.COMPATIBILITY_PATH = COMPATIBILITY_PATH
+M.CONTENT_ALIASES_PATH = CONTENT_ALIASES_PATH
 
 return M

@@ -64,7 +64,7 @@ local function create(options)
   local environment = {
     beamNGVersion = tostring(options.gameVersion or "unknown"),
     extensionVersion = tostring(options.extensionVersion or "unknown"),
-    targetBeamNG = tostring(options.targetBeamNG or "0.38.6.0.19963"),
+    targetBeamNG = tostring(options.targetBeamNG or "unknown"),
     schemaVersion = schema.SCHEMA_VERSION,
     generatorVersion = schema.GENERATOR_VERSION,
   }

@@ -3,7 +3,7 @@
 <section class="bngApp scr-app" ng-class="'scr-mode-' + (chaos.state.uiMode || 'expanded')" aria-label="Soturine's Chaos Randomizer">
   <header class="scr-header">
     <div class="scr-brand"><span class="scr-fox" aria-hidden="true"></span><div><span>SOTURINE'S</span><h1>CHAOS RANDOMIZER</h1></div></div>
-    <div class="scr-window-tools"><span>{{chaos.state.extensionVersion || '0.6.7'}}</span><button type="button" ng-click="chaos.toggleMode()" ng-attr-aria-label="{{chaos.state.uiMode === 'collapsed' ? 'Expand app' : 'Collapse app'}}">{{chaos.state.uiMode === 'collapsed' ? '▾' : '▴'}}</button><button type="button" ng-click="chaos.openView('settings')" aria-label="Open settings">⚙</button></div>
+    <div class="scr-window-tools"><span>{{chaos.state.extensionVersion || '0.6.8'}}</span><button type="button" ng-click="chaos.toggleMode()" ng-attr-aria-label="{{chaos.state.uiMode === 'collapsed' ? 'Expand app' : 'Collapse app'}}">{{chaos.state.uiMode === 'collapsed' ? '▾' : '▴'}}</button><button type="button" ng-click="chaos.openView('settings')" aria-label="Open settings">⚙</button></div>
   </header>
 
   <div class="scr-conflict-warning" ng-if="chaos.state.conflicts.length"><strong>Compatibility warning</strong><span ng-repeat="conflict in chaos.state.conflicts track by conflict.id">{{conflict.label}} detected. {{conflict.message}} The Randomizer did not disable it.</span></div>

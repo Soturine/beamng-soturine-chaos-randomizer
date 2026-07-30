@@ -1,5 +1,6 @@
 local util = require("ge/extensions/soturineChaosRandomizer/util")
 local configVerification = require("ge/extensions/soturineChaosRandomizer/configVerification")
+local pathIdentity = require("ge/extensions/soturineChaosRandomizer/pathIdentity")
 
 local M = {}
 
@@ -52,16 +53,25 @@ local function sourceStrategy(item)
   return "unknown"
 end
 
-local function normalizeModel(raw)
+local function normalizeModel(raw, aliases)
+  aliases = type(aliases) == "table" and aliases or {}
   local key = raw.key or raw.model_key or raw.modelKey
   if type(key) ~= "string" or key == "" then return nil end
   local itemType = raw.Type or raw.type or raw.Category or raw.category or "Unknown"
   local source = raw.Source or raw.source or "Unknown"
   local normalizedType = util.normalizeText(itemType)
 
+  local registryModelKey = tostring(key)
+  local aliasKey = util.normalizeText(registryModelKey)
   return {
     key = key,
+    registryModelKey = registryModelKey,
+    technicalId = "model:" .. aliasKey,
     name = raw.Name or raw.name or key,
+    displayName = raw.Name or raw.name or key,
+    vehicleFamily = aliases.vehicleFamilies and aliases.vehicleFamilies[aliasKey] or registryModelKey,
+    displayGroup = aliases.displayGroups and aliases.displayGroups[aliasKey]
+      or raw.subModel or raw.vehicleSelectorSubGroup,
     brand = raw.Brand or raw.brand or "",
     type = itemType,
     sourceKind = sourceKind(raw),
@@ -76,7 +86,8 @@ local function normalizeModel(raw)
   }
 end
 
-local function normalizeConfig(raw, modelsByKey)
+local function normalizeConfig(raw, modelsByKey, aliases)
+  aliases = type(aliases) == "table" and aliases or {}
   local modelKey = raw.model_key or raw.modelKey or raw.model
   local key = raw.key or raw.config_key or raw.configKey
   if type(modelKey) ~= "string" or modelKey == "" or type(key) ~= "string" or key == "" then return nil end
@@ -89,12 +100,27 @@ local function normalizeConfig(raw, modelsByKey)
   end
   source = source or "Unknown"
   local kind = sourceKind(raw)
+  local identity, pathReason = pathIdentity.create(raw.pcFilename or raw.path or key)
+  if not identity then return nil, pathReason end
+  local registryConfigKey = tostring(key):gsub("%.pc$", "")
+  local aliasKey = util.normalizeText(modelKey) .. "::" .. util.normalizeText(registryConfigKey)
   return {
     modelKey = modelKey,
     key = key,
+    registryModelKey = modelKey,
+    registryConfigKey = registryConfigKey,
+    technicalId = "config:" .. aliasKey,
     name = raw.Name or raw.Configuration or raw.name or key,
-    path = configVerification.normalizePath(raw.pcFilename or raw.path or key),
+    displayName = raw.Name or raw.Configuration or raw.name or key,
+    path = identity.physicalPathExact,
+    physicalPathExact = identity.physicalPathExact,
+    comparisonPathNormalized = identity.comparisonPathNormalized,
+    basenameKey = identity.basenameKey,
     scopedKey = configVerification.scopedKey(modelKey, key),
+    vehicleFamily = model.vehicleFamily,
+    displayGroup = model.displayGroup,
+    alias = aliases.configAliases and aliases.configAliases[aliasKey] or nil,
+    identityState = "registry_confirmed",
     sourceKind = kind,
     sourceLabel = source,
     sourceStrategy = sourceStrategy(raw),
@@ -128,19 +154,19 @@ local function create()
   }
 end
 
-local function build(index, rawModels, rawConfigs, builtAt, duration)
-  index.models = {}
-  index.modelsByKey = {}
-  index.allConfigs = {}
+local function build(index, rawModels, rawConfigs, builtAt, duration, aliases)
+  local candidate = {
+    models = {}, modelsByKey = {}, allConfigs = {},
+  }
 
   local models = valuesSorted(rawModels, function(raw)
     return tostring(raw.key or raw.model_key or raw.modelKey or "")
   end)
   for _, raw in ipairs(models) do
-    local model = normalizeModel(raw)
+    local model = normalizeModel(raw, aliases)
     if model then
-      index.models[#index.models + 1] = model
-      index.modelsByKey[model.key] = model
+      candidate.models[#candidate.models + 1] = model
+      candidate.modelsByKey[model.key] = model
     end
   end
 
@@ -148,21 +174,31 @@ local function build(index, rawModels, rawConfigs, builtAt, duration)
     return tostring(raw.model_key or raw.modelKey or raw.model or "") .. "/" .. tostring(raw.key or raw.config_key or raw.configKey or "")
   end)
   for _, raw in ipairs(configs) do
-    local config = normalizeConfig(raw, index.modelsByKey)
+    local config = normalizeConfig(raw, candidate.modelsByKey, aliases)
     if config then
-      local model = index.modelsByKey[config.modelKey]
+      local model = candidate.modelsByKey[config.modelKey]
       model.configs[#model.configs + 1] = config
-      index.allConfigs[#index.allConfigs + 1] = config
+      candidate.allConfigs[#candidate.allConfigs + 1] = config
     end
   end
 
-  for _, model in ipairs(index.models) do
+  for _, model in ipairs(candidate.models) do
     table.sort(model.configs, function(a, b) return a.key < b.key end)
   end
-  index.valid = #index.models > 0 and #index.allConfigs > 0
+  local valid = #candidate.models > 0 and #candidate.allConfigs > 0
+  if not valid then
+    return false, {
+      models = #candidate.models, configurations = #candidate.allConfigs,
+      duration = tonumber(duration) or 0, cachePreserved = index.valid == true,
+    }
+  end
+  index.models = candidate.models
+  index.modelsByKey = candidate.modelsByKey
+  index.allConfigs = candidate.allConfigs
+  index.valid = true
   index.builtAt = builtAt
   index.duration = tonumber(duration) or 0
-  return index.valid, {
+  return true, {
     models = #index.models,
     configurations = #index.allConfigs,
     duration = index.duration,

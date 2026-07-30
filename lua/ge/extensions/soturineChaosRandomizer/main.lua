@@ -47,6 +47,8 @@ local vehicleRecovery = require("ge/extensions/soturineChaosRandomizer/vehicleRe
 local vehicleTargetTracker = require("ge/extensions/soturineChaosRandomizer/vehicleTargetTracker")
 local vehicleStabilizer = require("ge/extensions/soturineChaosRandomizer/vehicleStabilizer")
 local productionModules = {
+  compatibility = require("ge/extensions/soturineChaosRandomizer/compatibility"),
+  registryReadiness = require("ge/extensions/soturineChaosRandomizer/registryReadiness"),
   raceManager = require("ge/extensions/soturineChaosRandomizer/raceManager"),
   lineupSchema = require("ge/extensions/soturineChaosRandomizer/lineupSchema"),
   lineupStorage = require("ge/extensions/soturineChaosRandomizer/lineupStorage"),
@@ -71,8 +73,7 @@ local production = {}
 
 M.dependencies = {"core_modmanager", "core_vehicle_manager", "core_vehicle_partmgmt", "core_vehicles"}
 
-local EXTENSION_VERSION = "0.6.7"
-local TARGET_BEAMNG = "0.38.6.0.19963"
+local EXTENSION_VERSION = "0.6.8"
 local WAIT_TIMEOUT = 25
 local PAINT_CONFIRM_TIMEOUT = 2
 local RECENT_LIMIT = 4
@@ -101,6 +102,9 @@ local runtime = {
   recentCompletedDNA = {},
   capabilities = {},
   conflicts = {},
+  compatibility = productionModules.compatibility.evaluate({}, "unknown"),
+  contentAliases = {},
+  registry = productionModules.registryReadiness.create(),
   recovery = vehicleRecovery.create(),
   lineup = {
     current = nil,
@@ -363,6 +367,11 @@ local function publicState()
   return {
     extensionVersion = EXTENSION_VERSION,
     gameVersion = adapter.getGameVersion(),
+    detectedGameVersion = runtime.compatibility.detectedGameVersion,
+    primaryTarget = runtime.compatibility.primaryTarget,
+    minimumSupported = runtime.compatibility.minimumSupported,
+    compatibilityState = runtime.compatibility.compatibilityState,
+    compatibilityWarnings = util.deepCopy(runtime.compatibility.compatibilityWarnings),
     busy = operationState.deriveBusy(runtime.state),
     operationState = runtime.state.state,
     lifecyclePhase = runtime.state.phase,
@@ -461,6 +470,9 @@ local function publicState()
     lastResult = util.deepCopy(runtime.lastResult),
     lastFailure = util.deepCopy(runtime.lastFailure),
     index = {
+      valid = runtime.index.valid == true,
+      stale = runtime.index.stale == true,
+      registry = productionModules.registryReadiness.summary(runtime.registry),
       models = #runtime.index.models,
       configurations = #runtime.index.allConfigs,
       duration = runtime.index.duration,
@@ -1060,6 +1072,17 @@ local function initialize()
   runtime.capabilities = adapter.getCapabilities()
   runtime.conflicts = type(adapter.detectKnownConflicts) == "function"
     and adapter.detectKnownConflicts() or {}
+  local okCompatibility, compatibilityMetadata = false, nil
+  if type(adapter.loadCompatibilityMetadata) == "function" then
+    okCompatibility, compatibilityMetadata = adapter.loadCompatibilityMetadata()
+  end
+  runtime.compatibility = productionModules.compatibility.evaluate(
+    okCompatibility and compatibilityMetadata or {}, adapter.getGameVersion()
+  )
+  local okAliases, aliases = false, nil
+  if type(adapter.loadContentAliases) == "function" then okAliases, aliases = adapter.loadContentAliases() end
+  runtime.contentAliases = okAliases and aliases or {}
+  productionModules.registryReadiness.begin(runtime.registry, adapter.clock(), "extension_load")
   local okSettings, stored = adapter.loadSettings()
   if okSettings then runtime.settings = settingsModule.validate(stored) end
   runtime.dna.library.limit = runtime.settings.dnaLibraryLimit
@@ -1103,23 +1126,48 @@ local function initialize()
   diagnosticsModule.write(runtime.diagnostics, "I", "extension_loaded", {
     extensionVersion = EXTENSION_VERSION,
     gameVersion = adapter.getGameVersion(),
+    compatibility = runtime.compatibility,
     capabilities = runtime.capabilities,
   }, true)
 end
 
 local function rebuildIndex()
   local started = adapter.clock()
-  local okRegistry, registry = adapter.getRegistryData()
+  local okRegistry, registry
+  if type(adapter.readRegistrySnapshot) == "function" then
+    okRegistry, registry = adapter.readRegistrySnapshot()
+  else
+    okRegistry, registry = adapter.getRegistryData()
+    if okRegistry then
+      registry.modelsReady, registry.configsReady = true, true
+      registry.modelCount, registry.configCount = 1, 1
+      registry.issues = {}
+    end
+  end
   if not okRegistry then
     productionModules.performanceMetrics.record(runtime.performanceTelemetry, "indexing", math.max(0, (adapter.clock() - started) * 1000))
     return false, registry
   end
-  local ok, counts = contentIndex.build(runtime.index, registry.models, registry.configs, os.time(), adapter.clock() - started)
+  local readinessState = productionModules.registryReadiness.observe(runtime.registry, registry, adapter.clock())
+  if readinessState ~= "ready" then
+    productionModules.performanceMetrics.record(runtime.performanceTelemetry, "indexing", math.max(0, (adapter.clock() - started) * 1000))
+    return false, adapter.errorValue(
+      readinessState == "failed_confirmed" and "registry_failed_confirmed" or "registry_warming_up",
+      readinessState == "failed_confirmed" and "The BeamNG vehicle registry did not become ready within the retry budget"
+        or "The BeamNG vehicle registry is still warming up",
+      productionModules.registryReadiness.summary(runtime.registry)
+    )
+  end
+  local ok, counts = contentIndex.build(
+    runtime.index, registry.models, registry.configs, os.time(), adapter.clock() - started,
+    runtime.contentAliases
+  )
   productionModules.performanceMetrics.record(runtime.performanceTelemetry, "indexing", math.max(0, (adapter.clock() - started) * 1000))
   if not ok then return false, adapter.errorValue("no_eligible_content", "No eligible vehicle configurations were discovered") end
   counts.sources = sourceCounts()
   runtime.performance.indexBuilds = runtime.performance.indexBuilds + 1
   runtime.performance.lastIndexDuration = counts.duration
+  runtime.index.stale = false
   diagnosticsModule.write(runtime.diagnostics, "I", "content_index_built", counts, true)
   return true, counts
 end
@@ -1132,6 +1180,9 @@ local function ensureIndex()
   local transitioned = operationState.transition(runtime.state, "indexing", false)
   if not transitioned then return false, adapter.errorValue("state_error", "Could not enter indexing state") end
   setProgress("Indexing installed content", 0.08)
+  if runtime.registry.state == "unavailable" or runtime.registry.state == "failed_confirmed" then
+    productionModules.registryReadiness.begin(runtime.registry, adapter.clock(), "operation_requires_index")
+  end
   return rebuildIndex()
 end
 
@@ -3541,7 +3592,8 @@ local function startReindex()
     return false
   end
   contentIndex.clearFailures(runtime.index)
-  runtime.index.valid = false
+  runtime.index.stale = true
+  productionModules.registryReadiness.begin(runtime.registry, adapter.clock(), "manual_reindex")
   if runtime.state.state ~= "idle" then operationState.reset(runtime.state) end
   local okBegin, token = operationState.begin(runtime.state, "reindex", nil, WAIT_TIMEOUT)
   if not okBegin then return false end
@@ -4291,7 +4343,7 @@ local function localImportCompatibility(entry)
     availableModIDs = availableModIDs,
     gameVersion = adapter.getGameVersion(),
     extensionVersion = EXTENSION_VERSION,
-    targetBeamNG = TARGET_BEAMNG,
+    targetBeamNG = runtime.compatibility.primaryTarget or "unknown",
     generatorVersion = vehicleDNASchema.GENERATOR_VERSION,
   }, "compatible")
 end
@@ -4605,7 +4657,7 @@ local function dnaEnvironment(entry)
     paints = snapshot.paints or {},
     gameVersion = adapter.getGameVersion(),
     extensionVersion = EXTENSION_VERSION,
-    targetBeamNG = TARGET_BEAMNG,
+    targetBeamNG = runtime.compatibility.primaryTarget or "unknown",
     generatorVersion = vehicleDNASchema.GENERATOR_VERSION,
     currentModelKey = currentModel,
     currentConfigPath = currentConfigPath,
@@ -5770,7 +5822,8 @@ local function onClientEndMission()
 end
 
 local function onModStateChanged(modData)
-  runtime.index.valid = false
+  runtime.index.stale = true
+  productionModules.registryReadiness.begin(runtime.registry, adapter.clock(), "mod_state_changed")
   contentIndex.clearFailures(runtime.index)
   diagnosticsModule.write(runtime.diagnostics, "I", "content_index_invalidated", {
     mod = type(modData) == "table" and modData.modname or nil,
@@ -7140,6 +7193,11 @@ local function onUpdate(dtReal, dtSim, dtRaw)
     if okPause then pauseKnown, paused = true, pauseValue end
   end
   timeSource.sample(runtime.time, dtReal, dtSim, dtRaw, pauseKnown and paused or nil, adapter.clock())
+  if productionModules.registryReadiness.due(runtime.registry, adapter.clock()) then
+    local previousRegistryState = runtime.registry.state
+    local indexed = rebuildIndex()
+    if indexed or runtime.registry.state ~= previousRegistryState then publishState() end
+  end
   local fluidWorkHandled = production.processEngineFluidGuard()
   local activeAtFrameStart = runtime.active
   if activeAtFrameStart and activeAtFrameStart.progressWatchdog then

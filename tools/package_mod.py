@@ -21,13 +21,12 @@ except ModuleNotFoundError:  # Direct execution: python tools/package_mod.py
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 CONTENT_ROOTS = ("lua", "ui", "settings")
 OPTIONAL_CONTENT_ROOTS = ("mod_info",)
-PACKAGE_FILES = ("LICENSE", "NOTICE", "VERSION")
+PACKAGE_FILES = ("COMPATIBILITY.json", "LICENSE", "NOTICE", "VERSION")
 ARCHIVE_PREFIX = "soturine_chaos_randomizer_"
 FIXED_TIMESTAMP = (2026, 1, 1, 0, 0, 0)
 TEXT_SUFFIXES = {".css", ".html", ".js", ".json", ".lua", ".md", ".svg", ".txt", ".xml"}
 TEXT_FILENAMES = {"LICENSE", "NOTICE", "VERSION"}
-TARGET_BEAMNG = "0.38.6.0.19963"
-GENERATOR_VERSION = 6
+GENERATOR_VERSION = 7
 DNA_SCHEMA_VERSION = 1
 LIVE_RESULTS = ("Executed", "Passed", "Failed", "Pending", "Blocked", "Not applicable")
 
@@ -76,6 +75,16 @@ def read_version(root: Path = REPOSITORY_ROOT) -> str:
     if not version or any(character in version for character in "\\/\0"):
         raise ValueError("VERSION must contain one safe, non-empty version string")
     return version
+
+
+def read_compatibility(root: Path = REPOSITORY_ROOT) -> dict[str, object]:
+    value = json.loads((root / "COMPATIBILITY.json").read_text(encoding="utf-8"))
+    required = ("modVersion", "primaryBeamNGTarget", "minimumBeamNGVersion", "liveValidationStatus")
+    if not isinstance(value, dict) or any(not isinstance(value.get(key), str) for key in required):
+        raise ValueError("COMPATIBILITY.json is missing required string fields")
+    if value["modVersion"] != read_version(root):
+        raise ValueError("COMPATIBILITY.json modVersion must match VERSION")
+    return value
 
 
 def release_identity(version: str) -> dict[str, object]:
@@ -220,8 +229,25 @@ def write_release_manifest(archive: Path, output: Path | None = None, root: Path
     report = build_report(archive, root)
     identity = release_identity(str(report["version"]))
     tests = test_counts(root)
+    compatibility = read_compatibility(root)
+    automated_tests = {
+        "status": "passed",
+        "pythonTestMethods": tests["pythonTestMethodsUnique"],
+        "luaExecutedCases": tests["luaExecutedCases"],
+        "luaRequirementMappings": tests["luaRequirementMappings"],
+        "javaScriptChecks": tests["javaScriptChecks"],
+    }
+    live_tests = {
+        "status": "Pending owner validation",
+        "executed": tests["interactiveExecuted"],
+        "passed": tests["interactivePassed"],
+        "failed": tests["interactiveFailed"],
+        "pending": tests["interactivePending"],
+        "blocked": tests["interactiveBlocked"],
+    }
     manifest = {
         "manifestVersion": 3,
+        "modVersion": report["version"],
         "version": report["version"],
         "tag": identity["tag"],
         "releaseStage": identity["releaseStage"],
@@ -235,17 +261,23 @@ def write_release_manifest(archive: Path, output: Path | None = None, root: Path
         "bytes": report["bytes"],
         "entries": report["entries"],
         "sha256": report["sha256"],
-        "targetBeamNG": TARGET_BEAMNG,
+        "primaryBeamNGTarget": compatibility["primaryBeamNGTarget"],
+        "minimumBeamNGVersion": compatibility["minimumBeamNGVersion"],
+        "detectedOrDeclaredCompatibility": {
+            "source": "COMPATIBILITY.json",
+            "testedGameVersions": compatibility.get("testedGameVersions", []),
+            "liveValidationStatus": compatibility["liveValidationStatus"],
+        },
+        "targetBeamNG": compatibility["primaryBeamNGTarget"],
+        "fileCount": report["entries"],
+        "zipSize": report["bytes"],
+        "zipSha256": report["sha256"],
         "generatorVersion": GENERATOR_VERSION,
         "vehicleDNASchemaVersion": DNA_SCHEMA_VERSION,
         "tests": tests,
-        "automatedValidation": {
-            "status": "passed",
-            "pythonTestMethods": tests["pythonTestMethodsUnique"],
-            "luaExecutedCases": tests["luaExecutedCases"],
-            "luaRequirementMappings": tests["luaRequirementMappings"],
-            "javaScriptChecks": tests["javaScriptChecks"],
-        },
+        "automatedTests": automated_tests,
+        "liveTests": live_tests,
+        "automatedValidation": automated_tests,
         "liveValidation": {
             "status": "pending_owner_validation",
             "executed": tests["interactiveExecuted"],
