@@ -1,5 +1,30 @@
 # Architecture
 
+## v0.6.8 BeamNG 0.39 compatibility model
+
+`COMPATIBILITY.json` feeds the package manifest and runtime compatibility
+classification. Registry discovery moves through `unavailable`, `warming_up`,
+`partial`, `ready`, and `failed_confirmed`; retries use monotonic wall time and
+never discard the last complete index. Mod activation/deactivation marks the
+cache stale and schedules a fresh bounded snapshot.
+
+Technical identity is independent of presentation. Models/configurations keep
+registry keys, exact case-preserving physical paths, lowercase comparison paths,
+basenames, source kinds, technical IDs, vehicle families, optional display
+groups, and data-driven aliases as distinct fields. Seeds, DNA, locks, Race,
+and compatibility matching consume technical fields, not translated labels.
+
+Spawn/replacement is a transaction containing requested model/config/placement,
+world IDs before/after, returned object/ID evidence, candidates, one accepted
+ID, rejected IDs, typed outcome, and ownership-scoped cleanup. A candidate is
+not accepted until stable readback. Only IDs proven created by the transaction
+can be reaped.
+
+Settings and lineup writes share backup → candidate write → deep readback →
+verified rollback. Vehicle DNA retains its equivalent existing contract. A
+structured migration report records preserved/migrated/failed stores without
+interpreting a temporary read failure as an empty library.
+
 ## v0.6.4 lifecycle evidence model
 
 The operation owns a logical target (model/config intent) independently from
@@ -25,7 +50,8 @@ failures, and always invalidates the old plan first.
 
 Soturine's Chaos Randomizer is a BeamNG GE Lua extension with an AngularJS/CEF UI App. `main.lua` composes the subsystems, owns public hooks and routes operations; deterministic domain logic remains in modules that run in the Lua 5.1 test harness.
 
-Current persistent contracts are settings schema 6, Vehicle DNA schema 1, generator 6, and the historical Race/Lineup schema 1.
+Current persistent contracts are settings schema 7, Vehicle DNA schema 1,
+generator 6, and the historical Race/Lineup schema 1.
 
 ## Runtime flow
 
@@ -74,6 +100,15 @@ Timeout handling performs one final coherent player read without a fixed ID. Cor
 | `spawnApiAdapter.lua` | placement transforms, raycast, spawn, preview, and managed object access |
 | `aiAdapter.lua` | Vehicle Lua AI commands and NavGraph access |
 | `destinationMarker.lua` | in-world destination drawing through the placement adapter |
+| `compatibility.lua` / `registryReadiness.lua` | version and content-registry state machines |
+| `pathIdentity.lua` | exact physical versus normalized comparison identity |
+| `spawnOutcome.lua` | observable spawn/replacement evidence and cleanup set |
+| `transactionalJSON.lua` | backup/readback/rollback persistence protocol |
+
+The packaged HUD remains a legacy Angular directive. BeamNG 0.39's runtime Vue
+UI hosts it through the Angular host, so v0.6.8 keeps the established directive
+contract. Timers, mutation/resize observers, and remount state are explicitly
+bounded; a Runtime UI-native rewrite is P1, not a P0 release prerequisite.
 
 `main.lua` declares BeamNG extension dependencies but is not allowed to call unstable BeamNG APIs directly. A static source-contract test enforces the boundary.
 

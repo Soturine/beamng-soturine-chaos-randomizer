@@ -12,7 +12,7 @@ workflow; capability details remain honest rather than working-looking stubs.
 ## Audited boundary and capabilities
 
 `aiAdapter.lua` is the only AI command boundary. For BeamNG
-0.38.6.0.19963, installed source confirms vehicle-Lua commands for speed,
+0.39, installed source confirms vehicle-Lua commands for speed,
 speed mode, aggression, lane/avoidance settings, path driving, target object,
 traffic, stop/disable, and recording; GE Lua confirms NavGraph road/path calls.
 Every mode is capability-gated at runtime.

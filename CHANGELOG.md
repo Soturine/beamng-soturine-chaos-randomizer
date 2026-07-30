@@ -2,6 +2,44 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.8] - 2026-07-29
+
+Experimental prerelease for BeamNG.drive 0.39 compatibility. Automated
+validation passes; all 60 live BeamNG cases remain Pending owner validation.
+
+### Added
+
+- Central `COMPATIBILITY.json`, runtime version classification, bounded registry
+  readiness/retry states, atomic index replacement, and explicit UI diagnostics.
+- Case-preserving physical paths separated from lowercase comparison identity,
+  traversal rejection, registry model/config keys, technical IDs, families,
+  display groups, and data-driven aliases.
+- Evidence-based spawn/replacement transactions with before/after world IDs,
+  returned-object evidence, explicit acceptance, cardinality checks, and
+  ownership-scoped cleanup.
+- Settings schema 7, last-known-good settings/lineup backups, verified readback,
+  rollback, migration fixtures, and a structured migration report.
+
+### Changed
+
+- Legacy Angular remains the packaged HUD App and is explicitly hosted by the
+  BeamNG 0.39 runtime Vue UI; resize/timer/observer teardown is bounded.
+- Low-memory spawn denial, temporary registry state, unknown isolated failure,
+  uncorrelated destruction, and placement pressure never blacklist content.
+- AI always sends `driveInLane` explicitly and records a failed initial command
+  as failed rather than started.
+- Release manifests derive compatibility from the central metadata and expose
+  the full v0.6.8 deterministic artifact contract.
+
+### Fixed
+
+- Preserve a valid content cache during partial/empty registry reads and rebuild
+  only from a complete model/config snapshot.
+- Avoid translated display labels in technical selection, seeds, DNA identity,
+  locks, Race policy, and compatibility matching.
+- Make conflict detection warning-only for BeamLR, Driver Assistance, other
+  randomizers, and multiplayer vehicle synchronization.
+
 ## [0.6.7] - 2026-07-27
 
 Experimental prerelease for owner validation. Automated validation passes;

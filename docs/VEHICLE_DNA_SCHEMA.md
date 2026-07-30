@@ -26,8 +26,8 @@ as read-only/unsupported rather than partially interpreted.
   "tags": [],
   "environment": {
     "beamNGVersion": "0.38.6.0",
-    "extensionVersion": "0.6.4",
-    "targetBeamNG": "0.38.6.0.19963",
+    "extensionVersion": "0.6.8",
+    "targetBeamNG": "0.39",
     "schemaVersion": 1,
     "generatorVersion": 6
   },

@@ -1,21 +1,25 @@
 # Current compatibility matrix
 
-Candidate: 0.6.4. Inspected BeamNG target: `0.38.6.0.19963`.
+Candidate: **0.6.8 Experimental prerelease**. Primary target: BeamNG.drive
+`0.39`. Minimum declared version: `0.38.6`. Live status: **Pending owner
+validation**.
 
 | Surface | Automated/source evidence | Live status |
-| --- | --- | --- |
-| Official vehicles/configurations | dynamic registry + callback-free pipelines pass | Pending |
-| User configs/config packs | normalized path/scoped identity fixtures pass | Pending |
-| Full vehicle mods / ID churn | returned/recreated/destroyed/stale candidates pass | Pending |
-| Part/wheel packs | dynamic candidates/provenance/optional policy pass | Pending |
-| Automation/trailers/props | opt-in type and honest safety degradation pass | Pending |
-| Deep/dynamic trees | bounded rescans/new/disappearing descendants pass | Pending |
-| Dynamic/mod tuning | fixed point/revision/cycle/clamp/malformed metadata pass | Pending |
-| Fuel/hybrid/multiple tanks | combustion-only correlation and warning policy pass | Pending |
-| Incomplete mod metadata | non-standard required/unknown evidence is nonfatal uncertain | Pending |
-| Race/Placement/AI | manager/ownership/route/command fixtures pass | Pending |
-| UI tabs/resize/DPI/input | JS policy/static assets pass; CEF behavior unexecuted | Pending |
-| Package install | deterministic package/checksum/manifest gates required | Pending exact-ZIP install |
+|---|---|---|
+| Runtime version | central metadata and four-way/unknown classifier | Pending |
+| Registry readiness | five states, bounded retry, valid-cache preservation | Pending |
+| Official 0.39 subgroup configs | registry keys/path/basename/display separated | Pending |
+| User/config packs | exact case path plus normalized comparison and traversal rejection | Pending |
+| Full vehicle mods / ID churn | transactional world snapshots and stable readback | Pending |
+| Safe spawn pressure | confirmed low-memory denial; no invented no-space claim | Pending |
+| Instability/removal | generation/ID correlation and one recovery path | Pending |
+| Safety/reset changes | ternary validation, fuel/N2O/electric/fluids fixtures | Pending |
+| Translation changes | labels excluded from technical IDs/seeds/DNA/Race | Pending |
+| AI | explicit `driveInLane`; failed initial command stays failed | Pending |
+| HUD runtime | Angular app hosted by runtime Vue with observer/timer teardown | Pending |
+| Persistence | settings schema 7, DNA/lineup preservation, migration report | Pending |
+| Conflicting mods | warning-only structured evidence; nothing auto-disabled | Pending |
+| Package install | deterministic ZIP/checksum/manifest from central metadata | Pending exact-ZIP install |
 
-`Pending` is neither failure nor success. Record content/build/artifact details
-in the [v0.6.4 live report](../testing/v0.6.4/LIVE_TEST_REPORT.md).
+`Pending` is neither failure nor success. Record all evidence in the
+[v0.6.8 live report](../testing/v0.6.8/LIVE_TEST_REPORT.md).

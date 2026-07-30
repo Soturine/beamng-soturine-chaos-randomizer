@@ -6,17 +6,18 @@ a random vehicle/configuration, scramble the active vehicle's parts, tuning and
 paint, or run the complete pipeline as one bounded transaction. It also
 includes Vehicle DNA, a local Garage, and Race/Placement/AI workflows.
 
-Current release: **0.6.7**, published as an experimental prerelease for
+Current release: **0.6.8**, published as an experimental prerelease for
 additional live validation. Automated validation is recorded separately; live
 BeamNG validation is **Pending owner validation** (0 executed / 0 passed / 0
-failed / 48 pending / 0 blocked).
+failed / 60 pending / 0 blocked).
 That wording matters: mocked pipelines and source inspection are not gameplay,
 physics, rendering, performance, or mod-compatibility proof.
 
 ## Requirements
 
-- BeamNG.drive. The implementation was inspected against Windows build
-  `0.38.6.0.19963`; later builds need fresh validation.
+- BeamNG.drive 0.38.6 or newer. The primary compatibility target is `0.39`;
+  source/API inspection is complete, while exact live owner validation remains
+  Pending.
 - The normal BeamNG UI Apps system and vehicle manager APIs.
 - At least one eligible vehicle/configuration for Random Car or Full Random.
 - An active player vehicle for Scramble.
@@ -28,20 +29,20 @@ or part catalog.
 
 ## Install or update
 
-1. Download `soturine_chaos_randomizer_0.6.7.zip` from the official
-   [GitHub Release v0.6.7](https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases/tag/v0.6.7).
+1. Download `soturine_chaos_randomizer_0.6.8.zip` from the official
+   [GitHub Release v0.6.8](https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases/tag/v0.6.8).
    Do not use GitHub's automatic source archive.
 2. Copy the ZIP, without extracting it, into your BeamNG user folder's
    `mods` directory.
 3. Remove or disable older Chaos Randomizer ZIPs so only one version is active.
 4. Start BeamNG, enable the mod, open UI Apps, and add
    **Soturine's Chaos Randomizer**.
-5. Confirm `0.6.7` appears in the orange header.
+5. Confirm `0.6.8` appears in the orange header.
 
 The release page attaches the versioned ZIP, `.zip.sha256`, and `.manifest.json`.
-The ZIP is `358742` bytes with SHA-256
-`f0d0967c3f3052e0c93a020d7974995303569734780e4e80150ef794c90857c3`.
-Verify both integrity files before owner testing.
+Verify both integrity files before owner testing; the manifest binds the ZIP
+size, member count, SHA-256, commit, branch, tag, compatibility declaration,
+automated results, and Pending live status.
 
 A valid ZIP has `lua/`, `ui/`, `settings/`, `LICENSE`, `NOTICE`, and `VERSION`
 at its root. If the app does not appear, clear BeamNG's UI cache, reload the UI,
@@ -256,12 +257,12 @@ See [Compatibility](docs/COMPATIBILITY.md) and the
 
 ## Validation evidence
 
-- [v0.6.7 evidence index](docs/testing/v0.6.7/README.md)
-- [automated report](docs/testing/v0.6.7/AUTOMATED_TEST_REPORT.md)
-- [48-case live plan](docs/testing/v0.6.7/LIVE_TEST_PLAN.md)
-- [live report](docs/testing/v0.6.7/LIVE_TEST_REPORT.md)
-- [requirements matrix](docs/testing/v0.6.7/REQUIREMENTS_MATRIX.md)
-- [Race policy inventory](docs/testing/v0.6.7/RACE_POLICY_INVENTORY.md)
+- [BeamNG 0.39 compatibility dossier](docs/BEAMNG_0.39_COMPATIBILITY.md)
+- [v0.6.8 evidence index](docs/testing/v0.6.8/README.md)
+- [automated report](docs/testing/v0.6.8/AUTOMATED_TEST_REPORT.md)
+- [60-case live plan](docs/testing/v0.6.8/LIVE_TEST_PLAN.md)
+- [live report](docs/testing/v0.6.8/LIVE_TEST_REPORT.md)
+- [requirements matrix](docs/testing/v0.6.8/REQUIREMENTS_MATRIX.md)
 
 Automated tests include real production Lua executed by BeamNG's console, a
 mocked BeamNG adapter pipeline, property/state-machine cases, JavaScript sizing

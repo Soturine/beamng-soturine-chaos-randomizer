@@ -1,8 +1,12 @@
 # Compatibility
 
-Compatibility is evidence-based and version-specific. The current inspected target is BeamNG.drive `0.38.6.0.19963`; that does not claim support for later builds until they are inspected and tested.
+Compatibility is evidence-based and version-specific. v0.6.8 declares
+BeamNG.drive `0.39` as its primary target and `0.38.6` as its minimum supported
+version. `COMPATIBILITY.json` is the single machine-readable source for this
+policy. Source/API inspection is complete; live 0.39 owner validation is
+Pending and is not implied by automated results.
 
-v0.6.4 reads the current player's part-manager configuration and the ID-specific
+v0.6.8 reads the current player's part-manager configuration and the ID-specific
 manager bundle independently. A matching coherent source may confirm an
 already-applied state while another cache is stale. This is not a permissive
 fallback: model/configuration and phase evidence must match, the player ID is
@@ -28,7 +32,8 @@ One malformed variable, storage, or optional feature does not fail the entire op
 
 ## Persistence compatibility
 
-- Settings schema 6 migrates older supported settings.
+- Settings schema 7 transactionally migrates older supported settings with a
+  last-known-good backup, readback, verified rollback, and migration report.
 - Vehicle DNA schema 1 retains generator 4/5/6 identity; older seeds are not reinterpreted as generator 6.
 - `raceManager.lua` is canonical internally, while historical Lineup storage, methods, and imports remain compatible through a facade.
 - Release tags and assets are immutable; older archives remain in their release records.
@@ -36,3 +41,6 @@ One malformed variable, storage, or optional feature does not fail the entire op
 ## Current evidence
 
 See [CURRENT_COMPATIBILITY_MATRIX.md](status/CURRENT_COMPATIBILITY_MATRIX.md) for the candidate status. Real third-party compatibility requires recording the content name/version, source, BeamNG build, mod commit/artifact checksum, settings, seed, terminal result, diagnostics, and log outcome.
+
+Detailed 0.39 findings, P0 decisions, and deferred P1/P2 work are in
+[BEAMNG_0.39_COMPATIBILITY.md](BEAMNG_0.39_COMPATIBILITY.md).
