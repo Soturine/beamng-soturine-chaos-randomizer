@@ -384,6 +384,9 @@ local function quarantine(state, context, modelKey, configKey, reason, now)
   if type(modelKey) ~= "string" or modelKey == "" or type(configKey) ~= "string" or configKey == "" then
     return false, "quarantine_identity_invalid"
   end
+  if reason == "DENIED_LOW_MEMORY" or reason == "DENIED_NO_SPACE"
+    or reason == "TEMPORARY_REGISTRY" or reason == "UNKNOWN_FAILURE"
+  then return false, "condition_not_catalog_quarantinable" end
   local key = modelKey .. "\31" .. configKey
   if context.catalogQuarantine[key] then return false, "config_already_quarantined" end
   local record = {

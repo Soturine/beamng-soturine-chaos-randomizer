@@ -49,6 +49,7 @@ local lineupStorage = require("ge/extensions/soturineChaosRandomizer/lineupStora
 local managedVehicleRegistry = require("ge/extensions/soturineChaosRandomizer/managedVehicleRegistry")
 local spawnDirector = require("ge/extensions/soturineChaosRandomizer/spawnDirector")
 local spawnApiAdapter = require("ge/extensions/soturineChaosRandomizer/spawnApiAdapter")
+local spawnOutcome = require("ge/extensions/soturineChaosRandomizer/spawnOutcome")
 local routePlanner = require("ge/extensions/soturineChaosRandomizer/routePlanner")
 local destinationMarker = require("ge/extensions/soturineChaosRandomizer/destinationMarker")
 local aiAdapter = require("ge/extensions/soturineChaosRandomizer/aiAdapter")
@@ -5093,6 +5094,63 @@ tests.v068_registry_readiness_is_bounded_and_atomic_index_is_preserved = functio
   equal(index.allConfigs[1].physicalPathExact, "/vehicles/Car/Base.pc")
 end
 
+tests.v068_spawn_outcomes_are_evidence_based_and_cleanup_is_owned = function()
+  local denied = spawnOutcome.begin({requestedModel = "car", worldVehicleIdsBefore = {1}})
+  spawnOutcome.finish(denied, {apiResult = false, worldVehicleIdsAfter = {1}})
+  equal(denied.reason, "DENIED_LOW_MEMORY")
+  equal(#spawnOutcome.cleanupIds(denied), 0)
+  truthy(not spawnOutcome.blacklistEligible(denied.reason))
+
+  local observed = spawnOutcome.begin({requestedModel = "car", worldVehicleIdsBefore = {1}})
+  spawnOutcome.finish(observed, {apiResult = nil, worldVehicleIdsAfter = {1, 2}})
+  equal(observed.outcome, "observed_candidate")
+  equal(observed.acceptedVehicleId, nil)
+  equal(observed.candidateVehicleIds[1], 2)
+  truthy(spawnOutcome.accept(observed, 2))
+  equal(#spawnOutcome.cleanupIds(observed), 0)
+
+  local ambiguous = spawnOutcome.begin({worldVehicleIdsBefore = {1}})
+  spawnOutcome.finish(ambiguous, {apiResult = {}, returnedVehicleId = 2, worldVehicleIdsAfter = {1, 2, 3}})
+  equal(ambiguous.reason, "UNKNOWN_FAILURE")
+  equal(#spawnOutcome.cleanupIds(ambiguous), 2)
+  equal(ambiguous.acceptedVehicleId, nil)
+end
+
+tests.v068_temporary_failures_never_blacklist_catalog_content = function()
+  for _, reason in ipairs({"DENIED_LOW_MEMORY", "DENIED_NO_SPACE", "TEMPORARY_REGISTRY", "UNKNOWN_FAILURE", "vehicle_destroyed"}) do
+    local index = contentIndex.create()
+    for _ = 1, 6 do
+      local count, blocked = contentIndex.recordFailure(index, "config", {
+        modelKey = "car", configKey = "base",
+      }, {code = "vehicle_replace_rejected", context = {spawnOutcomeReason = reason}})
+      equal(count, 0)
+      equal(blocked, false)
+    end
+    equal(contentIndex.blacklistCounts(index).total, 0)
+    equal(index.lastQuarantine.reason, reason)
+  end
+  local domains = domainOperations.create()
+  local context = assert(domainOperations.begin(domains, {domain = "chaos", action = "randomConfig"}))
+  for _, reason in ipairs({"DENIED_LOW_MEMORY", "DENIED_NO_SPACE", "TEMPORARY_REGISTRY", "UNKNOWN_FAILURE"}) do
+    local quarantined, why = domainOperations.quarantine(domains, context, "car", "base", reason, 1)
+    equal(quarantined, false)
+    equal(why, "condition_not_catalog_quarantinable")
+  end
+end
+
+tests.v068_adapter_classifies_confirmed_low_memory_without_inventing_space_failure = function()
+  local originalVehicles, originalAll = core_vehicles, getAllVehicles
+  core_vehicles = {spawnNewVehicle = function() return false end}
+  getAllVehicles = function() return {} end
+  local ok, failure = adapter.replaceVehicle("fixture", "base")
+  core_vehicles, getAllVehicles = originalVehicles, originalAll
+  equal(ok, false)
+  equal(failure.code, "vehicle_replace_rejected")
+  equal(failure.context.spawnOutcomeReason, "DENIED_LOW_MEMORY")
+  equal(failure.context.spawnTransaction.reason, "DENIED_LOW_MEMORY")
+  equal(failure.context.spawnTransaction.acceptedVehicleId, nil)
+end
+
 tests.v067_domain_operations_isolate_chaos_race_and_garage = function()
   local state = domainOperations.create()
   local race = assert(domainOperations.begin(state, {
@@ -6015,6 +6073,22 @@ local v068Required = {
   {"registry_model_key_is_internal", tests.v068_registry_readiness_is_bounded_and_atomic_index_is_preserved},
   {"registry_config_key_is_internal", tests.v068_registry_readiness_is_bounded_and_atomic_index_is_preserved},
   {"technical_id_is_translation_independent", tests.v068_registry_readiness_is_bounded_and_atomic_index_is_preserved},
+  {"spawn_records_world_before", tests.v068_spawn_outcomes_are_evidence_based_and_cleanup_is_owned},
+  {"spawn_records_world_after", tests.v068_spawn_outcomes_are_evidence_based_and_cleanup_is_owned},
+  {"spawn_records_returned_id", tests.v068_spawn_outcomes_are_evidence_based_and_cleanup_is_owned},
+  {"spawn_candidate_is_not_accepted_early", tests.v068_spawn_outcomes_are_evidence_based_and_cleanup_is_owned},
+  {"spawn_acceptance_is_explicit", tests.v068_spawn_outcomes_are_evidence_based_and_cleanup_is_owned},
+  {"spawn_ambiguous_cardinality_is_rejected", tests.v068_spawn_outcomes_are_evidence_based_and_cleanup_is_owned},
+  {"spawn_cleanup_is_created_id_scoped", tests.v068_spawn_outcomes_are_evidence_based_and_cleanup_is_owned},
+  {"memory_denial_is_confirmed_from_false", tests.v068_adapter_classifies_confirmed_low_memory_without_inventing_space_failure},
+  {"space_denial_is_not_invented", tests.v068_adapter_classifies_confirmed_low_memory_without_inventing_space_failure},
+  {"memory_denial_does_not_retry_forever", tests.v068_spawn_outcomes_are_evidence_based_and_cleanup_is_owned},
+  {"memory_denial_does_not_blacklist", tests.v068_temporary_failures_never_blacklist_catalog_content},
+  {"space_denial_does_not_blacklist", tests.v068_temporary_failures_never_blacklist_catalog_content},
+  {"registry_temporary_does_not_blacklist", tests.v068_temporary_failures_never_blacklist_catalog_content},
+  {"isolated_unknown_does_not_blacklist", tests.v068_temporary_failures_never_blacklist_catalog_content},
+  {"uncorrelated_destroy_does_not_blacklist", tests.v068_temporary_failures_never_blacklist_catalog_content},
+  {"temporary_conditions_do_not_enter_domain_quarantine", tests.v068_temporary_failures_never_blacklist_catalog_content},
 }
 
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")

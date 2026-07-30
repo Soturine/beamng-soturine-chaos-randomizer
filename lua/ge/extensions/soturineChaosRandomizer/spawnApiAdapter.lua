@@ -1,4 +1,5 @@
 local util = require("ge/extensions/soturineChaosRandomizer/util")
+local spawnOutcome = require("ge/extensions/soturineChaosRandomizer/spawnOutcome")
 
 local M = {}
 
@@ -67,8 +68,28 @@ local function raycastGround(position, up, down)
   return true, {point = point, normal = normal or {x = 0, y = 0, z = 1}}
 end
 
+local vehicleIds
+
+local function objectId(vehicle)
+  if type(vehicle) ~= "table" and type(vehicle) ~= "userdata" then return nil end
+  for _, method in ipairs({"getID", "getId"}) do
+    local readable, fn = pcall(function() return vehicle[method] end)
+    if readable and type(fn) == "function" then
+      local worked, value = pcall(fn, vehicle)
+      if worked and tonumber(value) then return tonumber(value) end
+    end
+  end
+  return nil
+end
+
 local function spawnVehicle(modelKey, config, placement)
   if type(core_vehicles) ~= "table" or type(core_vehicles.spawnNewVehicle) ~= "function" then return false, "vehicle_spawn_unavailable" end
+  placement = type(placement) == "table" and placement or {}
+  local before = vehicleIds()
+  local transaction = spawnOutcome.begin({
+    requestedModel = modelKey, requestedConfig = config, requestedPlacement = placement,
+    worldVehicleIdsBefore = before,
+  })
   local direction = placement.forward or {x = 0, y = 1, z = 0}
   local rotation
   if type(quatFromDir) == "function" then
@@ -78,14 +99,15 @@ local function spawnVehicle(modelKey, config, placement)
   local options = {config = util.deepCopy(config), pos = vector(placement.position)}
   if rotation then options.rot = rotation end
   local ok, vehicle = pcall(core_vehicles.spawnNewVehicle, modelKey, options)
-  if not ok or vehicle == nil then return false, "vehicle_spawn_failed" end
-  local id
-  for _, method in ipairs({"getID", "getId"}) do
-    local readable, fn = pcall(function() return vehicle[method] end)
-    if readable and type(fn) == "function" then local worked, value = pcall(fn, vehicle); if worked then id = tonumber(value); break end end
-  end
-  if not id then return false, "vehicle_spawn_id_unavailable" end
-  return true, id
+  spawnOutcome.finish(transaction, {
+    thrown = not ok, apiResult = vehicle,
+    returnedObjectEvidence = ok and vehicle ~= nil and vehicle ~= false,
+    returnedVehicleId = ok and objectId(vehicle) or nil,
+    worldVehicleIdsAfter = vehicleIds(),
+  })
+  if #transaction.candidateVehicleIds == 1 then return true, transaction.candidateVehicleIds[1], transaction end
+  if transaction.outcome == "awaiting_identity" then return false, "vehicle_spawn_id_unavailable", transaction end
+  return false, transaction.reason or "UNKNOWN_FAILURE", transaction
 end
 
 local function placeVehicle(vehicleId, placement)
@@ -153,7 +175,7 @@ local function vehicleDimensions(vehicleId)
   return dimensions
 end
 
-local function vehicleIds()
+vehicleIds = function()
   if type(getAllVehicles) ~= "function" then return nil, "vehicle_enumeration_unavailable" end
   local ok, vehicles = pcall(getAllVehicles)
   if not ok or type(vehicles) ~= "table" then return nil, "vehicle_enumeration_unavailable" end
@@ -286,5 +308,6 @@ M.deleteVehicle = deleteVehicle
 M.readVehicleState = readVehicleState
 M.verifySpawnTarget = verifySpawnTarget
 M.drawPreview = drawPreview
+M.spawnOutcome = spawnOutcome
 
 return M

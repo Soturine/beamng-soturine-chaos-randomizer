@@ -28,6 +28,17 @@ local SUSPECT_TTL = 900
 local FINGERPRINT_LIMIT = 8
 local SUSPECT_PROMOTION_SCORE = 1.5
 local SUSPECT_SUPPRESSION_SCORE = 1.0
+local NON_BLACKLIST_REASONS = {
+  DENIED_LOW_MEMORY = true,
+  DENIED_NO_SPACE = true,
+  TEMPORARY_REGISTRY = true,
+  UNKNOWN_FAILURE = true,
+  registry_warming_up = true,
+  registry_failed_confirmed = true,
+  temporarily_unreadable = true,
+  vehicle_destroyed = true,
+  target_destroyed = true,
+}
 
 local function sourceKind(item)
   item = type(item) == "table" and item or {}
@@ -150,6 +161,8 @@ local function create()
     suspects = {part = {}},
     lastSuspect = nil,
     lastBlocked = nil,
+    transientQuarantine = {},
+    lastQuarantine = nil,
     failureThreshold = 3,
   }
 end
@@ -364,6 +377,21 @@ local function recordFailure(index, kind, context, failure)
   local id = identifier(kind, context)
   local now = tonumber(failure and failure.timestamp or context.timestamp) or os.time()
   local threshold = tonumber(context.threshold) or index.failureThreshold
+  local failureReason = failure and failure.context and failure.context.spawnOutcomeReason
+    or failure and (failure.code or failure.reason) or context.reason
+  if NON_BLACKLIST_REASONS[failureReason] then
+    local record = {
+      id = id, type = kind, reason = failureReason,
+      timestamp = now, retryPolicy = failureReason == "DENIED_LOW_MEMORY" and "retry_after_memory_available"
+        or failureReason == "DENIED_NO_SPACE" and "retry_with_new_placement"
+        or failureReason == "TEMPORARY_REGISTRY" and "retry_after_registry_ready"
+        or "isolated_failure_no_catalog_penalty",
+      blacklisted = false,
+    }
+    index.transientQuarantine[id] = record
+    index.lastQuarantine = util.deepCopy(record)
+    return 0, false, id, util.deepCopy(record)
+  end
   if kind == "part" then
     local record = suspectRecord(index, id, context)
     record.lastSeenAt = now
@@ -442,6 +470,14 @@ local function clearFailures(index)
   index.suspects = {part = {}}
   index.lastBlocked = nil
   index.lastSuspect = nil
+  index.transientQuarantine = {}
+  index.lastQuarantine = nil
+end
+
+local function clearTransientQuarantine(index)
+  index.transientQuarantine = {}
+  index.lastQuarantine = nil
+  return true
 end
 
 local function blacklistCounts(index)
@@ -473,6 +509,8 @@ M.recordSuccess = recordSuccess
 M.pruneSuspects = pruneSuspects
 M.suspectCount = suspectCount
 M.isCandidateEligible = isCandidateEligible
+M.clearTransientQuarantine = clearTransientQuarantine
+M.nonBlacklistReasons = NON_BLACKLIST_REASONS
 M.suspectLimits = {
   records = SUSPECT_LIMIT,
   ttl = SUSPECT_TTL,

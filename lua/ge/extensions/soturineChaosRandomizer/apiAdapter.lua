@@ -2,6 +2,7 @@ local util = require("ge/extensions/soturineChaosRandomizer/util")
 local capabilityModel = require("ge/extensions/soturineChaosRandomizer/capabilities")
 local configVerification = require("ge/extensions/soturineChaosRandomizer/configVerification")
 local paintVerification = require("ge/extensions/soturineChaosRandomizer/paintVerification")
+local spawnOutcome = require("ge/extensions/soturineChaosRandomizer/spawnOutcome")
 local validator = require("ge/extensions/soturineChaosRandomizer/validator")
 
 local M = {}
@@ -365,6 +366,19 @@ local function vehicleObjectId(vehicle)
   return nil
 end
 
+local function worldVehicleIds()
+  if type(getAllVehicles) ~= "function" then return {} end
+  local worked, vehicles = pcall(getAllVehicles)
+  local ids = {}
+  if worked and type(vehicles) == "table" then
+    for _, vehicle in pairs(vehicles) do
+      local id = vehicleObjectId(vehicle)
+      if id then ids[#ids + 1] = id end
+    end
+  end
+  return ids
+end
+
 local function enterVehicle(vehicleId)
   if type(vehicleId) ~= "number" or type(getObjectByID) ~= "function"
     or type(be) ~= "userdata" and type(be) ~= "table"
@@ -458,6 +472,10 @@ local function replaceVehicle(modelKey, config, targetVehicleId, spawnPlacement)
   if type(modelKey) ~= "string" or modelKey == "" then
     return false, errorValue("invalid_model", "A valid vehicle model is required")
   end
+  local spawnTransaction = spawnOutcome.begin({
+    requestedModel = modelKey, requestedConfig = config, requestedPlacement = spawnPlacement,
+    sourceVehicleId = targetVehicleId, worldVehicleIdsBefore = worldVehicleIds(),
+  })
   local targetVehicle
   if targetVehicleId ~= nil then
     if type(targetVehicleId) ~= "number" or type(getObjectByID) ~= "function" then
@@ -498,8 +516,25 @@ local function replaceVehicle(modelKey, config, targetVehicleId, spawnPlacement)
     end
     return core_vehicles.replaceVehicle(modelKey, {config = util.deepCopy(config)}, targetVehicle)
   end)
-  if not ok then return false, result end
+  if not ok then
+    local rejectedResult = nil
+    if result.context and result.context.result == false then rejectedResult = false end
+    spawnOutcome.finish(spawnTransaction, {
+      thrown = result.context and result.context.thrown,
+      apiResult = rejectedResult,
+      worldVehicleIdsAfter = worldVehicleIds(),
+    })
+    result.context = result.context or {}
+    result.context.spawnOutcomeReason = spawnTransaction.reason
+    result.context.spawnTransaction = spawnTransaction
+    return false, result
+  end
   local vehicleId, strategy = vehicleObjectId(result.value)
+  spawnOutcome.finish(spawnTransaction, {
+    apiResult = result.value, returnedObjectEvidence = result.value ~= nil,
+    returnedVehicleId = vehicleId, worldVehicleIdsAfter = worldVehicleIds(),
+  })
+  result.spawnTransaction = spawnTransaction
   if vehicleId == nil then
     -- A replacement return value is only candidate evidence. Some BeamNG
     -- builds expose the final player object after this call without exposing a

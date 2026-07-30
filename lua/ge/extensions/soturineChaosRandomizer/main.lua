@@ -360,6 +360,7 @@ local function publicState()
         validationState = competitor.validationState,
         placementState = competitor.placementState,
         terminalResult = util.deepCopy(competitor.terminalResult),
+        spawnTransaction = util.deepCopy(competitor.spawnTransaction),
         raceStatus = competitor.raceStatus, traits = util.deepCopy(competitor.traits),
       }
     end
@@ -452,6 +453,7 @@ local function publicState()
         operationId = runtime.active.operationMutationPlan.operationId,
         targetGeneration = runtime.active.operationMutationPlan.targetGeneration,
       } or nil,
+      spawnTransaction = util.deepCopy(runtime.active.spawnTransaction),
       pending = {
         currentBatch = runtime.active.currentBatch and #runtime.active.currentBatch or 0,
         afterReload = runtime.active.afterReload and 1 or 0,
@@ -480,6 +482,7 @@ local function publicState()
       blacklists = blacklist,
       blacklisted = blacklist.total,
       lastBlocked = util.deepCopy(runtime.index.lastBlocked),
+      lastQuarantine = util.deepCopy(runtime.index.lastQuarantine),
       suspects = contentIndex.suspectCount(runtime.index),
       lastSuspect = util.deepCopy(runtime.index.lastSuspect),
     },
@@ -840,6 +843,13 @@ local function finishOperation(success, code, message, details, terminalState)
       playerVehicleIdAfter = currentOk and currentVehicleId or acceptedVehicleId,
       removedVehicleIds = cleanup.removed,
     })
+  end
+  if active and active.spawnTransaction then
+    if (success == true or details.rollback == "completed") and tonumber(active.vehicleId) then
+      productionModules.spawnAdapter.spawnOutcome.accept(active.spawnTransaction, active.vehicleId)
+    end
+    details.spawnCleanup = production.cleanupSpawnTransaction(active.spawnTransaction)
+    details.spawnTransaction = util.deepCopy(active.spawnTransaction)
   end
   if active and active.criticalRepairSucceeded == true then
     details.criticalRepairSucceeded = true
@@ -1681,6 +1691,20 @@ local function recordReplacementCandidate(active, result, phase)
   active.replaceRequestConfig = active.wait and (active.wait.configIdentity or active.wait.configKey)
   active.replaceIssuedAt = adapter.clock()
   active.replaceCorrelationStrategy = result.correlationStrategy
+  active.spawnTransaction = util.deepCopy(result.spawnTransaction)
+  local operationContext = production.ensureOperationContext(active)
+  operationContext.spawnTransaction = util.deepCopy(result.spawnTransaction)
+  if result.spawnTransaction then
+    operationContext.requestedModel = result.spawnTransaction.requestedModel
+    operationContext.requestedConfig = util.deepCopy(result.spawnTransaction.requestedConfig)
+    operationContext.requestedPlacement = util.deepCopy(result.spawnTransaction.requestedPlacement)
+    operationContext.worldVehicleIdsBefore = util.deepCopy(result.spawnTransaction.worldVehicleIdsBefore)
+    operationContext.worldVehicleIdsAfter = util.deepCopy(result.spawnTransaction.worldVehicleIdsAfter)
+    operationContext.returnedObjectEvidence = result.spawnTransaction.returnedObjectEvidence
+    operationContext.returnedVehicleId = result.spawnTransaction.returnedVehicleId
+    operationContext.rejectedVehicleIds = util.deepCopy(result.spawnTransaction.rejectedVehicleIds)
+    operationContext.spawnOutcome = result.spawnTransaction.outcome
+  end
   if active.targetTracker and type(result.vehicleId) == "number" then
     vehicleTargetTracker.bindReturned(active.targetTracker, result.vehicleId, result.correlationStrategy)
   end
@@ -4044,6 +4068,10 @@ end
 local function retryQuarantinedConfigurations()
   if runtime.state.busy then return false end
   vehicleRecovery.retryQuarantined(runtime.recovery)
+  contentIndex.clearTransientQuarantine(runtime.index)
+  productionModules.domainOperations.clearQuarantine(runtime.domainOperations, "chaos")
+  productionModules.domainOperations.clearQuarantine(runtime.domainOperations, "race")
+  productionModules.domainOperations.clearQuarantine(runtime.domainOperations, "garage")
   setResult(true, "vehicle_quarantine_cleared", "Quarantined configurations are eligible for a manual retry")
   publishState()
   return true
@@ -5770,8 +5798,12 @@ local function onVehicleSwitched(oldId, newId, player)
   end
 end
 
-local function onVehicleDestroyed(vehicleId)
-  productionModules.domainOperations.recordRemoval(runtime.domainOperations, vehicleId, "vehicle_destroyed")
+local function onVehicleDestroyed(vehicleId, destructionReason)
+  local normalizedReason = util.normalizeText(type(destructionReason) == "table"
+    and (destructionReason.reason or destructionReason.cause) or destructionReason)
+  local correlatedCause = normalizedReason:find("instabil", 1, true)
+    and "INSTABILITY_CONFIRMED" or "UNKNOWN_FAILURE"
+  productionModules.domainOperations.recordRemoval(runtime.domainOperations, vehicleId, correlatedCause)
   local spawnPending = runtime.spawnDirector.run and runtime.spawnDirector.run.pendingVerification
   local expectedSpawnReplacement = spawnPending and spawnPending.vehicleId == vehicleId
   local managed, managedEntry = productionModules.managedRegistry.destroyed(runtime.managedVehicles, vehicleId)
@@ -5801,7 +5833,8 @@ local function onVehicleDestroyed(vehicleId)
         productionModules.operationContext.markDestroyed(active.operationContext, vehicleId)
       end
       diagnosticsModule.write(runtime.diagnostics, "D", "vehicle_target_destroyed_observed", {
-        phase = active.phase, vehicleId = vehicleId,
+        phase = active.phase, vehicleId = vehicleId, destructionReason = destructionReason,
+        correlatedCause = correlatedCause,
       })
       return
     end
@@ -6410,6 +6443,21 @@ local function verifyPendingSpawn(pending)
   return waiting and nil or false, lastReason
 end
 
+function production.cleanupSpawnTransaction(transaction)
+  if type(transaction) ~= "table" then return {removed = {}, failed = {}} end
+  local result = {removed = {}, failed = {}}
+  for _, vehicleId in ipairs(productionModules.spawnAdapter.spawnOutcome.cleanupIds(transaction)) do
+    local deleted, reason = productionModules.spawnAdapter.deleteVehicle(vehicleId)
+    if deleted or reason == "vehicle_missing" then
+      result.removed[#result.removed + 1] = vehicleId
+    else
+      result.failed[#result.failed + 1] = {vehicleId = vehicleId, reason = reason}
+    end
+  end
+  transaction.cleanup = util.deepCopy(result)
+  return result
+end
+
 function production.processSpawnDirector()
   local run = runtime.spawnDirector.run
   if not run or not run.active or adapter.clock() < run.nextAt then return false end
@@ -6440,6 +6488,11 @@ function production.processSpawnDirector()
         }
       )
       if ready then
+        if pending.spawnTransaction then
+          productionModules.spawnAdapter.spawnOutcome.accept(pending.spawnTransaction, pending.vehicleId)
+          production.cleanupSpawnTransaction(pending.spawnTransaction)
+          pending.competitor.spawnTransaction = util.deepCopy(pending.spawnTransaction)
+        end
         run.spawned[#run.spawned + 1] = pending.handle
         pending.competitor.raceStatus = "Ready"
         pending.competitor.managedHandle = pending.handle
@@ -6458,6 +6511,10 @@ function production.processSpawnDirector()
       return true
     end
     if verified == false or adapter.clock() >= pending.deadline then
+      if pending.spawnTransaction and not pending.placementOnly then
+        production.cleanupSpawnTransaction(pending.spawnTransaction)
+        pending.competitor.spawnTransaction = util.deepCopy(pending.spawnTransaction)
+      end
       local entry = runtime.managedVehicles.entries[pending.handle]
       if entry then
         entry.status = pending.placementOnly and "ready" or "failed"
@@ -6543,8 +6600,9 @@ function production.processSpawnDirector()
     publishState()
     return true
   end
-  local ok, vehicleId
-  if config and modelKey then ok, vehicleId = productionModules.spawnAdapter.spawnVehicle(modelKey, config, placement)
+  local ok, vehicleId, spawnTransaction
+  if config and modelKey then
+    ok, vehicleId, spawnTransaction = productionModules.spawnAdapter.spawnVehicle(modelKey, config, placement)
   else ok, vehicleId = false, "spawn_config_unavailable" end
   if ok then
     local entry, reason = productionModules.managedRegistry.register(runtime.managedVehicles, vehicleId, {
@@ -6575,15 +6633,21 @@ function production.processSpawnDirector()
         startedAt = adapter.clock(),
         deadline = adapter.clock() + WAIT_TIMEOUT,
         candidateIds = {}, candidateSeen = {}, stableScans = 0,
+        spawnTransaction = spawnTransaction,
       }
       run.nextAt = adapter.clock() + 0.1
       competitor.raceStatus, competitor.managedHandle = "Pending", entry.handle
       publishState()
       return true
-    else run.failures[#run.failures + 1] = {index = competitor.index, reason = reason} end
+    else
+      production.cleanupSpawnTransaction(spawnTransaction)
+      run.failures[#run.failures + 1] = {index = competitor.index, reason = reason}
+    end
   else
+    production.cleanupSpawnTransaction(spawnTransaction)
     run.failures[#run.failures + 1] = {index = competitor.index, reason = vehicleId}
     competitor.raceStatus = "DNS"
+    competitor.spawnTransaction = util.deepCopy(spawnTransaction)
   end
   run.cursor = run.cursor + 1
   run.nextAt = adapter.clock() + run.options.interval
@@ -6597,6 +6661,12 @@ function production.cancelLineupSpawn()
   if run then
     run.active = false
     if run.pendingVerification then
+      if run.pendingVerification.spawnTransaction then
+        production.cleanupSpawnTransaction(run.pendingVerification.spawnTransaction)
+        if run.pendingVerification.competitor then
+          run.pendingVerification.competitor.spawnTransaction = util.deepCopy(run.pendingVerification.spawnTransaction)
+        end
+      end
       local entry = runtime.managedVehicles.entries[run.pendingVerification.handle]
       if entry and entry.status == "loading" then
         entry.status = "failed"
@@ -6654,8 +6724,9 @@ function production.respawnManagedVehicle(handle)
   end
   local oldId = entry.vehicleId
   local generation = productionModules.managedRegistry.beginGeneration(runtime.managedVehicles, handle, "respawn")
-  local spawned, newId = productionModules.spawnAdapter.spawnVehicle(modelKey, config, placement)
+  local spawned, newId, spawnTransaction = productionModules.spawnAdapter.spawnVehicle(modelKey, config, placement)
   if not spawned then
+    production.cleanupSpawnTransaction(spawnTransaction)
     entry.status, entry.failureReason = "destroyed", newId
     setResult(false, newId, "Managed vehicle respawn failed"); publishState(); return false
   end
@@ -6663,7 +6734,7 @@ function production.respawnManagedVehicle(handle)
     runtime.managedVehicles, handle, oldId, newId, generation
   )
   if not rebound then
-    productionModules.spawnAdapter.deleteVehicle(newId)
+    production.cleanupSpawnTransaction(spawnTransaction)
     setResult(false, reason, "Managed vehicle respawn callback was stale"); publishState(); return false
   end
   productionModules.managedRegistry.setPending(runtime.managedVehicles, handle, {timers = 1, callbacks = 1})
@@ -6681,6 +6752,7 @@ function production.respawnManagedVehicle(handle)
       vehicleId = newId, modelKey = modelKey, config = util.deepCopy(config),
       competitor = competitor, startedAt = adapter.clock(), deadline = adapter.clock() + WAIT_TIMEOUT,
       candidateIds = {}, candidateSeen = {}, stableScans = 0,
+      spawnTransaction = spawnTransaction,
     },
   }
   setResult(true, "managed_vehicle_respawning", "Managed vehicle respawn is awaiting read-back", {handle = handle, vehicleId = newId})
