@@ -4,7 +4,9 @@ Release title: **v0.6.9 — P1 Performance, Profiling and Efficiency**
 
 Status: **Experimental prerelease — live BeamNG performance validation pending**.
 
-Automated validation: 65 passed, 1,099 subtests passed; 394 Lua cases and 49 JavaScript checks.
+Automated validation: Passed
+
+Automated detail: 65 passed, 1,099 subtests passed; 394 Lua cases and 49 JavaScript checks.
 
 Live BeamNG 0.39 validation: Pending owner validation
 
