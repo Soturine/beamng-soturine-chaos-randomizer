@@ -6,11 +6,11 @@ import { lua, useBridge } from "@/bridge"
 import { useEvents } from "@/services/events"
 import { useSettings as useGameSettings } from "@/services/settings"
 import AppShell from "./components/shell/AppShell.vue"
-import { createCommandBridge } from "./services/commandBridge"
-import { createStateProtocol } from "./services/stateProtocol"
-import { createLifecycleRegistry } from "./services/lifecycle"
-import { copyText } from "./services/clipboard"
-import { createStores, STORES_KEY } from "./stores"
+import { createCommandBridge } from "./services/commandBridge.js"
+import { createStateProtocol } from "./services/stateProtocol.js"
+import { createLifecycleRegistry } from "./services/lifecycle.js"
+import { copyText } from "./services/clipboard.js"
+import { createStores, STORES_KEY } from "./stores/index.js"
 
 const { api } = useBridge()
 let stores
@@ -66,5 +66,5 @@ onUnmounted(() => {
 </script>
 
 <style lang="scss">
-@use "./styles/app";
+@use "./styles/app.scss";
 </style>

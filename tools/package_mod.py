@@ -212,12 +212,32 @@ def test_counts(root: Path = REPOSITORY_ROOT) -> dict[str, int]:
     javascript_total = re.search(r"SCR_UI_JS_TESTS_PASSED\s+(\d+)", javascript.stdout)
     if not javascript_total:
         raise RuntimeError("JavaScript/Vue checks did not report an assertion count")
+    graph = subprocess.run(
+        [node, str(root / "tools" / "validate_vue_module_graph.mjs"), "--json"],
+        cwd=root, text=True, capture_output=True, check=False,
+    )
+    if graph.returncode != 0:
+        raise RuntimeError("Static Runtime UI module graph validation failed:\n" + graph.stdout + graph.stderr)
+    try:
+        graph_report = json.loads(graph.stdout)
+    except json.JSONDecodeError as error:
+        raise RuntimeError("Module graph validator did not return JSON") from error
     result = {
         "pythonTestMethodsUnique": python_methods,
         **lua_metrics,
         "nodeSyntaxFiles": len(list((root / "ui").rglob("*.js"))) + len(list((root / "tests" / "js").glob("*.mjs"))),
         "vueSFCFiles": len(list((root / "ui").rglob("*.vue"))),
         "javaScriptChecks": int(javascript_total.group(1)),
+        "vueModuleGraphFiles": int(graph_report["filesScanned"]),
+        "vueModuleGraphReachableFiles": int(graph_report["reachableFiles"]),
+        "vueModuleGraphImports": int(graph_report["importsScanned"]),
+        "vueModuleGraphProjectImports": int(graph_report["projectImports"]),
+        "vueModuleGraphRuntimeAliases": int(graph_report["runtimeAliases"]),
+        "vueModuleGraphDirectoryImports": int(graph_report["directoryImports"]),
+        "vueModuleGraphMissingModules": int(graph_report["missingModules"]),
+        "vueModuleGraphCaseMismatches": int(graph_report["caseMismatches"]),
+        "vueModuleGraphCycles": int(graph_report["cycles"]),
+        "vueModuleGraphNamedExportErrors": int(graph_report["namedExportErrors"]),
         "jsonFiles": len([
             path for path in root.rglob("*.json")
             if not any(part in {".git", "dist", "__pycache__"} for part in path.relative_to(root).parts)
@@ -250,6 +270,9 @@ def write_release_manifest(archive: Path, output: Path | None = None, root: Path
         "luaRequirementMappings": tests["luaRequirementMappings"],
         "javaScriptChecks": tests["javaScriptChecks"],
         "vueSFCFiles": tests["vueSFCFiles"],
+        "vueModuleGraphFiles": tests["vueModuleGraphFiles"],
+        "vueModuleGraphImports": tests["vueModuleGraphImports"],
+        "vueModuleGraphProjectImports": tests["vueModuleGraphProjectImports"],
     }
     live_tests = {
         "status": "Pending owner validation",

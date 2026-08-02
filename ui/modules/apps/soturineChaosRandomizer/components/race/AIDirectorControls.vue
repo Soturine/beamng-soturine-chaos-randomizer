@@ -41,7 +41,7 @@
   </section>
 </template>
 <script setup>
-import { useStores } from "../../stores"
+import { useStores } from "../../stores/index.js"
 import NumericInput from "../common/NumericInput.vue"
 import ToggleField from "../common/ToggleField.vue"
 import StatusBanner from "../common/StatusBanner.vue"

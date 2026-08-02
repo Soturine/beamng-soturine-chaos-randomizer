@@ -8,7 +8,7 @@
   </header>
 </template>
 <script setup>
-import { useStores } from "../../stores"
+import { useStores } from "../../stores/index.js"
 defineEmits(["toggle-compact", "settings"])
 const stores = useStores(); const core = stores.core.state; const layout = stores.uiLayout.state; const { t } = stores.i18n
 </script>

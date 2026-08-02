@@ -44,19 +44,35 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install --yes lua5.1
 
-      - name: Run full automated suite on Ubuntu
-        if: runner.os == 'Linux'
-        run: python -m unittest discover -s tests -v
-
-      - name: Run portable static and package suites on Windows
-        if: runner.os == 'Windows'
-        run: python -m unittest tests.test_static tests.test_package -v
-
-      - name: Check JavaScript syntax
-        run: npm run test:ui
+      - name: Validate JSON files
+        run: python -m unittest tests.test_static.StaticValidationTests.test_json_files_parse -v
 
       - name: Compile native Vue SFC files
         run: npm run validate:sfc
+
+      - name: Validate source Runtime UI module graph
+        run: npm run validate:graph
+
+      - name: Build deterministic ZIP for graph validation
+        run: python -c "from pathlib import Path; from tools.package_mod import package; package(Path('dist'))"
+
+      - name: Validate extracted ZIP Runtime UI module graph
+        run: python tools/validate_package.py --module-graph-only
+
+      - name: Run Python suites on Ubuntu
+        if: runner.os == 'Linux'
+        run: python -m unittest tests.test_architecture tests.test_package tests.test_static tests.test_vue_module_graph -v
+
+      - name: Run portable static and package suites on Windows
+        if: runner.os == 'Windows'
+        run: python -m unittest tests.test_static tests.test_package tests.test_vue_module_graph -v
+
+      - name: Run Lua regression suite on Ubuntu
+        if: runner.os == 'Linux'
+        run: python -m unittest tests.test_lua -v
+
+      - name: Check JavaScript syntax
+        run: npm run test:ui
 
       - name: Build and validate package
         run: |

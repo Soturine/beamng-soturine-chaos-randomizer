@@ -5,7 +5,7 @@
   </section>
 </template>
 <script setup>
-import { useStores } from "../../stores"
+import { useStores } from "../../stores/index.js"
 defineProps({ open: Boolean, title: { type: String, default: "Details" } })
 defineEmits(["close"])
 const { i18n: { t } } = useStores()

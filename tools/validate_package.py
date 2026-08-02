@@ -8,8 +8,10 @@ import hashlib
 import json
 from pathlib import Path, PurePosixPath
 import re
+import shutil
 import stat
 import struct
+import subprocess
 import tempfile
 import zipfile
 
@@ -92,6 +94,7 @@ ICON_PATH = "ui/modules/apps/soturineChaosRandomizer/app.png"
 MAX_ICON_WIDTH = 500
 MAX_ICON_HEIGHT = 240
 MAX_ICON_BYTES = 100_000
+VUE_APP_PATH = PurePosixPath("ui/modules/apps/soturineChaosRandomizer")
 
 
 class PackageValidationError(ValueError):
@@ -230,6 +233,39 @@ def validate_reproducible(archive_path: Path, root: Path = REPOSITORY_ROOT) -> N
             raise PackageValidationError("Archive is not reproducible from the current inputs")
 
 
+def validate_extracted_vue_module_graph(archive_path: Path) -> dict[str, object]:
+    node = shutil.which("node")
+    if not node:
+        raise PackageValidationError("Node.js is required for extracted ZIP module graph validation")
+    validator = REPOSITORY_ROOT / "tools/validate_vue_module_graph.mjs"
+    with tempfile.TemporaryDirectory(prefix="scr-vue-graph-") as temporary:
+        extracted = Path(temporary)
+        with zipfile.ZipFile(archive_path) as archive:
+            archive.extractall(extracted)
+        app_root = extracted.joinpath(*VUE_APP_PATH.parts)
+        result = subprocess.run(
+            [node, str(validator), str(app_root), "--mode=zip", "--json"],
+            cwd=REPOSITORY_ROOT,
+            text=True,
+            capture_output=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            raise PackageValidationError(
+                "Extracted ZIP Vue module graph is invalid:\n" + result.stdout + result.stderr
+            )
+        try:
+            report = json.loads(result.stdout)
+        except json.JSONDecodeError as error:
+            raise PackageValidationError("Vue module graph validator returned invalid JSON") from error
+        if any(report.get(field) != 0 for field in (
+            "directoryImports", "missingModules", "caseMismatches", "zipMissingModules",
+            "cycles", "namedExportErrors",
+        )):
+            raise PackageValidationError("Extracted ZIP Vue module graph reported unresolved entries")
+        return report
+
+
 def validate_release_manifest(
     archive_path: Path, root: Path = REPOSITORY_ROOT,
 ) -> dict[str, object]:
@@ -281,11 +317,20 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("archive", type=Path, nargs="?", help="ZIP to validate")
     parser.add_argument("--no-reproducibility-check", action="store_true")
+    parser.add_argument("--module-graph-only", action="store_true")
     args = parser.parse_args()
 
     version = read_version()
     archive = args.archive or REPOSITORY_ROOT / "dist" / f"{ARCHIVE_PREFIX}{version}.zip"
     names = validate_archive(archive, version)
+    graph = validate_extracted_vue_module_graph(archive)
+    if args.module_graph_only:
+        print("SCR_VUE_MODULE_GRAPH_VALID")
+        print(f"Files scanned: {graph['filesScanned']}")
+        print(f"Imports scanned: {graph['importsScanned']}")
+        print(f"Project imports: {graph['projectImports']}")
+        print(f"ZIP missing modules: {graph['zipMissingModules']}")
+        return 0
     icon = validate_icon(REPOSITORY_ROOT / ICON_PATH)
     validate_checksum(archive)
     manifest = validate_release_manifest(archive)
@@ -298,6 +343,11 @@ def main() -> int:
     for name in names:
         print(f"  {name}")
     print(f"Manifest commit: {manifest['commit']}")
+    print(
+        "Extracted ZIP Vue module graph: "
+        f"{graph['filesScanned']} files, {graph['importsScanned']} imports, "
+        f"{graph['zipMissingModules']} missing"
+    )
     return 0
 
 

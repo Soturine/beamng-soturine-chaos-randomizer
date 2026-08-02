@@ -9,7 +9,7 @@
 <script setup>
 import { vBngOnUiNav, vBngScopedNav } from "@/common/directives"
 import { computed, nextTick } from "vue"
-import { useStores } from "../../stores"
+import { useStores } from "../../stores/index.js"
 const stores = useStores(); const { t } = stores.i18n
 const dialog = computed(() => stores.uiLayout.state.dialog)
 function finish(accepted) { const current = stores.uiLayout.state.dialog; stores.uiLayout.state.dialog = null; current?.resolve?.(accepted); nextTick(() => current?.returnFocus?.focus?.()) }

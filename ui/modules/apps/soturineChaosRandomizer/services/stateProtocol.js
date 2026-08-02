@@ -1,4 +1,4 @@
-import { UI_PROTOCOL_VERSION } from "./commandBridge"
+import { UI_PROTOCOL_VERSION } from "./commandBridge.js"
 
 export const EVENT_TYPES = new Set(["full", "diff", "reset", "rejection"])
 export const DOMAINS = new Set([

@@ -270,6 +270,8 @@ class StaticValidationTests(unittest.TestCase):
         for required in ("app.vue", "en-US.json", "pt-BR.json", "uiProtocol.lua"):
             self.assertIn(required, validation)
         self.assertIn("FORBIDDEN_RUNTIME_PATHS", validation)
+        self.assertIn("validate_extracted_vue_module_graph", validation)
+        self.assertTrue((ROOT / "tools/validate_vue_module_graph.mjs").is_file())
         self.assertIn('GENERATOR_VERSION = 8', package_source)
 
     def test_workflow_yaml_parses_and_uses_pinned_actions(self) -> None:
@@ -287,6 +289,11 @@ class StaticValidationTests(unittest.TestCase):
         beta = (ROOT / ".github/workflows/beta-readiness.yml").read_text(encoding="utf-8")
         self.assertIn("npm ci --ignore-scripts", ci)
         self.assertIn("npm run validate:sfc", ci)
+        self.assertIn("npm run validate:graph", ci)
+        self.assertIn("--module-graph-only", ci)
+        package_workflow = (ROOT / ".github/workflows/package.yml").read_text(encoding="utf-8")
+        self.assertIn("npm run validate:graph", package_workflow)
+        self.assertIn("--module-graph-only", package_workflow)
         self.assertIn("npm run test:ui", beta)
 
     def test_p0_and_p1_contract_modules_remain_packaged(self) -> None:

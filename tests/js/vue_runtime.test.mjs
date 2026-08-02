@@ -56,7 +56,7 @@ truthy(Object.keys(bridgeModule.COMMAND_SCHEMAS).length >= 60)
 
 const protocolModule = await load(
   "ui/modules/apps/soturineChaosRandomizer/services/stateProtocol.js",
-  [[/import \{ UI_PROTOCOL_VERSION \} from "\.\/commandBridge"/, "const UI_PROTOCOL_VERSION = 2"]],
+  [[/import \{ UI_PROTOCOL_VERSION \} from "\.\/commandBridge\.js"/, "const UI_PROTOCOL_VERSION = 2"]],
 )
 const applied = []
 const rejections = []
