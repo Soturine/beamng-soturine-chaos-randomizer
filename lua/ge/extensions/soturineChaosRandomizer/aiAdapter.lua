@@ -87,6 +87,22 @@ local function targetExists(vehicleId)
   return vehicle ~= nil, vehicle and "vehicle_target_confirmed" or reason
 end
 
+local function readMode(vehicleId)
+  local vehicle, reason = object(vehicleId)
+  if not vehicle then return false, reason end
+  for _, name in ipairs({"getAIMode", "getAiMode", "getAIState"}) do
+    local readable, callback = pcall(function() return vehicle[name] end)
+    if readable and type(callback) == "function" then
+      local ok, value = pcall(callback, vehicle)
+      if ok then
+        if type(value) == "table" then value = value.mode or value.aiMode or value.state end
+        if type(value) == "string" and value ~= "" then return true, value, name end
+      end
+    end
+  end
+  return false, "mode_confirmation_unavailable"
+end
+
 local function findClosestRoad(position)
   if type(map) ~= "table" or type(map.findClosestRoad) ~= "function" then return false, "navgraph_unavailable" end
   local value = type(vec3) == "function" and vec3(position.x, position.y, position.z) or position
@@ -103,11 +119,26 @@ end
 local function capabilities()
   local nav = type(map) == "table" and type(map.findClosestRoad) == "function" and type(map.getPath) == "function"
   local vehicleQueue = type(getObjectByID) == "function"
+  local modeReadback = false
+  if type(getObjectByID) == "function" and (type(be) == "table" or type(be) == "userdata") then
+    local readable, callback = pcall(function() return be.getPlayerVehicleID end)
+    local okId, id = false, nil
+    if readable and type(callback) == "function" then okId, id = pcall(callback, be, 0) end
+    local vehicle = okId and id and object(id) or nil
+    if vehicle then
+      for _, name in ipairs({"getAIMode", "getAiMode", "getAIState"}) do
+        local readable, callback = pcall(function() return vehicle[name] end)
+        if readable and type(callback) == "function" then modeReadback = true; break end
+      end
+    end
+  end
   return {
     Destination = nav and vehicleQueue, Route = nav and vehicleQueue,
     Chase = vehicleQueue, Follow = vehicleQueue, Traffic = vehicleQueue,
     Recording = vehicleQueue, Recorded = false, Scripted = false,
     driveInLane = vehicleQueue,
+    ModeReadback = modeReadback,
+    modeConfirmationReason = modeReadback and nil or "mode_confirmation_unavailable",
     driveInLaneDefault = "explicit_per_request",
     driveInLaneReason = vehicleQueue and nil or "Vehicle Lua command queue is unavailable.",
     navgraphReason = nav and nil or "No reachable NavGraph API is available in this map/build.",
@@ -123,6 +154,7 @@ M.start = start
 M.stop = stop
 M.recording = recording
 M.targetExists = targetExists
+M.readMode = readMode
 M.findClosestRoad = findClosestRoad
 M.getPath = getPath
 M.capabilities = capabilities
