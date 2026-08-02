@@ -71,6 +71,10 @@ local productionModules = {
   registryCache = require("ge/extensions/soturineChaosRandomizer/registryCache"),
   incrementalIndexer = require("ge/extensions/soturineChaosRandomizer/incrementalIndexer"),
   uiPublisher = require("ge/extensions/soturineChaosRandomizer/uiPublisher"),
+  uiProtocol = require("ge/extensions/soturineChaosRandomizer/uiProtocol"),
+  uiCommandRouter = require("ge/extensions/soturineChaosRandomizer/uiCommandRouter"),
+  uiStateProjector = require("ge/extensions/soturineChaosRandomizer/uiStateProjector"),
+  uiPreferences = require("ge/extensions/soturineChaosRandomizer/uiPreferences"),
   adaptivePolling = require("ge/extensions/soturineChaosRandomizer/adaptivePolling"),
   aiModeConfirmation = require("ge/extensions/soturineChaosRandomizer/aiModeConfirmation"),
 }
@@ -80,7 +84,7 @@ local production = {}
 
 M.dependencies = {"core_modmanager", "core_vehicle_manager", "core_vehicle_partmgmt", "core_vehicles"}
 
-local EXTENSION_VERSION = "0.6.9"
+local EXTENSION_VERSION = "0.7.0"
 local WAIT_TIMEOUT = 25
 local PAINT_CONFIRM_TIMEOUT = 2
 local RECENT_LIMIT = 4
@@ -130,6 +134,8 @@ local runtime = {
   aiRoute = productionModules.routePlanner.create(16),
   uiMode = "expanded",
   uiPublisher = productionModules.uiPublisher.create(),
+  uiSequence = productionModules.uiProtocol.createSequence(),
+  uiCommandRouter = nil,
   frameBudgets = productionModules.frameBudget.create(),
   performance = {
     indexBuilds = 0,
@@ -587,11 +593,8 @@ local function publicState()
       preflight = util.deepCopy(runtime.dna.preflight),
       exportReady = runtime.dna.exportText ~= nil,
       details = util.deepCopy(runtime.dna.details),
-      comparison = runtime.dna.comparison and {
-        leftId = runtime.dna.comparison.leftId, rightId = runtime.dna.comparison.rightId,
-        equal = runtime.dna.comparison.equal, differenceCount = #(runtime.dna.comparison.differences or {}),
-        truncated = runtime.dna.comparison.truncated == true,
-      } or nil,
+      comparison = util.deepCopy(runtime.dna.comparison),
+      exportText = runtime.dna.exportText,
       sharePreview = util.deepCopy(runtime.dna.sharePreview),
       importPreview = runtime.dna.importPreview and util.deepCopy(runtime.dna.importPreview.public) or nil,
       thumbnailPending = runtime.dna.thumbnailPending,
@@ -619,12 +622,15 @@ local function publishState(forceFull)
   local state = publicState()
   local builtMs = math.max(0, (adapter.clock() - started) * 1000)
   productionModules.performanceMetrics.record(runtime.performanceTelemetry, "uiState", builtMs)
-  adapter.emit("SoturineChaosRandomizerState", state, true)
+  local envelope = productionModules.uiStateProjector.full(
+    runtime.uiSequence, state, adapter.clock(), forceFull == "reset" and "reset" or "full"
+  )
+  adapter.emit("SoturineChaosRandomizerState", envelope, true)
   local elapsedMs = math.max(0, (adapter.clock() - started) * 1000)
   productionModules.performanceMetrics.record(runtime.performanceTelemetry, "uiPublish", elapsedMs)
   productionModules.performanceMetrics.record(runtime.performanceTelemetry, "uiPayload", math.max(0, elapsedMs - builtMs))
   productionModules.performanceMetrics.recordEvent(runtime.performanceTelemetry, "uiEvents", adapter.clock())
-  productionModules.uiPublisher.note(runtime.uiPublisher, "full", production.payloadBytes(state), adapter.clock())
+  productionModules.uiPublisher.note(runtime.uiPublisher, "full", production.payloadBytes(envelope), adapter.clock())
   productionModules.uiPublisher.consume(runtime.uiPublisher, "full")
   production.recordBudget("uiPublish", elapsedMs, runtime.frameBudgets.values.uiPublishBudgetMs)
   return state
@@ -644,11 +650,17 @@ production.publishProgress = function(force)
     busy = operationState.deriveBusy(runtime.state), operationState = runtime.state.state,
     lifecyclePhase = runtime.state.phase,
   }
-  adapter.emit("SoturineChaosRandomizerStateDiff", payload, true)
+  local envelope = productionModules.uiStateProjector.diff(
+    runtime.uiSequence, "core", payload,
+    {"progress", "busy", "operationState", "lifecyclePhase"},
+    {operationId = runtime.state.operationId, operationGeneration = runtime.state.operationGeneration},
+    now
+  )
+  adapter.emit("SoturineChaosRandomizerStateDiff", envelope, true)
   local elapsedMs = math.max(0, (adapter.clock() - started) * 1000)
   productionModules.performanceMetrics.record(runtime.performanceTelemetry, "uiPublish", elapsedMs)
   productionModules.performanceMetrics.recordEvent(runtime.performanceTelemetry, "uiEvents", now)
-  productionModules.uiPublisher.note(runtime.uiPublisher, "partial", production.payloadBytes(payload), now)
+  productionModules.uiPublisher.note(runtime.uiPublisher, "partial", production.payloadBytes(envelope), now)
   productionModules.uiPublisher.consume(runtime.uiPublisher, "partial")
   production.recordBudget("uiPublish", elapsedMs, runtime.frameBudgets.values.uiPublishBudgetMs)
   return true
@@ -3975,6 +3987,34 @@ local function updateSettings(patch)
   return ok
 end
 
+production.updateUIPreferences = function(patch)
+  initialize()
+  if runtime.state.busy or (runtime.stress and runtime.stress.active) then return false, "busy" end
+  local nextPreferences = productionModules.uiPreferences.patch(runtime.settings.uiPreferences, patch)
+  runtime.settings = settingsModule.update(runtime.settings, {uiPreferences = nextPreferences})
+  local ok, saveError = adapter.saveSettings(settingsModule.forPersistence(runtime.settings))
+  if not ok then
+    setResult(false, saveError.code, saveError.message, {settingsAppliedForSession = true})
+  end
+  publishState()
+  return ok
+end
+
+production.migrateLegacyUIPreferences = function(legacyRacePolicy)
+  initialize()
+  local nextPreferences, changed = productionModules.uiPreferences.importLegacy(
+    runtime.settings.uiPreferences, legacyRacePolicy
+  )
+  if not changed then return true end
+  runtime.settings = settingsModule.update(runtime.settings, {uiPreferences = nextPreferences})
+  local ok, saveError = adapter.saveSettings(settingsModule.forPersistence(runtime.settings))
+  if not ok then
+    setResult(false, saveError.code, saveError.message, {settingsAppliedForSession = true})
+  end
+  publishState()
+  return ok
+end
+
 local function persistLockProfile(profile, code, message)
   if runtime.state.busy then return false end
   profile = vehicleDNALocks.normalize(profile)
@@ -4480,11 +4520,7 @@ local function getVehicleDNADetails(id)
     summary = vehicleDNAStorage.summary(entry),
   }
   runtime.dna.selectedId = id
-  runtime.dna.details = {
-    id = id, summary = details.summary, parent = details.parent,
-    childCount = #children, slotCount = #(entry.final and entry.final.slots or {}),
-    tuningCount = #(entry.final and entry.final.tuning or {}), paintCount = #(entry.final and entry.final.paints or {}),
-  }
+  runtime.dna.details = details
   adapter.emit("SoturineChaosRandomizerDNADetails", details)
   publishState()
   return details
@@ -7781,6 +7817,8 @@ M.fullRandom = function(settingsSnapshot) return runAction("fullRandom", setting
 M.undo = function() return runAction("undo") end
 M.reindex = function() return runAction("reindex") end
 M.updateSettings = updateSettings
+M.updateUIPreferences = production.updateUIPreferences
+M.migrateLegacyUIPreferences = production.migrateLegacyUIPreferences
 M.updateLockProfile = updateLockProfile
 M.getVehicleDNALocks = getVehicleDNALocks
 M.lockVehicle = lockVehicle
@@ -7855,6 +7893,92 @@ M.replayVehicleDNAGeneration = replayVehicleDNAGeneration
 M.pureSeedReplayVehicleDNA = pureSeedReplayVehicleDNA
 M.mutateVehicleDNA = mutateVehicleDNA
 M.restoreVehicleDNA = restoreVehicleDNA
+
+production.uiCommandHandlers = {
+  requestState = function() requestState(); return true end,
+  runAction = runAction,
+  updateSettings = updateSettings,
+  updateUIPreferences = production.updateUIPreferences,
+  migrateLegacyUIPreferences = production.migrateLegacyUIPreferences,
+  setUICompactMode = setUICompactMode,
+  cancelCurrentOperation = cancelCurrentOperation,
+  cancelRaceGeneration = production.cancelRaceGeneration,
+  getVehicleDNALocks = getVehicleDNALocks,
+  copyDiagnostics = copyDiagnostics,
+  spawnSafeVehicle = spawnSafeVehicle,
+  retryQuarantinedConfigurations = retryQuarantinedConfigurations,
+  rerollUnlocked = rerollUnlocked,
+  saveVehicleDNA = saveVehicleDNA,
+  deleteVehicleDNA = deleteVehicleDNA,
+  renameVehicleDNA = renameVehicleDNA,
+  setVehicleDNAFavorite = setVehicleDNAFavorite,
+  setVehicleDNAPinned = setVehicleDNAPinned,
+  setVehicleDNARating = setVehicleDNARating,
+  setVehicleDNATags = setVehicleDNATags,
+  setVehicleDNACollection = setVehicleDNACollection,
+  setVehicleDNANotes = setVehicleDNANotes,
+  duplicateVehicleDNA = duplicateVehicleDNA,
+  setVehicleDNAQuery = setVehicleDNAQuery,
+  getVehicleDNADetails = getVehicleDNADetails,
+  compareVehicleDNA = compareVehicleDNA,
+  importVehicleDNA = importVehicleDNA,
+  exportVehicleDNAJson = exportVehicleDNAJson,
+  exportVehicleDNAPackage = exportVehicleDNAPackage,
+  importVehicleDNAPackage = importVehicleDNAPackage,
+  confirmVehicleDNAPackageImport = confirmVehicleDNAPackageImport,
+  captureVehicleDNAThumbnail = captureVehicleDNAThumbnail,
+  removeVehicleDNAThumbnail = removeVehicleDNAThumbnail,
+  preflightVehicleDNA = preflightVehicleDNA,
+  replayVehicleDNAGeneration = replayVehicleDNAGeneration,
+  pureSeedReplayVehicleDNA = pureSeedReplayVehicleDNA,
+  mutateVehicleDNA = mutateVehicleDNA,
+  restoreVehicleDNA = restoreVehicleDNA,
+  setVehicleDNAPage = setVehicleDNAPage,
+  lockVehicle = lockVehicle,
+  lockConfiguration = lockConfiguration,
+  lockCategory = lockCategory,
+  lockSlot = lockSlot,
+  unlockSlot = unlockSlot,
+  lockPart = lockPart,
+  lockCurrentParts = lockCurrentParts,
+  lockTuning = lockTuning,
+  lockPaint = lockPaint,
+  applyLockPreset = applyLockPreset,
+  updateLockProfile = updateLockProfile,
+  createChaosLineup = production.createChaosLineup,
+  renameLineupCompetitor = production.renameLineupCompetitor,
+  reorderLineupCompetitor = production.reorderLineupCompetitor,
+  resolveLineupFailure = production.resolveLineupFailure,
+  exportChaosLineup = production.exportChaosLineup,
+  importChaosLineup = production.importChaosLineup,
+  previewLineupSpawn = production.previewLineupSpawn,
+  startLineupSpawn = production.startLineupSpawn,
+  cancelLineupSpawn = production.cancelLineupSpawn,
+  removeManagedVehicle = production.removeManagedVehicle,
+  respawnManagedVehicle = production.respawnManagedVehicle,
+  focusManagedVehicle = production.focusManagedVehicle,
+  placeAIDestination = production.placeAIDestination,
+  confirmAIDestination = production.confirmAIDestination,
+  clearAIDestination = production.clearAIDestination,
+  addAIRoutePoint = production.addAIRoutePoint,
+  editAIRoute = production.editAIRoute,
+  startManagedAI = production.startManagedAI,
+  pauseManagedAI = function() return production.controlManagedAI("pause") end,
+  resumeManagedAI = function() return production.controlManagedAI("resume") end,
+  stopManagedAI = function() return production.controlManagedAI("stop") end,
+  resetManagedAI = function() return production.controlManagedAI("reset") end,
+  setAIRecording = production.setAIRecording,
+}
+
+M.dispatchUICommand = function(envelope)
+  if not runtime.uiCommandRouter then
+    runtime.uiCommandRouter = productionModules.uiCommandRouter.create(production.uiCommandHandlers, {
+      encodeJSON = adapter.encodeJSON,
+      completedLimit = 128,
+    })
+  end
+  return productionModules.uiCommandRouter.dispatch(runtime.uiCommandRouter, envelope)
+end
 M.onExtensionLoaded = production.onExtensionLoaded
 M.onVehicleSpawned = onVehicleSpawned
 M.onVehicleSwitched = onVehicleSwitched
@@ -7875,6 +7999,8 @@ M.onExtensionUnloaded = function()
   productionModules.destinationMarker.clear(runtime.destination)
   productionModules.routePlanner.clear(runtime.aiRoute)
   production.controlManagedAI("reset")
+  runtime.uiCommandRouter = nil
+  runtime.uiSequence = productionModules.uiProtocol.createSequence()
   runtime.initialized = false
 end
 

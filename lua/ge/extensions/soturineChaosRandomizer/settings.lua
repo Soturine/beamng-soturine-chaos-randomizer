@@ -1,11 +1,12 @@
 local util = require("ge/extensions/soturineChaosRandomizer/util")
 local vehicleDNALocks = require("ge/extensions/soturineChaosRandomizer/vehicleDNALocks")
 local frameBudget = require("ge/extensions/soturineChaosRandomizer/frameBudget")
+local uiPreferences = require("ge/extensions/soturineChaosRandomizer/uiPreferences")
 
 local M = {}
 
 local DEFAULTS = {
-  schemaVersion = 8,
+  schemaVersion = 9,
   chaos = 75,
   allowMissingParts = true,
   protectCriticalParts = false,
@@ -26,6 +27,7 @@ local DEFAULTS = {
   defaultRestoreMode = "exact",
   extremeTuning = false,
   allowPartialResult = false,
+  uiPreferences = uiPreferences.defaults(),
   lockProfile = vehicleDNALocks.empty(),
 }
 
@@ -75,7 +77,11 @@ local function migrate(raw)
     raw.performanceBudgets = frameBudget.normalize(raw.performanceBudgets)
   end
 
-  raw.schemaVersion = 8
+  if version < 9 then
+    raw.uiPreferences = uiPreferences.normalize(raw.uiPreferences)
+  end
+
+  raw.schemaVersion = 9
   raw.allowEmptyParts = nil
   raw.fairMode = nil
   raw.keepVehicleDrivable = nil
@@ -100,6 +106,7 @@ local function validate(raw)
   result.extremeTuning = boolOrDefault(raw.extremeTuning, result.extremeTuning)
   result.allowPartialResult = boolOrDefault(raw.allowPartialResult, result.allowPartialResult)
   result.rememberLocks = boolOrDefault(raw.rememberLocks, result.rememberLocks)
+  result.uiPreferences = uiPreferences.normalize(raw.uiPreferences)
 
   if FILTERS[raw.contentFilter] then result.contentFilter = raw.contentFilter end
   if FAIRNESS[raw.selectionFairness] then result.selectionFairness = raw.selectionFairness end
