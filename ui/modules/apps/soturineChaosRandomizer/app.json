@@ -4,19 +4,20 @@
   "types": [
     "ui.apps.categories.vehicle_control"
   ],
-  "description": "Legacy Angular HUD App for vehicle randomization and compact Race workflows, hosted by the BeamNG runtime UI.",
+  "description": "Native Vue Runtime UI for deterministic vehicle randomization, Vehicle DNA Garage, Race, and diagnostics.",
   "css": {
     "right": "20px",
     "top": "120px",
-    "width": "340px",
-    "height": "300px",
+    "width": "440px",
+    "height": "620px",
     "min-width": "300px",
-    "min-height": "120px"
+    "min-height": "160px"
   },
   "author": "Soturine",
-  "version": "0.6.9",
+  "version": "0.7.0",
   "preserveAspectRatio": false,
   "directive": "soturineChaosRandomizer",
+  "vue": true,
   "category": "Gameplay",
   "isAuxiliary": false,
   "interactive": "yes"

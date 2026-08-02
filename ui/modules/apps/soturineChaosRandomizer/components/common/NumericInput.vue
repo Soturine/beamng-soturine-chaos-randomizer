@@ -1,0 +1,2 @@
+<template><label class="scr-field"><span>{{ label }}</span><input type="number" :value="modelValue" :min="min" :max="max" :step="step" :disabled="disabled" @change="$emit('update:modelValue', Number($event.target.value))" /></label></template>
+<script setup>defineProps({ modelValue: Number, label: { type: String, required: true }, min: Number, max: Number, step: { type: Number, default: 1 }, disabled: Boolean }); defineEmits(["update:modelValue"])</script>

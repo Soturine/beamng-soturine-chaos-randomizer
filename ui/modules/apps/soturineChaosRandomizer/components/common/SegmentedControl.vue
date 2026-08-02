@@ -1,0 +1,2 @@
+<template><div class="scr-segments" role="tablist" :aria-label="label"><button v-for="item in items" :key="item.value" type="button" role="tab" :aria-selected="modelValue === item.value" :class="{ 'is-active': modelValue === item.value }" @click="$emit('update:modelValue', item.value)">{{ item.label }}</button></div></template>
+<script setup>defineProps({ modelValue: String, label: { type: String, default: "" }, items: { type: Array, default: () => [] } }); defineEmits(["update:modelValue"])</script>

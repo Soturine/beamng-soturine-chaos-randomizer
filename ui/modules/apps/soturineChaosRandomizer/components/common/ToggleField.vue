@@ -1,0 +1,2 @@
+<template><label class="scr-toggle"><input type="checkbox" :checked="modelValue" :disabled="disabled" @change="$emit('update:modelValue', $event.target.checked)" /><span aria-hidden="true"></span><strong>{{ label }}</strong><small v-if="help">{{ help }}</small></label></template>
+<script setup>defineProps({ modelValue: Boolean, label: { type: String, required: true }, help: { type: String, default: "" }, disabled: Boolean }); defineEmits(["update:modelValue"])</script>
