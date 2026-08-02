@@ -112,7 +112,9 @@ local function new(options)
   function adapter.logRecord() end
   function adapter.errorValue(code, message, context) return {code = code, message = message, context = context or {}} end
   function adapter.getCapabilities() return util.deepCopy(capabilities) end
-  function adapter.loadSettings() return true, {} end
+  function adapter.loadSettings()
+    return true, {performanceProfiling = options.performanceProfiling ~= false}
+  end
   function adapter.saveSettings() return true end
   function adapter.loadDNALibrary() return true, util.deepCopy(harness.library), harness.library and "primary" or "missing" end
   function adapter.loadDNALibraryBackup() return true, util.deepCopy(harness.backupLibrary) end
@@ -326,6 +328,16 @@ local function new(options)
   package.loaded[MAIN_PATH] = nil
   harness.main = require(MAIN_PATH)
   package.loaded[ADAPTER_PATH] = originalAdapter
+  harness.main.onExtensionLoaded()
+  -- The production registry is intentionally built incrementally after extension
+  -- load. Pump the tiny fixture catalog so action tests start from the same
+  -- ready state that the in-game UI observes.
+  for _ = 1, 8 do
+    harness.now = harness.now + 0.01
+    harness.simulationTime = harness.simulationTime + 0.01
+    harness.frameCounter = harness.frameCounter + 1
+    harness.main.onUpdate(0.01, 0.01, 0.01)
+  end
   return harness
 end
 
@@ -424,7 +436,7 @@ end
 
 local function driveSuccess(harness, action, overrides)
   local actionSettings = {
-    schemaVersion = 7,
+    schemaVersion = 8,
     chaos = 100,
     allowMissingParts = false,
     protectCriticalParts = true,
@@ -435,6 +447,7 @@ local function driveSuccess(harness, action, overrides)
     selectionFairness = "vehicle",
     manualSeed = "pipeline-seed",
     seedMode = "fixed",
+    performanceProfiling = true,
   }
   for key, value in pairs(type(overrides) == "table" and overrides or {}) do actionSettings[key] = value end
   local started = harness.main.runAction(action, actionSettings)

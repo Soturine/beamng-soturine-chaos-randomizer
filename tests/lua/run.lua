@@ -78,6 +78,18 @@ local vehicleStabilizer = require("ge/extensions/soturineChaosRandomizer/vehicle
 local vehicleTargetTracker = require("ge/extensions/soturineChaosRandomizer/vehicleTargetTracker")
 local fixtures = require("tests/lua/fixtures/content")
 local pipelineHarness = require("tests/lua/pipelineHarness")
+local p1 = {
+  frameBudget = require("ge/extensions/soturineChaosRandomizer/frameBudget"),
+  buffers = require("ge/extensions/soturineChaosRandomizer/vehicleBufferPool"),
+  iterator = require("ge/extensions/soturineChaosRandomizer/vehicleIterator"),
+  dimensions = require("ge/extensions/soturineChaosRandomizer/dimensionCache"),
+  registryCache = require("ge/extensions/soturineChaosRandomizer/registryCache"),
+  indexer = require("ge/extensions/soturineChaosRandomizer/incrementalIndexer"),
+  ui = require("ge/extensions/soturineChaosRandomizer/uiPublisher"),
+  polling = require("ge/extensions/soturineChaosRandomizer/adaptivePolling"),
+  aiConfirmation = require("ge/extensions/soturineChaosRandomizer/aiModeConfirmation"),
+  diagnostics = require("ge/extensions/soturineChaosRandomizer/diagnostics"),
+}
 
 local tests = {}
 local requirementMappings = {}
@@ -425,7 +437,7 @@ tests.settings_migration = function()
     fairMode = false,
     historyLimit = 0,
   })
-  equal(migrated.schemaVersion, 7)
+  equal(migrated.schemaVersion, 8)
   equal(migrated.chaos, 100)
   equal(migrated.allowMissingParts, false)
   equal(migrated.selectionFairness, "configuration")
@@ -792,7 +804,7 @@ end
 
 tests.legacy_keep_vehicle_drivable_setting_migrates = function()
   local value = settings.validate({schemaVersion = 1, keepVehicleDrivable = true})
-  equal(value.schemaVersion, 7)
+  equal(value.schemaVersion, 8)
   equal(value.protectCriticalParts, true)
   equal(value.keepVehicleDrivable, nil)
 end
@@ -2259,7 +2271,7 @@ end
 
 tests.settings_schema_two_migrates_to_four = function()
   local value = settings.validate({schemaVersion = 2, dnaLimit = 25, autoSaveDNA = true})
-  equal(value.schemaVersion, 7)
+  equal(value.schemaVersion, 8)
   equal(value.dnaLibraryLimit, 25)
   equal(value.autoSaveDNA, false)
 end
@@ -2630,7 +2642,7 @@ end
 
 tests.lock_profile_migrates_and_persists_separately = function()
   local value = settings.validate({schemaVersion = 3})
-  equal(value.schemaVersion, 7)
+  equal(value.schemaVersion, 8)
   equal(value.lockProfile.kind, "soturineVehicleDNALockProfile")
   local locked = vehicleDNALocks.applyPatch(value.lockProfile, {
     vehicle = true, categories = {engine = true}, tuning = {all = true},
@@ -4572,7 +4584,7 @@ end
 tests.v061_settings_locks_and_seed_migration = function()
   local legacyLocks = vehicleDNALocks.applyPatch(vehicleDNALocks.empty(), {vehicle = true, categories = {body = true}})
   local migrated = settings.validate({schemaVersion = 5, manualSeed = "legacy", lockProfile = legacyLocks})
-  equal(migrated.schemaVersion, 7)
+  equal(migrated.schemaVersion, 8)
   equal(migrated.seedMode, "random")
   truthy(not migrated.rememberLocks)
   equal(vehicleDNALocks.summary(migrated.lockProfile).locked, 0)
@@ -4836,6 +4848,270 @@ tests.v061_compact_ui_contract = function()
   truthy(css:find("scr-mode-collapsed", 1, true) ~= nil)
   truthy(not js:find("compact: true", 1, true) and not js:find("standard: true", 1, true))
   truthy(#fox < 2048 and not fox:lower():find("script", 1, true) and not fox:lower():find("base64", 1, true))
+end
+
+tests.v069_profiler_disabled_reset_overflow_and_capabilities = function()
+  local metrics = performanceMetrics.create({
+    enabled = false, sampleLimit = 8,
+    toolSource = {timeprobe = {}, gcprobe = function() end, luaProfiler = {}},
+  })
+  truthy(not performanceMetrics.record(metrics, "onUpdate", 1))
+  equal(performanceMetrics.snapshot(metrics, 0).categories.onUpdate.count, 0)
+  truthy(performanceMetrics.setEnabled(metrics, true))
+  for value = 1, 16 do truthy(performanceMetrics.record(metrics, "onUpdate", value)) end
+  local report = performanceMetrics.export(metrics, 1)
+  local metric = report.categories.onUpdate
+  equal(metric.count, 16); equal(metric.sampleCount, 8); equal(metric.totalMs, 136)
+  near(metric.meanMs, 8.5); equal(metric.minMs, 1); equal(metric.maxMs, 16)
+  equal(metric.p50Ms, 12); equal(metric.p95Ms, 16); equal(metric.p99Ms, 16); equal(metric.lastMs, 16)
+  truthy(report.capabilities.timeprobe); truthy(report.capabilities.gcprobe); truthy(report.capabilities.luaProfiler)
+  truthy(performanceMetrics.reset(metrics))
+  local reset = performanceMetrics.snapshot(metrics, 2).categories.onUpdate
+  equal(reset.count, 0); equal(reset.sampleCount, 0); equal(reset.totalMs, 0)
+end
+
+tests.v069_frame_budgets_warn_without_cancelling = function()
+  local warnings = {}
+  local state = p1.frameBudget.create({idleBudgetMs = 0.2}, {warningCooldown = 2})
+  local continued, warned = p1.frameBudget.check(state, "idle", 0.1, 0.2, 0, function(value)
+    warnings[#warnings + 1] = value
+  end)
+  truthy(continued); equal(warned, false)
+  continued, warned = p1.frameBudget.check(state, "idle", 0.3, 0.2, 0, function(value)
+    warnings[#warnings + 1] = value
+  end)
+  truthy(continued); truthy(warned)
+  continued, warned = p1.frameBudget.check(state, "idle", 0.4, 0.2, 1, function(value)
+    warnings[#warnings + 1] = value
+  end)
+  truthy(continued); equal(warned, false)
+  continued, warned = p1.frameBudget.check(state, "idle", 0.5, 0.2, 2, function(value)
+    warnings[#warnings + 1] = value
+  end)
+  truthy(continued); truthy(warned); equal(#warnings, 2)
+  equal(p1.frameBudget.snapshot(state).totalExceeded, 3)
+  equal(p1.frameBudget.normalize({raceBudgetMs = 100}).raceBudgetMs, 20)
+end
+
+tests.v069_reusable_buffers_prevent_aliasing_and_stale_release = function()
+  local pool = p1.buffers.create({"vehicleIdsBuffer"})
+  local first, generation = assert(p1.buffers.acquire(pool, "vehicleIdsBuffer"))
+  first[1], first[9], first.metadata = 7, 9, "stale"
+  local owned = p1.buffers.copyOut(first)
+  equal(owned[1], 7)
+  truthy(p1.buffers.release(pool, "vehicleIdsBuffer", generation))
+  equal(owned[1], 7, "released storage must not alias copied output")
+  local second, nextGeneration = assert(p1.buffers.acquire(pool, "vehicleIdsBuffer"))
+  equal(second, first); equal(#second, 0); equal(second[9], nil); equal(second.metadata, nil)
+  truthy(nextGeneration > generation)
+  local released, reason = p1.buffers.release(pool, "vehicleIdsBuffer", generation)
+  equal(released, false); equal(reason, "stale_buffer_generation")
+  truthy(p1.buffers.release(pool, "vehicleIdsBuffer", nextGeneration))
+  local stats = p1.buffers.snapshot(pool)
+  equal(stats.acquisitions, 2); equal(stats.reuses, 1); equal(stats.borrowed, 0)
+end
+
+tests.v069_vehicle_iterators_are_deterministic_with_safe_fallback = function()
+  local values = {
+    {getID = function() return 7 end}, {},
+    {getId = function() return 2 end}, {id = 7}, {id = -1},
+  }
+  local environment = {
+    vehiclesIterator = function()
+      local index = 0
+      return function() index = index + 1; return values[index] end
+    end,
+  }
+  local buffer = {99}
+  local ok, strategy, count = p1.iterator.collectIds(buffer, {environment = environment})
+  truthy(ok); equal(strategy, "vehiclesIterator"); equal(count, 2)
+  equal(buffer[1], 2); equal(buffer[2], 7)
+  local fallback = {getAllVehicles = function() return {b = {id = 5}, a = {id = 3}} end}
+  ok, strategy, count = p1.iterator.collectIds(buffer, {environment = fallback, activeOnly = true})
+  truthy(ok); equal(strategy, "getAllVehicles"); equal(count, 2)
+  equal(buffer[1], 3); equal(buffer[2], 5)
+  ok, strategy, count = p1.iterator.collectIds(buffer, {environment = {getAllVehicles = function() return {} end}})
+  truthy(ok); equal(count, 0); equal(#buffer, 0)
+  local caps = p1.iterator.capabilities(environment)
+  truthy(caps.vehiclesIterator); equal(caps.activeVehiclesIterator, false)
+end
+
+tests.v069_oobb_xyz_dimension_cache_invalidates_recycled_ids = function()
+  local state = p1.dimensions.create({limit = 8})
+  local measured = 0
+  local object = {
+    getSpawnWorldOOBBRearPointXYZ = function() measured = measured + 1; return 0, 0, 0 end,
+    getSpawnWorldOOBBFrontPointXYZ = function() return 0, 10, 0 end,
+    getSpawnWorldOOBBCenterXYZ = function() return 0, 5, 0 end,
+    getSpawnWorldOOBB = function()
+      return {getHalfExtents = function() return {x = 1, y = 2, z = 0.75} end}
+    end,
+  }
+  local first, source = p1.dimensions.read(state, 44, 1, object, 5)
+  equal(source, "measured"); equal(first.width, 2); equal(first.length, 10); equal(first.height, 1.5)
+  equal(first.source, "spawn_oobb_xyz")
+  first.width = 999
+  local cached, cachedSource = p1.dimensions.read(state, 44, 1, object, 6)
+  equal(cachedSource, "cache_hit"); equal(cached.width, 2); equal(measured, 1)
+  local recycled = assert(p1.dimensions.read(state, 44, 2, {
+    getWorldBox = function() return {getExtents = function() return {x = 4, y = 7, z = 2} end} end,
+  }, 7))
+  equal(recycled.width, 4); equal(recycled.length, 7); equal(recycled.source, "world_box_fallback")
+  truthy(p1.dimensions.invalidate(state, 44, 1)); equal(p1.dimensions.get(state, 44, 1), nil)
+  truthy(p1.dimensions.get(state, 44, 2) ~= nil)
+  truthy(p1.dimensions.invalidate(state, 44)); equal(p1.dimensions.snapshot(state).size, 0)
+end
+
+tests.v069_registry_cache_fingerprint_checksum_and_partial_rejection = function()
+  local parts = {
+    beamNGVersion = "0.39.2", modVersion = "0.6.9", registryShapeVersion = 1,
+    activeModsFingerprint = "mods-a", contentAliasesVersion = 1, settingsSchema = 8,
+  }
+  local fingerprint = assert(p1.registryCache.fingerprint(parts))
+  local changed = assert(p1.registryCache.fingerprint(util.shallowMerge(parts, {activeModsFingerprint = "mods-b"})))
+  truthy(fingerprint ~= changed)
+  local envelope = p1.registryCache.envelope(fingerprint, {models = {{key = "car"}}, configurations = {}})
+  local payload, reason = p1.registryCache.validate(envelope, fingerprint, 1024)
+  truthy(payload ~= nil); equal(reason, "cache_hit")
+  payload.models[1].key = "mutated"; equal(envelope.payload.models[1].key, "car")
+  local corrupt = util.deepCopy(envelope); corrupt.payload.models[1].key = "corrupt"
+  payload, reason = p1.registryCache.validate(corrupt, fingerprint, 1024)
+  equal(payload, nil); equal(reason, "cache_checksum_invalid")
+  local partial = util.deepCopy(envelope); partial.complete = false
+  payload, reason = p1.registryCache.validate(partial, fingerprint, 1024)
+  equal(payload, nil); equal(reason, "cache_snapshot_partial")
+  payload, reason = p1.registryCache.validate(envelope, changed, 1024)
+  equal(payload, nil); equal(reason, "cache_fingerprint_changed")
+  local sensitive = p1.registryCache.envelope(fingerprint, {path = "C:\\Users\\owner\\catalog.json"})
+  payload, reason = p1.registryCache.validate(sensitive, fingerprint, 1024)
+  equal(payload, nil); equal(reason, "cache_sensitive_path_rejected")
+  payload, reason = p1.registryCache.validate(envelope, fingerprint, p1.registryCache.DEFAULT_MAX_BYTES + 1)
+  equal(payload, nil); equal(reason, "cache_too_large")
+end
+
+tests.v069_incremental_index_is_chunked_cancellable_restartable_and_atomic = function()
+  local state = p1.indexer.create()
+  local working, committed = {}, {"last-known-good"}
+  p1.indexer.start(state, 5, function(cursor)
+    working[cursor] = "item-" .. tostring(cursor); return true
+  end, function() committed = util.copyArray(working); return true, committed end, {startedAt = 0})
+  local ok, progress, done = p1.indexer.step(state, 0.1, function() return 0 end, 1, 2)
+  truthy(ok); equal(done, false); equal(progress.cursor, 2); equal(committed[1], "last-known-good")
+  truthy(p1.indexer.cancel(state, "fixture_cancel"))
+  ok, progress = p1.indexer.step(state, 0.2, function() return 0 end, 1, 2)
+  equal(ok, false); equal(progress, "indexer_cancelled"); equal(committed[1], "last-known-good")
+  working = {}
+  local restarted = assert(p1.indexer.start(state, 3, function(cursor, generation)
+    working[cursor] = tostring(generation) .. ":" .. tostring(cursor); return true
+  end, function() committed = util.copyArray(working); return true, committed end, {startedAt = 0.2, reason = "restart"}))
+  truthy(restarted.generation > 1)
+  ok, progress, done = p1.indexer.step(state, 0.3, function() return 0 end, 1, 8)
+  truthy(ok); truthy(done); equal(#committed, 3)
+  local snapshot = p1.indexer.snapshot(state)
+  equal(snapshot.status, "ready"); equal(snapshot.items, 3); equal(snapshot.progress, 1)
+end
+
+tests.v069_ui_dirty_diff_debounce_and_full_request_are_bounded = function()
+  local state = p1.ui.create({debounceSeconds = 0.1, now = 0})
+  truthy(state.initialPending); truthy(state.flags.operationDirty)
+  p1.ui.note(state, "full", 1000, 0); p1.ui.consume(state, "full")
+  equal(state.initialPending, false); equal(state.flags.operationDirty, false)
+  equal(p1.ui.due(state, 0.05, false), false)
+  truthy(p1.ui.mark(state, "progressDirty")); truthy(state.flags.progressDirty)
+  equal(p1.ui.suppress(state), false)
+  p1.ui.note(state, "partial", 80, 0.1); p1.ui.consume(state, "partial")
+  equal(state.flags.progressDirty, false)
+  truthy(p1.ui.requestFull(state)); truthy(state.fullRequested); truthy(state.flags.garageDirty)
+  local report = p1.ui.snapshot(state, 1)
+  equal(report.fullStateCount, 1); equal(report.partialStateCount, 1)
+  equal(report.suppressedPublishes, 1); equal(report.guihooksCount, 2); equal(report.bytesPublished, 1080)
+  near(report.guihooksPerSecond, 2); near(report.bytesPerSecond, 1080)
+end
+
+tests.v069_diagnostics_deduplicate_rate_limit_export_and_reserve_critical = function()
+  local now, emitted = 0, 0
+  local state = p1.diagnostics.create(function() emitted = emitted + 1 end, {
+    clock = function() return now end, limit = 16, rateLimitSeconds = 2,
+  })
+  truthy(p1.diagnostics.write(state, "W", "repeat", {value = 1}, true))
+  now = 1; local ok, record, wasEmitted = p1.diagnostics.write(state, "W", "repeat", {value = 1}, true)
+  truthy(ok); equal(record.repetitions, 2); equal(wasEmitted, false)
+  now = 2; ok, record, wasEmitted = p1.diagnostics.write(state, "W", "repeat", {value = 1}, true)
+  truthy(wasEmitted); equal(emitted, 2)
+  local compact = p1.diagnostics.snapshot(state, {compact = true})
+  equal(compact[1].details, nil); equal(compact[1].firstAt, 0); equal(compact[1].lastAt, 2)
+  for index = 1, 16 do
+    now = 3 + index
+    p1.diagnostics.write(state, "E", "critical-" .. tostring(index), {path = "C:\\Users\\owner\\secret"}, true)
+  end
+  local accepted, reason = p1.diagnostics.write(state, "I", "noise", {}, true)
+  equal(accepted, false); equal(reason, "diagnostic_capacity_reserved")
+  local exported = p1.diagnostics.export(state, {compact = false})
+  equal(#exported, 16)
+  for _, item in ipairs(exported) do equal(item.severity, "E") end
+  equal(exported[1].details.path, "<redacted-user-path>")
+  local summary = p1.diagnostics.summary(state)
+  equal(summary.unique, 16); truthy(summary.deduplicated >= 2)
+end
+
+tests.v069_adaptive_polling_fast_backoff_terminal_stale_and_wake = function()
+  local state = p1.polling.create({fastInterval = 0.1, slowInterval = 0.8, multiplier = 2, stableThreshold = 2, generation = 4}, 0)
+  truthy(p1.polling.due(state, 0, 4))
+  truthy(p1.polling.observed(state, 0, false, 4)); near(state.currentInterval, 0.1)
+  truthy(p1.polling.observed(state, 0.1, false, 4)); near(state.currentInterval, 0.2)
+  truthy(p1.polling.observed(state, 0.3, false, 4)); near(state.currentInterval, 0.4)
+  truthy(p1.polling.observed(state, 0.7, true, 4)); near(state.currentInterval, 0.1)
+  local due, reason = p1.polling.due(state, 1, 3)
+  equal(due, false); equal(reason, "stale_poll")
+  truthy(p1.polling.stop(state)); equal(p1.polling.due(state, 100, 4), false)
+  truthy(p1.polling.wake(state, 5, 5)); truthy(p1.polling.due(state, 5, 5)); equal(state.terminal, false)
+end
+
+tests.v069_ai_mode_confirmation_handles_all_terminal_outcomes = function()
+  local confirmed = p1.aiConfirmation.create(10, 2, "Destination", 0, 1)
+  equal(confirmed.expectedMode, "traffic")
+  equal(p1.aiConfirmation.observe(confirmed, "traffic", 0.1, 2), "confirmed")
+  local mismatch = p1.aiConfirmation.create(11, 3, "Chase", 0, 0.5)
+  equal(p1.aiConfirmation.observe(mismatch, "follow", 0.1, 3), "pending")
+  equal(p1.aiConfirmation.observe(mismatch, "follow", 0.5, 3), "mismatch")
+  local timeout = p1.aiConfirmation.create(12, 4, "Follow", 0, 0.5)
+  equal(p1.aiConfirmation.observe(timeout, nil, 0.5, 4), "timeout")
+  local unavailable = p1.aiConfirmation.create(13, 5, "Traffic", 0, 1)
+  equal(p1.aiConfirmation.unavailable(unavailable), "unavailable")
+  local destroyed = p1.aiConfirmation.create(14, 6, "Route", 0, 1)
+  equal(p1.aiConfirmation.destroyed(destroyed), "destroyed")
+  local stale = p1.aiConfirmation.create(15, 7, "Chase", 0, 1)
+  equal(p1.aiConfirmation.observe(stale, "chase", 0.1, 8), "stale")
+end
+
+tests.v069_race_scale_and_seed_regression_vectors = function()
+  for _, count in ipairs({1, 4, 8, 12}) do
+    local left = assert(raceManager.create({
+      count = count, participationMode = "spectator", episodeSeed = "v069-race-scale", advancedAllowOne = true,
+    }))
+    local right = assert(raceManager.create({
+      count = count, participationMode = "spectator", episodeSeed = "v069-race-scale", advancedAllowOne = true,
+    }))
+    equal(#left.competitors, count); equal(#right.competitors, count)
+    local seeds = {}
+    for index, competitor in ipairs(left.competitors) do
+      truthy(not seeds[competitor.seed]); seeds[competitor.seed] = true
+      equal(competitor.seed, right.competitors[index].seed)
+      equal(competitor.selectionSeed, right.competitors[index].selectionSeed)
+    end
+  end
+  local vectors = {
+    ["v069-random-car"] = {1698095037, 1442208684, 1878000565, 1238082304},
+    ["v069-scramble"] = {757961919, 900898110, 708816060, 1550568256},
+    ["v069-full-random"] = {1645692281, 1644509974, 407943599, 1567907986},
+    ["v069-race"] = {1968766166, 1717768295, 1902273628, 397035115},
+    ["v069-dna-replay"] = {51555989, 1873081793, 27240262, 654695038},
+    ["v069-pure-seed"] = {1137238290, 1652511976, 125525681, 1198779364},
+  }
+  for seed, expected in pairs(vectors) do
+    local generator = rng.new(seed)
+    for index = 1, #expected do equal(generator:nextUInt(), expected[index], seed .. " vector changed") end
+  end
 end
 
 tests.v066_baselines_are_distinct_and_repair_prefers_last_accepted = function()
@@ -5469,6 +5745,8 @@ end
 tests.all_lua_sources_compile = function()
   local paths = {
     "/lua/ge/extensions/soturineChaosRandomizer.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/adaptivePolling.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/aiModeConfirmation.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/apiAdapter.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/capabilities.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/configSelector.lua",
@@ -5483,10 +5761,13 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/coherentStateGate.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/criticalRepair.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/diagnostics.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/dimensionCache.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/failureAttribution.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/engineFluidGuard.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/history.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/historyTransaction.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/frameBudget.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/incrementalIndexer.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/lifecycle.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/lineupManager.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/raceManager.lua",
@@ -5507,6 +5788,7 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/partBatchRecovery.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/pngValidator.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/rng.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/registryCache.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/routePlanner.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/timeSource.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/settings.lua",
@@ -5518,6 +5800,7 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/treeConvergence.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/tuningCoverageLedger.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/tuningPipeline.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/uiPublisher.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/util.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/validator.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/vehicleSelector.lua",
@@ -5538,6 +5821,8 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/vehicleRecovery.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/vehicleStabilizer.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/vehicleTargetTracker.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/vehicleBufferPool.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/vehicleIterator.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/aiAdapter.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/aiDirector.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/destinationMarker.lua",
@@ -6153,6 +6438,84 @@ local v068Required = {
   {"migration_preserves_lineups", tests.v068_user_data_writes_are_transactional_and_reported},
 }
 
+local v069Required = {
+  {"profiler_count_total_mean", tests.v069_profiler_disabled_reset_overflow_and_capabilities},
+  {"profiler_p50_p95_p99", tests.v069_profiler_disabled_reset_overflow_and_capabilities},
+  {"profiler_buffer_is_bounded", tests.v069_profiler_disabled_reset_overflow_and_capabilities},
+  {"profiler_overflow_keeps_recent_samples", tests.v069_profiler_disabled_reset_overflow_and_capabilities},
+  {"profiler_disabled_has_no_samples", tests.v069_profiler_disabled_reset_overflow_and_capabilities},
+  {"profiler_reset_clears_aggregates", tests.v069_profiler_disabled_reset_overflow_and_capabilities},
+  {"profiler_tool_capabilities_are_optional", tests.v069_profiler_disabled_reset_overflow_and_capabilities},
+  {"budget_below_limit", tests.v069_frame_budgets_warn_without_cancelling},
+  {"budget_above_limit", tests.v069_frame_budgets_warn_without_cancelling},
+  {"budget_warning_is_amortized", tests.v069_frame_budgets_warn_without_cancelling},
+  {"budget_excess_does_not_cancel", tests.v069_frame_budgets_warn_without_cancelling},
+  {"iterator_low_gc_available", tests.v069_vehicle_iterators_are_deterministic_with_safe_fallback},
+  {"iterator_fallback_available", tests.v069_vehicle_iterators_are_deterministic_with_safe_fallback},
+  {"iterator_empty_world", tests.v069_vehicle_iterators_are_deterministic_with_safe_fallback},
+  {"iterator_destroyed_object_ignored", tests.v069_vehicle_iterators_are_deterministic_with_safe_fallback},
+  {"iterator_ids_are_deterministic", tests.v069_vehicle_iterators_are_deterministic_with_safe_fallback},
+  {"iterator_buffer_is_reused", tests.v069_vehicle_iterators_are_deterministic_with_safe_fallback},
+  {"buffer_clear_removes_sparse_and_named_keys", tests.v069_reusable_buffers_prevent_aliasing_and_stale_release},
+  {"buffer_storage_is_reused", tests.v069_reusable_buffers_prevent_aliasing_and_stale_release},
+  {"buffer_copy_prevents_aliasing", tests.v069_reusable_buffers_prevent_aliasing_and_stale_release},
+  {"buffer_stale_generation_is_rejected", tests.v069_reusable_buffers_prevent_aliasing_and_stale_release},
+  {"oobb_xyz_is_preferred", tests.v069_oobb_xyz_dimension_cache_invalidates_recycled_ids},
+  {"oobb_world_box_fallback", tests.v069_oobb_xyz_dimension_cache_invalidates_recycled_ids},
+  {"dimension_cache_hit_avoids_read", tests.v069_oobb_xyz_dimension_cache_invalidates_recycled_ids},
+  {"dimension_cache_output_does_not_alias", tests.v069_oobb_xyz_dimension_cache_invalidates_recycled_ids},
+  {"dimension_cache_generation_prevents_recycled_id", tests.v069_oobb_xyz_dimension_cache_invalidates_recycled_ids},
+  {"dimension_cache_destroy_invalidation", tests.v069_oobb_xyz_dimension_cache_invalidates_recycled_ids},
+  {"registry_cache_hit", tests.v069_registry_cache_fingerprint_checksum_and_partial_rejection},
+  {"registry_cache_mod_fingerprint_change", tests.v069_registry_cache_fingerprint_checksum_and_partial_rejection},
+  {"registry_cache_corruption_rejected", tests.v069_registry_cache_fingerprint_checksum_and_partial_rejection},
+  {"registry_cache_partial_snapshot_rejected", tests.v069_registry_cache_fingerprint_checksum_and_partial_rejection},
+  {"registry_cache_payload_is_owned", tests.v069_registry_cache_fingerprint_checksum_and_partial_rejection},
+  {"registry_cache_sensitive_path_rejected", tests.v069_registry_cache_fingerprint_checksum_and_partial_rejection},
+  {"registry_cache_size_is_bounded", tests.v069_registry_cache_fingerprint_checksum_and_partial_rejection},
+  {"incremental_index_processes_chunks", tests.v069_incremental_index_is_chunked_cancellable_restartable_and_atomic},
+  {"incremental_index_respects_item_budget", tests.v069_incremental_index_is_chunked_cancellable_restartable_and_atomic},
+  {"incremental_index_can_cancel", tests.v069_incremental_index_is_chunked_cancellable_restartable_and_atomic},
+  {"incremental_index_can_restart", tests.v069_incremental_index_is_chunked_cancellable_restartable_and_atomic},
+  {"incremental_index_reports_progress", tests.v069_incremental_index_is_chunked_cancellable_restartable_and_atomic},
+  {"incremental_index_never_commits_partial", tests.v069_incremental_index_is_chunked_cancellable_restartable_and_atomic},
+  {"ui_initial_state_is_full", tests.v069_ui_dirty_diff_debounce_and_full_request_are_bounded},
+  {"ui_progress_update_is_partial", tests.v069_ui_dirty_diff_debounce_and_full_request_are_bounded},
+  {"ui_publish_is_debounced", tests.v069_ui_dirty_diff_debounce_and_full_request_are_bounded},
+  {"ui_publish_suppression_is_counted", tests.v069_ui_dirty_diff_debounce_and_full_request_are_bounded},
+  {"ui_explicit_request_is_full", tests.v069_ui_dirty_diff_debounce_and_full_request_are_bounded},
+  {"ui_hook_and_byte_rates_are_measured", tests.v069_ui_dirty_diff_debounce_and_full_request_are_bounded},
+  {"diagnostics_are_deduplicated", tests.v069_diagnostics_deduplicate_rate_limit_export_and_reserve_critical},
+  {"diagnostics_repetitions_are_counted", tests.v069_diagnostics_deduplicate_rate_limit_export_and_reserve_critical},
+  {"diagnostics_are_rate_limited", tests.v069_diagnostics_deduplicate_rate_limit_export_and_reserve_critical},
+  {"diagnostics_compact_omits_details", tests.v069_diagnostics_deduplicate_rate_limit_export_and_reserve_critical},
+  {"diagnostics_full_export_is_sanitized", tests.v069_diagnostics_deduplicate_rate_limit_export_and_reserve_critical},
+  {"diagnostics_critical_records_are_reserved", tests.v069_diagnostics_deduplicate_rate_limit_export_and_reserve_critical},
+  {"polling_starts_fast", tests.v069_adaptive_polling_fast_backoff_terminal_stale_and_wake},
+  {"polling_backs_off_when_stable", tests.v069_adaptive_polling_fast_backoff_terminal_stale_and_wake},
+  {"polling_change_resets_cadence", tests.v069_adaptive_polling_fast_backoff_terminal_stale_and_wake},
+  {"polling_terminal_has_no_timer", tests.v069_adaptive_polling_fast_backoff_terminal_stale_and_wake},
+  {"polling_stale_generation_is_rejected", tests.v069_adaptive_polling_fast_backoff_terminal_stale_and_wake},
+  {"polling_wake_resumes_with_new_generation", tests.v069_adaptive_polling_fast_backoff_terminal_stale_and_wake},
+  {"ai_mode_readback_confirms", tests.v069_ai_mode_confirmation_handles_all_terminal_outcomes},
+  {"ai_mode_unavailable_fallback", tests.v069_ai_mode_confirmation_handles_all_terminal_outcomes},
+  {"ai_mode_mismatch_is_bounded", tests.v069_ai_mode_confirmation_handles_all_terminal_outcomes},
+  {"ai_mode_timeout_is_bounded", tests.v069_ai_mode_confirmation_handles_all_terminal_outcomes},
+  {"ai_mode_destroyed_is_terminal", tests.v069_ai_mode_confirmation_handles_all_terminal_outcomes},
+  {"ai_mode_stale_response_is_rejected", tests.v069_ai_mode_confirmation_handles_all_terminal_outcomes},
+  {"race_scale_one_vehicle", tests.v069_race_scale_and_seed_regression_vectors},
+  {"race_scale_four_vehicles", tests.v069_race_scale_and_seed_regression_vectors},
+  {"race_scale_eight_vehicles", tests.v069_race_scale_and_seed_regression_vectors},
+  {"race_scale_twelve_vehicles", tests.v069_race_scale_and_seed_regression_vectors},
+  {"race_scale_has_no_duplicate_seeds", tests.v069_race_scale_and_seed_regression_vectors},
+  {"random_car_seed_vector", tests.v069_race_scale_and_seed_regression_vectors},
+  {"scramble_seed_vector", tests.v069_race_scale_and_seed_regression_vectors},
+  {"full_random_seed_vector", tests.v069_race_scale_and_seed_regression_vectors},
+  {"race_competitor_seed_vector", tests.v069_race_scale_and_seed_regression_vectors},
+  {"vehicle_dna_replay_seed_vector", tests.v069_race_scale_and_seed_regression_vectors},
+  {"pure_seed_replay_vector", tests.v069_race_scale_and_seed_regression_vectors},
+}
+
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")
 equal(#v060Required, 104, "0.6.0 required scenario registry")
 equal(#v060PauseLifecycleRequired, 52, "0.6.0 pause lifecycle scenario registry")
@@ -6181,6 +6544,9 @@ for _, scenario in ipairs(v067Required) do
 end
 for _, scenario in ipairs(v068Required) do
   requirementMappings[#requirementMappings + 1] = {"0.6.8:" .. scenario[1], scenario[2]}
+end
+for _, scenario in ipairs(v069Required) do
+  requirementMappings[#requirementMappings + 1] = {"0.6.9:" .. scenario[1], scenario[2]}
 end
 
 local canonicalByFunction = {}

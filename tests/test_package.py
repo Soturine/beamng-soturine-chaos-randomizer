@@ -117,7 +117,7 @@ class PackageTests(unittest.TestCase):
             expected_counts = package_mod.test_counts(ROOT)
             self.assertEqual(manifest["tests"], expected_counts)
             self.assertEqual(manifest["tests"]["luaTestFunctionsUnique"], manifest["tests"]["luaExecutedCases"])
-            self.assertEqual(manifest["tests"]["luaRequirementMappings"], 577)
+            self.assertEqual(manifest["tests"]["luaRequirementMappings"], 652)
             self.assertEqual(manifest["tests"]["javaScriptChecks"], 49)
             self.assertGreater(manifest["tests"]["luaAssertions"], manifest["tests"]["luaExecutedCases"])
             self.assertEqual(manifest["tests"]["interactiveExecuted"], 0)
