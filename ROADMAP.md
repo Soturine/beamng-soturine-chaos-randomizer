@@ -2,35 +2,48 @@
 
 This roadmap describes direction, not release evidence. Completed version history is recorded in [CHANGELOG.md](CHANGELOG.md).
 
+## Required release sequence
+
+- **v0.6.8 = P0: essential BeamNG 0.39 compatibility.**
+- **v0.6.9 = P1: performance, profiling, and efficiency.** This release is
+  limited to bounded profiling, frame budgets, low-GC iteration, reusable
+  buffers, dimension/catalog caches, incremental indexing, UI diffs,
+  aggregated diagnostics, adaptive polling, and capability-driven AI readback.
+- **v0.7.0 = P2: Angular to Vue migration, internationalization, and
+  architectural modernization.** The verified Angular compatibility host stays
+  packaged through v0.6.9; Vue migration and full localization do not begin in
+  the P1 release.
+- **Post-v0.7.0 = fresh full audit after the BeamNG 0.39.x hotfixes.** Repeat
+  research and compatibility validation then, when hotfixes, documentation,
+  APIs, and field reports are expected to be more complete.
+
 ## Now
 
-- Publish v0.6.8 as an Experimental prerelease with reproducible ZIP, manifest,
+- Publish v0.6.9 as an Experimental prerelease with reproducible ZIP, manifest,
   SHA-256, annotated tag, and central BeamNG 0.39 compatibility metadata.
-- Execute the exact 60-case v0.6.8 plan against the downloaded release asset.
-- Capture logs/screenshots for registry warm-up, technical identity, spawn
-  denial/cardinality, instability correlation, migration, conflicts, safety,
-  explicit AI lane state, and repeated HUD host resize/remount cycles.
-- Promote no live-validated claim until every mandatory row is executed and
-  Passed against that exact asset.
+- Execute the exact v0.6.9 performance plan against the downloaded release
+  asset; synthetic benchmarks remain separate from live FPS/frame-time proof.
+- Preserve every v0.6.8 Chaos, Garage, Race, Race Policy, compatibility,
+  ownership, cardinality, and lifecycle contract while implementing P1 only.
+- Promote no live performance or compatibility claim until every mandatory row
+  is executed and Passed against that exact asset.
 
 ## Next
 
-- P1: evaluate a Runtime UI-native Vue rewrite without removing the verified
-  legacy Angular host until feature parity and migration are proven.
-- P1: adopt new BeamNG 0.39 Lua/vehicle-controller APIs, editor integrations,
-  FFV improvements, and Automated Performance Class only behind capability and
-  live evidence.
-- P1: revalidate drivetrain, forced-induction, N2O, fuel-tank, controller-init,
-  and reset behavior in gameplay; automated safety coverage is not live proof.
+- P2 in v0.7.0: migrate the HUD from the Angular compatibility host to native
+  Runtime UI Vue only after feature parity, state migration, teardown, layout,
+  input, and live owner evidence are complete.
+- Add internationalization infrastructure together with that architectural
+  modernization; v0.6.9 does not start a partial string migration.
 - Reduce `main.lua` orchestration safely through controller extraction backed by state-machine tests and the v0.6.8 lifecycle evidence model.
 - Expand live coverage across representative vehicle, config, part, and controller mods.
-- Add localization infrastructure after UI strings and layouts stabilize.
-- Improve performance baselines with real idle, Chaos, Race, AI, deep-tree, and many-mod captures.
 - Revalidate BeamNG Repository submission requirements and listing assets.
 
 ## Later
 
-- P2: consider Runtime UI-only packaging after the legacy host is officially
+- Run the documented post-v0.7.0 full audit against the then-current BeamNG
+  0.39.x build, documentation, APIs, hotfixes, and compatibility reports.
+- Consider Runtime UI-only packaging after the legacy host is officially
   unnecessary and all layouts/input modes have owner evidence.
 - Stabilize extension APIs intended for third-party integrations.
 - Add migration tooling if a future Vehicle DNA or Race schema requires a major revision.
