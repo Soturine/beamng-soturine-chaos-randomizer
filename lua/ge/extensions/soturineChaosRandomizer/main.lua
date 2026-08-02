@@ -67,6 +67,12 @@ local productionModules = {
   baselineSemantics = require("ge/extensions/soturineChaosRandomizer/baselineSemantics"),
   criticalRepair = require("ge/extensions/soturineChaosRandomizer/criticalRepair"),
   performanceMetrics = require("ge/extensions/soturineChaosRandomizer/performanceMetrics"),
+  frameBudget = require("ge/extensions/soturineChaosRandomizer/frameBudget"),
+  registryCache = require("ge/extensions/soturineChaosRandomizer/registryCache"),
+  incrementalIndexer = require("ge/extensions/soturineChaosRandomizer/incrementalIndexer"),
+  uiPublisher = require("ge/extensions/soturineChaosRandomizer/uiPublisher"),
+  adaptivePolling = require("ge/extensions/soturineChaosRandomizer/adaptivePolling"),
+  aiModeConfirmation = require("ge/extensions/soturineChaosRandomizer/aiModeConfirmation"),
 }
 
 local M = {}
@@ -106,6 +112,8 @@ local runtime = {
   compatibility = productionModules.compatibility.evaluate({}, "unknown"),
   contentAliases = {},
   registry = productionModules.registryReadiness.create(),
+  indexer = productionModules.incrementalIndexer.create(),
+  catalogFingerprint = nil,
   migrationReport = productionModules.userDataMigration.create(EXTENSION_VERSION),
   recovery = vehicleRecovery.create(),
   lineup = {
@@ -121,6 +129,8 @@ local runtime = {
   destination = productionModules.destinationMarker.create(),
   aiRoute = productionModules.routePlanner.create(16),
   uiMode = "expanded",
+  uiPublisher = productionModules.uiPublisher.create(),
+  frameBudgets = productionModules.frameBudget.create(),
   performance = {
     indexBuilds = 0,
     indexCacheHits = 0,
@@ -133,7 +143,7 @@ local runtime = {
     exportMs = 0,
     importMs = 0,
   },
-  performanceTelemetry = productionModules.performanceMetrics.create({sampleLimit = 256, eventLimit = 512}),
+  performanceTelemetry = productionModules.performanceMetrics.create({enabled = false, sampleLimit = 256, eventLimit = 512}),
   dna = {
     library = vehicleDNAStorage.create(100),
     loaded = false,
@@ -169,6 +179,7 @@ local attemptPartBatchRollback
 local applyNextIsolationBatch
 local preflightVehicleDNA
 local startVehicleDNABaseOperation
+local failActive
 
 production.ensureOperationContext = function(active)
   if not active.operationContext then
@@ -261,6 +272,12 @@ end
 function production.publicPerformance()
   local result = util.deepCopy(runtime.performance)
   result.telemetry = productionModules.performanceMetrics.snapshot(runtime.performanceTelemetry, adapter.clock())
+  result.frameBudgets = productionModules.frameBudget.snapshot(runtime.frameBudgets)
+  result.uiPublish = productionModules.uiPublisher.snapshot(runtime.uiPublisher, adapter.clock())
+  result.registryIndexing = productionModules.incrementalIndexer.snapshot(runtime.indexer)
+  result.vehicleRuntime = type(productionModules.spawnAdapter.performanceSnapshot) == "function"
+    and productionModules.spawnAdapter.performanceSnapshot() or nil
+  result.diagnostics = diagnosticsModule.summary(runtime.diagnostics)
   return result
 end
 
@@ -281,10 +298,17 @@ end
 
 production.reapOwnedOrphans = function(active, reason)
   if not active or not active.domainContext then return {removed = {}, failed = {}, skipped = {}} end
+  local started = adapter.clock()
   local result = productionModules.domainOperations.reap(
     runtime.domainOperations, productionModules.spawnAdapter.deleteVehicle,
-    {domain = active.domain, operationId = active.domainContext.operationId}
+    {
+      domain = active.domain, operationId = active.domainContext.operationId,
+      now = adapter.clock(), clock = adapter.clock, budgetMs = 1, maxItems = 8,
+    }
   )
+  local elapsedMs = math.max(0, (adapter.clock() - started) * 1000)
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "ownershipCleanup", elapsedMs)
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "orphanReaper", elapsedMs)
   if #result.removed > 0 or #result.failed > 0 then
     diagnosticsModule.write(runtime.diagnostics, #result.failed == 0 and "I" or "W", "orphan_cleanup", {
       domain = active.domain, operationId = active.domainContext.operationId,
@@ -309,6 +333,7 @@ local function publicState()
   query.offset, query.limit = runtime.dna.page * runtime.dna.pageSize, runtime.dna.pageSize
   local garageEntries, garageTotal = vehicleDNAStorage.query(runtime.dna.library, query)
   runtime.performance.garageLoadMs = math.max(0, (adapter.clock() - garageStarted) * 1000)
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "garageLoad", runtime.performance.garageLoadMs)
   runtime.performance.storageBytes = storageMetrics.canonicalBytes or 0
   runtime.performance.storageElements = storageMetrics.elementCount or 0
   local publicSettings = util.deepCopy(runtime.settings)
@@ -487,6 +512,8 @@ local function publicState()
       lastQuarantine = util.deepCopy(runtime.index.lastQuarantine),
       suspects = contentIndex.suspectCount(runtime.index),
       lastSuspect = util.deepCopy(runtime.index.lastSuspect),
+      indexing = productionModules.incrementalIndexer.snapshot(runtime.indexer),
+      catalogFingerprint = runtime.catalogFingerprint,
     },
     canUndo = #runtime.history.entries > 0 and not runtime.state.busy,
     history = historyModule.summaries(runtime.history),
@@ -526,7 +553,8 @@ local function publicState()
       vehicles = productionModules.aiDirector.list(runtime.aiDirector),
       destination = util.deepCopy(runtime.destination),
       route = util.deepCopy(runtime.aiRoute),
-      diagnostics = util.deepCopy(runtime.aiDirector.diagnostics),
+      diagnostics = runtime.uiMode == "collapsed" and {}
+        or {count = #(runtime.aiDirector.diagnostics or {})},
     },
     performance = production.publicPerformance(),
     locks = {
@@ -574,19 +602,63 @@ local function publicState()
   }
 end
 
-local function publishState()
+production.payloadBytes = function(payload)
+  if type(adapter.encodeJSON) ~= "function" then return 0 end
+  local ok, encoded = adapter.encodeJSON(payload, false)
+  return ok and type(encoded) == "string" and #encoded or 0
+end
+
+production.recordBudget = function(stage, elapsedMs, budgetMs)
+  productionModules.frameBudget.check(runtime.frameBudgets, stage, elapsedMs, budgetMs, adapter.clock(), function(value)
+    diagnosticsModule.write(runtime.diagnostics, "W", "frame_budget_exceeded", value, true)
+  end)
+end
+
+local function publishState(forceFull)
   local started = adapter.clock()
   local state = publicState()
-  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "uiState", math.max(0, (adapter.clock() - started) * 1000))
-  local payloadStarted = adapter.clock()
-  adapter.emit("SoturineChaosRandomizerState", state)
-  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "uiPayload", math.max(0, (adapter.clock() - payloadStarted) * 1000))
+  local builtMs = math.max(0, (adapter.clock() - started) * 1000)
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "uiState", builtMs)
+  adapter.emit("SoturineChaosRandomizerState", state, true)
+  local elapsedMs = math.max(0, (adapter.clock() - started) * 1000)
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "uiPublish", elapsedMs)
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "uiPayload", math.max(0, elapsedMs - builtMs))
   productionModules.performanceMetrics.recordEvent(runtime.performanceTelemetry, "uiEvents", adapter.clock())
+  productionModules.uiPublisher.note(runtime.uiPublisher, "full", production.payloadBytes(state), adapter.clock())
+  productionModules.uiPublisher.consume(runtime.uiPublisher, "full")
+  production.recordBudget("uiPublish", elapsedMs, runtime.frameBudgets.values.uiPublishBudgetMs)
+  return state
+end
+
+production.publishProgress = function(force)
+  local now = adapter.clock()
+  if force ~= true and not productionModules.uiPublisher.due(runtime.uiPublisher, now, false) then
+    runtime.pendingProgressPublish = true
+    productionModules.uiPublisher.suppress(runtime.uiPublisher)
+    return false
+  end
+  runtime.pendingProgressPublish = false
+  local started = adapter.clock()
+  local payload = {
+    progress = {label = runtime.progress.label, value = runtime.progress.value},
+    busy = operationState.deriveBusy(runtime.state), operationState = runtime.state.state,
+    lifecyclePhase = runtime.state.phase,
+  }
+  adapter.emit("SoturineChaosRandomizerStateDiff", payload, true)
+  local elapsedMs = math.max(0, (adapter.clock() - started) * 1000)
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "uiPublish", elapsedMs)
+  productionModules.performanceMetrics.recordEvent(runtime.performanceTelemetry, "uiEvents", now)
+  productionModules.uiPublisher.note(runtime.uiPublisher, "partial", production.payloadBytes(payload), now)
+  productionModules.uiPublisher.consume(runtime.uiPublisher, "partial")
+  production.recordBudget("uiPublish", elapsedMs, runtime.frameBudgets.values.uiPublishBudgetMs)
+  return true
 end
 
 local function setProgress(label, value)
-  runtime.progress = {label = label, value = util.clamp(value or 0, 0, 1)}
-  publishState()
+  runtime.progress.label = label
+  runtime.progress.value = util.clamp(value or 0, 0, 1)
+  productionModules.uiPublisher.mark(runtime.uiPublisher, "progressDirty")
+  production.publishProgress(false)
 end
 
 local function noteProgress(active, kind, reason)
@@ -1080,6 +1152,42 @@ local function finishOperation(success, code, message, details, terminalState)
   end
 end
 
+production.currentCatalogFingerprint = function()
+  local fingerprint = productionModules.registryCache.fingerprint({
+    beamNGVersion = adapter.getGameVersion(), modVersion = EXTENSION_VERSION,
+    registryShapeVersion = 1,
+    activeModsFingerprint = type(adapter.activeModsFingerprintSource) == "function"
+      and adapter.activeModsFingerprintSource() or "active_mods_unavailable",
+    contentAliasesVersion = runtime.contentAliases.schemaVersion or 1,
+    settingsSchema = runtime.settings.schemaVersion,
+  })
+  return fingerprint
+end
+
+production.restoreRegistryCache = function()
+  runtime.catalogFingerprint = production.currentCatalogFingerprint()
+  if type(adapter.loadRegistryCache) ~= "function" then
+    runtime.indexer.cacheMisses = runtime.indexer.cacheMisses + 1
+    return false, "cache_read_unavailable"
+  end
+  local ok, stored, encodedBytes = adapter.loadRegistryCache()
+  if not ok then
+    runtime.indexer.cacheMisses = runtime.indexer.cacheMisses + 1
+    return false, type(stored) == "table" and stored.code or stored
+  end
+  local payload, reason = productionModules.registryCache.validate(
+    stored, runtime.catalogFingerprint, encodedBytes
+  )
+  if not payload then runtime.indexer.cacheMisses = runtime.indexer.cacheMisses + 1; return false, reason end
+  local restored, counts = contentIndex.restoreCache(runtime.index, payload)
+  if not restored then runtime.indexer.cacheMisses = runtime.indexer.cacheMisses + 1; return false, counts end
+  runtime.indexer.cacheHits = runtime.indexer.cacheHits + 1
+  runtime.performance.indexCacheHits = runtime.performance.indexCacheHits + 1
+  runtime.registry.state, runtime.registry.nextAttemptAt = "ready", nil
+  runtime.registry.lastCounts = {models = counts.models, configurations = counts.configurations}
+  return true, counts
+end
+
 local function initialize()
   if runtime.initialized then return end
   runtime.capabilities = adapter.getCapabilities()
@@ -1172,16 +1280,21 @@ local function initialize()
   end
   runtime.history = historyModule.create(runtime.settings.historyLimit)
   diagnosticsModule.setEnabled(runtime.diagnostics, runtime.settings.diagnosticLogging)
+  productionModules.performanceMetrics.setEnabled(runtime.performanceTelemetry, runtime.settings.performanceProfiling)
+  runtime.frameBudgets = productionModules.frameBudget.create(runtime.settings.performanceBudgets)
+  local cacheHit, cacheResult = production.restoreRegistryCache()
   runtime.initialized = true
   diagnosticsModule.write(runtime.diagnostics, "I", "extension_loaded", {
     extensionVersion = EXTENSION_VERSION,
     gameVersion = adapter.getGameVersion(),
     compatibility = runtime.compatibility,
     capabilities = runtime.capabilities,
+    registryCache = {hit = cacheHit, result = cacheResult, fingerprint = runtime.catalogFingerprint},
   }, true)
 end
 
 local function rebuildIndex()
+  if runtime.indexer.active then return true, {scheduled = true, reason = "already_indexing"} end
   local started = adapter.clock()
   local okRegistry, registry
   if type(adapter.readRegistrySnapshot) == "function" then
@@ -1195,12 +1308,12 @@ local function rebuildIndex()
     end
   end
   if not okRegistry then
-    productionModules.performanceMetrics.record(runtime.performanceTelemetry, "indexing", math.max(0, (adapter.clock() - started) * 1000))
+    productionModules.performanceMetrics.record(runtime.performanceTelemetry, "registryIndexing", math.max(0, (adapter.clock() - started) * 1000))
     return false, registry
   end
   local readinessState = productionModules.registryReadiness.observe(runtime.registry, registry, adapter.clock())
   if readinessState ~= "ready" then
-    productionModules.performanceMetrics.record(runtime.performanceTelemetry, "indexing", math.max(0, (adapter.clock() - started) * 1000))
+    productionModules.performanceMetrics.record(runtime.performanceTelemetry, "registryIndexing", math.max(0, (adapter.clock() - started) * 1000))
     return false, adapter.errorValue(
       readinessState == "failed_confirmed" and "registry_failed_confirmed" or "registry_warming_up",
       readinessState == "failed_confirmed" and "The BeamNG vehicle registry did not become ready within the retry budget"
@@ -1208,22 +1321,75 @@ local function rebuildIndex()
       productionModules.registryReadiness.summary(runtime.registry)
     )
   end
-  local ok, counts = contentIndex.build(
-    runtime.index, registry.models, registry.configs, os.time(), adapter.clock() - started,
-    runtime.contentAliases
+  local contentJob = contentIndex.beginBuild(
+    runtime.index, registry.models, registry.configs, os.time(), runtime.contentAliases
   )
-  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "indexing", math.max(0, (adapter.clock() - started) * 1000))
-  if not ok then return false, adapter.errorValue("no_eligible_content", "No eligible vehicle configurations were discovered") end
-  counts.sources = sourceCounts()
-  runtime.performance.indexBuilds = runtime.performance.indexBuilds + 1
-  runtime.performance.lastIndexDuration = counts.duration
-  runtime.index.stale = false
-  diagnosticsModule.write(runtime.diagnostics, "I", "content_index_built", counts, true)
-  return true, counts
+  local total = #contentJob.models + #contentJob.configs
+  local indexStartedAt = adapter.clock()
+  productionModules.incrementalIndexer.start(runtime.indexer, total,
+    function()
+      local ok, progress = contentIndex.stepBuild(contentJob, 1)
+      return ok, progress
+    end,
+    function()
+      local ok, counts = contentIndex.finishBuild(contentJob, adapter.clock() - indexStartedAt)
+      if not ok then return false, adapter.errorValue("no_eligible_content", "No eligible vehicle configurations were discovered") end
+      counts.sources = sourceCounts()
+      runtime.performance.indexBuilds = runtime.performance.indexBuilds + 1
+      runtime.performance.lastIndexDuration = counts.duration
+      runtime.index.stale = false
+      diagnosticsModule.write(runtime.diagnostics, "I", "content_index_built", counts, true)
+      local payload = contentIndex.cachePayload(runtime.index)
+      if payload and type(adapter.saveRegistryCache) == "function" then
+        runtime.catalogFingerprint = production.currentCatalogFingerprint()
+        local envelope = productionModules.registryCache.envelope(runtime.catalogFingerprint, payload, {
+          models = counts.models, configurations = counts.configurations, builtAt = runtime.index.builtAt,
+        })
+        local saved, saveReason = adapter.saveRegistryCache(envelope)
+        diagnosticsModule.write(runtime.diagnostics, saved and "I" or "W", "registry_cache_persisted", {
+          saved = saved, reason = saveReason,
+        }, not saved)
+      end
+      if runtime.active and runtime.active.kind == "reindex" then
+        finishOperation(true, "reindexed", string.format(
+          "Indexed %d vehicles and %d configurations", counts.models, counts.configurations
+        ), counts)
+      end
+      return true, counts
+    end,
+    {startedAt = indexStartedAt, reason = runtime.active and runtime.active.kind == "reindex" and "manual_reindex" or "registry_rebuild"}
+  )
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "registryIndexing", math.max(0, (adapter.clock() - started) * 1000))
+  return true, {scheduled = true, totalItems = total}
+end
+
+production.processIncrementalIndex = function()
+  if not runtime.indexer.active then return false end
+  local started = adapter.clock()
+  local ok, result, completed = productionModules.incrementalIndexer.step(
+    runtime.indexer, adapter.clock(), adapter.clock,
+    runtime.frameBudgets.values.indexChunkBudgetMs, 128
+  )
+  local elapsedMs = math.max(0, (adapter.clock() - started) * 1000)
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "registryIndexing", elapsedMs)
+  production.recordBudget("registryIndexing", elapsedMs, runtime.frameBudgets.values.indexChunkBudgetMs)
+  if runtime.active and runtime.active.kind == "reindex" and runtime.indexer.active then
+    local progress = productionModules.incrementalIndexer.snapshot(runtime.indexer).progress
+    runtime.progress.label, runtime.progress.value = "Reindexing installed content", 0.1 + progress * 0.8
+    production.publishProgress(false)
+  end
+  if not ok and runtime.active and runtime.active.kind == "reindex" then
+    failActive(type(result) == "table" and result or adapter.errorValue(
+      "registry_indexing_failed", "Incremental content indexing failed", {reason = result}
+    ), false, "index")
+  elseif completed and not (runtime.active and runtime.active.kind == "reindex") then
+    publishState()
+  end
+  return true
 end
 
 local function ensureIndex()
-  if runtime.index.valid then
+  if runtime.index.valid and runtime.index.stale ~= true then
     runtime.performance.indexCacheHits = runtime.performance.indexCacheHits + 1
     return true
   end
@@ -1233,7 +1399,9 @@ local function ensureIndex()
   if runtime.registry.state == "unavailable" or runtime.registry.state == "failed_confirmed" then
     productionModules.registryReadiness.begin(runtime.registry, adapter.clock(), "operation_requires_index")
   end
-  return rebuildIndex()
+  local scheduled, result = rebuildIndex()
+  if scheduled then return false, adapter.errorValue("registry_indexing", "The content catalog is indexing incrementally", result) end
+  return false, result
 end
 
 local function operationSeed()
@@ -2263,7 +2431,7 @@ applyNextIsolationBatch = function(active)
   return true
 end
 
-local function failActive(errorData, attemptRollback, phase, context)
+failActive = function(errorData, attemptRollback, phase, context)
   local active = runtime.active
   local failure = failureRecord(active, phase, errorData, context)
   runtime.lastFailure = failure
@@ -3657,6 +3825,12 @@ local function startReindex()
   end
   contentIndex.clearFailures(runtime.index)
   runtime.index.stale = true
+  if runtime.indexer.active then
+    productionModules.incrementalIndexer.cancel(runtime.indexer, "manual_reindex_restart")
+    runtime.indexer.last = runtime.indexer.active
+    runtime.indexer.active = nil
+  end
+  if type(adapter.invalidateRegistryCache) == "function" then adapter.invalidateRegistryCache() end
   productionModules.registryReadiness.begin(runtime.registry, adapter.clock(), "manual_reindex")
   if runtime.state.state ~= "idle" then operationState.reset(runtime.state) end
   local okBegin, token = operationState.begin(runtime.state, "reindex", nil, WAIT_TIMEOUT)
@@ -3666,6 +3840,7 @@ local function startReindex()
   setProgress("Reindexing installed content", 0.25)
   local ok, result = rebuildIndex()
   if not ok then failActive(result, false, "index"); return false end
+  if result and result.scheduled then return true end
   finishOperation(true, "reindexed", string.format("Indexed %d vehicles and %d configurations", result.models, result.configurations), result)
   return true
 end
@@ -3679,6 +3854,8 @@ local function applySettingsSnapshot(snapshot)
   runtime.dna.library.limit = runtime.settings.dnaLibraryLimit
   historyModule.setLimit(runtime.history, runtime.settings.historyLimit)
   diagnosticsModule.setEnabled(runtime.diagnostics, runtime.settings.diagnosticLogging)
+  productionModules.performanceMetrics.setEnabled(runtime.performanceTelemetry, runtime.settings.performanceProfiling)
+  runtime.frameBudgets = productionModules.frameBudget.create(runtime.settings.performanceBudgets)
   local ok, saveError = adapter.saveSettings(settingsModule.forPersistence(runtime.settings))
   if not ok then
     setResult(false, saveError.code, saveError.message, {settingsAppliedForSession = true})
@@ -3790,6 +3967,8 @@ local function updateSettings(patch)
   runtime.dna.library.limit = runtime.settings.dnaLibraryLimit
   historyModule.setLimit(runtime.history, runtime.settings.historyLimit)
   diagnosticsModule.setEnabled(runtime.diagnostics, runtime.settings.diagnosticLogging)
+  productionModules.performanceMetrics.setEnabled(runtime.performanceTelemetry, runtime.settings.performanceProfiling)
+  runtime.frameBudgets = productionModules.frameBudget.create(runtime.settings.performanceBudgets)
   local ok, saveError = adapter.saveSettings(settingsModule.forPersistence(runtime.settings))
   if not ok then setResult(false, saveError.code, saveError.message, {settingsAppliedForSession = true}) end
   publishState()
@@ -3993,8 +4172,8 @@ end
 
 local function requestState()
   initialize()
-  publishState()
-  return publicState()
+  productionModules.uiPublisher.requestFull(runtime.uiPublisher)
+  return publishState(true)
 end
 
 local function setUICompactMode(mode)
@@ -4008,6 +4187,7 @@ end
 
 local function copyDiagnostics()
   initialize()
+  local serializationStarted = adapter.clock()
   local state = publicState()
   local active = runtime.active
   local tracker = active and active.targetTracker and vehicleTargetTracker.summary(active.targetTracker, adapter.clock()) or nil
@@ -4096,7 +4276,22 @@ local function copyDiagnostics()
     if not ok then return false end
   end
   adapter.emit("SoturineChaosRandomizerDiagnostics", {text = encoded, bytes = #encoded})
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "diagnosticsSerialization", math.max(0, (adapter.clock() - serializationStarted) * 1000))
   return true
+end
+
+production.resetPerformance = function()
+  initialize()
+  productionModules.performanceMetrics.reset(runtime.performanceTelemetry)
+  publishState()
+  return true
+end
+
+production.exportPerformance = function()
+  initialize()
+  local snapshot = production.publicPerformance()
+  adapter.emit("SoturineChaosRandomizerPerformance", snapshot)
+  return snapshot
 end
 
 local function spawnSafeVehicle()
@@ -5839,6 +6034,9 @@ local function onVehicleSwitched(oldId, newId, player)
 end
 
 local function onVehicleDestroyed(vehicleId, destructionReason)
+  if type(productionModules.spawnAdapter.invalidateDimensions) == "function" then
+    productionModules.spawnAdapter.invalidateDimensions(vehicleId)
+  end
   local normalizedReason = util.normalizeText(type(destructionReason) == "table"
     and (destructionReason.reason or destructionReason.cause) or destructionReason)
   local correlatedCause = normalizedReason:find("instabil", 1, true)
@@ -5896,6 +6094,8 @@ end
 
 local function onModStateChanged(modData)
   runtime.index.stale = true
+  if runtime.indexer.active then productionModules.incrementalIndexer.cancel(runtime.indexer, "mod_state_changed") end
+  if type(adapter.invalidateRegistryCache) == "function" then adapter.invalidateRegistryCache() end
   productionModules.registryReadiness.begin(runtime.registry, adapter.clock(), "mod_state_changed")
   contentIndex.clearFailures(runtime.index)
   diagnosticsModule.write(runtime.diagnostics, "I", "content_index_invalidated", {
@@ -6291,7 +6491,9 @@ function production.importChaosLineup()
 end
 
 function production.occupiedManagedPositions()
+  local enumerationStarted = adapter.clock()
   local enumerated, all = productionModules.spawnAdapter.occupiedVehiclePositions()
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "vehicleEnumeration", math.max(0, (adapter.clock() - enumerationStarted) * 1000))
   if enumerated then return all end
   local positions = {}
   for _, entry in ipairs(productionModules.managedRegistry.list(runtime.managedVehicles)) do
@@ -6346,8 +6548,12 @@ function production.previewLineupSpawn(options)
   if options.spacingMode == "automatic" then
     options.vehicleDimensions = {}
     for index, competitor in ipairs(competitors) do
+      local dimensionStarted = adapter.clock()
       local dimensions = type(competitor.currentVehicleId) == "number"
-        and productionModules.spawnAdapter.vehicleDimensions(competitor.currentVehicleId) or nil
+        and productionModules.spawnAdapter.vehicleDimensions(
+          competitor.currentVehicleId, competitor.targetGeneration or 0
+        ) or nil
+      productionModules.performanceMetrics.record(runtime.performanceTelemetry, "vehicleDimensionRead", math.max(0, (adapter.clock() - dimensionStarted) * 1000))
       options.vehicleDimensions[index] = dimensions or {width = 2, length = 4.8, source = "safe_fallback"}
     end
   end
@@ -6910,6 +7116,10 @@ function production.startManagedAI(options)
         local entry, reason = productionModules.aiDirector.assign(runtime.aiDirector, handle, managed.vehicleId, mode, currentOptions, adapter.clock())
         if entry then
           productionModules.managedRegistry.setAIState(runtime.managedVehicles, handle, managed.targetGeneration, {status = "scheduled", mode = mode})
+          runtime.aiDirector.polling = runtime.aiDirector.polling or productionModules.adaptivePolling.create({
+            fastInterval = 0.1, slowInterval = 1.0, stableThreshold = 3,
+          }, adapter.clock())
+          productionModules.adaptivePolling.wake(runtime.aiDirector.polling, adapter.clock())
           started = started + 1
         else failures[#failures + 1] = {handle = handle, reason = reason} end
       end
@@ -6940,6 +7150,10 @@ function production.controlManagedAI(action)
   end
   if action == "stop" or action == "reset" then productionModules.destinationMarker.clear(runtime.destination) end
   if action == "reset" then productionModules.routePlanner.clear(runtime.aiRoute) end
+  if runtime.aiDirector.polling then
+    if action == "stop" or action == "reset" then productionModules.adaptivePolling.stop(runtime.aiDirector.polling)
+    else productionModules.adaptivePolling.wake(runtime.aiDirector.polling, adapter.clock()) end
+  end
   if affected == 0 then return true end
   setResult(true, "ai_" .. action, "AI Director " .. action .. " applied", {affected = affected})
   publishState()
@@ -6957,19 +7171,91 @@ end
 
 function production.processAIDirector()
   local now = adapter.clock()
-  if now < (runtime.aiDirector.nextPollAt or 0) then return false end
-  runtime.aiDirector.nextPollAt = now + 0.2
+  runtime.aiDirector.polling = runtime.aiDirector.polling or productionModules.adaptivePolling.create({
+    fastInterval = 0.1, slowInterval = 1.0, stableThreshold = 3,
+  }, now)
+  if not productionModules.adaptivePolling.due(runtime.aiDirector.polling, now) then return false end
+  local handles, seen, hasActive = {}, {}, false
   for _, handle in ipairs(runtime.aiDirector.order) do
     local entry = runtime.aiDirector.entries[handle]
+    if entry and (entry.status == "scheduled" or entry.status == "confirming") then
+      hasActive = true
+      if entry.status == "confirming" or now >= entry.startAt then
+        handles[#handles + 1], seen[handle] = handle, true
+      end
+    elseif entry and entry.status == "running" then hasActive = true end
+  end
+  local total = #(runtime.aiDirector.order or {})
+  local batch = total > 0 and math.max(1, math.ceil(total / 4)) or 0
+  runtime.aiDirector.pollCursor = tonumber(runtime.aiDirector.pollCursor) or 0
+  for _ = 1, batch do
+    runtime.aiDirector.pollCursor = runtime.aiDirector.pollCursor % math.max(1, total) + 1
+    local handle = runtime.aiDirector.order[runtime.aiDirector.pollCursor]
+    local entry = handle and runtime.aiDirector.entries[handle]
+    if entry and entry.status == "running" and not seen[handle] then
+      handles[#handles + 1], seen[handle] = handle, true
+    end
+  end
+  local changed = false
+  for _, handle in ipairs(handles) do
+    local entry = runtime.aiDirector.entries[handle]
+    local statusBefore = entry and entry.status
     if entry and entry.status == "scheduled" and now >= entry.startAt then
       local managed, managedReason = productionModules.managedRegistry.readyEntry(
         runtime.managedVehicles, handle, entry.targetGeneration
       )
       local ok, reason = false, managedReason
       if managed then ok, reason = productionModules.aiAdapter.start(entry.vehicleId, entry.mode, entry.options) end
-      productionModules.aiDirector.setStatus(runtime.aiDirector, handle, ok and "running" or "failed", reason)
       entry.lastAttemptAt = now
-      if ok then entry.startedAt, entry.lastProgressAt = now, now end
+      if ok then
+        entry.startedAt, entry.lastProgressAt = now, now
+        local readOk, observedMode, method = productionModules.aiAdapter.readMode(entry.vehicleId)
+        if readOk then
+          entry.modeConfirmation = productionModules.aiModeConfirmation.create(
+            entry.vehicleId, entry.targetGeneration, entry.mode, now, 2
+          )
+          entry.modeConfirmation.method = method
+          local confirmation = productionModules.aiModeConfirmation.observe(
+            entry.modeConfirmation, observedMode, now, entry.targetGeneration
+          )
+          productionModules.aiDirector.setStatus(runtime.aiDirector, handle,
+            confirmation == "confirmed" and "running" or "confirming",
+            confirmation == "confirmed" and "mode_confirmed" or "mode_confirmation_pending")
+        else
+          productionModules.aiDirector.setStatus(runtime.aiDirector, handle, "running", "mode_confirmation_unavailable")
+          productionModules.aiDirector.log(runtime.aiDirector, "mode_confirmation_unavailable", {
+            handle = handle, vehicleId = entry.vehicleId, mode = entry.mode,
+          })
+        end
+      else
+        productionModules.aiDirector.setStatus(runtime.aiDirector, handle, "failed", reason)
+      end
+    elseif entry and entry.status == "confirming" then
+      local managed = productionModules.managedRegistry.readyEntry(
+        runtime.managedVehicles, handle, entry.targetGeneration
+      )
+      if not managed then
+        if entry.modeConfirmation then productionModules.aiModeConfirmation.destroyed(entry.modeConfirmation) end
+        productionModules.aiDirector.setStatus(runtime.aiDirector, handle, "failed", "vehicle_destroyed")
+      else
+        local readOk, observedMode = productionModules.aiAdapter.readMode(entry.vehicleId)
+        local confirmation
+        if readOk then
+          confirmation = productionModules.aiModeConfirmation.observe(
+            entry.modeConfirmation, observedMode, now, entry.targetGeneration
+          )
+        else
+          confirmation = productionModules.aiModeConfirmation.unavailable(entry.modeConfirmation)
+        end
+        if confirmation == "confirmed" then
+          productionModules.aiDirector.setStatus(runtime.aiDirector, handle, "running", "mode_confirmed")
+        elseif confirmation == "unavailable" then
+          productionModules.aiDirector.setStatus(runtime.aiDirector, handle, "running", "mode_confirmation_unavailable")
+        elseif confirmation == "mismatch" or confirmation == "timeout" or confirmation == "stale" then
+          productionModules.aiAdapter.stop(entry.vehicleId, false)
+          productionModules.aiDirector.setStatus(runtime.aiDirector, handle, "failed", "ai_mode_" .. confirmation)
+        end
+      end
     elseif entry and entry.status == "running" then
       local managed, managedReason = productionModules.managedRegistry.readyEntry(
         runtime.managedVehicles, handle, entry.targetGeneration
@@ -7048,9 +7334,13 @@ function production.processAIDirector()
       productionModules.managedRegistry.setAIState(runtime.managedVehicles, handle, managed.targetGeneration, {
         status = entry.status, reason = entry.reason, mode = entry.mode,
         distance = entry.distanceToDestination, replans = entry.replanCount,
+        modeConfirmation = entry.modeConfirmation and entry.modeConfirmation.status or nil,
       })
     end
+    if entry and entry.status ~= statusBefore then changed = true end
   end
+  if hasActive then productionModules.adaptivePolling.observed(runtime.aiDirector.polling, now, changed)
+  else productionModules.adaptivePolling.stop(runtime.aiDirector.polling) end
   return true
 end
 
@@ -7306,12 +7596,17 @@ local function onUpdate(dtReal, dtSim, dtRaw)
     if okPause then pauseKnown, paused = true, pauseValue end
   end
   timeSource.sample(runtime.time, dtReal, dtSim, dtRaw, pauseKnown and paused or nil, adapter.clock())
-  if productionModules.registryReadiness.due(runtime.registry, adapter.clock()) then
+  production.processIncrementalIndex()
+  if not runtime.indexer.active and (runtime.index.valid ~= true or runtime.index.stale == true)
+    and productionModules.registryReadiness.due(runtime.registry, adapter.clock())
+  then
     local previousRegistryState = runtime.registry.state
     local indexed = rebuildIndex()
     if indexed or runtime.registry.state ~= previousRegistryState then publishState() end
   end
+  local fluidStarted = adapter.clock()
   local fluidWorkHandled = production.processEngineFluidGuard()
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "fluidGuard", math.max(0, (adapter.clock() - fluidStarted) * 1000))
   local activeAtFrameStart = runtime.active
   if activeAtFrameStart and activeAtFrameStart.progressWatchdog then
     progressWatchdog.observePause(
@@ -7356,7 +7651,11 @@ local function onUpdate(dtReal, dtSim, dtRaw)
   productionModules.performanceMetrics.record(
     runtime.performanceTelemetry, "targetTracking", math.max(0, (adapter.clock() - targetTrackingStarted) * 1000)
   )
-  if not phaseWorkHandled then phaseWorkHandled = processPaintConfirmation() end
+  if not phaseWorkHandled then
+    local paintStarted = adapter.clock()
+    phaseWorkHandled = processPaintConfirmation()
+    productionModules.performanceMetrics.record(runtime.performanceTelemetry, "paintConfirmation", math.max(0, (adapter.clock() - paintStarted) * 1000))
+  end
   if not phaseWorkHandled and runtime.state.busy and runtime.active and runtime.active.treeRescanAt
     and adapter.clock() >= runtime.active.treeRescanAt
   then
@@ -7368,8 +7667,10 @@ local function onUpdate(dtReal, dtSim, dtRaw)
     treeActive.treeRescanAt = nil
     treeActive.treeRescanContext = nil
     if contextOk then
+      local treeStarted = adapter.clock()
       setLifecyclePhase(treeActive, "rescanning_tree", false, "tree_rescan_timer")
       processMutationPass(treeActive)
+      productionModules.performanceMetrics.record(runtime.performanceTelemetry, "treeRescan", math.max(0, (adapter.clock() - treeStarted) * 1000))
     else
       diagnosticsModule.write(runtime.diagnostics, "W", contextReason, {
         source = "tree_rescan_timer",
@@ -7389,6 +7690,18 @@ local function onUpdate(dtReal, dtSim, dtRaw)
   productionModules.performanceMetrics.record(
     runtime.performanceTelemetry, "aiDirector", math.max(0, (adapter.clock() - aiDirectorStarted) * 1000)
   )
+  local orphanStarted = adapter.clock()
+  local orphanResult = productionModules.domainOperations.reap(
+    runtime.domainOperations, productionModules.spawnAdapter.deleteVehicle,
+    {now = adapter.clock(), clock = adapter.clock, budgetMs = 0.25, maxItems = 2}
+  )
+  local orphanElapsed = math.max(0, (adapter.clock() - orphanStarted) * 1000)
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "orphanReaper", orphanElapsed)
+  if #orphanResult.removed > 0 or #orphanResult.failed > 0 then
+    diagnosticsModule.write(runtime.diagnostics, #orphanResult.failed == 0 and "I" or "W", "orphan_reaper_batch", {
+      removed = #orphanResult.removed, failed = #orphanResult.failed, pending = orphanResult.pending,
+    }, #orphanResult.failed > 0)
+  end
 
   local waitingForSimulation = runtime.state.phase == "waiting_for_simulation_resume"
   local watchdogState
@@ -7441,13 +7754,23 @@ local function onUpdate(dtReal, dtSim, dtRaw)
   end
 
   startStressIteration()
+  local raceStarted = adapter.clock()
   production.startNextLineupCompetitor()
-  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "onUpdate", math.max(0, (adapter.clock() - updateStarted) * 1000))
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "raceGeneration", math.max(0, (adapter.clock() - raceStarted) * 1000))
+  if runtime.pendingProgressPublish and productionModules.uiPublisher.due(runtime.uiPublisher, adapter.clock(), false) then
+    production.publishProgress(true)
+  end
+  local updateElapsedMs = math.max(0, (adapter.clock() - updateStarted) * 1000)
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "onUpdate", updateElapsedMs)
+  local mode = runtime.lineup.current and runtime.lineup.current.active and "race"
+    or runtime.state.busy and "busy" or "idle"
+  local budget = productionModules.frameBudget.budgetFor(runtime.frameBudgets, mode)
+  production.recordBudget("onUpdate:" .. mode, updateElapsedMs, budget)
 end
 
 production.onExtensionLoaded = function()
   initialize()
-  rebuildIndex()
+  if runtime.index.valid ~= true then rebuildIndex() end
   publishState()
 end
 
