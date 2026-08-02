@@ -5,6 +5,7 @@ local paintVerification = require("ge/extensions/soturineChaosRandomizer/paintVe
 local spawnOutcome = require("ge/extensions/soturineChaosRandomizer/spawnOutcome")
 local transactionalJSON = require("ge/extensions/soturineChaosRandomizer/transactionalJSON")
 local validator = require("ge/extensions/soturineChaosRandomizer/validator")
+local vehicleIterator = require("ge/extensions/soturineChaosRandomizer/vehicleIterator")
 
 local M = {}
 
@@ -26,6 +27,7 @@ local COMPATIBILITY_PATH = "/COMPATIBILITY.json"
 local CONTENT_ALIASES_PATH = "/settings/soturineChaosRandomizer/contentAliases.json"
 local MIGRATION_REPORT_PATH = "/settings/soturineChaosRandomizer/migration-report.json"
 local MIGRATION_REPORT_BACKUP_PATH = "/settings/soturineChaosRandomizer/migration-report.last-known-good.json"
+local REGISTRY_CACHE_PATH = "/settings/soturineChaosRandomizer/cache/catalog-v1.json"
 
 local jbeamIO
 local entropySequence = 0
@@ -372,15 +374,8 @@ local function vehicleObjectId(vehicle)
 end
 
 local function worldVehicleIds()
-  if type(getAllVehicles) ~= "function" then return {} end
-  local worked, vehicles = pcall(getAllVehicles)
   local ids = {}
-  if worked and type(vehicles) == "table" then
-    for _, vehicle in pairs(vehicles) do
-      local id = vehicleObjectId(vehicle)
-      if id then ids[#ids + 1] = id end
-    end
-  end
+  vehicleIterator.collectIds(ids, {deterministic = true})
   return ids
 end
 
@@ -886,9 +881,10 @@ local function getPaints(expectedVehicleId)
   return true, util.deepCopy(config.paints or {})
 end
 
-local function emit(eventName, payload)
+local function emit(eventName, payload, ownedPayload)
   if type(guihooks) ~= "table" or type(guihooks.trigger) ~= "function" then return false end
-  local ok = pcall(guihooks.trigger, eventName, util.deepCopy(payload or {}))
+  local value = ownedPayload == true and (payload or {}) or util.deepCopy(payload or {})
+  local ok = pcall(guihooks.trigger, eventName, value)
   return ok
 end
 
@@ -1305,6 +1301,57 @@ end
 local function loadCompatibilityMetadata() return readMetadata(COMPATIBILITY_PATH, "compatibility_metadata_unavailable") end
 local function loadContentAliases() return readMetadata(CONTENT_ALIASES_PATH, "content_aliases_unavailable") end
 
+local function loadRegistryCache()
+  if type(jsonReadFile) ~= "function" then return false, errorValue("registry_cache_read_unavailable", "Registry cache read is unavailable") end
+  local ok, value = pcall(jsonReadFile, REGISTRY_CACHE_PATH)
+  if not ok or type(value) ~= "table" then return false, errorValue("registry_cache_missing", "Registry cache is missing or malformed") end
+  local encodedBytes = 0
+  if type(jsonEncode) == "function" then
+    local encodedOk, encoded = pcall(jsonEncode, value)
+    if encodedOk and type(encoded) == "string" then encodedBytes = #encoded end
+  end
+  return true, util.deepCopy(value), encodedBytes
+end
+
+local function saveRegistryCache(value)
+  if type(jsonWriteFile) ~= "function" or type(jsonReadFile) ~= "function" then
+    return false, errorValue("registry_cache_write_unavailable", "Registry cache persistence is unavailable")
+  end
+  local ok, written = pcall(jsonWriteFile, REGISTRY_CACHE_PATH, util.deepCopy(value), true, nil, true)
+  if not ok or written == false then return false, errorValue("registry_cache_write_failed", "Registry cache write failed") end
+  local readOk, readback = pcall(jsonReadFile, REGISTRY_CACHE_PATH)
+  if not readOk or type(readback) ~= "table" or not util.deepEqual(readback, value) then
+    return false, errorValue("registry_cache_readback_failed", "Registry cache readback did not match")
+  end
+  return true, {path = REGISTRY_CACHE_PATH}
+end
+
+local function invalidateRegistryCache()
+  if FS == nil or type(FS.removeFile) ~= "function" then return false, "registry_cache_delete_unavailable" end
+  local ok, removed = pcall(function()
+    if type(FS.fileExists) == "function" and not FS:fileExists(REGISTRY_CACHE_PATH) then return true end
+    local value = FS:removeFile(REGISTRY_CACHE_PATH)
+    return value == 0 or value == true
+  end)
+  return ok and removed == true, ok and "registry_cache_invalidated" or "registry_cache_delete_failed"
+end
+
+local function activeModsFingerprintSource()
+  local values = {}
+  if type(core_modmanager) == "table" and type(core_modmanager.getMods) == "function" then
+    local ok, mods = pcall(core_modmanager.getMods)
+    if ok and type(mods) == "table" then
+      for key, mod in pairs(mods) do
+        if type(mod) == "table" and mod.active ~= false and mod.enabled ~= false then
+          values[#values + 1] = tostring(mod.modname or mod.name or key) .. "@" .. tostring(mod.version or "")
+        end
+      end
+    end
+  end
+  table.sort(values)
+  return #values > 0 and table.concat(values, "|") or "active_mods_unavailable"
+end
+
 M.errorValue = errorValue
 M.getCapabilities = getCapabilities
 M.getCurrentVehicleId = getCurrentVehicleId
@@ -1357,6 +1404,10 @@ M.entropy = entropy
 M.getGameVersion = getGameVersion
 M.loadCompatibilityMetadata = loadCompatibilityMetadata
 M.loadContentAliases = loadContentAliases
+M.loadRegistryCache = loadRegistryCache
+M.saveRegistryCache = saveRegistryCache
+M.invalidateRegistryCache = invalidateRegistryCache
+M.activeModsFingerprintSource = activeModsFingerprintSource
 M.getVerificationState = getVerificationState
 M.flattenChosenParts = flattenChosenParts
 M._callContract = callContract
@@ -1375,5 +1426,6 @@ M.LINEUP_EXPORT_PATH = LINEUP_EXPORT_PATH
 M.LINEUP_IMPORT_PATH = LINEUP_IMPORT_PATH
 M.COMPATIBILITY_PATH = COMPATIBILITY_PATH
 M.CONTENT_ALIASES_PATH = CONTENT_ALIASES_PATH
+M.REGISTRY_CACHE_PATH = REGISTRY_CACHE_PATH
 
 return M

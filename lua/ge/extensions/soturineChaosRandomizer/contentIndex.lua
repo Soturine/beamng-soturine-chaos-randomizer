@@ -167,34 +167,55 @@ local function create()
   }
 end
 
-local function build(index, rawModels, rawConfigs, builtAt, duration, aliases)
-  local candidate = {
-    models = {}, modelsByKey = {}, allConfigs = {},
-  }
-
-  local models = valuesSorted(rawModels, function(raw)
+local function beginBuild(index, rawModels, rawConfigs, builtAt, aliases)
+  return {
+    index = index,
+    candidate = {models = {}, modelsByKey = {}, allConfigs = {}},
+    models = valuesSorted(rawModels, function(raw)
     return tostring(raw.key or raw.model_key or raw.modelKey or "")
-  end)
-  for _, raw in ipairs(models) do
-    local model = normalizeModel(raw, aliases)
-    if model then
-      candidate.models[#candidate.models + 1] = model
-      candidate.modelsByKey[model.key] = model
-    end
-  end
-
-  local configs = valuesSorted(rawConfigs, function(raw)
+    end),
+    configs = valuesSorted(rawConfigs, function(raw)
     return tostring(raw.model_key or raw.modelKey or raw.model or "") .. "/" .. tostring(raw.key or raw.config_key or raw.configKey or "")
-  end)
-  for _, raw in ipairs(configs) do
-    local config = normalizeConfig(raw, candidate.modelsByKey, aliases)
-    if config then
-      local model = candidate.modelsByKey[config.modelKey]
-      model.configs[#model.configs + 1] = config
-      candidate.allConfigs[#candidate.allConfigs + 1] = config
-    end
-  end
+    end),
+    aliases = type(aliases) == "table" and aliases or {},
+    builtAt = builtAt, modelCursor = 0, configCursor = 0,
+  }
+end
 
+local function stepBuild(job, maxItems)
+  if type(job) ~= "table" or type(job.candidate) ~= "table" then return false, "index_build_invalid" end
+  maxItems = math.max(1, math.floor(tonumber(maxItems) or 1))
+  local processed = 0
+  while processed < maxItems and job.modelCursor < #job.models do
+    job.modelCursor = job.modelCursor + 1
+    local model = normalizeModel(job.models[job.modelCursor], job.aliases)
+    if model then
+      job.candidate.models[#job.candidate.models + 1] = model
+      job.candidate.modelsByKey[model.key] = model
+    end
+    processed = processed + 1
+  end
+  while processed < maxItems and job.modelCursor >= #job.models and job.configCursor < #job.configs do
+    job.configCursor = job.configCursor + 1
+    local config = normalizeConfig(job.configs[job.configCursor], job.candidate.modelsByKey, job.aliases)
+    if config then
+      local model = job.candidate.modelsByKey[config.modelKey]
+      model.configs[#model.configs + 1] = config
+      job.candidate.allConfigs[#job.candidate.allConfigs + 1] = config
+    end
+    processed = processed + 1
+  end
+  local total = #job.models + #job.configs
+  local cursor = job.modelCursor + job.configCursor
+  return true, {
+    processed = processed, cursor = cursor, total = total,
+    progress = total > 0 and cursor / total or 1,
+    done = cursor >= total,
+  }
+end
+
+local function finishBuild(job, duration)
+  local candidate, index = job.candidate, job.index
   for _, model in ipairs(candidate.models) do
     table.sort(model.configs, function(a, b) return a.key < b.key end)
   end
@@ -209,13 +230,61 @@ local function build(index, rawModels, rawConfigs, builtAt, duration, aliases)
   index.modelsByKey = candidate.modelsByKey
   index.allConfigs = candidate.allConfigs
   index.valid = true
-  index.builtAt = builtAt
+  index.builtAt = job.builtAt
   index.duration = tonumber(duration) or 0
   return true, {
     models = #index.models,
     configurations = #index.allConfigs,
     duration = index.duration,
   }
+end
+
+local function build(index, rawModels, rawConfigs, builtAt, duration, aliases)
+  local job = beginBuild(index, rawModels, rawConfigs, builtAt, aliases)
+  local total = #job.models + #job.configs
+  while job.modelCursor + job.configCursor < total do stepBuild(job, 256) end
+  return finishBuild(job, duration)
+end
+
+local function cachePayload(index)
+  if type(index) ~= "table" or index.valid ~= true then return nil, "index_invalid" end
+  local payload = {models = {}, configs = {}, builtAt = index.builtAt, duration = index.duration}
+  for _, model in ipairs(index.models or {}) do
+    local copy = {}
+    for key, value in pairs(model) do if key ~= "configs" then copy[key] = util.deepCopy(value) end end
+    payload.models[#payload.models + 1] = copy
+  end
+  for _, config in ipairs(index.allConfigs or {}) do payload.configs[#payload.configs + 1] = util.deepCopy(config) end
+  return payload
+end
+
+local function restoreCache(index, payload)
+  if type(index) ~= "table" or type(payload) ~= "table" or type(payload.models) ~= "table"
+    or type(payload.configs) ~= "table" or #payload.models == 0 or #payload.configs == 0
+  then return false, "cache_snapshot_partial" end
+  local candidate = {models = {}, modelsByKey = {}, allConfigs = {}}
+  for _, stored in ipairs(payload.models) do
+    if type(stored) ~= "table" or type(stored.key) ~= "string" or stored.key == "" then
+      return false, "cache_model_invalid"
+    end
+    local model = util.deepCopy(stored)
+    model.configs = {}
+    candidate.models[#candidate.models + 1] = model
+    candidate.modelsByKey[model.key] = model
+  end
+  for _, stored in ipairs(payload.configs) do
+    if type(stored) ~= "table" or type(stored.modelKey) ~= "string"
+      or type(stored.key) ~= "string" or not candidate.modelsByKey[stored.modelKey]
+    then return false, "cache_config_invalid" end
+    local config = util.deepCopy(stored)
+    candidate.modelsByKey[config.modelKey].configs[#candidate.modelsByKey[config.modelKey].configs + 1] = config
+    candidate.allConfigs[#candidate.allConfigs + 1] = config
+  end
+  for _, model in ipairs(candidate.models) do table.sort(model.configs, function(a, b) return a.key < b.key end) end
+  index.models, index.modelsByKey, index.allConfigs = candidate.models, candidate.modelsByKey, candidate.allConfigs
+  index.valid, index.stale = true, false
+  index.builtAt, index.duration = payload.builtAt, tonumber(payload.duration) or 0
+  return true, {models = #index.models, configurations = #index.allConfigs, duration = index.duration}
 end
 
 local function contentAllowed(kind, filter)
@@ -493,6 +562,11 @@ end
 
 M.create = create
 M.build = build
+M.beginBuild = beginBuild
+M.stepBuild = stepBuild
+M.finishBuild = finishBuild
+M.cachePayload = cachePayload
+M.restoreCache = restoreCache
 M.eligibleModels = eligibleModels
 M.eligibleConfigs = eligibleConfigs
 M.recordFailure = recordFailure
