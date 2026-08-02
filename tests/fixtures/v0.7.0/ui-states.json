@@ -1,0 +1,121 @@
+{
+  "schemaVersion": 1,
+  "protocolVersion": 2,
+  "fixtures": [
+    {
+      "id": "idle",
+      "envelope": {"eventType": "full", "domain": "all", "stateVersion": 1, "payload": {"busy": false, "operationState": "idle", "progress": {"label": "Ready", "value": 0}}},
+      "expected": {"features": ["tabs", "chaos-actions", "global-status"], "actions": ["randomConfig", "scramble", "fullRandom"], "disabled": ["cancelCurrentOperation"], "labels": ["nav.chaos", "app.ready"], "compact": ["chaos-actions"], "details": ["lifecycle"]}
+    },
+    {
+      "id": "busy",
+      "envelope": {"eventType": "diff", "domain": "core", "stateVersion": 2, "payload": {"busy": true, "operationState": "running", "progress": {"label": "Applying", "value": 0.35}}},
+      "expected": {"features": ["progress", "busy"], "actions": ["cancelCurrentOperation"], "disabled": ["randomConfig", "scramble", "fullRandom"], "labels": ["status.progress", "status.cancelSafe"], "compact": ["progress", "cancel"], "details": ["operationId", "operationGeneration"]}
+    },
+    {
+      "id": "random-car",
+      "envelope": {"eventType": "full", "domain": "all", "stateVersion": 3, "payload": {"busy": false, "lastResult": {"success": true, "code": "random_config_loaded"}, "seed": "SCR6-RANDOM-CAR"}},
+      "expected": {"features": ["result", "seed"], "actions": ["randomConfig", "copyDiagnostics"], "disabled": [], "labels": ["chaos.randomCar", "status.copySeed"], "compact": ["chaos-actions"], "details": ["seed", "target"]}
+    },
+    {
+      "id": "scramble",
+      "envelope": {"eventType": "full", "domain": "all", "stateVersion": 4, "payload": {"busy": false, "lastResult": {"success": true, "code": "scramble_completed"}, "seed": "SCR6-SCRAMBLE"}},
+      "expected": {"features": ["result", "locks"], "actions": ["scramble", "undo"], "disabled": [], "labels": ["chaos.scramble", "chaos.undo"], "compact": ["chaos-actions"], "details": ["transaction", "candidateIdChain"]}
+    },
+    {
+      "id": "full-random",
+      "envelope": {"eventType": "full", "domain": "all", "stateVersion": 5, "payload": {"busy": false, "lastResult": {"success": true, "code": "full_random_completed"}, "seed": "SCR6-FULL"}},
+      "expected": {"features": ["result", "locks", "mutation"], "actions": ["fullRandom", "saveVehicleDNA"], "disabled": [], "labels": ["chaos.fullRandom", "garage.saveDNA"], "compact": ["chaos-actions"], "details": ["readBackStatus", "candidateIdChain"]}
+    },
+    {
+      "id": "failure",
+      "envelope": {"eventType": "full", "domain": "all", "stateVersion": 6, "payload": {"busy": false, "lastResult": {"success": false, "code": "parts_readback_failed", "message": "Readback failed"}}},
+      "expected": {"features": ["error-status"], "actions": ["copyDiagnostics", "spawnSafeVehicle"], "disabled": [], "labels": ["error.title", "chaos.safeVehicle"], "compact": ["status"], "details": ["failure-code", "diagnostics"]}
+    },
+    {
+      "id": "partial-success",
+      "envelope": {"eventType": "full", "domain": "all", "stateVersion": 7, "payload": {"busy": false, "lastResult": {"success": true, "code": "scramble_partial", "details": {"terminalOutcome": "partial_success"}}}},
+      "expected": {"features": ["warning-status", "result"], "actions": ["copyDiagnostics", "saveVehicleDNA"], "disabled": [], "labels": ["common.details"], "compact": ["status"], "details": ["terminalOutcome", "stageReasons"]}
+    },
+    {
+      "id": "rollback",
+      "envelope": {"eventType": "diff", "domain": "core", "stateVersion": 8, "payload": {"busy": true, "operationState": "rolling_back", "lifecyclePhase": "rollback", "progress": {"label": "Restoring", "value": 0.9}}},
+      "expected": {"features": ["progress", "rollback-status"], "actions": ["copyDiagnostics"], "disabled": ["cancelCurrentOperation"], "labels": ["status.progress"], "compact": ["progress"], "details": ["lifecyclePhase", "transaction"]}
+    },
+    {
+      "id": "stale-callback-ignored",
+      "envelope": {"eventType": "diff", "domain": "diagnostics", "stateVersion": 9, "payload": {"status": "ignored_stale_callback"}},
+      "expected": {"features": ["diagnostics-status"], "actions": ["copyDiagnostics"], "disabled": [], "labels": ["status.copyDiagnostics"], "compact": ["status"], "details": ["ignored_stale_callback"]}
+    },
+    {
+      "id": "garage-empty",
+      "envelope": {"eventType": "full", "domain": "all", "stateVersion": 10, "payload": {"garage": {"entries": [], "total": 0, "page": 0, "pageCount": 1, "loadStatus": "ready"}}},
+      "expected": {"features": ["garage-empty", "garage-toolbar"], "actions": ["saveVehicleDNA", "importVehicleDNA"], "disabled": ["restoreVehicleDNA"], "labels": ["garage.empty", "garage.saveDNA"], "compact": ["garage-empty"], "details": []}
+    },
+    {
+      "id": "garage-populated",
+      "envelope": {"eventType": "full", "domain": "all", "stateVersion": 11, "payload": {"garage": {"entries": [{"id": "dna-1", "name": "Fixture", "modelKey": "pickup"}], "total": 1, "page": 0, "pageCount": 1, "loadStatus": "ready"}}},
+      "expected": {"features": ["garage-card", "pagination", "thumbnail"], "actions": ["getVehicleDNADetails", "restoreVehicleDNA", "replayVehicleDNAGeneration"], "disabled": [], "labels": ["garage.saved", "garage.restoreExact"], "compact": ["selected-dna", "previous", "next", "restore", "replay"], "details": ["metadata"]}
+    },
+    {
+      "id": "dna-details",
+      "envelope": {"eventType": "diff", "domain": "garage", "stateVersion": 12, "payload": {"details": {"entry": {"id": "dna-1", "name": "Fixture", "generation": {"seed": "SCR6-DNA"}, "lineage": {"generation": 1}}}}},
+      "expected": {"features": ["dna-details", "metadata-editor"], "actions": ["renameVehicleDNA", "mutateVehicleDNA", "pureSeedReplayVehicleDNA"], "disabled": [], "labels": ["garage.rating", "garage.tags", "garage.notes"], "compact": ["selected-dna"], "details": ["seed", "lineage", "generatorVersion"]}
+    },
+    {
+      "id": "dna-compare",
+      "envelope": {"eventType": "diff", "domain": "garage", "stateVersion": 13, "payload": {"comparison": {"left": "dna-1", "right": "dna-2", "differences": [{"field": "paint"}]}}},
+      "expected": {"features": ["dna-compare"], "actions": ["compareVehicleDNA"], "disabled": [], "labels": ["garage.compareAction"], "compact": ["selected-dna"], "details": ["differences"]}
+    },
+    {
+      "id": "race-idle",
+      "envelope": {"eventType": "full", "domain": "all", "stateVersion": 14, "payload": {"lineup": {"current": null}, "spawnDirector": {"managed": []}, "aiDirector": {"vehicles": []}}},
+      "expected": {"features": ["race-stepper", "race-policy"], "actions": ["createChaosLineup", "importChaosLineup"], "disabled": ["startLineupSpawn"], "labels": ["race.cars", "race.policy"], "compact": ["competitor-count", "preset", "generate"], "details": ["policy-summary"]}
+    },
+    {
+      "id": "race-generating",
+      "envelope": {"eventType": "diff", "domain": "race", "stateVersion": 15, "payload": {"lineup": {"current": {"active": true, "generationState": "running", "competitors": []}}}},
+      "expected": {"features": ["race-progress"], "actions": ["cancelRaceGeneration"], "disabled": ["createChaosLineup"], "labels": ["race.cancelGeneration"], "compact": ["generation", "cancel"], "details": ["generationState"]}
+    },
+    {
+      "id": "race-partial",
+      "envelope": {"eventType": "diff", "domain": "race", "stateVersion": 16, "payload": {"lineup": {"current": {"active": true, "generationState": "partial", "competitors": [{"id": "c1", "status": "failed"}]}}}},
+      "expected": {"features": ["competitor-failure"], "actions": ["resolveLineupFailure", "cancelRaceGeneration"], "disabled": [], "labels": ["race.fallback", "race.skip"], "compact": ["generation", "cancel"], "details": ["failure-code"]}
+    },
+    {
+      "id": "race-ready",
+      "envelope": {"eventType": "full", "domain": "all", "stateVersion": 17, "payload": {"lineup": {"current": {"active": false, "generationState": "ready", "totalVehicles": 4, "competitors": [{"id": "c1", "status": "accepted"}]}}}},
+      "expected": {"features": ["competitor-list", "race-stepper"], "actions": ["previewLineupSpawn", "exportChaosLineup"], "disabled": [], "labels": ["race.competitors.other", "race.placement"], "compact": ["competitor-count", "preset"], "details": ["competitor-seed"]}
+    },
+    {
+      "id": "placement-preview",
+      "envelope": {"eventType": "diff", "domain": "race", "stateVersion": 18, "payload": {"spawnDirector": {"preview": {"placements": [{"index": 1}], "valid": true}, "managed": []}}},
+      "expected": {"features": ["formation-controls", "placement-preview"], "actions": ["startLineupSpawn", "cancelLineupSpawn"], "disabled": [], "labels": ["race.preview", "race.placeAll"], "compact": ["competitor-count"], "details": ["spacing", "safetyMargin"]}
+    },
+    {
+      "id": "drive-active",
+      "envelope": {"eventType": "diff", "domain": "race", "stateVersion": 19, "payload": {"aiDirector": {"vehicles": [{"handle": "race-1", "status": "driving"}], "destination": {"status": "confirmed"}, "route": {"points": []}}}},
+      "expected": {"features": ["ai-controls", "managed-vehicles"], "actions": ["pauseManagedAI", "stopManagedAI", "focusManagedVehicle"], "disabled": [], "labels": ["race.pauseAll", "race.stopAll"], "compact": ["start", "pause", "stop"], "details": ["ai-status"]}
+    },
+    {
+      "id": "ai-failure",
+      "envelope": {"eventType": "diff", "domain": "race", "stateVersion": 20, "payload": {"aiDirector": {"vehicles": [{"handle": "race-1", "status": "failed", "reason": "navgraph_unavailable"}]}}},
+      "expected": {"features": ["ai-error"], "actions": ["respawnManagedVehicle", "resetManagedAI"], "disabled": ["startManagedAI"], "labels": ["common.reset"], "compact": ["stop"], "details": ["navgraph_unavailable"]}
+    },
+    {
+      "id": "settings",
+      "envelope": {"eventType": "diff", "domain": "settings", "stateVersion": 21, "payload": {"seedMode": "fixed", "contentFilter": "everything", "protectCriticalParts": true, "performanceProfiling": false, "uiPreferences": {"locale": "pt-BR"}}},
+      "expected": {"features": ["seed-settings", "content-settings", "safety-settings", "performance-settings", "persistence-settings"], "actions": ["updateSettings", "updateUIPreferences"], "disabled": [], "labels": ["settings.general", "settings.locale"], "compact": ["seed-mode", "locks", "content", "safety", "profiling"], "details": ["compatibility"]}
+    },
+    {
+      "id": "compatibility-warning",
+      "envelope": {"eventType": "diff", "domain": "compatibility", "stateVersion": 22, "payload": {"compatibilityState": "warning", "compatibilityWarnings": ["version_unverified"]}},
+      "expected": {"features": ["compatibility-badge"], "actions": ["copyDiagnostics"], "disabled": [], "labels": ["status.compatibility"], "compact": ["compatibility-badge"], "details": ["version_unverified"]}
+    },
+    {
+      "id": "performance-profiling",
+      "envelope": {"eventType": "diff", "domain": "performance", "stateVersion": 23, "payload": {"enabled": true, "guihooksPerSecond": 4, "bytesPerSecond": 2048, "fullStateCount": 1, "partialStateCount": 12, "suppressedPublishes": 8}},
+      "expected": {"features": ["performance-metrics"], "actions": ["copyDiagnostics"], "disabled": [], "labels": ["settings.profiling"], "compact": ["profiling"], "details": ["guihooksPerSecond", "bytesPerSecond", "fullStateCount", "partialStateCount", "suppressedPublishes"]}
+    }
+  ]
+}

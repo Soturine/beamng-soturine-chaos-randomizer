@@ -436,7 +436,7 @@ end
 
 local function driveSuccess(harness, action, overrides)
   local actionSettings = {
-    schemaVersion = 8,
+    schemaVersion = 9,
     chaos = 100,
     allowMissingParts = false,
     protectCriticalParts = true,

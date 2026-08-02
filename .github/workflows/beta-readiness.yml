@@ -37,6 +37,9 @@ jobs:
       - name: Install validation dependency
         run: python -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
 
+      - name: Install pinned Vue validation dependencies
+        run: npm ci --ignore-scripts
+
       - name: Install Lua 5.1 on Ubuntu
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install --yes lua5.1
@@ -50,7 +53,10 @@ jobs:
         run: python -m unittest tests.test_static tests.test_package -v
 
       - name: Check JavaScript syntax
-        run: node --check ui/modules/apps/soturineChaosRandomizer/app.js
+        run: npm run test:ui
+
+      - name: Compile native Vue SFC files
+        run: npm run validate:sfc
 
       - name: Build and validate package
         run: |

@@ -46,11 +46,19 @@ REQUIRED_PATHS = {
     "lua/ge/extensions/soturineChaosRandomizer/vehicleDNARestore.lua",
     "lua/ge/extensions/soturineChaosRandomizer/vehicleDNASchema.lua",
     "lua/ge/extensions/soturineChaosRandomizer/vehicleDNAStorage.lua",
+    "lua/ge/extensions/soturineChaosRandomizer/uiProtocol.lua",
+    "lua/ge/extensions/soturineChaosRandomizer/uiCommandRouter.lua",
+    "lua/ge/extensions/soturineChaosRandomizer/uiStateProjector.lua",
+    "lua/ge/extensions/soturineChaosRandomizer/uiPreferences.lua",
     "lua/vehicle/extensions/soturineChaosRandomizerFluidProbe.lua",
     "ui/modules/apps/soturineChaosRandomizer/app.json",
-    "ui/modules/apps/soturineChaosRandomizer/app.js",
-    "ui/modules/apps/soturineChaosRandomizer/app.html",
-    "ui/modules/apps/soturineChaosRandomizer/app.css",
+    "ui/modules/apps/soturineChaosRandomizer/app.vue",
+    "ui/modules/apps/soturineChaosRandomizer/styles/app.scss",
+    "ui/modules/apps/soturineChaosRandomizer/services/commandBridge.js",
+    "ui/modules/apps/soturineChaosRandomizer/services/stateProtocol.js",
+    "ui/modules/apps/soturineChaosRandomizer/stores/index.js",
+    "ui/modules/apps/soturineChaosRandomizer/i18n/en-US.json",
+    "ui/modules/apps/soturineChaosRandomizer/i18n/pt-BR.json",
     "ui/modules/apps/soturineChaosRandomizer/app.png",
     "ui/modules/apps/soturineChaosRandomizer/assets/app-icon.svg",
     "ui/modules/apps/soturineChaosRandomizer/assets/app-icon-250x120.png",
@@ -72,7 +80,12 @@ FORBIDDEN_COMPONENTS = {
     "tests",
     "tools",
 }
-FORBIDDEN_SUFFIXES = {".log", ".pyc", ".pyo", ".tmp", ".bak", ".swp"}
+FORBIDDEN_SUFFIXES = {".log", ".map", ".pyc", ".pyo", ".tmp", ".bak", ".swp"}
+FORBIDDEN_RUNTIME_PATHS = {
+    "ui/modules/apps/soturineChaosRandomizer/app.js",
+    "ui/modules/apps/soturineChaosRandomizer/app.html",
+    "ui/modules/apps/soturineChaosRandomizer/app.css",
+}
 FIXED_TIMESTAMP = (2026, 1, 1, 0, 0, 0)
 EXPECTED_FILE_MODE = 0o100644
 ICON_PATH = "ui/modules/apps/soturineChaosRandomizer/app.png"
@@ -124,6 +137,9 @@ def validate_archive(archive_path: Path, expected_version: str | None = None) ->
         missing_paths = REQUIRED_PATHS - set(names)
         if missing_paths:
             raise PackageValidationError(f"Missing required files: {sorted(missing_paths)}")
+        legacy_paths = FORBIDDEN_RUNTIME_PATHS & set(names)
+        if legacy_paths:
+            raise PackageValidationError(f"Legacy Angular runtime files are forbidden: {sorted(legacy_paths)}")
 
         for info in infos:
             mode = info.external_attr >> 16
@@ -150,6 +166,22 @@ def validate_archive(archive_path: Path, expected_version: str | None = None) ->
                 continue
             if machine_path.search(archive.read(info)):
                 raise PackageValidationError(f"Machine path found in {info.filename}")
+
+        unsafe_frontend = re.compile(rb"(?:https?://|//cdn\.|\bv-html\b|\beval\s*\(|new\s+Function\s*\()", re.IGNORECASE)
+        for info in infos:
+            if PurePosixPath(info.filename).suffix.lower() not in {".js", ".scss", ".vue"}:
+                continue
+            if unsafe_frontend.search(archive.read(info)):
+                raise PackageValidationError(f"Unsafe or remote frontend construct found in {info.filename}")
+
+        manifest = json.loads(archive.read("ui/modules/apps/soturineChaosRandomizer/app.json").decode("utf-8"))
+        compatibility = json.loads(archive.read("COMPATIBILITY.json").decode("utf-8"))
+        if manifest.get("vue") is not True or manifest.get("version") != expected_version:
+            raise PackageValidationError("Native Vue app metadata is inconsistent")
+        if compatibility.get("schemaVersion") != 2 or compatibility.get("uiRuntime") != "native-runtime-ui-vue":
+            raise PackageValidationError("Compatibility metadata does not declare the native Vue runtime")
+        if compatibility.get("minimumBeamNGVersion") != "0.39":
+            raise PackageValidationError("Native Vue package must require BeamNG 0.39")
 
         packaged_version = archive.read("VERSION").decode("utf-8").strip()
         if packaged_version != expected_version:

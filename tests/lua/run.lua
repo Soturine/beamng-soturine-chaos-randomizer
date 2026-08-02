@@ -90,6 +90,12 @@ local p1 = {
   aiConfirmation = require("ge/extensions/soturineChaosRandomizer/aiModeConfirmation"),
   diagnostics = require("ge/extensions/soturineChaosRandomizer/diagnostics"),
 }
+local p2 = {
+  protocol = require("ge/extensions/soturineChaosRandomizer/uiProtocol"),
+  router = require("ge/extensions/soturineChaosRandomizer/uiCommandRouter"),
+  projector = require("ge/extensions/soturineChaosRandomizer/uiStateProjector"),
+  preferences = require("ge/extensions/soturineChaosRandomizer/uiPreferences"),
+}
 
 local tests = {}
 local requirementMappings = {}
@@ -437,7 +443,7 @@ tests.settings_migration = function()
     fairMode = false,
     historyLimit = 0,
   })
-  equal(migrated.schemaVersion, 8)
+  equal(migrated.schemaVersion, 9)
   equal(migrated.chaos, 100)
   equal(migrated.allowMissingParts, false)
   equal(migrated.selectionFairness, "configuration")
@@ -804,7 +810,7 @@ end
 
 tests.legacy_keep_vehicle_drivable_setting_migrates = function()
   local value = settings.validate({schemaVersion = 1, keepVehicleDrivable = true})
-  equal(value.schemaVersion, 8)
+  equal(value.schemaVersion, 9)
   equal(value.protectCriticalParts, true)
   equal(value.keepVehicleDrivable, nil)
 end
@@ -2271,7 +2277,7 @@ end
 
 tests.settings_schema_two_migrates_to_four = function()
   local value = settings.validate({schemaVersion = 2, dnaLimit = 25, autoSaveDNA = true})
-  equal(value.schemaVersion, 8)
+  equal(value.schemaVersion, 9)
   equal(value.dnaLibraryLimit, 25)
   equal(value.autoSaveDNA, false)
 end
@@ -2642,7 +2648,7 @@ end
 
 tests.lock_profile_migrates_and_persists_separately = function()
   local value = settings.validate({schemaVersion = 3})
-  equal(value.schemaVersion, 8)
+  equal(value.schemaVersion, 9)
   equal(value.lockProfile.kind, "soturineVehicleDNALockProfile")
   local locked = vehicleDNALocks.applyPatch(value.lockProfile, {
     vehicle = true, categories = {engine = true}, tuning = {all = true},
@@ -4584,7 +4590,7 @@ end
 tests.v061_settings_locks_and_seed_migration = function()
   local legacyLocks = vehicleDNALocks.applyPatch(vehicleDNALocks.empty(), {vehicle = true, categories = {body = true}})
   local migrated = settings.validate({schemaVersion = 5, manualSeed = "legacy", lockProfile = legacyLocks})
-  equal(migrated.schemaVersion, 8)
+  equal(migrated.schemaVersion, 9)
   equal(migrated.seedMode, "random")
   truthy(not migrated.rememberLocks)
   equal(vehicleDNALocks.summary(migrated.lockProfile).locked, 0)
@@ -4830,23 +4836,22 @@ tests.v061_compact_ui_contract = function()
     file:close()
     return value
   end
-  local html = read("/ui/modules/apps/soturineChaosRandomizer/app.html")
-  local css = read("/ui/modules/apps/soturineChaosRandomizer/app.css")
-  local js = read("/ui/modules/apps/soturineChaosRandomizer/app.js")
+  local app = read("/ui/modules/apps/soturineChaosRandomizer/app.vue")
+  local shell = read("/ui/modules/apps/soturineChaosRandomizer/components/shell/AppShell.vue")
+  local navigation = read("/ui/modules/apps/soturineChaosRandomizer/components/shell/AppNavigation.vue")
+  local garage = read("/ui/modules/apps/soturineChaosRandomizer/components/garage/GaragePanel.vue")
+  local race = read("/ui/modules/apps/soturineChaosRandomizer/components/race/RaceStepper.vue")
+  local css = read("/ui/modules/apps/soturineChaosRandomizer/styles/app.scss")
   local fox = read("/ui/modules/apps/soturineChaosRandomizer/assets/fox-mark.svg")
-  for _, label in ipairs({"CHAOS", "GARAGE", "RACE", "SETTINGS", "Saved", "Compare", "Share", "Cars", "Placement", "Drive"}) do
-    truthy(html:find(label, 1, true) or js:find("label: '" .. label .. "'", 1, true), label)
+  for _, key in ipairs({"chaos", "garage", "race", "settings"}) do
+    truthy(navigation:find('"' .. key .. '"', 1, true), key)
   end
-  local chaosStart = assert(html:find([[ng-if="chaos.view === 'chaos'"]], 1, true))
-  local garageStart = assert(html:find([[ng-if="chaos.view === 'garage'"]], chaosStart, true))
-  local chaosPanel = html:sub(chaosStart, garageStart - 1)
-  truthy(not chaosPanel:find("scr-manual-seed", 1, true))
-  truthy(html:find('aria%-hidden="true"') ~= nil)
-  truthy(css:find("::-webkit-slider-runnable-track", 1, true) ~= nil)
-  truthy(css:find("::-webkit-slider-thumb", 1, true) ~= nil)
-  truthy(css:find("padding: 0", 1, true) ~= nil)
-  truthy(css:find("scr-mode-collapsed", 1, true) ~= nil)
-  truthy(not js:find("compact: true", 1, true) and not js:find("standard: true", 1, true))
+  for _, key in ipairs({"saved", "compare", "share"}) do truthy(garage:find('"' .. key .. '"', 1, true), key) end
+  for _, key in ipairs({"cars", "placement", "drive"}) do truthy(race:find('"' .. key .. '"', 1, true), key) end
+  truthy(app:find("<AppShell />", 1, true))
+  truthy(shell:find("layout.compact", 1, true))
+  truthy(css:find(".scr%-compact") ~= nil)
+  truthy(css:find("prefers%-reduced%-motion") ~= nil)
   truthy(#fox < 2048 and not fox:lower():find("script", 1, true) and not fox:lower():find("base64", 1, true))
 end
 
@@ -5112,6 +5117,107 @@ tests.v069_race_scale_and_seed_regression_vectors = function()
     local generator = rng.new(seed)
     for index = 1, #expected do equal(generator:nextUInt(), expected[index], seed .. " vector changed") end
   end
+end
+
+tests.v070_ui_protocol_sequence_projection_and_validation = function()
+  equal(p2.protocol.PROTOCOL_VERSION, 2)
+  local sequence = p2.protocol.createSequence()
+  local full = assert(p2.projector.full(sequence, {
+    lifecycle = {operationId = 17, operationGeneration = 4, targetGeneration = 9},
+    busy = false,
+  }, 12.5))
+  equal(full.eventType, "full")
+  equal(full.domain, "all")
+  equal(full.stateVersion, 1)
+  equal(full.operationId, 17)
+  equal(full.operationGeneration, 4)
+  equal(full.targetGeneration, 9)
+  local diff = assert(p2.projector.diff(sequence, "garage", {page = 2}, {"garage"}, {
+    operationId = 17, operationGeneration = 4, targetGeneration = 10,
+  }, 13))
+  equal(diff.eventType, "diff")
+  equal(diff.stateVersion, 2)
+  equal(diff.targetGeneration, 10)
+
+  local valid, reason = p2.protocol.validateCommand({
+    protocolVersion = 2, command = "requestState", commandId = "scr-vue-1",
+    sourceView = "chaos", arguments = {},
+  })
+  truthy(valid, reason)
+  valid, reason = p2.protocol.validateCommand({
+    protocolVersion = 1, command = "requestState", commandId = "scr-vue-2",
+    sourceView = "chaos", arguments = {},
+  })
+  truthy(not valid); equal(reason, "protocol_version_unsupported")
+  valid, reason = p2.protocol.validateCommand({
+    protocolVersion = 2, command = "importVehicleDNA", commandId = "scr-vue-3",
+    sourceView = "garage", arguments = {string.rep("x", p2.protocol.MAX_COMMAND_BYTES + 1)},
+  })
+  truthy(not valid); equal(reason, "command_string_oversize")
+end
+
+tests.v070_ui_command_router_is_allowlisted_bounded_and_idempotent = function()
+  local calls = 0
+  local router = p2.router.create({
+    echo = function(value) calls = calls + 1; return {value = value} end,
+    reject = function() return false, "fixture_rejected" end,
+  }, {completedLimit = 16})
+  local command = {
+    protocolVersion = 2, command = "echo", commandId = "scr-vue-router-1",
+    sourceView = "settings", arguments = {"safe'value\\path"},
+  }
+  local first = p2.router.dispatch(router, command)
+  truthy(first.success); equal(first.result.value, "safe'value\\path"); equal(calls, 1)
+  local duplicate = p2.router.dispatch(router, command)
+  truthy(duplicate.success); equal(calls, 1)
+  local unknown = p2.router.dispatch(router, {
+    protocolVersion = 2, command = "arbitraryLuaMethod", commandId = "scr-vue-router-2",
+    sourceView = "shell", arguments = {},
+  })
+  truthy(not unknown.success); equal(unknown.code, "command_not_allowed")
+  local rejected = p2.router.dispatch(router, {
+    protocolVersion = 2, command = "reject", commandId = "scr-vue-router-3",
+    sourceView = "shell", arguments = {},
+  })
+  truthy(not rejected.success); equal(rejected.code, "fixture_rejected")
+end
+
+tests.v070_ui_preferences_migrate_once_and_keep_technical_policy = function()
+  local normalized = p2.preferences.normalize({
+    locale = "pt-BR", race = {count = 99, maximumSameFamily = 0,
+      allowOfficialVehicles = false, allowModVehicles = true, episodeSeed = string.rep("s", 256)},
+  })
+  equal(normalized.schemaVersion, 1)
+  equal(normalized.locale, "pt-BR")
+  equal(normalized.race.count, 32)
+  equal(normalized.race.maximumSameFamily, 1)
+  equal(normalized.race.allowOfficialVehicles, false)
+  equal(normalized.race.allowModVehicles, true)
+  equal(#normalized.race.episodeSeed, 128)
+  local migrated, changed = p2.preferences.importLegacy(p2.preferences.defaults(), {
+    avoidDuplicateModels = false, retainAcceptedOnCancel = false,
+  })
+  truthy(changed)
+  equal(migrated.race.avoidDuplicateModels, false)
+  equal(migrated.race.retainAcceptedOnCancel, false)
+  local repeated, changedAgain = p2.preferences.importLegacy(migrated, {avoidDuplicateModels = true})
+  truthy(not changedAgain)
+  equal(repeated.race.avoidDuplicateModels, false)
+end
+
+tests.v070_native_vue_runtime_is_single_and_legacy_angular_is_absent = function()
+  local function read(path)
+    local file = assert(io.open(root .. path, "rb")); local value = file:read("*a"); file:close(); return value
+  end
+  local manifest = read("/ui/modules/apps/soturineChaosRandomizer/app.json")
+  local app = read("/ui/modules/apps/soturineChaosRandomizer/app.vue")
+  truthy(manifest:find('"vue": true', 1, true))
+  truthy(manifest:find('"version": "0.7.0"', 1, true))
+  truthy(app:find('useEvents()', 1, true))
+  truthy(app:find('SoturineChaosRandomizerState', 1, true))
+  truthy(not io.open(root .. "/ui/modules/apps/soturineChaosRandomizer/app.js", "rb"))
+  truthy(not io.open(root .. "/ui/modules/apps/soturineChaosRandomizer/app.html", "rb"))
+  truthy(not io.open(root .. "/ui/modules/apps/soturineChaosRandomizer/app.css", "rb"))
 end
 
 tests.v066_baselines_are_distinct_and_repair_prefers_last_accepted = function()
@@ -6516,6 +6622,21 @@ local v069Required = {
   {"pure_seed_replay_vector", tests.v069_race_scale_and_seed_regression_vectors},
 }
 
+local v070Required = {
+  {"ui_protocol_version", tests.v070_ui_protocol_sequence_projection_and_validation},
+  {"ui_state_sequence", tests.v070_ui_protocol_sequence_projection_and_validation},
+  {"ui_state_projection", tests.v070_ui_protocol_sequence_projection_and_validation},
+  {"ui_command_schema_validation", tests.v070_ui_protocol_sequence_projection_and_validation},
+  {"ui_command_router_allowlist", tests.v070_ui_command_router_is_allowlisted_bounded_and_idempotent},
+  {"ui_command_router_idempotency", tests.v070_ui_command_router_is_allowlisted_bounded_and_idempotent},
+  {"ui_command_router_structured_errors", tests.v070_ui_command_router_is_allowlisted_bounded_and_idempotent},
+  {"ui_preferences_schema", tests.v070_ui_preferences_migrate_once_and_keep_technical_policy},
+  {"ui_preferences_legacy_migration", tests.v070_ui_preferences_migrate_once_and_keep_technical_policy},
+  {"ui_preferences_migration_idempotency", tests.v070_ui_preferences_migrate_once_and_keep_technical_policy},
+  {"native_vue_runtime_capability", tests.v070_native_vue_runtime_is_single_and_legacy_angular_is_absent},
+  {"single_runtime_ui_entry", tests.v070_native_vue_runtime_is_single_and_legacy_angular_is_absent},
+}
+
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")
 equal(#v060Required, 104, "0.6.0 required scenario registry")
 equal(#v060PauseLifecycleRequired, 52, "0.6.0 pause lifecycle scenario registry")
@@ -6547,6 +6668,9 @@ for _, scenario in ipairs(v068Required) do
 end
 for _, scenario in ipairs(v069Required) do
   requirementMappings[#requirementMappings + 1] = {"0.6.9:" .. scenario[1], scenario[2]}
+end
+for _, scenario in ipairs(v070Required) do
+  requirementMappings[#requirementMappings + 1] = {"0.7.0:" .. scenario[1], scenario[2]}
 end
 
 local canonicalByFunction = {}

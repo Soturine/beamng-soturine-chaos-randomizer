@@ -11,6 +11,7 @@ from pathlib import Path
 import subprocess
 import zipfile
 import re
+import shutil
 
 try:
     from tools.lua_metrics import run_lua_suite
@@ -24,9 +25,9 @@ OPTIONAL_CONTENT_ROOTS = ("mod_info",)
 PACKAGE_FILES = ("COMPATIBILITY.json", "LICENSE", "NOTICE", "VERSION")
 ARCHIVE_PREFIX = "soturine_chaos_randomizer_"
 FIXED_TIMESTAMP = (2026, 1, 1, 0, 0, 0)
-TEXT_SUFFIXES = {".css", ".html", ".js", ".json", ".lua", ".md", ".svg", ".txt", ".xml"}
+TEXT_SUFFIXES = {".css", ".html", ".js", ".json", ".lua", ".md", ".mjs", ".scss", ".svg", ".txt", ".vue", ".xml"}
 TEXT_FILENAMES = {"LICENSE", "NOTICE", "VERSION"}
-GENERATOR_VERSION = 7
+GENERATOR_VERSION = 8
 DNA_SCHEMA_VERSION = 1
 LIVE_RESULTS = ("Executed", "Passed", "Failed", "Pending", "Blocked", "Not applicable")
 
@@ -198,13 +199,24 @@ def test_counts(root: Path = REPOSITORY_ROOT) -> dict[str, int]:
         python_methods += len(re.findall(r"^\s+def test_[A-Za-z0-9_]+\(", path.read_text(encoding="utf-8"), re.MULTILINE))
     _, lua_metrics = run_lua_suite(root.resolve())
     interactive = live_test_counts(root)
-    javascript_source = (root / "tests" / "js" / "ui_math.test.js").read_text(encoding="utf-8")
-    javascript_total = re.search(r"SCR_UI_JS_TESTS_PASSED\s+(\d+)", javascript_source)
+    node = shutil.which("node")
+    if not node:
+        raise RuntimeError("Node.js is required for native Vue release validation")
+    javascript = subprocess.run(
+        [node, str(root / "tests" / "js" / "vue_runtime.test.mjs")],
+        cwd=root, text=True, capture_output=True, check=False,
+    )
+    if javascript.returncode != 0:
+        raise RuntimeError("JavaScript/Vue checks failed:\n" + javascript.stdout + javascript.stderr)
+    javascript_total = re.search(r"SCR_UI_JS_TESTS_PASSED\s+(\d+)", javascript.stdout)
+    if not javascript_total:
+        raise RuntimeError("JavaScript/Vue checks did not report an assertion count")
     result = {
         "pythonTestMethodsUnique": python_methods,
         **lua_metrics,
-        "nodeSyntaxFiles": len(list((root / "ui").rglob("*.js"))),
-        "javaScriptChecks": int(javascript_total.group(1)) if javascript_total else 0,
+        "nodeSyntaxFiles": len(list((root / "ui").rglob("*.js"))) + len(list((root / "tests" / "js").glob("*.mjs"))),
+        "vueSFCFiles": len(list((root / "ui").rglob("*.vue"))),
+        "javaScriptChecks": int(javascript_total.group(1)),
         "jsonFiles": len([
             path for path in root.rglob("*.json")
             if not any(part in {".git", "dist", "__pycache__"} for part in path.relative_to(root).parts)
@@ -236,6 +248,7 @@ def write_release_manifest(archive: Path, output: Path | None = None, root: Path
         "luaExecutedCases": tests["luaExecutedCases"],
         "luaRequirementMappings": tests["luaRequirementMappings"],
         "javaScriptChecks": tests["javaScriptChecks"],
+        "vueSFCFiles": tests["vueSFCFiles"],
     }
     live_tests = {
         "status": "Pending owner validation",
@@ -263,6 +276,8 @@ def write_release_manifest(archive: Path, output: Path | None = None, root: Path
         "sha256": report["sha256"],
         "primaryBeamNGTarget": compatibility["primaryBeamNGTarget"],
         "minimumBeamNGVersion": compatibility["minimumBeamNGVersion"],
+        "compatibilitySchemaVersion": compatibility.get("schemaVersion"),
+        "uiRuntime": compatibility.get("uiRuntime"),
         "detectedOrDeclaredCompatibility": {
             "source": "COMPATIBILITY.json",
             "testedGameVersions": compatibility.get("testedGameVersions", []),
