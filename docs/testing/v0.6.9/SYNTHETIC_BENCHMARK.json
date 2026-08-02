@@ -1,0 +1,139 @@
+{
+  "fpsClaim": false,
+  "kind": "synthetic-lua-microbenchmark",
+  "rows": [
+    {
+      "bufferReuses": 1999,
+      "diagnosticCount": 0,
+      "guihooksCount": 0,
+      "iterations": 2000,
+      "meanMs": 0.000221,
+      "p50Ms": 0.0001,
+      "p95Ms": 0.0002,
+      "p99Ms": 0.0004,
+      "scenario": "idle",
+      "totalMs": 0.4413
+    },
+    {
+      "bufferReuses": 0,
+      "diagnosticCount": 0,
+      "guihooksCount": 0,
+      "iterations": 300,
+      "meanMs": 0.11733,
+      "p50Ms": 0.0766,
+      "p95Ms": 0.3321,
+      "p99Ms": 0.457,
+      "scenario": "Chaos active",
+      "totalMs": 35.1989
+    },
+    {
+      "bufferReuses": 0,
+      "diagnosticCount": 0,
+      "guihooksCount": 0,
+      "iterations": 300,
+      "meanMs": 0.008101,
+      "p50Ms": 0.0024,
+      "p95Ms": 0.0316,
+      "p99Ms": 0.092,
+      "scenario": "Race 4",
+      "totalMs": 2.4304
+    },
+    {
+      "bufferReuses": 0,
+      "diagnosticCount": 0,
+      "guihooksCount": 0,
+      "iterations": 300,
+      "meanMs": 0.010848,
+      "p50Ms": 0.0043,
+      "p95Ms": 0.0456,
+      "p99Ms": 0.0641,
+      "scenario": "Race 8",
+      "totalMs": 3.2544
+    },
+    {
+      "bufferReuses": 0,
+      "diagnosticCount": 0,
+      "guihooksCount": 0,
+      "iterations": 300,
+      "meanMs": 0.015403,
+      "p50Ms": 0.0082,
+      "p95Ms": 0.0579,
+      "p99Ms": 0.0931,
+      "scenario": "Race 12",
+      "totalMs": 4.6208
+    },
+    {
+      "bufferReuses": 0,
+      "diagnosticCount": 0,
+      "guihooksCount": 0,
+      "iterations": 300,
+      "meanMs": 0.261732,
+      "p50Ms": 0.2321,
+      "p95Ms": 0.4923,
+      "p99Ms": 0.6468,
+      "scenario": "Garage 100 entries",
+      "totalMs": 78.5196
+    },
+    {
+      "bufferReuses": 0,
+      "diagnosticCount": 0,
+      "guihooksCount": 0,
+      "iterations": 150,
+      "meanMs": 1.098925,
+      "p50Ms": 0.9583,
+      "p95Ms": 1.6769,
+      "p99Ms": 2.0833,
+      "scenario": "Garage 500 entries",
+      "totalMs": 164.8388
+    },
+    {
+      "bufferReuses": 0,
+      "diagnosticCount": 200,
+      "guihooksCount": 1000,
+      "iterations": 1000,
+      "meanMs": 0.000779,
+      "p50Ms": 0.0004,
+      "p95Ms": 0.0018,
+      "p99Ms": 0.0036,
+      "scenario": "Details closed",
+      "totalMs": 0.7787
+    },
+    {
+      "bufferReuses": 0,
+      "diagnosticCount": 200,
+      "guihooksCount": 300,
+      "iterations": 300,
+      "meanMs": 0.279585,
+      "p50Ms": 0.2045,
+      "p95Ms": 0.6737,
+      "p99Ms": 1.0238,
+      "scenario": "Details open",
+      "totalMs": 83.8754
+    },
+    {
+      "bufferReuses": 0,
+      "diagnosticCount": 0,
+      "guihooksCount": 0,
+      "iterations": 1000,
+      "meanMs": 0.041163,
+      "p50Ms": 0.0378,
+      "p95Ms": 0.057,
+      "p99Ms": 0.088,
+      "scenario": "index cache hit",
+      "totalMs": 41.1626
+    },
+    {
+      "bufferReuses": 0,
+      "diagnosticCount": 0,
+      "guihooksCount": 0,
+      "iterations": 20,
+      "meanMs": 43.050325,
+      "p50Ms": 42.177,
+      "p95Ms": 53.0636,
+      "p99Ms": 55.0846,
+      "scenario": "index full rebuild",
+      "totalMs": 861.0065
+    }
+  ],
+  "version": "0.6.9"
+}

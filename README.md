@@ -6,10 +6,10 @@ a random vehicle/configuration, scramble the active vehicle's parts, tuning and
 paint, or run the complete pipeline as one bounded transaction. It also
 includes Vehicle DNA, a local Garage, and Race/Placement/AI workflows.
 
-Current release: **0.6.8**, published as an experimental prerelease for
+Current release: **0.6.9**, published as an experimental prerelease for
 additional live validation. Automated validation is recorded separately; live
 BeamNG validation is **Pending owner validation** (0 executed / 0 passed / 0
-failed / 60 pending / 0 blocked).
+failed / 64 pending / 0 blocked).
 That wording matters: mocked pipelines and source inspection are not gameplay,
 physics, rendering, performance, or mod-compatibility proof.
 
@@ -29,15 +29,15 @@ or part catalog.
 
 ## Install or update
 
-1. Download `soturine_chaos_randomizer_0.6.8.zip` from the official
-   [GitHub Release v0.6.8](https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases/tag/v0.6.8).
+1. Download `soturine_chaos_randomizer_0.6.9.zip` from the official
+   [GitHub Release v0.6.9](https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases/tag/v0.6.9).
    Do not use GitHub's automatic source archive.
 2. Copy the ZIP, without extracting it, into your BeamNG user folder's
    `mods` directory.
 3. Remove or disable older Chaos Randomizer ZIPs so only one version is active.
 4. Start BeamNG, enable the mod, open UI Apps, and add
    **Soturine's Chaos Randomizer**.
-5. Confirm `0.6.8` appears in the orange header.
+5. Confirm `0.6.9` appears in the orange header.
 
 The release page attaches the versioned ZIP, `.zip.sha256`, and `.manifest.json`.
 Verify both integrity files before owner testing; the manifest binds the ZIP
@@ -115,6 +115,10 @@ growth.
   discovered metadata.
 - **Diagnostic logging**: records bounded lifecycle evidence useful for issue
   reports. It does not log Vehicle DNA payloads or unbounded per-frame data.
+- **Performance profiling**: opt-in bounded timing for documented runtime
+  stages with count, total/mean, p50/p95/p99, minimum, maximum, and last sample.
+  Profiling is off by default to minimize overhead; synthetic results are not
+  live FPS claims.
 
 ## Seeds and reproducibility
 

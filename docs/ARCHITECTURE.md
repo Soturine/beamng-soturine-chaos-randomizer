@@ -1,5 +1,20 @@
 # Architecture
 
+## v0.6.9 P1 performance model
+
+The GE `onUpdate` orchestrator prioritizes active lifecycle work, advances at
+most one incremental catalog chunk, distributes Race AI observation, flushes a
+debounced progress diff, and performs bounded owned-orphan cleanup. Profiling,
+budgets, iteration, buffers, dimension/cache ownership, indexing, UI publishing,
+diagnostic aggregation, polling, and AI confirmation are separate modules with
+no BeamNG API calls in domain logic.
+
+The last complete content index remains selection authority during rebuild.
+Cache restoration and new build completion both cross an atomic ownership
+boundary. UI mount/request crosses a full-state boundary; progress crosses a
+small owned diff boundary. Persistence and lifecycle snapshots keep defensive
+copies, while newly constructed event payloads avoid redundant copying.
+
 ## v0.6.8 BeamNG 0.39 compatibility model
 
 `COMPATIBILITY.json` feeds the package manifest and runtime compatibility
@@ -50,7 +65,7 @@ failures, and always invalidates the old plan first.
 
 Soturine's Chaos Randomizer is a BeamNG GE Lua extension with an AngularJS/CEF UI App. `main.lua` composes the subsystems, owns public hooks and routes operations; deterministic domain logic remains in modules that run in the Lua 5.1 test harness.
 
-Current persistent contracts are settings schema 7, Vehicle DNA schema 1,
+Current persistent contracts are settings schema 8, Vehicle DNA schema 1,
 generator 6, and the historical Race/Lineup schema 1.
 
 ## Runtime flow
@@ -106,9 +121,10 @@ Timeout handling performs one final coherent player read without a fixed ID. Cor
 | `transactionalJSON.lua` | backup/readback/rollback persistence protocol |
 
 The packaged HUD remains a legacy Angular directive. BeamNG 0.39's runtime Vue
-UI hosts it through the Angular host, so v0.6.8 keeps the established directive
+UI hosts it through the Angular host, so v0.6.9 keeps the established directive
 contract. Timers, mutation/resize observers, and remount state are explicitly
-bounded; a Runtime UI-native rewrite is P1, not a P0 release prerequisite.
+bounded. Runtime UI-native Vue migration and internationalization are P2 for
+v0.7.0, not part of the v0.6.9 P1 performance release.
 
 `main.lua` declares BeamNG extension dependencies but is not allowed to call unstable BeamNG APIs directly. A static source-contract test enforces the boundary.
 
@@ -122,7 +138,19 @@ bounded; a Runtime UI-native rewrite is P1, not a P0 release prerequisite.
 
 ## Performance and bounds
 
-`performanceMetrics.lua` keeps circular windows for `onUpdate`, target tracking, tree scanning, mutation planning, tuning discovery, UI state/payload, indexing, Spawn Director, AI Director, and preview. Reports expose `count`, `p50`, `p95`, `p99`, and `max`, plus bounded UI event rates. Normal gameplay does not emit per-sample logs.
+`performanceMetrics.lua` keeps optional circular windows and lifetime aggregates
+for the documented P1 stages. `frameBudget.lua` classifies idle/busy/Race/UI/
+index work; an amortized excess warning never becomes a cancellation signal.
+`vehicleIterator.lua`, `vehicleBufferPool.lua`, and `dimensionCache.lua` isolate
+low-GC enumeration, buffer ownership, OOBB capability detection, and generation-
+scoped dimensions. `registryCache.lua` and `incrementalIndexer.lua` retain a
+last-valid atomic content index while rebuilding in budgeted chunks.
+
+`uiPublisher.lua` owns dirty flags, full/diff accounting, debounce, hook rate,
+and byte rate. `diagnostics.lua` owns bounded fingerprints and aggregates.
+`adaptivePolling.lua` and `aiModeConfirmation.lua` own polling cadence and AI
+readback terminal states. Normal gameplay does not emit raw timing samples or
+per-frame repeated logs. See [Performance](PERFORMANCE.md).
 
 Production modules must be reachable from the BeamNG entrypoint or a documented compatibility entrypoint. `tests/test_architecture.py` fails on unresolved internal requires and orphaned production modules.
 # v0.6.7 operation domains

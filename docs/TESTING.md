@@ -10,6 +10,7 @@ node --check ui/modules/apps/soturineChaosRandomizer/app.js
 node tests/js/ui_math.test.js
 python tools/package_mod.py
 python tools/validate_package.py
+python tools/benchmark_v069.py
 ```
 
 The Python Lua wrapper uses a local Lua 5.1-compatible interpreter when available, otherwise the installed BeamNG console. The Lua suite prints unique function count, requirement mappings, executed cases, and assertion count separately.
@@ -28,16 +29,20 @@ The Python Lua wrapper uses a local Lua 5.1-compatible interpreter when availabl
 | Requirement mappings | traceability to executed tests | additional executions |
 | Live BeamNG tests | actual packaged gameplay/UI/mod evidence | untested builds or content |
 
-Current exact automated results are recorded in [the 0.6.8 report](testing/v0.6.8/AUTOMATED_TEST_REPORT.md). The mandatory live plan and report remain separate.
+Current exact automated results are recorded in [the 0.6.9 report](testing/v0.6.9/AUTOMATED_TEST_REPORT.md). The mandatory live plan and report remain separate.
 
-v0.6.8 specifically covers BeamNG 0.39 metadata/version classification,
+v0.6.9 preserves the BeamNG 0.39 compatibility coverage and adds bounded
+profiling/budgets, iterators/buffers, OOBB dimensions, catalog cache and
+incremental indexing, UI diffs, diagnostics aggregation, adaptive polling, AI
+mode readback, Race 1/4/8/12 scaling, and deterministic seed vectors. The
+v0.6.8 compatibility foundation covers metadata/version classification,
 registry warm-up/partial reads, technical identity and case-sensitive paths,
 spawn cardinality and typed denial evidence, migration rollback, legacy HUD
 host teardown, independent configuration evidence, callback-free
 public flows, callback order/duplication, preserved uncertain fuel/parts
 results, explicit terminal outcomes, automatic/user/collapsed sizing, repeated
 tab cycles, and the shared fox identity. See the
-[requirements matrix](testing/v0.6.8/REQUIREMENTS_MATRIX.md).
+[requirements matrix](testing/v0.6.9/REQUIREMENTS_MATRIX.md).
 
 ## Honesty rules
 

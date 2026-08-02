@@ -1,70 +1,155 @@
-# Performance
+# Performance, profiling, and efficiency
 
-Performance work is bounded and evidence-based. Benchmarks are diagnostic, not brittle CI timing gates.
+v0.6.9 implements the P1 performance layer without changing generator version
+6, the Angular compatibility host, or the Chaos/Garage/Race feature contracts.
+The goal is bounded work and observable evidence, not an unverified FPS claim.
 
-## Recorded synthetic measurement
+## Runtime profiler
 
-Command:
-
-```powershell
-python tools/profile_fixtures.py
-```
-
-Measured in five consecutive runs on 2026-07-23 with the shipped BeamNG 0.38.6 Lua 5.1 console on Windows 10:
+Profiling is off by default (`performanceProfiling=false`). When enabled, each
+metric retains at most 256 recent samples in a circular buffer while lifetime
+aggregates remain constant-size. UI snapshots contain aggregates only, never
+raw samples:
 
 ```text
-models=500
-configs=5000
-index_seconds median=0.022 range=0.022..0.025
-slots=120
-depth=120
-candidates=2400
-scan_seconds median=0.001 range=0.001..0.001
-plan_seconds median=0.000 range=0.000..0.001
+count totalMs minMs maxMs meanMs p50Ms p95Ms p99Ms lastMs
 ```
 
-The console timer has millisecond resolution, so a reported `0.000` means below that resolution rather than no work. These are synthetic metadata shapes on one machine, not universal pass/fail promises. Re-run after material changes and report the environment; do not compare machines as if the values were deterministic.
+The required metrics are:
 
-The final 0.5 candidate rerun reported `index_seconds=0.034`, `scan_seconds=0.002`, and `plan_seconds=0.000` for the same 500/5,000/120/2,400 shape. It remains diagnostic evidence, not a timing gate.
+```text
+onUpdate                 targetTracking          spawnDirector
+aiDirector               fluidGuard              paintConfirmation
+treeRescan               raceGeneration          registryIndexing
+uiPublish                diagnosticsSerialization vehicleEnumeration
+vehicleDimensionRead     configVerification      ownershipCleanup
+orphanReaper             garageLoad              dnaCompatibility
+```
 
-## Budgets and bounds
+Legacy aggregate names remain readable for existing diagnostics consumers.
+`timeprobe`, `gcprobe`, and `luaProfiler` are capability-detected and reported;
+none is a runtime dependency. The profiler API supports enable/disable, reset,
+snapshot, and export. Disabling it rejects samples before touching a metric
+buffer.
 
-- Registry normalization is linear in registered models/configs and is cached across normal operations; Reindex/mod-state changes invalidate it.
-- Slot scan and mutation planning are bounded by the currently loaded tree/candidate set, not all installed ZIP contents.
-- Mutation passes are depth-derived and bounded by no-progress/repeated-state/operation guards; descendants use a later fresh snapshot and trees beyond twelve levels can complete.
-- Per-frame update work is constant-time except a scheduled stress step or one interval-limited lifecycle/paint read-back. Lifecycle candidates/events are capped at 16/32 and success requires five stable frames/two coherent scans.
-- Paint confirmation is capped by two seconds and 12 attempts.
-- Diagnostics retain 200 records; history is settings-bounded to 1–50 entries.
-- Part suspects retain at most 128 records, eight fingerprints each, with a 900-second inactive TTL.
-- Part recovery permits two retries per slot, eight per pass, four batch rollbacks, twelve operation retries, and 128 quarantined candidates. Load recovery opens its circuit breaker after three consecutive failures.
-- Developer stress is capped at 50 sequential operations and 300 seconds.
-- Vehicle DNA libraries are capped at 100 entries and 1 MiB canonical JSON; each entry is capped at 128 KiB, 2,048 slots, 2,048 tuning variables, 32 paint layers, and 20 tags.
-- Canonical/import traversal is capped at 32 levels, 10,000 elements, 4,096 characters per string, and 512 characters per canonical path.
-- Garage pages expose eight summaries at a time; the pure summary helper never returns more than 25.
-- Garage search is debounced, compatibility/details/comparison/export/import are explicit lazy requests, and only the current eight-card page receives managed thumbnail URLs. Periodic state excludes full DNA, export text, and thumbnail bytes.
-- Lock profiles are capped at 2,048 slot/part locks, 2,048 tuning locks, and 32 paint layers. Lineage depth is 32 and comparison output is capped at 4,096 differences.
-- Managed images are capped at 100, 500x281, and 256 KiB each. Share archives are capped at 512 KiB, five entries, 256 KiB per entry, and 512 KiB total stored/uncompressed content.
-- Vehicle DNA restore applies only the shallowest changed slot depth per pass. Its budget is derived from saved/current tree depth plus safety margin, clamped to 12–128 passes, with a 120-second deadline and explicit no-progress/repeated-state guards. It performs no synchronous retry loop or per-frame tree scan.
-- Only one primary library and one last-known-good copy are retained. No per-entry backup directory can grow without bound.
-- Full Coverage ledgers are operation/target-bound and closed at terminal or
-  recovery; they do not accumulate across operations.
-- Race Cars is capped at 16 competitors, checkpoints incrementally, and
-  invokes only one central Full Random operation at a time. The UI renders at
-  most eight competitor cards per page.
-- Spawn Director is capped at 16 planned positions and exactly one concurrent
-  load. Target acceptance needs two stable matching read-backs; callback
-  candidates are capped at eight per pending spawn.
-- Managed vehicles and AI entries are capped at 32 by the orchestrator. AI
-  observation polls at most every 0.2 real seconds; route editor points are
-  capped at 16 and calculated NavGraph nodes at the central 512-node bound.
-- Progress watchdog thresholds use actual phase/target/tree/write events, not
-  every frame. Lifecycle diagnostics stay bounded, and copied diagnostic JSON
-  drops oldest records until it is at most 256 KiB.
+## Frame budgets
 
-## Runtime metrics
+Settings schema 8 persists five configurable budgets:
 
-Public state exposes `replacementEvents`, `candidateVehicles`, `rebindCount`, `stabilizationFrames`, `stabilizationScans`, `stabilizationMs`, `partBatchRetries`, `partBatchRollbacks`, `quarantinedCandidates`, and `fullRandomPostSpawnMs`, plus index build/cache-hit counts, `garageLoadMs`, `compatibilityMs`, `thumbnailLoadMs`, `compareMs`, `exportMs`, `importMs`, `storageBytes`, `storageElements`, and the last operation's total duration, reload count, slot scan time, mutation planning time, tree depth, slot count, and candidate count. Diagnostics record pass metrics and safety status. Absolute machine paths are never included.
+| Budget | Default | Purpose |
+|---|---:|---|
+| `idleBudgetMs` | 0.50 ms | Minimal housekeeping while idle |
+| `busyBudgetMs` | 2.50 ms | Critical lifecycle work during a Chaos operation |
+| `raceBudgetMs` | 3.50 ms | Distributed Race/AI maintenance |
+| `uiPublishBudgetMs` | 1.50 ms | State construction, serialization, and hook dispatch |
+| `indexChunkBudgetMs` | 2.00 ms | One incremental catalog chunk |
 
-## Regression fixtures
+An excess records the stage, elapsed time, budget, and repetition count. The
+warning is rate-limited per stage. Budget evidence never aborts an operation,
+extends a timeout, or introduces an artificial delay.
 
-The Lua suite constructs a deterministic 250-model/5,000-config registry and scans 100- and 160-level trees without hard timing assertions. It also verifies bounded diagnostics/suspects and index reuse. `tests/lua/profile.lua` provides the larger 500-model/5,000-config and 120-level/2,400-candidate measurement above.
+## Allocation and enumeration strategy
+
+- `vehiclesIterator()` and `activeVehiclesIterator()` are preferred when
+  present; `getAllVehicles()` is the compatibility fallback.
+- IDs are sorted only where deterministic order is required. Invalid,
+  destroyed, negative, duplicate, and non-integral IDs are ignored.
+- Named reusable buffers have one borrower and a generation token. Release
+  clears every key, stale generations fail closed, and external callers receive
+  an owned copy rather than the mutable buffer.
+- OOBB rear/front/center XYZ and `getPointXYZ` capabilities are detected. Half
+  extents provide orientation-stable width/height; rear-to-front XYZ supplies
+  length. World-box extents are the bounded fallback.
+- Dimension cache keys combine vehicle ID and target generation. Destroy,
+  replacement, config change, generation change, and invalid reads prevent an
+  ID-recycled vehicle from receiving stale dimensions.
+
+Deep copies remain at ownership, persistence, async callback, and public-state
+boundaries. Freshly owned event/diff payloads no longer receive a redundant
+adapter copy. Lifecycle snapshots, rollback material, Vehicle DNA, Race/Garage
+records, and persistence candidates intentionally retain defensive copies.
+
+## Catalog cache and incremental index
+
+The persistent catalog envelope is versioned and fingerprinted by BeamNG
+version, mod version, registry shape, active mods, content-alias version, and
+settings schema. A CRC-32 checksum, complete-snapshot marker, 4 MiB limit, and
+absolute personal-path rejection are validated before restoration. Persistence
+uses the existing transactional JSON write/readback boundary.
+
+Extension load follows:
+
+```text
+extension loaded -> cache check -> cache ready OR indexing
+                 -> budgeted chunks -> atomic complete index
+```
+
+Only one indexer can be active. It is cancellable and restartable; manual
+Reindex and mod changes invalidate cache/generation. A partial build never
+replaces the last valid index and is never used for selection. Diagnostics and
+public performance state expose hit/miss reason, generation, chunks, items,
+progress, and total time.
+
+## UI and diagnostics
+
+The initial mount and explicit request publish full state. Progress publishes a
+small diff (`SoturineChaosRandomizerStateDiff`) with debounce/batching; the
+Angular controller merges it recursively. Dirty flags cover operation,
+progress, Race, Garage, settings, diagnostics, compatibility, and performance.
+Counters expose hooks/s, bytes/s, full/partial counts, and suppressed publishes.
+
+Closed Details receives compact diagnostic aggregates rather than full history.
+Diagnostics use a bounded fingerprint index with first/last time, repetitions,
+severity, deduplication, and per-record rate limiting. A full sanitized export
+is still available on explicit Copy diagnostics. Lower-severity churn cannot
+evict a buffer containing only critical errors.
+
+## Polling, AI, Race, and cleanup
+
+Adaptive polling starts fast while state changes, backs off to a configured
+ceiling while stable, wakes on relevant events, rejects stale generations, and
+stops completely at terminal state. Managed Race AI is processed in distributed
+batches while due confirmations remain prioritized.
+
+When `getAIMode` or an equivalent readable state exists, an AI command reaches
+Running only after expected mode readback. Destination/Route normalize to the
+Traffic runtime mode. Mismatch, timeout, destruction, and stale responses are
+bounded terminal outcomes. Builds without readback keep the v0.6.8 fallback and
+record `mode_confirmation_unavailable`.
+
+The orphan reaper consumes only managed ownership IDs from a queue, under item
+and time budgets. It never sweeps or deletes arbitrary external world vehicles.
+
+## Collection and export
+
+Enable profiling in Settings, reproduce the operation, open Details, and use
+Copy diagnostics for the complete sanitized aggregate. Record the exact game
+build, map, active mods, vehicle count, settings, seed, catalog fingerprint,
+generator version, and whether Details was open. Reset metrics before comparing
+two controlled runs.
+
+## Synthetic benchmark
+
+Run:
+
+```powershell
+python tools/benchmark_v069.py
+```
+
+The BeamNG-shipped Lua console executes 11 production-module microbenchmarks:
+idle, Chaos active, Race 4/8/12, Garage 100/500, Details closed/open, registry
+cache hit, and full index rebuild. Each row reports iterations, total/mean,
+p50/p95/p99, buffer reuses, UI hooks, and diagnostic count. The committed result
+is in `docs/testing/v0.6.9/SYNTHETIC_BENCHMARK.json`.
+
+These timings are synthetic metadata/algorithm measurements on one machine.
+They are not FPS, 1% low, physics, rendering, RAM/VRAM, or real gameplay proof.
+They are diagnostic and intentionally not a brittle CI timing gate.
+
+## Live validation boundary
+
+Live BeamNG 0.39 validation is **Pending owner validation**. The 64-row owner
+matrix measures FPS average, 1% low, frame time, `onUpdate` p50/p95/p99, GC,
+RAM, VRAM, hooks/s, diagnostics/s, vehicle/managed/orphan counts for 1/4/8/12
+vehicles. No real-world performance improvement is claimed before those rows
+are executed with the downloaded release artifact.

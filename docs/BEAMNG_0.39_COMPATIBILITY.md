@@ -1,9 +1,9 @@
-# BeamNG.drive 0.39 compatibility — v0.6.8
+# BeamNG.drive 0.39 compatibility — v0.6.9
 
-Status: **P0 implementation complete; live owner validation Pending**.
+Status: **P0 preserved; P1 performance implementation complete; live owner validation Pending**.
 
-This dossier records compatibility decisions for the 0.6.8 Experimental
-prerelease. It distinguishes official documentation/source inspection,
+This dossier records compatibility decisions preserved by the 0.6.9
+Experimental prerelease. It distinguishes official documentation/source inspection,
 automated production-code tests, and live gameplay. No live world, physics,
 rendering, performance, or representative-mod case was executed in this Codex
 run.
@@ -41,7 +41,7 @@ Source inspection establishes contracts to test; it is not live proof.
 
 `COMPATIBILITY.json` declares:
 
-- mod version `0.6.8`;
+- mod version `0.6.9`;
 - primary BeamNG target `0.39`;
 - minimum BeamNG version `0.38.6`;
 - no fabricated live-tested build list;
@@ -89,7 +89,7 @@ blacklist evidence. Manual Retry clears temporary/domain quarantine explicitly.
 
 ## Persistence and coexistence
 
-Settings schema 7, Vehicle DNA schema 1, and Lineup schema 1 are retained or
+Settings schema 8, Vehicle DNA schema 1, and Lineup schema 1 are retained or
 migrated transactionally. Settings and lineup writes back up the last readable
 value, write the candidate, read it back deeply, and restore/read back the
 previous value on mismatch. Vehicle DNA keeps its equivalent existing protocol.
@@ -99,21 +99,24 @@ report records each store and source/target schema.
 Detected BeamLR, Driver Assistance (angelo234), other randomizers, and
 multiplayer vehicle synchronization produce structured warning-only records:
 `conflictId`, loaded extension or mounted-path evidence, recommended action, and
-`disabledByRandomizer=false`. v0.6.8 never disables another mod automatically.
+`disabledByRandomizer=false`. v0.6.9 never disables another mod automatically.
 
-## Deferred work
+## v0.6.9 P1 compatibility constraints
 
-P1 (documented, not implemented here): Runtime UI-native rewrite; new 0.39 Lua
-and vehicle-controller APIs; editor integrations; FFV improvements; Automated
-Performance Class; broader controller/powertrain/drivetrain/forced-induction/
-N2O/fuel reset adoption and live tests.
+P1 adds low-GC iterator capability detection with `getAllVehicles()` fallback,
+OOBB XYZ capability detection with bounded box fallback, registry cache
+fingerprinting that includes game/mod/schema state, incremental indexing, and
+AI mode readback when available. Missing optional iterator, OOBB XYZ, profiler,
+or AI readback capabilities degrade to the preserved v0.6.8 behavior; they do
+not disable Chaos, Race, or Garage.
 
-P2: remove the legacy Angular package only after Runtime UI parity, migration,
-accessibility, controller, DPI, ultrawide, remount, and performance evidence is
-complete.
+P2 remains v0.7.0: migrate Angular to Runtime UI-native Vue, internationalize,
+and modernize architecture only with parity and migration evidence. After
+v0.7.0, perform a fresh full audit against then-current BeamNG 0.39.x hotfixes,
+documentation, APIs, and compatibility reports.
 
 ## Evidence status
 
 Automated production-code, fixture, static, JavaScript, packaging, checksum,
-manifest, and release-gate tests are Passed. The exact 60-case owner matrix is
-0 executed / 0 passed / 0 failed / 60 pending / 0 blocked.
+manifest, and release-gate tests are Passed. The exact 64-case v0.6.9 owner
+performance matrix is 0 executed / 0 passed / 0 failed / 64 pending / 0 blocked.

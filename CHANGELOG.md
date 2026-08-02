@@ -2,6 +2,46 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.9] - 2026-08-02
+
+Experimental P1 performance prerelease. Automated validation passes; all 64
+live BeamNG performance cases remain Pending owner validation.
+
+### Added
+
+- Opt-in bounded runtime profiling for 18 required stages with circular sample
+  windows, count/total/min/max/mean/last, p50/p95/p99, reset/export, and optional
+  `timeprobe`, `gcprobe`, and `luaProfiler` capability reporting.
+- Configurable idle, busy, Race, UI publish, and index-chunk budgets with
+  amortized diagnostics that never cancel an operation.
+- Low-GC vehicle iteration with safe fallback, owned reusable buffers, OOBB XYZ
+  dimension reads, generation-keyed dimension cache, and invalidation on
+  destruction/replacement/config changes.
+- Versioned persistent registry cache with compatibility fingerprint, checksum,
+  size/privacy validation and last-valid atomic restoration.
+- Incremental cancellable/restartable catalog indexing, dirty/diff UI publishing,
+  diagnostics aggregation, adaptive polling, and AI mode readback confirmation.
+- Reproducible 11-scenario synthetic Lua benchmark matrix plus explicit 1/4/8/12
+  Race and seed regression vectors.
+
+### Changed
+
+- Progress uses debounced partial UI events instead of rebuilding the full state
+  on each update; full state remains available at mount and explicit request.
+- Managed AI work is distributed across frames, prioritizes due confirmations,
+  and falls back honestly when mode readback is unavailable.
+- Owned orphan cleanup uses a bounded queue/batch budget rather than repeated
+  world enumeration; repeated diagnostics retain aggregate evidence.
+- Settings schema advances to 8 for profiling and frame-budget preferences.
+
+### Preserved
+
+- Chaos, Garage, Race, Race Policy, Vehicle DNA/replay, seed generator version 6,
+  compatibility metadata semantics, and the Angular compatibility host.
+- Vue migration, internationalization, and architectural modernization remain
+  P2 for v0.7.0; a fresh compatibility audit remains scheduled after v0.7.0 and
+  the BeamNG 0.39.x hotfix cycle.
+
 ## [0.6.8] - 2026-07-29
 
 Experimental prerelease for BeamNG.drive 0.39 compatibility. Automated
