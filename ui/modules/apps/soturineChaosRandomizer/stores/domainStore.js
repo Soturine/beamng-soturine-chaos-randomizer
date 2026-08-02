@@ -1,10 +1,15 @@
 import { reactive } from "vue"
 
 export const createDomainStore = (name, initial) => {
-  const state = reactive(initial)
+  const cloneValue = value => {
+    if (Array.isArray(value)) return value.map(cloneValue)
+    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, cloneValue(child)]))
+    return value
+  }
+  const state = reactive(cloneValue(initial))
   const replaceValue = (current, next) => {
     if (Array.isArray(current) && Array.isArray(next)) {
-      current.splice(0, current.length, ...next)
+      current.splice(0, current.length, ...next.map(cloneValue))
       return current
     }
     if (current && next && typeof current === "object" && typeof next === "object" && !Array.isArray(current) && !Array.isArray(next)) {
@@ -12,7 +17,7 @@ export const createDomainStore = (name, initial) => {
       for (const [key, value] of Object.entries(next)) current[key] = replaceValue(current[key], value)
       return current
     }
-    return next
+    return cloneValue(next)
   }
   return {
     name,

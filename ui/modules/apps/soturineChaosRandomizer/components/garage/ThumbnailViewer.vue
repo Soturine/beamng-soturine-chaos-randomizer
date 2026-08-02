@@ -1,4 +1,4 @@
-<template><div class="scr-thumbnail" :style="fallbackStyle"><img v-if="url" :src="url" :alt="t('a11y.thumbnail', { name: entry?.name || '' })" @error="failed = true" /><span v-if="!url" aria-hidden="true">◆</span><small v-if="entry?.thumbnail?.exact === false">NON-EXACT</small></div></template>
+<template><div class="scr-thumbnail" :style="fallbackStyle"><img v-if="url" :src="url" :alt="t('a11y.thumbnail', { name: entry?.name || '' })" @error="failed = true" /><span v-if="!url" aria-hidden="true">◆</span><small v-if="entry?.thumbnail?.exact === false">{{ t('garage.nonExact') }}</small></div></template>
 <script setup>
 import { computed, ref } from "vue"; import { useStores } from "../../stores"
 const props = defineProps({ entry: { type: Object, default: null } }); const failed = ref(false); const { i18n: { t } } = useStores()

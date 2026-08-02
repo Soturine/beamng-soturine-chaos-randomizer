@@ -63,9 +63,17 @@ export function createStores(command) {
     stores.garage.replace(state.garage || {})
     const placementOptions = stores.race.state.placementOptions || {}
     const aiOptions = stores.race.state.aiOptions || {}
+    const racePreferences = state.settings?.uiPreferences?.race || {}
+    Object.assign(placementOptions, {
+      mode: racePreferences.formation || placementOptions.mode,
+      spacingMode: racePreferences.spacingMode || placementOptions.spacingMode,
+      longitudinalSpacing: racePreferences.longitudinalSpacing ?? placementOptions.longitudinalSpacing,
+      lateralSpacing: racePreferences.lateralSpacing ?? placementOptions.lateralSpacing,
+      safetyMargin: racePreferences.safetyMargin ?? placementOptions.safetyMargin,
+    })
     stores.race.replace({
       lineup: state.lineup || {}, spawnDirector: state.spawnDirector || {}, aiDirector: state.aiDirector || {},
-      options: state.settings?.uiPreferences?.race || {}, placementOptions, aiOptions,
+      options: racePreferences, placementOptions, aiOptions,
     })
     stores.settings.replace(state.settings || {})
     stores.compatibility.replace(state.compatibility || {})
