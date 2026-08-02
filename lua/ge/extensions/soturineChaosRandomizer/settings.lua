@@ -1,10 +1,11 @@
 local util = require("ge/extensions/soturineChaosRandomizer/util")
 local vehicleDNALocks = require("ge/extensions/soturineChaosRandomizer/vehicleDNALocks")
+local frameBudget = require("ge/extensions/soturineChaosRandomizer/frameBudget")
 
 local M = {}
 
 local DEFAULTS = {
-  schemaVersion = 7,
+  schemaVersion = 8,
   chaos = 75,
   allowMissingParts = true,
   protectCriticalParts = false,
@@ -15,6 +16,8 @@ local DEFAULTS = {
   selectionFairness = "vehicle",
   historyLimit = 10,
   diagnosticLogging = false,
+  performanceProfiling = false,
+  performanceBudgets = frameBudget.normalize(),
   manualSeed = "",
   seedMode = "random",
   rememberLocks = false,
@@ -67,7 +70,12 @@ local function migrate(raw)
     raw.seedMode = "random"
   end
 
-  raw.schemaVersion = 7
+  if version < 8 then
+    raw.performanceProfiling = raw.performanceProfiling == true
+    raw.performanceBudgets = frameBudget.normalize(raw.performanceBudgets)
+  end
+
+  raw.schemaVersion = 8
   raw.allowEmptyParts = nil
   raw.fairMode = nil
   raw.keepVehicleDrivable = nil
@@ -86,6 +94,8 @@ local function validate(raw)
   result.includeTrailers = boolOrDefault(raw.includeTrailers, result.includeTrailers)
   result.includeProps = boolOrDefault(raw.includeProps, result.includeProps)
   result.diagnosticLogging = boolOrDefault(raw.diagnosticLogging, result.diagnosticLogging)
+  result.performanceProfiling = boolOrDefault(raw.performanceProfiling, result.performanceProfiling)
+  result.performanceBudgets = frameBudget.normalize(raw.performanceBudgets)
   result.autoSaveDNA = false
   result.extremeTuning = boolOrDefault(raw.extremeTuning, result.extremeTuning)
   result.allowPartialResult = boolOrDefault(raw.allowPartialResult, result.allowPartialResult)

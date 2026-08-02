@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 7,
+  "schemaVersion": 8,
   "chaos": 75,
   "allowMissingParts": true,
   "protectCriticalParts": false,
@@ -10,6 +10,14 @@
   "selectionFairness": "vehicle",
   "historyLimit": 10,
   "diagnosticLogging": false,
+  "performanceProfiling": false,
+  "performanceBudgets": {
+    "idleBudgetMs": 0.5,
+    "busyBudgetMs": 2.5,
+    "raceBudgetMs": 3.5,
+    "uiPublishBudgetMs": 1.5,
+    "indexChunkBudgetMs": 2.0
+  },
   "manualSeed": "",
   "seedMode": "random",
   "rememberLocks": false,
