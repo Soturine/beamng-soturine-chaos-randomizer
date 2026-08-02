@@ -1,7 +1,12 @@
 local util = require("ge/extensions/soturineChaosRandomizer/util")
 local spawnOutcome = require("ge/extensions/soturineChaosRandomizer/spawnOutcome")
+local dimensionCacheModule = require("ge/extensions/soturineChaosRandomizer/dimensionCache")
+local vehicleBufferPool = require("ge/extensions/soturineChaosRandomizer/vehicleBufferPool")
+local vehicleIterator = require("ge/extensions/soturineChaosRandomizer/vehicleIterator")
 
 local M = {}
+local dimensionCache = dimensionCacheModule.create({limit = 64})
+local buffers = vehicleBufferPool.create()
 
 local function xyz(value)
   if value == nil then return nil end
@@ -148,45 +153,21 @@ local function objectExists(vehicleId)
   return ok and object ~= nil
 end
 
-local function vehicleDimensions(vehicleId)
+local function vehicleDimensions(vehicleId, targetGeneration)
   if type(getObjectByID) ~= "function" then return nil, "vehicle_lookup_unavailable" end
   local ok, object = pcall(getObjectByID, vehicleId)
   if not ok or not object then return nil, "vehicle_missing" end
-  local dimensions
-  pcall(function()
-    local box = object:getSpawnWorldOOBB()
-    local extents = box and box:getHalfExtents()
-    local value = extents and xyz(extents)
-    if value then
-      dimensions = {width = math.abs(value.x) * 2, length = math.abs(value.y) * 2, height = math.abs(value.z) * 2}
-    end
-  end)
-  if not dimensions then
-    pcall(function()
-      local box = object:getWorldBox()
-      local extents = box and box:getExtents()
-      local value = extents and xyz(extents)
-      if value then dimensions = {width = math.abs(value.x), length = math.abs(value.y), height = math.abs(value.z)} end
-    end)
-  end
-  if not dimensions or not util.isFinite(dimensions.width) or not util.isFinite(dimensions.length)
-    or dimensions.width <= 0 or dimensions.length <= 0
-  then return nil, "vehicle_dimensions_unavailable" end
-  return dimensions
+  return dimensionCacheModule.read(dimensionCache, vehicleId, tonumber(targetGeneration) or 0, object, os.clock())
 end
 
 vehicleIds = function()
-  if type(getAllVehicles) ~= "function" then return nil, "vehicle_enumeration_unavailable" end
-  local ok, vehicles = pcall(getAllVehicles)
-  if not ok or type(vehicles) ~= "table" then return nil, "vehicle_enumeration_unavailable" end
-  local result = {}
-  for _, vehicle in ipairs(vehicles) do
-    local id
-    pcall(function() id = tonumber(vehicle:getID()) end)
-    if id ~= nil then result[#result + 1] = id end
-  end
-  table.sort(result)
-  return result
+  local buffer, generation = vehicleBufferPool.acquire(buffers, "vehicleIdsBuffer")
+  if not buffer then return nil, generation end
+  local ok, strategy = vehicleIterator.collectIds(buffer, {deterministic = true})
+  if not ok then vehicleBufferPool.release(buffers, "vehicleIdsBuffer", generation); return nil, strategy end
+  local result = vehicleBufferPool.copyOut(buffer)
+  vehicleBufferPool.release(buffers, "vehicleIdsBuffer", generation)
+  return result, strategy
 end
 
 local function objectSpeed(vehicleId)
@@ -200,16 +181,13 @@ local function objectSpeed(vehicleId)
 end
 
 local function occupiedVehiclePositions()
-  if type(getAllVehicles) ~= "function" then return false, "vehicle_enumeration_unavailable" end
-  local ok, vehicles = pcall(getAllVehicles)
-  if not ok or type(vehicles) ~= "table" then return false, "vehicle_enumeration_unavailable" end
-  local result = {}
-  for _, vehicle in ipairs(vehicles) do
+  local result, generation = vehicleBufferPool.acquire(buffers, "occupiedPositionsBuffer")
+  if not result then return false, generation end
+  local ok, strategy = vehicleIterator.each(function(vehicle)
     local worked, position = pcall(function() return vehicle:getPosition() end)
     position = worked and xyz(position) or nil
     if position then
-      local id
-      pcall(function() id = tonumber(vehicle:getID()) end)
+      local id = vehicleIterator.objectId(vehicle)
       local dimensions = id and vehicleDimensions(id) or nil
       local radius = dimensions and math.sqrt(dimensions.width * dimensions.width
         + dimensions.length * dimensions.length) * 0.5 or 3
@@ -218,8 +196,11 @@ local function occupiedVehiclePositions()
         radius = radius, dimensions = util.deepCopy(dimensions), vehicleId = id,
       }
     end
-  end
-  return true, result
+  end)
+  if not ok then vehicleBufferPool.release(buffers, "occupiedPositionsBuffer", generation); return false, strategy end
+  local public = vehicleBufferPool.copyOut(result)
+  vehicleBufferPool.release(buffers, "occupiedPositionsBuffer", generation)
+  return true, public, strategy
 end
 
 local function deleteVehicle(vehicleId)
@@ -229,7 +210,20 @@ local function deleteVehicle(vehicleId)
   local readable, method = pcall(function() return object.delete end)
   if not readable or type(method) ~= "function" then return false, "vehicle_delete_unavailable" end
   local deleted = pcall(method, object)
+  if deleted then dimensionCacheModule.invalidate(dimensionCache, vehicleId) end
   return deleted, deleted and "vehicle_deleted" or "vehicle_delete_failed"
+end
+
+local function invalidateDimensions(vehicleId, targetGeneration)
+  return dimensionCacheModule.invalidate(dimensionCache, vehicleId, targetGeneration)
+end
+
+local function performanceSnapshot()
+  return {
+    dimensions = dimensionCacheModule.snapshot(dimensionCache),
+    buffers = vehicleBufferPool.snapshot(buffers),
+    iterators = vehicleIterator.capabilities(),
+  }
 end
 
 local function readVehicleState(vehicleId)
@@ -301,6 +295,7 @@ M.placeVehicle = placeVehicle
 M.objectPosition = objectPosition
 M.objectExists = objectExists
 M.vehicleDimensions = vehicleDimensions
+M.invalidateDimensions = invalidateDimensions
 M.vehicleIds = vehicleIds
 M.objectSpeed = objectSpeed
 M.occupiedVehiclePositions = occupiedVehiclePositions
@@ -308,6 +303,7 @@ M.deleteVehicle = deleteVehicle
 M.readVehicleState = readVehicleState
 M.verifySpawnTarget = verifySpawnTarget
 M.drawPreview = drawPreview
+M.performanceSnapshot = performanceSnapshot
 M.spawnOutcome = spawnOutcome
 
 return M
