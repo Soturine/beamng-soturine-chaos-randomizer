@@ -118,7 +118,7 @@ jobs:
             "dist/soturine_chaos_randomizer_${version}.zip.sha256" \
             "dist/soturine_chaos_randomizer_${version}.manifest.json" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Soturine's Chaos Randomizer ${version}" \
+            --title "v${version} — P1 Performance, Profiling and Efficiency" \
             --notes-file "$notes" \
             --verify-tag \
             --prerelease \
