@@ -1,5 +1,30 @@
 # Architecture
 
+## v0.7.0 native Vue boundary
+
+The GE Lua backend remains the domain authority. A native Runtime UI Vue app is
+the sole frontend and consumes protocol-v2 full snapshots and domain diffs.
+`uiProtocol.lua`, `uiCommandRouter.lua`, `uiStateProjector.lua`, and
+`uiPreferences.lua` isolate envelope validation, allowlisted dispatch,
+projection, and settings-schema-9 preferences from the vehicle lifecycle.
+
+```text
+native app.vue
+  -> commandBridge -> one serialized dispatchUICommand envelope
+  <- stateProtocol <- full/diff envelopes from Lua uiStateProjector
+  -> nine stores -> focused Chaos/Garage/Race/Settings components
+```
+
+Operation, ownership, data, and performance truth never moves into Vue. UI
+stores separate backend domains from ephemeral layout state, reject stale
+versions, recover gaps with one full request, and do not mutate incoming
+snapshots. The official event helper and explicit observer/timer teardown
+prevent duplicate subscriptions across remounts.
+
+See [Vue architecture](UI_VUE_ARCHITECTURE.md),
+[migration decision](UI_MIGRATION_0.7.0.md), and
+[protocol](UI_PROTOCOL.md).
+
 ## v0.6.9 P1 performance model
 
 The GE `onUpdate` orchestrator prioritizes active lifecycle work, advances at
@@ -63,9 +88,9 @@ parts warning paths can finish as partial success while preserving the current
 target. Generic rollback remains for confirmed write/ownership/core/Exact-DNA
 failures, and always invalidates the old plan first.
 
-Soturine's Chaos Randomizer is a BeamNG GE Lua extension with an AngularJS/CEF UI App. `main.lua` composes the subsystems, owns public hooks and routes operations; deterministic domain logic remains in modules that run in the Lua 5.1 test harness.
+Soturine's Chaos Randomizer is a BeamNG GE Lua extension with a native Runtime UI Vue HUD App. `main.lua` composes the subsystems, owns public hooks and routes operations; deterministic domain logic remains in modules that run in the Lua 5.1 test harness.
 
-Current persistent contracts are settings schema 8, Vehicle DNA schema 1,
+Current persistent contracts are settings schema 9, Vehicle DNA schema 1,
 generator 6, and the historical Race/Lineup schema 1.
 
 ## Runtime flow
@@ -120,11 +145,9 @@ Timeout handling performs one final coherent player read without a fixed ID. Cor
 | `spawnOutcome.lua` | observable spawn/replacement evidence and cleanup set |
 | `transactionalJSON.lua` | backup/readback/rollback persistence protocol |
 
-The packaged HUD remains a legacy Angular directive. BeamNG 0.39's runtime Vue
-UI hosts it through the Angular host, so v0.6.9 keeps the established directive
-contract. Timers, mutation/resize observers, and remount state are explicitly
-bounded. Runtime UI-native Vue migration and internationalization are P2 for
-v0.7.0, not part of the v0.6.9 P1 performance release.
+The packaged HUD is now a single native Vue SFC discovered beside its stable app
+manifest. The Angular frontend is retained only in v0.6.9 history. Event,
+timer, observer, and remount state are explicitly bounded.
 
 `main.lua` declares BeamNG extension dependencies but is not allowed to call unstable BeamNG APIs directly. A static source-contract test enforces the boundary.
 

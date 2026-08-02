@@ -1,12 +1,13 @@
 # Compatibility
 
-Compatibility is evidence-based and version-specific. v0.6.9 declares
-BeamNG.drive `0.39` as its primary target and `0.38.6` as its minimum supported
-version. `COMPATIBILITY.json` is the single machine-readable source for this
-policy. Source/API inspection is complete; live 0.39 owner validation is
-Pending and is not implied by automated results.
+Compatibility is evidence-based and version-specific. v0.7.0 declares
+BeamNG.drive `0.39` as both its primary target and minimum supported version.
+`COMPATIBILITY.json` is the single machine-readable source for this policy.
+Source/API inspection is complete; live 0.39 owner validation is Pending and is
+not implied by automated results. v0.6.9 remains the final Angular release and
+the final release with a 0.38.6 minimum.
 
-v0.6.9 reads the current player's part-manager configuration and the ID-specific
+v0.7.0 reads the current player's part-manager configuration and the ID-specific
 manager bundle independently. A matching coherent source may confirm an
 already-applied state while another cache is stale. This is not a permissive
 fallback: model/configuration and phase evidence must match, the player ID is
@@ -32,7 +33,7 @@ One malformed variable, storage, or optional feature does not fail the entire op
 
 ## Persistence compatibility
 
-- Settings schema 8 transactionally migrates older supported settings with a
+- Settings schema 9 transactionally migrates older supported settings with a
   last-known-good backup, readback, verified rollback, and migration report.
 - Vehicle DNA schema 1 retains generator 4/5/6 identity; older seeds are not reinterpreted as generator 6.
 - `raceManager.lua` is canonical internally, while historical Lineup storage, methods, and imports remain compatible through a facade.
@@ -42,6 +43,6 @@ One malformed variable, storage, or optional feature does not fail the entire op
 
 See [CURRENT_COMPATIBILITY_MATRIX.md](status/CURRENT_COMPATIBILITY_MATRIX.md) for the candidate status. Real third-party compatibility requires recording the content name/version, source, BeamNG build, mod commit/artifact checksum, settings, seed, terminal result, diagnostics, and log outcome.
 
-Detailed 0.39 findings, preserved P0 decisions, implemented P1 performance
-work, and deferred v0.7.0 P2 work are in
+Detailed 0.39 findings, preserved P0/P1 decisions, and implemented v0.7.0 P2
+work are in
 [BEAMNG_0.39_COMPATIBILITY.md](BEAMNG_0.39_COMPATIBILITY.md).

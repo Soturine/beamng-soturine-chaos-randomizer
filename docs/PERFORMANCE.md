@@ -1,7 +1,24 @@
 # Performance, profiling, and efficiency
 
-v0.6.9 implements the P1 performance layer without changing generator version
-6, the Angular compatibility host, or the Chaos/Garage/Race feature contracts.
+## v0.7.0 preservation
+
+The Vue migration preserves the v0.6.9 P1 backend metrics, budgets, caches,
+incremental work, diagnostic aggregation, adaptive polling, and dirty-diff
+publisher. Initial mount/recovery receives full state; ordinary progress uses a
+small `core` diff. Domain stores prevent a progress update from replacing the
+Garage or Race collections, and closed Details panels do not create additional
+backend subscriptions.
+
+Automated tests cover diff ordering/gap recovery, store isolation, stable list
+keys, 100 layout/lifecycle cycles, Garage pagination contracts, and Race
+1/4/8/12 deterministic vectors. These checks do not measure FPS, 1% low, CEF
+memory, or live UI latency. The exact v0.6.9-to-v0.7.0 comparison remains in the
+v0.7.0 live plan.
+
+Live BeamNG 0.39 validation: Pending owner validation
+
+v0.6.9 implemented the P1 performance layer without changing generator version
+6 or the Chaos/Garage/Race feature contracts.
 The goal is bounded work and observable evidence, not an unverified FPS claim.
 
 ## Runtime profiler
@@ -34,7 +51,8 @@ buffer.
 
 ## Frame budgets
 
-Settings schema 8 persists five configurable budgets:
+Settings schema 8 introduced five configurable budgets; schema 9 preserves
+them unchanged while adding UI preferences:
 
 | Budget | Default | Purpose |
 |---|---:|---|
@@ -94,7 +112,7 @@ progress, and total time.
 
 The initial mount and explicit request publish full state. Progress publishes a
 small diff (`SoturineChaosRandomizerStateDiff`) with debounce/batching; the
-Angular controller merges it recursively. Dirty flags cover operation,
+Vue state protocol routes it to the matching store. Dirty flags cover operation,
 progress, Race, Garage, settings, diagnostics, compatibility, and performance.
 Counters expose hooks/s, bytes/s, full/partial counts, and suppressed publishes.
 

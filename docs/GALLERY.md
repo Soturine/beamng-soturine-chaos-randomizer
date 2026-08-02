@@ -4,7 +4,7 @@ Garage cards use paginated summaries, grid/list views, search, filters, sort, pi
 
 ## Managed images
 
-Installed BeamNG 0.38.6 source proves the optional `render_renderViews.takeScreenshot` and `util_screenshotCreator.frameVehicle` chain. Capture therefore occurs only after an explicit button press, only when the loaded model matches the DNA, and only under the adapter-owned thumbnail directory.
+The adapter capability-detects the optional `render_renderViews.takeScreenshot` and `util_screenshotCreator.frameVehicle` chain. Capture therefore occurs only after an explicit button press, only when the loaded model matches the DNA, and only under the adapter-owned thumbnail directory.
 
 The captured PNG is re-read and accepted only at or below 500x281 and 256 KiB. IDs are normalized to a 96-character `[A-Za-z0-9_-]` basename, managed images are capped at 100, a capture replaces the same DNA's prior image, deletion removes it best-effort, and deleting DNA cleans its managed image. Cards load only the current page's image URLs. A missing file falls back in the UI.
 
