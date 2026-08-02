@@ -10,6 +10,8 @@ Automated detail: 65 passed, 1,099 subtests passed; 394 Lua cases and 49 JavaScr
 
 Live BeamNG 0.39 validation: Pending owner validation
 
+Live BeamNG validation: Pending owner validation
+
 Live cases: 0 executed / 0 passed / 0 failed / 64 pending / 0 blocked
 
 ## Highlights
