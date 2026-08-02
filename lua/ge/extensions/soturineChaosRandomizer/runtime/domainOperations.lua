@@ -31,6 +31,7 @@ local function create(options)
     vehicleOwnership = {},
     ownershipOrder = {},
     orphanVehicleIds = {},
+    orphanQueue = {}, orphanQueueHead = 1, orphanQueued = {},
     cleanupLog = {},
   }
 end
@@ -283,6 +284,10 @@ local function markOrphan(state, vehicleId, reason)
   entry.orphanReason = reason or "operation_ended_without_acceptance"
   local key, numeric = vehicleKey(vehicleId)
   state.orphanVehicleIds[key] = numeric
+  if not state.orphanQueued[key] then
+    state.orphanQueue[#state.orphanQueue + 1] = numeric
+    state.orphanQueued[key] = true
+  end
   local context = entry.domain and active(state, entry.domain)
   if context and context.operationId == entry.operationId and context.generation == entry.generation then
     context.orphanVehicleIds = context.orphanVehicleIds or {}
@@ -304,31 +309,64 @@ local function recordRemoval(state, vehicleId, reason)
     entry.removalReason = reason
   end
   state.orphanVehicleIds[key] = nil
+  state.orphanQueued[key] = nil
   return true
 end
 
 local function reap(state, deleteVehicle, options)
   options = type(options) == "table" and options or {}
-  local result = {removed = {}, failed = {}, skipped = {}}
-  for key, vehicleId in pairs(util.deepCopy(state.orphanVehicleIds)) do
+  local result = {removed = {}, failed = {}, skipped = {}, pending = 0, processed = 0}
+  local clock = type(options.clock) == "function" and options.clock or os.clock
+  local started = clock()
+  local budgetSeconds = math.max(0.00005, (tonumber(options.budgetMs) or 1) / 1000)
+  local maxItems = math.max(1, math.floor(tonumber(options.maxItems) or 8))
+  local available = math.max(0, #state.orphanQueue - state.orphanQueueHead + 1)
+  local scanned = 0
+  while state.orphanQueueHead <= #state.orphanQueue and result.processed < maxItems
+    and scanned < available and clock() - started < budgetSeconds
+  do
+    local vehicleId = state.orphanQueue[state.orphanQueueHead]
+    state.orphanQueueHead = state.orphanQueueHead + 1
+    local key = vehicleKey(vehicleId)
+    if key then state.orphanQueued[key] = nil end
+    scanned = scanned + 1
     local entry = state.vehicleOwnership[key]
     local matches = entry and entry.role == "orphan" and entry.managed == true and entry.accepted ~= true
       and (options.domain == nil or entry.domain == options.domain)
       and (options.operationId == nil or entry.operationId == options.operationId)
+    local retryReady = not entry or not entry.cleanupRetryAt or (tonumber(options.now) or 0) >= entry.cleanupRetryAt
     if matches and type(deleteVehicle) == "function" then
-      local deleted, reason = deleteVehicle(vehicleId)
-      if deleted or reason == "vehicle_missing" then
-        result.removed[#result.removed + 1] = vehicleId
-        recordRemoval(state, vehicleId, "orphan_removed")
+      if retryReady then
+        result.processed = result.processed + 1
+        local deleted, reason = deleteVehicle(vehicleId)
+        if deleted or reason == "vehicle_missing" then
+          result.removed[#result.removed + 1] = vehicleId
+          recordRemoval(state, vehicleId, "orphan_removed")
+        else
+          result.failed[#result.failed + 1] = {vehicleId = vehicleId, reason = reason}
+          entry.cleanupRetryAt = (tonumber(options.now) or 0) + 1
+        end
       else
-        result.failed[#result.failed + 1] = {vehicleId = vehicleId, reason = reason}
+        result.skipped[#result.skipped + 1] = vehicleId
       end
     elseif matches then
       result.failed[#result.failed + 1] = {vehicleId = vehicleId, reason = "delete_callback_missing"}
     else
       result.skipped[#result.skipped + 1] = vehicleId
     end
+    if state.orphanVehicleIds[key] and not state.orphanQueued[key] then
+      state.orphanQueue[#state.orphanQueue + 1] = vehicleId
+      state.orphanQueued[key] = true
+    end
   end
+  if state.orphanQueueHead > #state.orphanQueue then
+    state.orphanQueue, state.orphanQueueHead = {}, 1
+  elseif state.orphanQueueHead > 64 then
+    local compact = {}
+    for index = state.orphanQueueHead, #state.orphanQueue do compact[#compact + 1] = state.orphanQueue[index] end
+    state.orphanQueue, state.orphanQueueHead = compact, 1
+  end
+  for _ in pairs(state.orphanVehicleIds) do result.pending = result.pending + 1 end
   state.cleanupLog[#state.cleanupLog + 1] = util.deepCopy(result)
   while #state.cleanupLog > state.historyLimit do table.remove(state.cleanupLog, 1) end
   return result
