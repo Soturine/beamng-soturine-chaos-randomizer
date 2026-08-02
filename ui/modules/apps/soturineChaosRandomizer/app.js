@@ -218,7 +218,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
             spawnDirector: {managed: [], run: null},
             aiDirector: {capabilities: {}, vehicles: [], destination: {status: 'empty'}, route: {points: []}},
             settings: {
-              schemaVersion: 7,
+              schemaVersion: 8,
               chaos: 75,
               allowMissingParts: true,
               protectCriticalParts: false,
@@ -228,6 +228,8 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
               includeProps: false,
               selectionFairness: 'vehicle',
               diagnosticLogging: false,
+              performanceProfiling: false,
+              performanceBudgets: {idleBudgetMs: 0.5, busyBudgetMs: 2.5, raceBudgetMs: 3.5, uiPublishBudgetMs: 1.5, indexChunkBudgetMs: 2.0},
               manualSeed: '',
               seedMode: 'random',
               rememberLocks: false,
@@ -555,6 +557,26 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
           if (scope.chaos.state.busy) return
           persistRaceOptions()
           callWithArgs('createChaosLineup', [angular.copy(scope.chaos.lineupOptions)])
+        }
+
+        function mergeStateDiff(target, patch) {
+          if (!target || !patch) return target
+          Object.keys(patch).forEach(function (key) {
+            var value = patch[key]
+            if (value && typeof value === 'object' && !Array.isArray(value)
+              && target[key] && typeof target[key] === 'object' && !Array.isArray(target[key])) {
+              mergeStateDiff(target[key], value)
+            } else target[key] = value
+          })
+          return target
+        }
+
+        function applyStateDiff(data) {
+          if (!data) return
+          scope.$evalAsync(function () {
+            mergeStateDiff(scope.chaos.state, data)
+            scheduleWindowHeight()
+          })
         }
         scope.chaos.applyRacePreset = function (preset) {
           var policy = {
@@ -979,6 +1001,7 @@ if (typeof module !== 'undefined' && module.exports) module.exports = SoturineCh
         }, 0)
 
         scope.$on('SoturineChaosRandomizerState', function (event, data) { applyState(data) })
+        scope.$on('SoturineChaosRandomizerStateDiff', function (event, data) { applyStateDiff(data) })
         scope.$on('SoturineChaosRandomizerLocks', function (event, data) { scope.$evalAsync(function () { scope.chaos.lockData = data }) })
         scope.$on('SoturineChaosRandomizerDNADetails', function (event, data) {
           scope.$evalAsync(function () {
