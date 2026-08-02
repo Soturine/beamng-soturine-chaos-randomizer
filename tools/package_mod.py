@@ -29,6 +29,7 @@ TEXT_SUFFIXES = {".css", ".html", ".js", ".json", ".lua", ".md", ".mjs", ".scss"
 TEXT_FILENAMES = {"LICENSE", "NOTICE", "VERSION"}
 GENERATOR_VERSION = 8
 DNA_SCHEMA_VERSION = 1
+DNA_GENERATOR_VERSION = 6
 LIVE_RESULTS = ("Executed", "Passed", "Failed", "Pending", "Blocked", "Not applicable")
 
 
@@ -289,6 +290,7 @@ def write_release_manifest(archive: Path, output: Path | None = None, root: Path
         "zipSha256": report["sha256"],
         "generatorVersion": GENERATOR_VERSION,
         "vehicleDNASchemaVersion": DNA_SCHEMA_VERSION,
+        "vehicleDNAGeneratorVersion": DNA_GENERATOR_VERSION,
         "tests": tests,
         "automatedTests": automated_tests,
         "liveTests": live_tests,

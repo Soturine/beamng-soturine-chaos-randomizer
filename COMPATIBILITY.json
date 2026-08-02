@@ -1,10 +1,15 @@
 {
-  "schemaVersion": 1,
-  "modVersion": "0.6.9",
+  "schemaVersion": 2,
+  "modVersion": "0.7.0",
   "primaryBeamNGTarget": "0.39",
-  "minimumBeamNGVersion": "0.38.6",
+  "minimumBeamNGVersion": "0.39",
   "testedGameVersions": [],
   "liveValidationStatus": "Pending owner validation",
-  "uiRuntime": "legacy-angular-hosted-by-runtime-ui",
+  "uiRuntime": "native-runtime-ui-vue",
+  "legacyAngularFallback": {
+    "packaged": false,
+    "minimumBeamNGVersion": "0.38.6",
+    "lastSupportedModVersion": "0.6.9"
+  },
   "releaseStage": "experimental-prerelease"
 }

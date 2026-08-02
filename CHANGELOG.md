@@ -2,6 +2,43 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-08-02
+
+Experimental P2 architecture prerelease. Automated validation passes; live
+BeamNG 0.39 validation remains Pending owner validation.
+
+### Added
+
+- Native Runtime UI Vue app with 55 focused SFCs, nine domain/UI stores,
+  centralized command bridge, versioned full/diff protocol, and deterministic
+  stale/gap recovery.
+- English and Brazilian Portuguese catalogs with game-locale default, English
+  fallback, interpolation, pluralization, and locale-aware numbers.
+- Scoped UINav, keyboard/controller navigation, semantic dialogs, visible focus,
+  high-contrast behavior, reduced motion, and tab-specific compact summaries.
+- Lua UI protocol, command router, state projector, UI-preference schema, and
+  legacy Race Policy migration.
+- Feature-parity fixtures, Vue compiler validation, lifecycle/layout 100-cycle
+  tests, and native Vue packaging/security gates.
+
+### Changed
+
+- The real minimum version is now BeamNG.drive 0.39. The native `app.vue` is the
+  only packaged runtime frontend; v0.6.9 remains the last Angular/0.38.6 release.
+- Settings schema advances from 8 to 9 for persisted locale and Race Policy UI
+  preferences. Vehicle DNA schema and generator version do not change.
+- Garage restore/delete/non-exact actions use accessible confirmation dialogs;
+  metadata editing includes rename without browser prompts.
+- Compatibility metadata advances to schema 2 and records the no-fallback
+  decision explicitly.
+
+### Preserved
+
+- Every P0 compatibility, lifecycle, ownership, data-integrity, and safety
+  contract.
+- Every P1 profiling, budget, cache, indexing, dirty-diff, polling, diagnostic,
+  AI confirmation, and deterministic seed contract.
+
 ## [0.6.9] - 2026-08-02
 
 Experimental P1 performance prerelease. Automated validation passes; all 64

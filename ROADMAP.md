@@ -1,60 +1,45 @@
 # Roadmap
 
-This roadmap describes direction, not release evidence. Completed version history is recorded in [CHANGELOG.md](CHANGELOG.md).
+This roadmap describes direction, not release evidence. Completed changes are
+recorded in [CHANGELOG.md](CHANGELOG.md).
 
-## Required release sequence
+## Release sequence
 
-- **v0.6.8 = P0: essential BeamNG 0.39 compatibility.**
-- **v0.6.9 = P1: performance, profiling, and efficiency.** This release is
-  limited to bounded profiling, frame budgets, low-GC iteration, reusable
-  buffers, dimension/catalog caches, incremental indexing, UI diffs,
-  aggregated diagnostics, adaptive polling, and capability-driven AI readback.
-- **v0.7.0 = P2: Angular to Vue migration, internationalization, and
-  architectural modernization.** The verified Angular compatibility host stays
-  packaged through v0.6.9; Vue migration and full localization do not begin in
-  the P1 release.
-- **Post-v0.7.0 = fresh full audit after the BeamNG 0.39.x hotfixes.** Repeat
-  research and compatibility validation then, when hotfixes, documentation,
-  APIs, and field reports are expected to be more complete.
+- **v0.6.8 — P0:** essential BeamNG 0.39 compatibility.
+- **v0.6.9 — P1:** performance, profiling, and efficiency.
+- **v0.7.0 — P2:** native Runtime UI Vue migration, i18n, accessibility, and UI
+  architecture modernization. Implemented as an experimental prerelease; live
+  validation is Pending owner validation.
+- **Post-v0.7.0:** fresh audit after BeamNG 0.39.x hotfixes. The audit is planned
+  in [POST_V070_AUDIT_PLAN.md](docs/POST_V070_AUDIT_PLAN.md) and is intentionally
+  not executed as part of v0.7.0.
 
-## Now
+## Current validation
 
-- Publish v0.6.9 as an Experimental prerelease with reproducible ZIP, manifest,
-  SHA-256, annotated tag, and central BeamNG 0.39 compatibility metadata.
-- Execute the exact v0.6.9 performance plan against the downloaded release
-  asset; synthetic benchmarks remain separate from live FPS/frame-time proof.
-- Preserve every v0.6.8 Chaos, Garage, Race, Race Policy, compatibility,
-  ownership, cardinality, and lifecycle contract while implementing P1 only.
-- Promote no live performance or compatibility claim until every mandatory row
-  is executed and Passed against that exact asset.
+- Execute the v0.7.0 live matrix against the downloaded release ZIP on a clean
+  BeamNG 0.39 profile.
+- Record visual, controller, scaling, Garage 500, Race 12, lifecycle, and
+  performance comparison evidence without converting source inspection into a
+  live result.
+- Keep the release experimental until owner evidence supports promotion.
 
-## Next
+## After v0.7.0
 
-- P2 in v0.7.0: migrate the HUD from the Angular compatibility host to native
-  Runtime UI Vue only after feature parity, state migration, teardown, layout,
-  input, and live owner evidence are complete.
-- Add internationalization infrastructure together with that architectural
-  modernization; v0.6.9 does not start a partial string migration.
-- Reduce `main.lua` orchestration safely through controller extraction backed by state-machine tests and the v0.6.8 lifecycle evidence model.
-- Expand live coverage across representative vehicle, config, part, and controller mods.
-- Revalidate BeamNG Repository submission requirements and listing assets.
-
-## Later
-
-- Run the documented post-v0.7.0 full audit against the then-current BeamNG
-  0.39.x build, documentation, APIs, hotfixes, and compatibility reports.
-- Consider Runtime UI-only packaging after the legacy host is officially
-  unnecessary and all layouts/input modes have owner evidence.
-- Stabilize extension APIs intended for third-party integrations.
-- Add migration tooling if a future Vehicle DNA or Race schema requires a major revision.
-- Explore additional placement and AI workflows only where BeamNG exposes a bounded, target-safe contract.
-- Expand accessibility, controller, high-DPI, ultrawide, and reduced-motion validation.
+- Reinspect the then-current 0.39.x release notes, official docs, installed
+  runtime source, APIs, deprecations, known issues, and representative mod
+  interactions.
+- Re-audit physics, AI, HUD/Runtime UI, performance, architecture, dead code,
+  regressions, and compatibility.
+- Decide from evidence whether the next scope is a focused v0.7.1 or a broader
+  v0.8.0.
 
 ## 1.0 exit criteria
 
-- No known P0 lifecycle, ownership, recovery, Busy, fuel, or data-integrity defect.
-- Repeated clean-profile testing with an exact packaged artifact on a documented current BeamNG build.
-- Broad official and representative mod coverage with honest degradation evidence.
-- Stable settings, Vehicle DNA, Race, and public compatibility policy.
-- Reproducible release assets, immutable history, green CI, and complete live evidence.
-- User, maintainer, architecture, testing, compatibility, security, and troubleshooting documentation kept current.
+- No known P0 lifecycle, ownership, recovery, Busy, fuel, or data-integrity
+  defect.
+- Repeated clean-profile testing against exact published artifacts.
+- Representative official/mod content coverage and honest capability
+  degradation.
+- Stable settings, Vehicle DNA, Race, UI protocol, and compatibility policy.
+- Reproducible assets, green CI, immutable release history, and current owner,
+  architecture, security, troubleshooting, and validation documentation.
