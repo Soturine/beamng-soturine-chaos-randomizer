@@ -90,7 +90,7 @@ local function begin(state, options)
     rollbackReason = nil,
     rollbackApplied = false,
     terminalState = nil,
-    bindingState = "unbound",
+    bindingState = "UNBOUND",
     expectedModel = options.expectedModel,
     expectedConfig = options.expectedConfig,
     seed = options.seed,
@@ -105,6 +105,7 @@ local function begin(state, options)
     worldVehicleDelta = nil,
     staleCallbackCount = 0,
     staleCallbackSideEffects = 0,
+    staleCallbackEffectsPrevented = 0,
     createdAt = tonumber(options.createdAt) or 0,
   }
   domainState.active = context
@@ -136,11 +137,15 @@ local function validateCallback(state, token)
   if not context or context.operationId ~= token.operationId
     or context.generation ~= token.generation
   then
-    if context then context.staleCallbackCount = (context.staleCallbackCount or 0) + 1 end
+    if context then
+      context.staleCallbackCount = (context.staleCallbackCount or 0) + 1
+      context.staleCallbackEffectsPrevented = (context.staleCallbackEffectsPrevented or 0) + 1
+    end
     return false, "ignored_stale_callback"
   end
   if TERMINAL[context.terminalState] then
     context.staleCallbackCount = (context.staleCallbackCount or 0) + 1
+    context.staleCallbackEffectsPrevented = (context.staleCallbackEffectsPrevented or 0) + 1
     return false, "ignored_stale_callback"
   end
   if token.expectedSlot ~= nil and context.expectedSlot ~= nil
@@ -241,7 +246,9 @@ local function registerCandidate(state, token, vehicleId, metadata)
   })
   if not owned then return false, result end
   context.callbackDisposition = "candidate_recorded"
-  if context.bindingState == "unbound" then context.bindingState = "candidate_observed" end
+  if context.bindingState == "UNBOUND" or context.bindingState == "BINDING" then
+    context.bindingState = "CANDIDATE_DISCOVERED"
+  end
   return true, context.candidateById[key]
 end
 
@@ -277,7 +284,7 @@ local function acceptVehicle(state, context, vehicleId, role, playerVehicleIdAft
   context.acceptedVehicleId = numeric
   context.concreteVehicleId = numeric
   context.playerVehicleIdAfter = tonumber(playerVehicleIdAfter) or numeric
-  context.bindingState = "accepted"
+  context.bindingState = "BOUND"
   entry.accepted = true
   return true, entry
 end
@@ -399,7 +406,7 @@ local function terminal(state, context, terminalState, options)
     return false, "operation_already_terminal"
   end
   context.terminalState = terminalState
-  context.bindingState = "terminal"
+  context.bindingState = "TERMINAL"
   context.status = terminalState
   context.phase = "terminal"
   context.endedAt = tonumber(options.endedAt) or context.createdAt
@@ -503,7 +510,7 @@ local function summary(state)
       action = context and context.action or nil,
       phase = context and context.phase or "idle",
       terminalState = context and context.terminalState or nil,
-      bindingState = context and context.bindingState or "unbound",
+      bindingState = context and context.bindingState or "UNBOUND",
       sourceVehicleId = context and context.sourceVehicleId or nil,
       acceptedVehicleId = context and context.acceptedVehicleId or nil,
       candidateVehicleIds = context and util.deepCopy(context.candidateVehicleIds) or {},
@@ -516,6 +523,7 @@ local function summary(state)
       worldVehicleDelta = context and context.worldVehicleDelta or nil,
       staleCallbackCount = context and context.staleCallbackCount or 0,
       staleCallbackSideEffects = context and context.staleCallbackSideEffects or 0,
+      staleCallbackEffectsPrevented = context and context.staleCallbackEffectsPrevented or 0,
       quarantineCount = countEntries(domainState.sessionQuarantine),
     }
   end

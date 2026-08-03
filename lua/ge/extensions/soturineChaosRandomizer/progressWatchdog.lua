@@ -16,6 +16,7 @@ local function create(now, options)
     lastProgressAt = now,
     lastProgressReason = "operation_started",
     lastPhaseChangeAt = now,
+    lastStageChangeAt = now,
     lastTargetEvidenceAt = nil,
     lastTreeChangeAt = nil,
     lastSuccessfulWriteAt = nil,
@@ -26,6 +27,11 @@ local function create(now, options)
     waitingForSimulation = false,
     pauseDependentProgressDetected = false,
     progressCount = 0,
+    ownedVehicleCount = 0,
+    temporaryVehicleCount = 0,
+    callbackCount = 0,
+    frameBudgetOverruns = 0,
+    status = "healthy",
   }
 end
 
@@ -36,7 +42,7 @@ local function note(state, kind, reason, now)
   state.progressCount = state.progressCount + 1
   state.warned = false
   state.stalled = false
-  if kind == "phase" then state.lastPhaseChangeAt = now
+  if kind == "phase" then state.lastPhaseChangeAt = now; state.lastStageChangeAt = now
   elseif kind == "target" then state.lastTargetEvidenceAt = now
   elseif kind == "tree" then state.lastTreeChangeAt = now
   elseif kind == "write" then state.lastSuccessfulWriteAt = now end
@@ -67,8 +73,29 @@ local function evaluate(state, now, waitingForSimulation)
   local age = math.max(0, now - (state.lastProgressAt or now))
   state.warned = not state.waitingForSimulation and age >= state.warningAfter
   state.stalled = not state.waitingForSimulation and age >= state.stalledAfter
+  if state.status ~= "aborting" and state.status ~= "cleaning" and state.status ~= "terminal" then
+    state.status = state.stalled and "stalled" or state.warned and "slow" or "healthy"
+  end
   return state.stalled and "stalled" or state.warned and "warning"
     or state.waitingForSimulation and "waiting_for_simulation_resume" or "progressing"
+end
+
+local function observeMetrics(state, values)
+  values = type(values) == "table" and values or {}
+  for _, key in ipairs({
+    "ownedVehicleCount", "temporaryVehicleCount", "callbackCount", "frameBudgetOverruns",
+  }) do
+    if tonumber(values[key]) then state[key] = math.max(0, math.floor(tonumber(values[key]))) end
+  end
+  return true
+end
+
+local function setStatus(state, status)
+  local allowed = {healthy = true, slow = true, stalled = true, aborting = true,
+    cleaning = true, terminal = true}
+  if not allowed[status] then return false end
+  state.status = status
+  return true
 end
 
 local function snapshot(state, now)
@@ -77,6 +104,7 @@ local function snapshot(state, now)
     lastProgressAt = state.lastProgressAt,
     lastProgressReason = state.lastProgressReason,
     lastPhaseChangeAt = state.lastPhaseChangeAt,
+    lastStageChangeAt = state.lastStageChangeAt,
     lastTargetEvidenceAt = state.lastTargetEvidenceAt,
     lastTreeChangeAt = state.lastTreeChangeAt,
     lastSuccessfulWriteAt = state.lastSuccessfulWriteAt,
@@ -87,6 +115,11 @@ local function snapshot(state, now)
     stalled = state.stalled,
     pauseDependentProgressDetected = state.pauseDependentProgressDetected,
     progressCount = state.progressCount,
+    ownedVehicleCount = state.ownedVehicleCount,
+    temporaryVehicleCount = state.temporaryVehicleCount,
+    callbackCount = state.callbackCount,
+    frameBudgetOverruns = state.frameBudgetOverruns,
+    status = state.status,
   }
 end
 
@@ -95,6 +128,8 @@ M.create = create
 M.note = note
 M.observePause = observePause
 M.evaluate = evaluate
+M.observeMetrics = observeMetrics
+M.setStatus = setStatus
 M.snapshot = snapshot
 
 return M

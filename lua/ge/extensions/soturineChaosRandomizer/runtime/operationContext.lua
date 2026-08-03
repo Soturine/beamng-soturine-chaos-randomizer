@@ -4,6 +4,10 @@ local util = require("ge/extensions/soturineChaosRandomizer/util")
 local M = {}
 
 local CANDIDATE_LIMIT = 24
+local BINDING_STATES = {
+  UNBOUND = true, CANDIDATE_DISCOVERED = true, BINDING = true, BOUND = true,
+  BOUND_MISMATCH = true, DESTROYED = true, TERMINAL = true,
+}
 
 local function configKey(target)
   target = type(target) == "table" and target or {}
@@ -60,7 +64,7 @@ local function create(state, cancellationToken, now, options)
     removedVehicleIds = {},
     playerVehicleIdAfter = nil,
     terminalState = nil,
-    bindingState = "unbound",
+    bindingState = "UNBOUND",
     recoveryGeneration = 0,
     cancellationToken = cancellationToken,
     logicalTarget = nil,
@@ -75,6 +79,7 @@ local function create(state, cancellationToken, now, options)
     ownershipReleaseCount = 0,
     staleCandidateCount = 0,
     staleCallbackSideEffects = 0,
+    staleCallbackEffectsPrevented = 0,
     candidateDrops = 0,
     createdAt = tonumber(now) or 0,
   }
@@ -94,7 +99,7 @@ local function beginLogicalTarget(context, state, target, now)
     createdAt = tonumber(now) or 0,
   }
   context.concreteTarget = nil
-  context.bindingState = "logical_bound"
+  context.bindingState = "UNBOUND"
   context.candidates = {}
   context.candidateById = {}
   context.destroyed = {}
@@ -112,6 +117,7 @@ local function recordCandidate(context, state, candidate)
     -- Rejected callbacks are observation-only: this counter is deliberately
     -- never incremented by a stale branch because no binding/write is allowed.
     context.staleCallbackSideEffects = 0
+    context.staleCallbackEffectsPrevented = context.staleCallbackEffectsPrevented + 1
     return false, "stale_callback_rejected"
   end
   local vehicleId = tonumber(candidate.vehicleId)
@@ -148,8 +154,8 @@ local function recordCandidate(context, state, candidate)
   entry.operationId = context.operationId
   entry.operationGeneration = context.operationGeneration
   entry.targetGeneration = context.targetGeneration
-  if context.bindingState == "unbound" or context.bindingState == "logical_bound" then
-    context.bindingState = "candidate_observed"
+  if context.bindingState == "UNBOUND" or context.bindingState == "BINDING" then
+    context.bindingState = "CANDIDATE_DISCOVERED"
   end
   return true, entry
 end
@@ -163,7 +169,7 @@ local function releaseConcreteTarget(context, state, source, now)
     recordCandidate(context, state, previous)
   end
   context.concreteTarget = nil
-  context.bindingState = "logical_bound"
+  context.bindingState = "BINDING"
   context.ownershipReleaseCount = context.ownershipReleaseCount + 1
   return previous
 end
@@ -214,7 +220,7 @@ local function bindInitial(context, state, target, now)
     readStatus = target.readStatus or "ready",
     coherentTargetRead = target.coherentTargetRead ~= false,
   }
-  context.bindingState = "concrete_bound"
+  context.bindingState = "BOUND"
   return context.concreteTarget
 end
 
@@ -237,11 +243,18 @@ local function rebindConcreteTarget(context, state, candidate, now)
   if candidate.coherentTargetRead ~= true then return false, "candidate_read_incoherent" end
   if context.destroyed[tostring(candidate.vehicleId)] then return false, "candidate_destroyed" end
   local logical = context.logicalTarget or {}
-  if logical.modelKey and candidate.modelKey ~= logical.modelKey then return false, "target_model_mismatch" end
+  if logical.modelKey and candidate.modelKey ~= logical.modelKey then
+    context.bindingState = "BOUND_MISMATCH"
+    return false, "target_model_mismatch"
+  end
   if logical.configIdentity then
     local valid = configVerification.verify(logical.configIdentity, candidate)
-    if not valid then return false, "target_config_mismatch" end
+    if not valid then
+      context.bindingState = "BOUND_MISMATCH"
+      return false, "target_config_mismatch"
+    end
   elseif logical.configKey and configKey(candidate) and logical.configKey ~= configKey(candidate) then
+    context.bindingState = "BOUND_MISMATCH"
     return false, "target_config_mismatch"
   end
   local recorded, entry = recordCandidate(context, state, candidate)
@@ -262,7 +275,7 @@ local function rebindConcreteTarget(context, state, candidate, now)
     coherentTargetRead = true,
     correlationEvidence = util.deepCopy(entry.correlationEvidence),
   }
-  context.bindingState = "concrete_bound"
+  context.bindingState = "BOUND"
   context.rebindCount = context.rebindCount + 1
   context.lastAcceptedCheckpoint = "concrete_target_rebound"
   return true, context.concreteTarget
@@ -272,7 +285,10 @@ local function markDestroyed(context, vehicleId)
   context.destroyed[tostring(vehicleId)] = true
   local entry = context.candidateById[tostring(vehicleId)]
   if entry then entry.destroyed = true end
-  if context.concreteTarget and context.concreteTarget.vehicleId == vehicleId then context.concreteTarget = nil end
+  if context.concreteTarget and context.concreteTarget.vehicleId == vehicleId then
+    context.concreteTarget = nil
+    context.bindingState = "DESTROYED"
+  end
 end
 
 local function markAccepted(context, vehicleId, playerVehicleIdAfter)
@@ -282,7 +298,7 @@ local function markAccepted(context, vehicleId, playerVehicleIdAfter)
   context.acceptedVehicleId = tonumber(vehicleId)
   context.playerVehicleIdAfter = tonumber(playerVehicleIdAfter) or context.acceptedVehicleId
   context.lastAcceptedCheckpoint = "vehicle_accepted"
-  context.bindingState = "accepted"
+  context.bindingState = "BOUND"
   return context.acceptedVehicleId ~= nil
 end
 
@@ -290,7 +306,7 @@ local function markTerminal(context, terminalState, options)
   options = type(options) == "table" and options or {}
   if context.terminalState ~= nil then return context.terminalState == terminalState end
   context.terminalState = terminalState
-  context.bindingState = "terminal"
+  context.bindingState = "TERMINAL"
   context.restoredVehicleId = tonumber(options.restoredVehicleId)
   context.sourceStillExists = options.sourceStillExists == true
   context.playerVehicleIdAfter = tonumber(options.playerVehicleIdAfter) or context.playerVehicleIdAfter
@@ -333,6 +349,7 @@ local function summary(context)
     ownershipReleaseCount = context.ownershipReleaseCount,
     staleCandidateCount = context.staleCandidateCount,
     staleCallbackSideEffects = context.staleCallbackSideEffects,
+    staleCallbackEffectsPrevented = context.staleCallbackEffectsPrevented,
     candidateDrops = context.candidateDrops,
     wait = util.deepCopy(context.wait),
     requestedModel = context.requestedModel,
@@ -352,6 +369,7 @@ local function summary(context)
 end
 
 M.CANDIDATE_LIMIT = CANDIDATE_LIMIT
+M.BINDING_STATES = BINDING_STATES
 M.create = create
 M.sync = sync
 M.beginLogicalTarget = beginLogicalTarget

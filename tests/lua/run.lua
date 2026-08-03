@@ -29,6 +29,8 @@ local mutationPolicy = require("ge/extensions/soturineChaosRandomizer/mutationPo
 local operationState = require("ge/extensions/soturineChaosRandomizer/operationState")
 local operationContext = require("ge/extensions/soturineChaosRandomizer/runtime/operationContext")
 local domainOperations = require("ge/extensions/soturineChaosRandomizer/runtime/domainOperations")
+local cooperativeScheduler = require("ge/extensions/soturineChaosRandomizer/runtime/cooperativeScheduler")
+local stabilityLimits = require("ge/extensions/soturineChaosRandomizer/runtime/stabilityLimits")
 local progressWatchdog = require("ge/extensions/soturineChaosRandomizer/progressWatchdog")
 local paintRandomizer = require("ge/extensions/soturineChaosRandomizer/paintRandomizer")
 local paintVerification = require("ge/extensions/soturineChaosRandomizer/paintVerification")
@@ -5911,12 +5913,12 @@ tests.v072_transaction_binding_and_cardinality_are_explicit = function()
     domain = "race", operationId = "race-v072", action = "fullRandom",
     expectedSlot = 2, worldVehicleIdsBefore = {1, 8},
   }))
-  equal(context.bindingState, "unbound")
+  equal(context.bindingState, "UNBOUND")
   local token = domainOperations.callbackToken(context, "spawn", {expectedSlot = 2})
   truthy(domainOperations.registerCandidate(domains, token, 42, {created = true}))
-  equal(context.bindingState, "candidate_observed")
+  equal(context.bindingState, "CANDIDATE_DISCOVERED")
   truthy(domainOperations.acceptVehicle(domains, context, 42, "race_competitor", 1))
-  equal(context.bindingState, "accepted")
+  equal(context.bindingState, "BOUND")
   local secondOk, secondReason = domainOperations.acceptVehicle(
     domains, context, 43, "race_competitor", 1
   )
@@ -5924,11 +5926,12 @@ tests.v072_transaction_binding_and_cardinality_are_explicit = function()
   truthy(domainOperations.terminal(domains, context, "completed", {playerVehicleIdAfter = 1}))
   truthy(domainOperations.recordWorldAfter(context, {1, 8, 42}))
   equal(context.worldVehicleDelta, 1)
-  equal(context.bindingState, "terminal")
+  equal(context.bindingState, "TERMINAL")
   local staleOk, staleReason = domainOperations.registerCandidate(domains, token, 99, {created = true})
   equal(staleOk, false); equal(staleReason, "ignored_stale_callback")
   equal(domainOperations.ownership(domains, 99), nil)
   equal(context.staleCallbackSideEffects, 0)
+  equal(context.staleCallbackEffectsPrevented, 1)
 
   local state = operationState.create()
   assert(operationState.begin(state, "fullRandom", nil, 30))
@@ -5943,7 +5946,7 @@ tests.v072_transaction_binding_and_cardinality_are_explicit = function()
     targetRole = "background_owned", stable = true, coherentTargetRead = true,
     observedAt = 1,
   }, 1))
-  equal(operation.bindingState, "concrete_bound")
+  equal(operation.bindingState, "BOUND")
   truthy(operationContext.markAccepted(operation, 42, 1))
   local marked, markReason = operationContext.markAccepted(operation, 43, 1)
   equal(marked, false); equal(markReason, "accepted_vehicle_cardinality_violation")
@@ -5951,9 +5954,62 @@ tests.v072_transaction_binding_and_cardinality_are_explicit = function()
     playerVehicleIdAfter = 1, worldVehicleIdsAfter = {1, 8, 42},
   }))
   local summary = operationContext.summary(operation)
-  equal(summary.bindingState, "terminal")
+  equal(summary.bindingState, "TERMINAL")
   equal(summary.worldVehicleDelta, 1)
   equal(summary.staleCallbackSideEffects, 0)
+  equal(summary.staleCallbackEffectsPrevented, 0)
+end
+
+tests.v072_scheduler_limits_and_watchdog_are_bounded = function()
+  local limits = stabilityLimits.normalize({
+    maxConcurrentVehicleBuilds = 99, maxOwnedTemporaryVehicles = 99,
+    maxRetriesPerTarget = 99, maxRetriesPerRaceSlot = 99,
+    maxStaleCallbacksPerOperation = 999,
+    maxOperationWallClockMs = 1, maxRaceGenerationWallClockMs = 99999999,
+    maxSpawnAttemptsPerFrame = 99, maxHeavyReloadsPerFrame = 99,
+  })
+  equal(limits.maxConcurrentVehicleBuilds, 2)
+  equal(limits.maxOwnedTemporaryVehicles, 4)
+  equal(limits.maxRetriesPerTarget, 10)
+  equal(limits.maxRetriesPerRaceSlot, 10)
+  equal(limits.maxStaleCallbacksPerOperation, 256)
+  equal(limits.maxOperationWallClockMs, 10000)
+  equal(limits.maxRaceGenerationWallClockMs, 7200000)
+  equal(limits.maxSpawnAttemptsPerFrame, 2)
+  equal(limits.maxHeavyReloadsPerFrame, 2)
+
+  local scheduler = cooperativeScheduler.create({limit = 4})
+  truthy(cooperativeScheduler.enqueue(scheduler, "spawn", "slot:1", {slot = 1}))
+  truthy(cooperativeScheduler.enqueue(scheduler, "spawn", "slot:2", {slot = 2}))
+  local executed = {}
+  local steps, pending = cooperativeScheduler.tick(scheduler, function(kind, payload)
+    executed[#executed + 1] = {kind = kind, slot = payload.slot}
+  end, {maxSteps = 1, budgetMs = 10, clock = function() return 0 end})
+  equal(steps, 1); equal(pending, 1); equal(#executed, 1)
+  equal(cooperativeScheduler.snapshot(scheduler).yieldedFrames, 1)
+  steps, pending = cooperativeScheduler.tick(scheduler, function(kind, payload)
+    executed[#executed + 1] = {kind = kind, slot = payload.slot}
+  end, {maxSteps = 1, budgetMs = 10, clock = function() return 0 end})
+  equal(steps, 1); equal(pending, 0); equal(#executed, 2)
+
+  local watchdog = progressWatchdog.create(0, {warningAfter = 2, stalledAfter = 4})
+  progressWatchdog.observeMetrics(watchdog, {
+    ownedVehicleCount = 2, temporaryVehicleCount = 1, callbackCount = 7,
+    frameBudgetOverruns = 3,
+  })
+  equal(progressWatchdog.evaluate(watchdog, 2.1, false), "warning")
+  equal(progressWatchdog.snapshot(watchdog, 2.1).status, "slow")
+  equal(progressWatchdog.evaluate(watchdog, 4.1, false), "stalled")
+  truthy(progressWatchdog.setStatus(watchdog, "aborting"))
+  equal(progressWatchdog.snapshot(watchdog, 4.1).status, "aborting")
+  truthy(progressWatchdog.setStatus(watchdog, "cleaning"))
+  truthy(progressWatchdog.setStatus(watchdog, "terminal"))
+  local report = progressWatchdog.snapshot(watchdog, 4.1)
+  equal(report.status, "terminal")
+  equal(report.ownedVehicleCount, 2)
+  equal(report.temporaryVehicleCount, 1)
+  equal(report.callbackCount, 7)
+  equal(report.frameBudgetOverruns, 3)
 end
 
 tests.v067_dynamic_race_formations_and_spacing = function()
@@ -6865,6 +6921,11 @@ local v072Required = {
   {"binding_state_is_explicit", tests.v072_transaction_binding_and_cardinality_are_explicit},
   {"world_vehicle_delta_is_recorded", tests.v072_transaction_binding_and_cardinality_are_explicit},
   {"stale_callback_side_effect_count_is_zero", tests.v072_transaction_binding_and_cardinality_are_explicit},
+  {"stability_limits_are_defensive", tests.v072_scheduler_limits_and_watchdog_are_bounded},
+  {"scheduler_executes_one_heavy_step_per_frame", tests.v072_scheduler_limits_and_watchdog_are_bounded},
+  {"scheduler_yields_with_pending_work", tests.v072_scheduler_limits_and_watchdog_are_bounded},
+  {"watchdog_exposes_required_metrics", tests.v072_scheduler_limits_and_watchdog_are_bounded},
+  {"watchdog_has_aborting_cleaning_terminal_states", tests.v072_scheduler_limits_and_watchdog_are_bounded},
 }
 
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")

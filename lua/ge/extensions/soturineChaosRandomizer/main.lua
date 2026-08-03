@@ -77,6 +77,8 @@ local productionModules = {
   uiPreferences = require("ge/extensions/soturineChaosRandomizer/uiPreferences"),
   adaptivePolling = require("ge/extensions/soturineChaosRandomizer/adaptivePolling"),
   aiModeConfirmation = require("ge/extensions/soturineChaosRandomizer/aiModeConfirmation"),
+  cooperativeScheduler = require("ge/extensions/soturineChaosRandomizer/runtime/cooperativeScheduler"),
+  stabilityLimits = require("ge/extensions/soturineChaosRandomizer/runtime/stabilityLimits"),
 }
 
 local M = {}
@@ -137,6 +139,8 @@ local runtime = {
   uiSequence = productionModules.uiProtocol.createSequence(),
   uiCommandRouter = nil,
   frameBudgets = productionModules.frameBudget.create(),
+  cooperativeScheduler = productionModules.cooperativeScheduler.create(),
+  stabilityLimits = productionModules.stabilityLimits.normalize(),
   performance = {
     indexBuilds = 0,
     indexCacheHits = 0,
@@ -422,6 +426,8 @@ local function publicState()
     activeVehicleAvailable = okActiveVehicle and activeVehicleId ~= nil,
     uiMode = runtime.uiMode,
     domainOperations = productionModules.domainOperations.summary(runtime.domainOperations),
+    cooperativeScheduler = productionModules.cooperativeScheduler.snapshot(runtime.cooperativeScheduler),
+    stabilityLimits = util.deepCopy(runtime.stabilityLimits),
     recovery = recoveryMetrics,
     token = runtime.state.token,
     transaction = runtime.active and {
@@ -431,7 +437,8 @@ local function publicState()
       targetGeneration = runtime.active.targetGeneration,
       recoveryGeneration = runtime.active.recoveryGeneration,
       recoveryOnly = runtime.active.recoveryOnly == true,
-      expectedPlayerIndex = 0,
+      expectedPlayerIndex = runtime.active.backgroundTarget ~= true and 0 or nil,
+      targetRole = runtime.active.backgroundTarget and "background_owned" or "player_zero",
       expectedVehicleId = runtime.active.operationContext
         and runtime.active.operationContext.concreteTarget
         and runtime.active.operationContext.concreteTarget.vehicleId or nil,
@@ -960,6 +967,7 @@ local function finishOperation(success, code, message, details, terminalState)
       rollbackReason = active.rollbackFailure and active.rollbackFailure.code,
       endedAt = runtime.time.realMonotonicTime,
     })
+    if active.progressWatchdog then progressWatchdog.setStatus(active.progressWatchdog, "cleaning") end
     local cleanup = production.reapOwnedOrphans(active, domainTerminal)
     details.cleanupResult = util.deepCopy(cleanup)
     local worldVehicleIdsAfter = type(adapter.worldVehicleIds) == "function"
@@ -1192,6 +1200,7 @@ local function finishOperation(success, code, message, details, terminalState)
     runtime.lineup.pendingNext = lineup.active == true
     if active.lineupPreviousSettings then runtime.settings = settingsModule.validate(active.lineupPreviousSettings) end
   end
+  if active and active.progressWatchdog then progressWatchdog.setStatus(active.progressWatchdog, "terminal") end
   runtime.active = nil
 
   if active and active.stressIteration and runtime.stress then
@@ -1511,6 +1520,9 @@ local function beginOperation(kind, context)
     or ((type(kind) == "string" and kind:sub(1, 3) == "dna") and 240)
     or (kind == "fullRandom" and 240)
     or 180
+  operationTimeout = math.min(
+    operationTimeout, runtime.stabilityLimits.maxOperationWallClockMs / 1000
+  )
   local phaseTimeout = context.phaseTimeout or WAIT_TIMEOUT
   local ok, token = operationState.begin(runtime.state, kind, vehicleId, operationTimeout)
   if not ok then return false, adapter.errorValue("busy", "Another operation is already running") end
@@ -1560,7 +1572,9 @@ local function beginOperation(kind, context)
     phaseGeneration = runtime.state.phaseGeneration,
     targetGeneration = runtime.state.targetGeneration,
     recoveryOnly = false,
-    progressWatchdog = progressWatchdog.create(adapter.clock()),
+    progressWatchdog = progressWatchdog.create(adapter.clock(), {
+      warningAfter = 10, stalledAfter = 30,
+    }),
     phase = kind == "scramble" and "parts" or "selection",
     stressIteration = context.stressIteration,
     waitTimeout = phaseTimeout,
@@ -1602,6 +1616,7 @@ local function beginOperation(kind, context)
     domain = domain,
     expectedSlot = context.expectedSlot or context.lineupIndex,
     worldVehicleIdsBefore = util.deepCopy(worldVehicleIdsBefore),
+    stabilityLimits = util.deepCopy(runtime.stabilityLimits),
   }
   local domainContext, superseded = productionModules.domainOperations.begin(runtime.domainOperations, {
     domain = domain,
@@ -7922,6 +7937,23 @@ local function onUpdate(dtReal, dtSim, dtRaw)
   local waitingForSimulation = runtime.state.phase == "waiting_for_simulation_resume"
   local watchdogState
   if runtime.active and runtime.active.progressWatchdog then
+    local watchdogDomain = runtime.active.domainContext
+    local temporaryCount = 0
+    if watchdogDomain then
+      for _, vehicleId in ipairs(watchdogDomain.ownedVehicleIds or {}) do
+        local owner = productionModules.domainOperations.ownership(runtime.domainOperations, vehicleId)
+        if owner and owner.managed and owner.accepted ~= true and owner.removed ~= true then
+          temporaryCount = temporaryCount + 1
+        end
+      end
+    end
+    progressWatchdog.observeMetrics(runtime.active.progressWatchdog, {
+      ownedVehicleCount = watchdogDomain and #(watchdogDomain.ownedVehicleIds or {}) or 0,
+      temporaryVehicleCount = temporaryCount,
+      callbackCount = (runtime.state.staleCallbackCount or 0)
+        + (runtime.active.targetTracker and #(runtime.active.targetTracker.events or {}) or 0),
+      frameBudgetOverruns = runtime.frameBudgets.totalExceeded or 0,
+    })
     watchdogState = progressWatchdog.evaluate(
       runtime.active.progressWatchdog, runtime.time.realMonotonicTime, waitingForSimulation
     )
@@ -7945,6 +7977,18 @@ local function onUpdate(dtReal, dtSim, dtRaw)
         lifecyclePhase = runtime.state.phase,
         clocks = timeSource.snapshot(runtime.time),
       }, true)
+    end
+    if watchdogState == "stalled" and runtime.state.busy and runtime.active
+      and runtime.active.watchdogAbortStarted ~= true
+    then
+      runtime.active.watchdogAbortStarted = true
+      progressWatchdog.setStatus(runtime.active.progressWatchdog, "aborting")
+      failActive(adapter.errorValue("operation_watchdog_stalled",
+        "The operation watchdog stopped a transaction that made no bounded progress", {
+          watchdog = progressWatchdog.snapshot(
+            runtime.active.progressWatchdog, runtime.time.realMonotonicTime
+          ),
+        }), true, runtime.state.phase or "lifecycle")
     end
   end
 
@@ -7971,7 +8015,24 @@ local function onUpdate(dtReal, dtSim, dtRaw)
 
   startStressIteration()
   local raceStarted = adapter.clock()
-  production.startNextLineupCompetitor()
+  if runtime.lineup.pendingNext and runtime.lineup.current then
+    productionModules.cooperativeScheduler.enqueue(
+      runtime.cooperativeScheduler, "race_slot",
+      "race_slot:" .. tostring(runtime.lineup.current.id) .. ":"
+        .. tostring(runtime.lineup.current.nextIndex or 1),
+      {lineupId = runtime.lineup.current.id}
+    )
+  end
+  productionModules.cooperativeScheduler.tick(
+    runtime.cooperativeScheduler,
+    function(kind, payload)
+      if kind == "race_slot" and runtime.lineup.current
+        and payload.lineupId == runtime.lineup.current.id
+      then production.startNextLineupCompetitor() end
+    end,
+    {maxSteps = runtime.stabilityLimits.maxSpawnAttemptsPerFrame,
+      budgetMs = 0.5, clock = adapter.clock}
+  )
   productionModules.performanceMetrics.record(runtime.performanceTelemetry, "raceGeneration", math.max(0, (adapter.clock() - raceStarted) * 1000))
   if runtime.pendingProgressPublish and productionModules.uiPublisher.due(runtime.uiPublisher, adapter.clock(), false) then
     production.publishProgress(true)
@@ -8180,6 +8241,7 @@ M.onExtensionUnloaded = function()
   productionModules.routePlanner.clear(runtime.aiRoute)
   production.controlManagedAI("reset")
   runtime.uiCommandRouter = nil
+  productionModules.cooperativeScheduler.clear(runtime.cooperativeScheduler)
   runtime.uiSequence = productionModules.uiProtocol.createSequence()
   runtime.initialized = false
 end
