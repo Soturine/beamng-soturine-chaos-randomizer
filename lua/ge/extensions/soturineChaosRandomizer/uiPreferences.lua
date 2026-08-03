@@ -2,7 +2,9 @@ local util = require("ge/extensions/soturineChaosRandomizer/util")
 
 local M = {}
 
-M.SCHEMA_VERSION = 1
+M.SCHEMA_VERSION = 2
+
+local SUPPORTED_LOCALES = { ["en-US"] = true, ["pt-BR"] = true, ["es-ES"] = true }
 
 local DEFAULT_RACE = {
   count = 4,
@@ -49,7 +51,8 @@ local BOOLEAN_RACE_FIELDS = {
 local function defaults()
   return {
     schemaVersion = M.SCHEMA_VERSION,
-    locale = "auto",
+    localeMode = "auto",
+    manualLocale = "en-US",
     race = util.deepCopy(DEFAULT_RACE),
     legacyRacePolicyImported = false,
   }
@@ -65,7 +68,18 @@ end
 local function normalize(raw)
   raw = type(raw) == "table" and raw or {}
   local result = defaults()
-  if raw.locale == "en-US" or raw.locale == "pt-BR" then result.locale = raw.locale end
+  if raw.localeMode == "manual" and SUPPORTED_LOCALES[raw.manualLocale] then
+    result.localeMode = "manual"
+    result.manualLocale = raw.manualLocale
+  elseif raw.localeMode == "auto" then
+    result.localeMode = "auto"
+    if SUPPORTED_LOCALES[raw.manualLocale] then result.manualLocale = raw.manualLocale end
+  elseif SUPPORTED_LOCALES[raw.locale] then
+    result.localeMode = "manual"
+    result.manualLocale = raw.locale
+  elseif raw.locale == "auto" then
+    result.localeMode = "auto"
+  end
   result.legacyRacePolicyImported = raw.legacyRacePolicyImported == true
   local source = type(raw.race) == "table" and raw.race or {}
   local race = result.race
@@ -99,7 +113,15 @@ end
 local function patch(current, value)
   local merged = normalize(current)
   value = type(value) == "table" and value or {}
-  if value.locale ~= nil then merged.locale = value.locale end
+  if value.localeMode ~= nil then merged.localeMode = value.localeMode end
+  if value.manualLocale ~= nil then merged.manualLocale = value.manualLocale end
+  if value.locale ~= nil then
+    if value.locale == "auto" then merged.localeMode = "auto"
+    elseif SUPPORTED_LOCALES[value.locale] then
+      merged.localeMode = "manual"
+      merged.manualLocale = value.locale
+    end
+  end
   if type(value.race) == "table" then merged.race = util.shallowMerge(merged.race, value.race) end
   if value.legacyRacePolicyImported ~= nil then
     merged.legacyRacePolicyImported = value.legacyRacePolicyImported == true

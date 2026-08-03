@@ -84,14 +84,33 @@ describe("mounted Runtime UI", () => {
   })
 
   it("uses real Vue reactivity for automatic game language changes", async () => {
-    gameSettingsHarness.values.uiLanguage = "pt-BR"
+    gameSettingsHarness.values.uiLanguage = "es-MX"
     const wrapper = mount(App, { attachTo: document.body })
     await settle()
+    expect(wrapper.findAll('.scr-nav [role="tab"]')[3].text()).toBe("Ajustes")
+
+    gameSettingsHarness.values.uiLanguage = "pt-PT"
+    await nextTick()
     expect(wrapper.findAll('.scr-nav [role="tab"]')[3].text()).toBe("Configurações")
 
-    gameSettingsHarness.values.uiLanguage = "en-US"
+    gameSettingsHarness.values.uiLanguage = "de-DE"
     await nextTick()
     expect(wrapper.findAll('.scr-nav [role="tab"]')[3].text()).toBe("Settings")
+
+    await wrapper.findAll('.scr-nav [role="tab"]')[3].trigger("click")
+    const localeSelect = wrapper.find(".scr-body .scr-card .scr-field select")
+    await localeSelect.setValue("es-ES")
+    await settle()
+    expect(wrapper.findAll('.scr-nav [role="tab"]')[3].text()).toBe("Ajustes")
+    expect(bridgeHarness.envelopes.some(value => value.command === "updateUIPreferences"
+      && value.arguments[0].localeMode === "manual" && value.arguments[0].manualLocale === "es-ES")).toBe(true)
+
+    gameSettingsHarness.values.uiLanguage = "pt-BR"
+    await nextTick()
+    expect(wrapper.findAll('.scr-nav [role="tab"]')[3].text()).toBe("Ajustes")
+    await localeSelect.setValue("auto")
+    await settle()
+    expect(wrapper.findAll('.scr-nav [role="tab"]')[3].text()).toBe("Configurações")
     wrapper.unmount()
   })
 

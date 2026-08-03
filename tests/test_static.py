@@ -207,9 +207,11 @@ class StaticValidationTests(unittest.TestCase):
     def test_i18n_catalogs_are_complete_and_safe(self) -> None:
         en = json.loads((APP / "i18n/en-US.json").read_text(encoding="utf-8"))
         pt = json.loads((APP / "i18n/pt-BR.json").read_text(encoding="utf-8"))
+        es = json.loads((APP / "i18n/es-ES.json").read_text(encoding="utf-8"))
         self.assertEqual(set(en), set(pt))
+        self.assertEqual(set(en), set(es))
         self.assertGreaterEqual(len(en), 200)
-        for locale, catalog in (("en-US", en), ("pt-BR", pt)):
+        for locale, catalog in (("en-US", en), ("pt-BR", pt), ("es-ES", es)):
             with self.subTest(locale=locale):
                 self.assertFalse(any(re.search(r"<[^>]+>", value) for value in catalog.values()))
                 self.assertIn("race.competitors.one", catalog)
@@ -217,6 +219,9 @@ class StaticValidationTests(unittest.TestCase):
         service = (APP / "services/i18n.js").read_text(encoding="utf-8")
         self.assertIn('messages["en-US"][key] ?? key', service)
         self.assertIn("Intl.NumberFormat", service)
+        self.assertIn('language.startsWith("es")', service)
+        self.assertIn("localeMode", service)
+        self.assertEqual(es["nav.settings"], "Ajustes")
 
     def test_accessibility_and_controller_navigation_contracts(self) -> None:
         source = frontend_source()
@@ -272,7 +277,7 @@ class StaticValidationTests(unittest.TestCase):
         validation = (ROOT / "tools/validate_package.py").read_text(encoding="utf-8")
         for suffix in ('".vue"', '".css"', '".scss"', '".mjs"'):
             self.assertIn(suffix, package_source)
-        for required in ("app.vue", "en-US.json", "pt-BR.json", "uiProtocol.lua"):
+        for required in ("app.vue", "en-US.json", "pt-BR.json", "es-ES.json", "uiProtocol.lua"):
             self.assertIn(required, validation)
         self.assertIn("FORBIDDEN_RUNTIME_PATHS", validation)
         self.assertIn("validate_extracted_vue_module_graph", validation)

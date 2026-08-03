@@ -61,6 +61,7 @@ REQUIRED_PATHS = {
     "ui/modules/apps/soturineChaosRandomizer/stores/index.js",
     "ui/modules/apps/soturineChaosRandomizer/i18n/en-US.json",
     "ui/modules/apps/soturineChaosRandomizer/i18n/pt-BR.json",
+    "ui/modules/apps/soturineChaosRandomizer/i18n/es-ES.json",
     "ui/modules/apps/soturineChaosRandomizer/app.png",
     "ui/modules/apps/soturineChaosRandomizer/assets/app-icon.svg",
     "ui/modules/apps/soturineChaosRandomizer/assets/app-icon-250x120.png",

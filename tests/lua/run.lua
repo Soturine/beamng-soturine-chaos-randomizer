@@ -5187,13 +5187,20 @@ tests.v070_ui_preferences_migrate_once_and_keep_technical_policy = function()
     locale = "pt-BR", race = {count = 99, maximumSameFamily = 0,
       allowOfficialVehicles = false, allowModVehicles = true, episodeSeed = string.rep("s", 256)},
   })
-  equal(normalized.schemaVersion, 1)
-  equal(normalized.locale, "pt-BR")
+  equal(normalized.schemaVersion, 2)
+  equal(normalized.localeMode, "manual")
+  equal(normalized.manualLocale, "pt-BR")
   equal(normalized.race.count, 32)
   equal(normalized.race.maximumSameFamily, 1)
   equal(normalized.race.allowOfficialVehicles, false)
   equal(normalized.race.allowModVehicles, true)
   equal(#normalized.race.episodeSeed, 128)
+  local spanish = p2.preferences.normalize({localeMode = "manual", manualLocale = "es-ES"})
+  equal(spanish.localeMode, "manual")
+  equal(spanish.manualLocale, "es-ES")
+  local automatic = p2.preferences.patch(spanish, {localeMode = "auto"})
+  equal(automatic.localeMode, "auto")
+  equal(automatic.manualLocale, "es-ES")
   local migrated, changed = p2.preferences.importLegacy(p2.preferences.defaults(), {
     avoidDuplicateModels = false, retainAcceptedOnCancel = false,
   })

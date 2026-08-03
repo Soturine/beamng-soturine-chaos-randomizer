@@ -161,12 +161,14 @@ check(cleanupCount, 201)
 
 const enUS = JSON.parse(await source("ui/modules/apps/soturineChaosRandomizer/i18n/en-US.json"))
 const ptBR = JSON.parse(await source("ui/modules/apps/soturineChaosRandomizer/i18n/pt-BR.json"))
+const esES = JSON.parse(await source("ui/modules/apps/soturineChaosRandomizer/i18n/es-ES.json"))
 const i18nModule = await load(
   "ui/modules/apps/soturineChaosRandomizer/services/i18n.js",
   [
     [/import \{ computed, ref \} from "vue"/, "const ref = value => ({ value }); const computed = getter => ({ get value() { return getter() } })"],
     [/import enUS from "\.\.\/i18n\/en-US\.json"/, `const enUS = ${JSON.stringify(enUS)}`],
     [/import ptBR from "\.\.\/i18n\/pt-BR\.json"/, `const ptBR = ${JSON.stringify(ptBR)}`],
+    [/import esES from "\.\.\/i18n\/es-ES\.json"/, `const esES = ${JSON.stringify(esES)}`],
   ],
 )
 const i18n = i18nModule.createI18n()
@@ -183,13 +185,24 @@ check(i18n.plural("race.competitors", 1), "1 competidor")
 check(i18n.plural("race.competitors", 8), "8 competidores")
 i18n.setPreference("en-US")
 check(i18n.locale.value, "en-US")
-i18n.setPreference("invalid")
-check(i18n.locale.value, "pt-BR")
+i18n.setPreference({ localeMode: "auto", manualLocale: "en-US" })
+i18n.setGameLocale("es_MX")
+check(i18n.locale.value, "es-ES")
+check(i18n.t("nav.garage"), "Garaje")
+check(i18n.plural("race.competitors", 2), "2 competidores")
+i18n.setGameLocale("de-DE")
+check(i18n.locale.value, "en-US")
+i18n.setPreference({ localeMode: "manual", manualLocale: "es-ES" })
+check(i18n.locale.value, "es-ES")
+check(i18n.localeMode.value, "manual")
+check(i18n.manualLocale.value, "es-ES")
 check(Object.keys(enUS).length, Object.keys(ptBR).length)
+check(Object.keys(enUS).length, Object.keys(esES).length)
 truthy(Object.keys(enUS).length >= 180)
 for (const technical of ["modelKey", "generatorVersion", "stateVersion", "operationId"]) check(i18n.t(technical), technical)
 truthy(ptBR["garage.restoreConfirm"].length > enUS["garage.restoreConfirm"].length)
 truthy(!Object.values(enUS).some(value => /<[^>]+>/.test(value)))
 truthy(!Object.values(ptBR).some(value => /<[^>]+>/.test(value)))
+truthy(!Object.values(esES).some(value => /<[^>]+>/.test(value)))
 
 console.log(`SCR_UI_JS_TESTS_PASSED ${checks}`)

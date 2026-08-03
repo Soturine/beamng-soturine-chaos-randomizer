@@ -27,8 +27,9 @@
   "extremeTuning": false,
   "allowPartialResult": false,
   "uiPreferences": {
-    "schemaVersion": 1,
-    "locale": "auto",
+    "schemaVersion": 2,
+    "localeMode": "auto",
+    "manualLocale": "en-US",
     "legacyRacePolicyImported": false,
     "race": {
       "count": 4,

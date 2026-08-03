@@ -84,7 +84,11 @@ export function createStores(command) {
     stores.diagnostics.replace({ migration: state.migration || {}, status: stores.diagnostics.state.status || "" })
     stores.performance.replace(state.performance || {})
     stores.uiLayout.setCompact(state.uiMode === "collapsed", false)
-    stores.i18n.setPreference(state.settings?.uiPreferences?.locale || "auto")
+    const preferences = state.settings?.uiPreferences || {}
+    stores.i18n.setPreference({
+      localeMode: preferences.localeMode || (preferences.locale && preferences.locale !== "auto" ? "manual" : "auto"),
+      manualLocale: preferences.manualLocale || (preferences.locale !== "auto" ? preferences.locale : "en-US"),
+    })
     stores.uiPerformance.recordApply("full", started, state)
   }
 

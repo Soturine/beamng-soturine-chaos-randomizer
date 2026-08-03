@@ -1,14 +1,21 @@
 import { computed, ref } from "vue"
 import enUS from "../i18n/en-US.json"
 import ptBR from "../i18n/pt-BR.json"
+import esES from "../i18n/es-ES.json"
 
-const messages = { "en-US": enUS, "pt-BR": ptBR }
-const normalizeLocale = value => String(value || "").toLowerCase().startsWith("pt") ? "pt-BR" : "en-US"
+const messages = { "en-US": enUS, "pt-BR": ptBR, "es-ES": esES }
+export const normalizeLocale = value => {
+  const language = String(value || "").trim().toLowerCase().replaceAll("_", "-")
+  if (language.startsWith("pt")) return "pt-BR"
+  if (language.startsWith("es")) return "es-ES"
+  return "en-US"
+}
 
 export function createI18n() {
   const gameLocale = ref("en-US")
-  const preference = ref("auto")
-  const locale = computed(() => preference.value === "auto" ? normalizeLocale(gameLocale.value) : normalizeLocale(preference.value))
+  const localeMode = ref("auto")
+  const manualLocale = ref("en-US")
+  const locale = computed(() => localeMode.value === "auto" ? normalizeLocale(gameLocale.value) : normalizeLocale(manualLocale.value))
 
   function interpolate(template, values) {
     return String(template).replace(/\{([A-Za-z0-9_]+)\}/g, (_, key) =>
@@ -30,9 +37,19 @@ export function createI18n() {
     return new Intl.NumberFormat(locale.value, options).format(Number(value) || 0)
   }
 
+  function setPreference(value) {
+    if (typeof value === "string") {
+      localeMode.value = value === "auto" ? "auto" : "manual"
+      if (value !== "auto") manualLocale.value = normalizeLocale(value)
+      return
+    }
+    localeMode.value = value?.localeMode === "manual" ? "manual" : "auto"
+    manualLocale.value = normalizeLocale(value?.manualLocale || manualLocale.value)
+  }
+
   return {
-    locale, t, plural, formatNumber,
+    locale, localeMode, manualLocale, t, plural, formatNumber,
     setGameLocale: value => { gameLocale.value = normalizeLocale(value) },
-    setPreference: value => { preference.value = ["auto", "en-US", "pt-BR"].includes(value) ? value : "auto" },
+    setPreference,
   }
 }
