@@ -322,3 +322,19 @@ audited build contract. Include the capability reason in reports.
 ## Useful issue report
 
 Provide BeamNG full build, randomizer version/commit, content name/version/source/license, operation, visible settings, displayed seed, smallest mod set, relevant tagged logs, and whether Reindex/clean profile changes the result. Do not upload paid/private content or personal paths. Follow [Security](../SECURITY.md) for sensitive reports.
+
+## v0.7.2 Runtime UI has no styles
+
+Confirm only the v0.7.2 ZIP is enabled, clear the UI cache, and re-add the HUD
+app. The ZIP must contain `styles/app.css`; `.scss` files are invalid runtime
+content. Run both source and extracted-ZIP style graph validators. A missing CSS
+or asset, remote URL, source map, or Sass import is a package defect.
+
+## Chaos or Race reports a binding/watchdog failure
+
+Do not repeatedly click the action. Open Details and record operation/domain,
+binding state, source/accepted/target IDs, world counts, owned/temporary peak,
+stale callbacks, stage age, limit reason, and cleanup result. `UNBOUND`,
+`BOUND_MISMATCH`, `DESTROYED`, `stalled`, or `aborting` are explicit safe
+failures; they must not be hidden by increasing timeouts. Verify the player was
+never used as Race staging and accepted competitors remain present.

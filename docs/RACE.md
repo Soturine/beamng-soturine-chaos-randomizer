@@ -1,33 +1,45 @@
-# Race Workflow
+# Race workflow
 
-Race is the public three-stage workflow: **Cars → Placement → Drive**. Older saved data and historical documentation may call Cars a “Lineup”; that remains a compatibility/storage term, not a top-level UI destination.
+Race is the public three-stage workflow: **Cars → Placement → Drive**. Each
+generated competitor is an independent slot transaction. Older saved data may
+use “lineup” as a storage term; it is not a separate top-level UI destination.
 
-## Cars
+## Cars and slot ownership
 
-Balanced, Maximum Chaos, Mods Showcase, and Custom policies feed the same Full Random pipeline used by Chaos. Generate Cars reserves one immutable competitor identity, spawns a new physical target at its own staging transform, binds and randomizes that exact ID, retains it in the managed registry, restores player focus, and only then advances. It never counts a failed/nonexistent ID. Each competitor owns its own operation/generation/current-ID/spawn/randomization/validation/placement/terminal state. Retry derives an attempt-specific seed domain; fallback, skip, cancel and stop are explicit actions.
+Each slot owns its slot ID, derived seed, exact target vehicle ID, generation,
+temporary IDs, retry count, wall-clock deadline, and terminal result. A slot
+cannot bind to a target owned by another slot. Background parts, tuning, and
+paint writes address the exact non-player vehicle through audited manager and
+part-management contracts. The player is never selected or entered as staging.
+
+One bounded heavy job is scheduled at a time. Stale generation/token callbacks
+return before mutation. An accepted slot becomes managed and is removed from
+temporary ownership. Failure, retry, cancel, and cleanup affect only the
+operation's still-owned temporaries; accepted competitors in other slots remain.
+
+## Player and spectator semantics
+
+Spectator mode creates the requested number of AI competitors and leaves the
+player outside that set. Participation mode assigns the player only as an
+explicit final lineup role; it does not use the player to build AI cars. Player
+focus switches during background generation do not change slot targets.
 
 ## Placement
 
-Only retained Ready cars (or explicitly accepted Partial cars) are eligible. The tab reports why it is unavailable. Front, Behind, Left, Right, diagonal, Line, Grid, Circle, and Custom point plans use ground raycast, slope limits, heading validation and collision spacing. Reordering assigns unique positions. Applying Placement teleports the already managed concrete IDs through BeamNG's safe placement path and requires two position read-backs; it does not spawn duplicates.
+Only Ready cars, or explicitly accepted Partial cars, are eligible. Automatic
+Best Fit and the directional/line/grid/circle/custom plans perform ground,
+slope, heading, distance, and spacing checks. Confirmation moves the already
+managed exact IDs and performs stable position readback; it does not spawn
+replacement clones.
 
-## Drive
+## Drive and domain isolation
 
-AI commands operate only on confirmed managed vehicles. Destination and Route require a reachable NavGraph; Chase and Follow require a distinct existing target; Traffic requires Vehicle Lua queue support. Scripted mode is visibly unsupported because no bounded portable path-transfer contract is enabled. Start, pause, resume, stop, reset, and damaged respawn are bounded and do not rely on simulation pause toggles.
+AI commands operate only on confirmed managed vehicles. Destination and Route
+require reachable NavGraph evidence; Chase and Follow require a distinct target.
+Race operations publish Race-domain state and events only, never Chaos action
+success/failure events. Capabilities are reported as available, degraded,
+unavailable, or unsupported with a visible reason.
 
-Capabilities are reported as `available`, `degraded`, `unavailable`, or `unsupported`. A disabled control includes a reason rather than claiming an API exists.
-# v0.6.7 Race lifecycle
-
-Race generation uses explicit `planning → validating_slots → spawning → binding
-→ placing → ready/partial_ready/failed/cancelled` states. Each AI competitor has
-independent selection/mutation/placement/retry seeds and one managed vehicle ID.
-The player can participate in a total-vehicle count or remain a spectator while
-exactly N independent AI competitors are generated.
-
-Placement requires a complete preview before confirmation. Automatic Best Fit
-uses known vehicle width/length plus a safety margin and reports its effective
-layout/fallback. A narrow or width-unknown area uses explicit single-file
-fallback. Confirm moves retained managed IDs; generation cleanup and cancel are
-Race-scoped.
-
-The full option/default inventory is in
-[v0.6.7 Race policy inventory](testing/v0.6.7/RACE_POLICY_INVENTORY.md).
+Automated 1/4/8/12-slot, partial-failure, stale-callback, player-isolation, and
+owned-cleanup fixtures pass. Live BeamNG validation remains Pending owner
+validation.

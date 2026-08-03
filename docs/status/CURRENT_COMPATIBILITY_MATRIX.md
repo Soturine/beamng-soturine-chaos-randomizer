@@ -1,28 +1,25 @@
 # Current compatibility matrix
 
-Published candidate: **0.7.1 Experimental prerelease**. Primary target:
-BeamNG.drive `0.39`; owner environment: `0.39.2.1`. Minimum declared version:
-`0.39`. v0.7.0 failed before mount. v0.7.1 mounted but failed Runtime styling,
-usability, latency, Full Random, Race ownership/cleanup, and stability.
+Published candidate: **0.7.2 Experimental rescue prerelease**. Primary target
+and minimum declared version: BeamNG.drive `0.39`. Owner live target:
+`0.39.2.1`. Live validation is Pending owner validation.
 
 | Surface | Automated/source evidence | Live status |
-|---|---|---|
-| Runtime version | central metadata and four-way/unknown classifier | Pending |
-| Registry readiness | five states, persistent fingerprinted cache, incremental atomic rebuild | Pending |
-| Official 0.39 subgroup configs | registry keys/path/basename/display separated | Pending |
-| User/config packs | exact case path plus normalized comparison and traversal rejection | Pending |
-| Full vehicle mods / ID churn | transactional world snapshots and stable readback | Pending |
-| Safe spawn pressure | confirmed low-memory denial; no invented no-space claim | Pending |
-| Instability/removal | generation/ID correlation and one recovery path | Pending |
-| Safety/reset changes | ternary validation, fuel/N2O/electric/fluids fixtures | Pending |
-| Translation changes | labels excluded from technical IDs/seeds/DNA/Race | Pending |
-| AI | explicit `driveInLane`, adaptive polls, optional mode readback confirmation | Pending |
-| HUD runtime | module graph and live mount passed; Runtime styling/usability failed | Failed |
-| Persistence | settings schema 9, UI-preference migration, DNA/lineup preservation | Pending |
-| Performance | bounded profiler/budgets, low-GC buffers, UI diffs, aggregated diagnostics | Pending |
-| Conflicting mods | warning-only structured evidence; nothing auto-disabled | Pending |
-| Package install | deterministic ZIP/checksum/manifest from central metadata | Pending exact-ZIP install |
+| --- | --- | --- |
+| Runtime version | central 0.7.2 identity and four-way/unknown classifier | Pending |
+| Native Vue app | SFC compile, explicit module graph, real mounted tests | Pending |
+| Runtime styling | pure CSS and source/ZIP style graphs | Pending |
+| Chaos ownership | concrete binding, cardinality, rollback, stale callbacks | Pending |
+| Scramble | same-ID/no-spawn/no-replace/world-delta fixtures | Pending |
+| Race | independent target/seed/ownership/deadline for 1/4/8/12 slots | Pending |
+| Stability | retry/time/slot/temp/callback limits, watchdog, scheduler | Pending |
+| i18n | 279-key parity, en-US/pt-BR/es-ES mapping and migration | Pending |
+| Persistence | settings schema 9; UI preferences schema 2 | Pending |
+| Protocol | UI protocol 2; domain diffs and sequence guards | Pending |
+| Determinism | generator 6; Vehicle DNA schema 1 | Pending |
+| Package | deterministic ZIP, checksum, manifest, module/style graphs | Pending downloaded-asset install |
 
-See the [v0.7.1 live report](../testing/v0.7.1/LIVE_TEST_REPORT.md), the
-[v0.7.0 failure](../testing/v0.7.0/LIVE_TEST_REPORT.md), and the
-[v0.6.9 visual/gameplay report](../testing/v0.6.9/LIVE_TEST_REPORT.md).
+Historical results are preserved in the [v0.6.9 report](../testing/v0.6.9/LIVE_TEST_REPORT.md),
+[v0.7.0 report](../testing/v0.7.0/LIVE_TEST_REPORT.md), and
+[v0.7.1 report](../testing/v0.7.1/LIVE_TEST_REPORT.md). The current matrix is in
+the [v0.7.2 live report](../testing/v0.7.2/LIVE_TEST_REPORT.md).

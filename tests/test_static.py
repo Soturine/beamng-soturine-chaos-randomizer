@@ -102,7 +102,7 @@ class StaticValidationTests(unittest.TestCase):
         compatibility = json.loads((ROOT / "COMPATIBILITY.json").read_text(encoding="utf-8"))
         main = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/main.lua").read_text(encoding="utf-8")
         notes = ROOT / "docs/RELEASE NOTES" / f"RELEASE_NOTES_{version}.md"
-        self.assertEqual(version, "0.7.1")
+        self.assertEqual(version, "0.7.2")
         self.assertEqual(app["version"], version)
         self.assertEqual(package["version"], version)
         self.assertEqual(compatibility["modVersion"], version)
@@ -346,6 +346,13 @@ class StaticValidationTests(unittest.TestCase):
             "docs/testing/v0.7.1/MODULE_GRAPH_REPORT.md", "docs/testing/v0.7.1/LIVE_TEST_PLAN.md",
             "docs/testing/v0.7.1/LIVE_TEST_REPORT.md", "docs/testing/v0.7.1/REQUIREMENTS_MATRIX.md",
             "docs/testing/v0.7.1/RELEASE_CHECKLIST.md", "docs/RELEASE NOTES/RELEASE_NOTES_0.7.1.md",
+            "docs/RESEARCH_0.7.2.md", "docs/UI_VISUAL_BASELINE_0.6.9.md",
+            "docs/testing/v0.7.2/README.md", "docs/testing/v0.7.2/AUTOMATED_TEST_REPORT.md",
+            "docs/testing/v0.7.2/LIVE_TEST_PLAN.md", "docs/testing/v0.7.2/LIVE_TEST_REPORT.md",
+            "docs/testing/v0.7.2/UI_RUNTIME_REPORT.md", "docs/testing/v0.7.2/FULL_RANDOM_REPORT.md",
+            "docs/testing/v0.7.2/RACE_SLOT_REPORT.md", "docs/testing/v0.7.2/I18N_REPORT.md",
+            "docs/testing/v0.7.2/PERFORMANCE_REPORT.md", "docs/testing/v0.7.2/REQUIREMENTS_MATRIX.md",
+            "docs/testing/v0.7.2/RELEASE_CHECKLIST.md", "docs/RELEASE NOTES/RELEASE_NOTES_0.7.2.md",
         )
         for relative in required:
             with self.subTest(path=relative):
@@ -359,6 +366,12 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("Runtime UI mounted, but UI and gameplay rescue gates failed", v071_live)
         for row in ("| Executed | 9 |", "| Passed | 3 |", "| Failed | 6 |", "| Pending | 0 |", "| Blocked | 88 |"):
             self.assertIn(row, v071_live)
+        v072_live = (ROOT / "docs/testing/v0.7.2/LIVE_TEST_REPORT.md").read_text(encoding="utf-8")
+        self.assertIn("Pending owner validation; not executed", v072_live)
+        for row in ("| Executed | 0 |", "| Passed | 0 |", "| Failed | 0 |", "| Pending | 138 |", "| Blocked | 0 |"):
+            self.assertIn(row, v072_live)
+        visual = (ROOT / "docs/UI_VISUAL_BASELINE_0.6.9.md").read_text(encoding="utf-8")
+        self.assertIn("Headless visual screenshot tests: Not implemented", visual)
         self.assertNotRegex(corpus.lower(), r"fully validated|confirmed compatible|performance proven")
 
     def test_repository_and_package_have_no_machine_paths_or_credentials(self) -> None:

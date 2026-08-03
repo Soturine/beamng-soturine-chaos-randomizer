@@ -5,17 +5,18 @@ deterministic vehicle chaos. It can load a random vehicle, scramble the active
 vehicle, run the complete bounded pipeline, save and restore Vehicle DNA, and
 orchestrate Race placement and AI workflows.
 
-Current published release: **0.7.1**, an experimental prerelease. It fixed the
-v0.7.0 module-graph 404 and mounted in BeamNG 0.39.2.1, but live testing then
-failed Runtime styling, usability, UI latency, Full Random, Race generation,
-ownership/cleanup, and stability. v0.6.9 is the historical visual reference,
-not a functionally approved fallback. v0.7.2 is the rescue candidate in
-development. Automated tests never substitute for live BeamNG evidence.
+Current published release: **0.7.2**, an experimental rescue prerelease. It
+ships plain runtime CSS, mounted Vue coverage, bounded single-target Chaos
+transactions, independent Race slot ownership, automatic Spanish localization,
+and cooperative lifecycle limits. Live BeamNG 0.39.2.1 validation remains
+Pending owner validation. v0.6.9 is only the historical visual reference;
+v0.7.0 failed before Vue mount, and v0.7.1 mounted but failed live UI and
+gameplay checks. Automated tests never substitute for live BeamNG evidence.
 
 ## Install or upgrade
 
-1. Download `soturine_chaos_randomizer_0.7.1.zip` from the
-   [v0.7.1 release](https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases/tag/v0.7.1).
+1. Download `soturine_chaos_randomizer_0.7.2.zip` from the
+   [v0.7.2 release](https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases/tag/v0.7.2).
    Do not use GitHub's automatic source archive.
 2. Put the ZIP, without extracting it, in the BeamNG user folder's `mods`
    directory.
@@ -23,14 +24,14 @@ development. Automated tests never substitute for live BeamNG evidence.
    active.
 4. Start BeamNG 0.39, enable the mod, open HUD Apps, and add
    **Soturine's Chaos Randomizer**.
-5. Confirm `0.7.1` appears in the orange header.
+5. Confirm `0.7.2` appears in the orange header.
 
 The release also provides a SHA-256 file and a JSON manifest. A valid package
 has `lua/`, `ui/`, `settings/`, `COMPATIBILITY.json`, `LICENSE`, `NOTICE`, and
 `VERSION` at its root.
 
 Version 0.6.9 is the last Angular release and the last release declaring a
-0.38.6 minimum. Versions 0.7.0 and 0.7.1 do not package an Angular fallback because the
+0.38.6 minimum. Versions 0.7.0 onward do not package an Angular fallback because the
 installed 0.39 AppHost already chooses a colocated `app.vue` as the native app
 entry, while no supported single-entry mechanism provides an older-runtime
 fallback without risking two mounts or two subscriptions.
@@ -65,7 +66,8 @@ still Pending.
 The UI includes:
 
 - English (`en-US`), the fallback catalog;
-- Brazilian Portuguese (`pt-BR`).
+- Brazilian Portuguese (`pt-BR`);
+- Spanish (`es-ES`), also selected for regional `es-*` game locales.
 
 The game language is used by default. Settings can override the locale for the
 app. Translation affects presentation only: seeds, model/configuration keys,
@@ -86,7 +88,8 @@ buffers, caches, incremental indexing, dirty UI diffs, diagnostics aggregation,
 adaptive polling, and AI confirmation.
 
 Generator version remains 6 and Vehicle DNA schema remains 1. Settings schema
-is 9 because it now stores versioned UI preferences and Race Policy values.
+is 9 and UI preferences schema is 2; the latter persists automatic/manual
+locale mode and Race Policy values with migration.
 
 ## Data and privacy
 
@@ -105,8 +108,8 @@ source map.
 
 - If the app does not appear, verify BeamNG 0.39+, remove old mod ZIPs, clear
   the UI cache, reload the UI, and check `beamng.log` for the extension name.
-- If a log still shows the v0.7.0 `/stores` 404, remove the v0.7.0 ZIP, install
-  only v0.7.1, clear the UI cache, and reload the UI.
+- If a log still shows the v0.7.0 `/stores` 404, remove every older ZIP, install
+  only v0.7.2, clear the UI cache, and reload the UI.
 - If state appears stale, remove and re-add the HUD App. A remount requests one
   full state and does not restart an active backend operation.
 - If a command is unavailable, open Details or Settings → Compatibility. The
@@ -128,6 +131,7 @@ and manifest verification.
 npm ci --ignore-scripts
 npm run validate:sfc
 npm run validate:graph
+npm run validate:styles
 npm run test:ui
 python -m unittest discover -s tests -v
 python tools/package_mod.py
@@ -135,14 +139,14 @@ python tools/validate_package.py
 ```
 
 Development dependencies validate source only and are never included in the
-mod ZIP. See [testing evidence](docs/testing/v0.7.1/README.md),
+mod ZIP. See [testing evidence](docs/testing/v0.7.2/README.md),
 [architecture](docs/UI_VUE_ARCHITECTURE.md), and the
 [UI protocol](docs/UI_PROTOCOL.md).
 
 ## Release status
 
-Version 0.7.1 is an experimental prerelease. Automated validation does not
-replace the [live test plan](docs/testing/v0.7.1/LIVE_TEST_PLAN.md). Results must
+Version 0.7.2 is an experimental prerelease. Automated validation does not
+replace the [live test plan](docs/testing/v0.7.2/LIVE_TEST_PLAN.md). Results must
 be recorded against the downloaded release ZIP before any stronger gameplay,
 compatibility, visual, input, or performance claim is made.
 

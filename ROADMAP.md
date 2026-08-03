@@ -11,22 +11,26 @@ recorded in [CHANGELOG.md](CHANGELOG.md).
   architecture modernization. Its first live case failed before mount because
   the Runtime UI could not resolve a directory-style import.
 - **v0.7.1 — P2 hotfix:** explicit native Vue module graph paths and source/ZIP
-  graph gates. Implemented as an experimental prerelease; live validation is
-  Pending owner validation.
+  graph gates. It mounted in 0.39.2.1 but failed live styling, latency, Full
+  Random, Race, cleanup, and stability checks.
+- **v0.7.2 — live rescue:** runtime CSS, mounted Vue lifecycle and latency
+  coverage, bounded concrete-target Chaos transactions, independent Race slot
+  ownership, watchdog/scheduler limits, and automatic Spanish localization.
+  Automated validation is required; live validation remains owner-executed.
 - **Post-v0.7.0:** fresh audit after BeamNG 0.39.x hotfixes. The audit is planned
   in [POST_V070_AUDIT_PLAN.md](docs/POST_V070_AUDIT_PLAN.md) and is intentionally
   not executed as part of v0.7.0.
 
 ## Current validation
 
-- Execute the v0.7.1 live matrix against the downloaded release ZIP on a clean
+- Execute the v0.7.2 live matrix against the downloaded release ZIP on a clean
   BeamNG 0.39 profile.
 - Record visual, controller, scaling, Garage 500, Race 12, lifecycle, and
   performance comparison evidence without converting source inspection into a
   live result.
 - Keep the release experimental until owner evidence supports promotion.
 
-## After v0.7.1
+## After v0.7.2
 
 - Reinspect the then-current 0.39.x release notes, official docs, installed
   runtime source, APIs, deprecations, known issues, and representative mod

@@ -1,11 +1,15 @@
 # Compatibility
 
-Compatibility is evidence-based and version-specific. v0.7.0 declares
+Compatibility is evidence-based and version-specific. v0.7.2 declares
 BeamNG.drive `0.39` as both its primary target and minimum supported version.
 `COMPATIBILITY.json` is the single machine-readable source for this policy.
 Source/API inspection is complete; live 0.39 owner validation is Pending and is
 not implied by automated results. v0.6.9 remains the final Angular release and
 the final release with a 0.38.6 minimum.
+
+The v0.7.2 identity is native Runtime UI Vue, UI protocol 2, generator 6,
+Vehicle DNA schema 1, settings schema 9, and UI preferences schema 2. The
+broader post-v0.7.0 compatibility audit remains deliberately out of scope.
 
 v0.7.0 reads the current player's part-manager configuration and the ID-specific
 manager bundle independently. A matching coherent source may confirm an

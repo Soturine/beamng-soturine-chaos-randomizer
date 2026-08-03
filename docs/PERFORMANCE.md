@@ -172,3 +172,17 @@ matrix measures FPS average, 1% low, frame time, `onUpdate` p50/p95/p99, GC,
 RAM, VRAM, hooks/s, diagnostics/s, vehicle/managed/orphan counts for 1/4/8/12
 vehicles. No real-world performance improvement is claimed before those rows
 are executed with the downloaded release artifact.
+
+## v0.7.2 responsiveness and bounded work
+
+Mounted timing tests require tab and Details local-interaction p95 below 50 ms.
+Switches change only local layout state; they do not fetch a full snapshot.
+Protocol diffs touch only their domain. ResizeObserver notifications are
+deduplicated into one animation-frame commit and cancelled on teardown, while
+all event unsubscribe handles are invoked on unmount.
+
+Race generation queues bounded heavy jobs and advances only the configured
+per-frame amount. Operation telemetry reports stage age, owned/temporary peak,
+stale callback attempts prevented, callback count, and frame-budget overruns.
+The v0.7.2 138-case live matrix, including FPS and 1% low, remains Pending owner
+validation.

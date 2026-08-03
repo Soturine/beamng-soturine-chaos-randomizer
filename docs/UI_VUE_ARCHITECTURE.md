@@ -71,5 +71,16 @@ BeamNG loads source SFCs and modules directly, so no runtime bundle is built.
 Pinned Vue compiler and Sass packages are development-only validation tools.
 `node_modules` and source maps are forbidden in the ZIP.
 
-The v0.7.1 source and extracted-ZIP module graphs pass. Live BeamNG 0.39
-AppHost mounting remains Pending owner validation.
+Version 0.7.2 imports one packaged pure-CSS asset from `app.vue`. Source and
+extracted-ZIP module and style graphs reject directory imports, missing modules,
+case mismatches, cycles, missing CSS/assets, Sass, source maps, and remote URLs.
+The style graph also checks shell/navigation/button/card/fox/scroll contracts.
+
+Real Vue Test Utils/jsdom tests mount AppShell, exercise all panels, apply full
+state and domain diffs, verify local navigation, coalesce ResizeObserver work by
+animation frame, dispose every subscription, and repeat 100 mount/unmount
+cycles. These are mounted component tests, not visual screenshots.
+
+Headless visual screenshot tests: Not implemented
+
+Live BeamNG 0.39.2.1 rendering remains Pending owner validation.

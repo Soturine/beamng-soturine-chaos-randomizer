@@ -68,3 +68,13 @@ Transforms, bounds, heading evidence, custom point, overlap, read-back,
 ownership, generation gates, rebind, respawn, and isolated removal have
 automated coverage. Raycasts, visual previews, ID-changing mods, auxiliary
 vehicles, and 16 live spawns remain interactive Pending.
+
+## v0.7.2 Race generation boundary
+
+Generation now supplies Spawn Director with an independent per-slot operation,
+target, seed, deadline, and ownership set. The director never switches into the
+player to configure an AI candidate. A slot adopts only its exact accepted ID;
+failure or cancellation removes only unaccepted IDs owned by that operation.
+Already accepted competitors survive another slot's failure. Work is queued
+cooperatively so a 12-car request does not execute the entire heavy pipeline in
+one frame. Live 1/4/8/12 placement remains Pending owner validation.

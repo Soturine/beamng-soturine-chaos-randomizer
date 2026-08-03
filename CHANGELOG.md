@@ -2,6 +2,39 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-08-03
+
+Rescue prerelease for Runtime UI rendering, bounded Chaos transactions, Race
+slot isolation, stability limits, and automatic Spanish localization.
+
+### Added
+
+- Pure runtime CSS plus source, ZIP, and downloaded-package style graph gates.
+- Real mounted Vue Test Utils/jsdom tests covering 100 mount cycles,
+  subscription cleanup, resize coalescing, local tab changes, domain diffs, and
+  p95 latency budgets.
+- Complete `es-ES` catalog, BeamNG locale mapping, manual override, return to
+  auto, persistence, and migration coverage.
+- Cooperative Race scheduling, watchdog telemetry, explicit binding states,
+  cardinality evidence, and stale-callback counters.
+
+### Fixed
+
+- Bind Random Car and Full Random to one accepted concrete target; keep
+  Scramble on the same concrete vehicle without spawn or replacement.
+- Give each Race slot its own target, derived seed, deadline, and ownership set;
+  background writes no longer use the player vehicle as staging.
+- Preserve accepted Race competitors across partial failure and clean only the
+  temporaries owned by the failed or cancelled operation.
+- Restore the compact v0.6.9 visual hierarchy in native Vue without treating
+  that historical release as gameplay-approved.
+
+### Validation
+
+- Automated validation is required by the experimental prerelease gate. Live
+  BeamNG 0.39.2.1 validation remains **Pending owner validation**: 0 executed,
+  0 passed, 0 failed, 138 pending, 0 blocked.
+
 ## [0.7.1] - 2026-08-02
 
 Focused P2 hotfix for the native Runtime UI Vue module graph. Automated source

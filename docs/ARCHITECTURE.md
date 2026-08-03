@@ -190,3 +190,23 @@ Terminal/superseded operations invalidate callbacks. Cleanup is limited to
 managed, created, unaccepted ownership entries; it never sweeps arbitrary world
 vehicles. Chaos cannot mutate a retained Race competitor without an explicit
 ownership transfer.
+
+## v0.7.2 bounded transaction runtime
+
+`runtime/operationContext.lua` owns domain/operation/generation identity,
+concrete-target binding state, accepted replacement cardinality, world-count
+evidence, stale-callback accounting, and operation-scoped ownership. Binding
+states are `UNBOUND`, `CANDIDATE_DISCOVERED`, `BINDING`, `BOUND`,
+`BOUND_MISMATCH`, `DESTROYED`, and `TERMINAL`.
+
+`runtime/domainOperations.lua` prevents simultaneous conflicting domain work.
+`runtime/stabilityLimits.lua` centralizes retry, slot, candidate, callback,
+temporary, frame, and wall-clock bounds. `runtime/cooperativeScheduler.lua`
+distributes heavy Race work across updates. The watchdog observes stage age and
+bounded metrics and transitions through healthy, slow, stalled, aborting,
+cleaning, and terminal states.
+
+Chaos action contracts are distinct: Random Car accepts one replacement,
+Scramble keeps the same concrete ID and world count, and Full Random applies its
+pipeline to one bound accepted target. Race reuses lower-level randomization but
+not Chaos ownership, terminal events, player staging, or cleanup scope.

@@ -63,5 +63,10 @@ button click.
 - Operation and target generations remain backend authority for stale callback
   rejection.
 
-The v0.7.1 source and extracted-ZIP protocol imports pass graph validation.
-Live BeamNG 0.39 execution remains Pending owner validation.
+Version 0.7.2 keeps UI protocol 2. Tab, Details, compact, and resize actions are
+local and never request full backend state. A full snapshot is requested only
+at mount or bounded sequence-gap recovery. Normal updates are domain-addressed
+diffs (`core`, `chaos`, `garage`, `race`, `settings`, `compatibility`,
+`diagnostics`, `performance`) and leave unrelated store object identities
+untouched. Source and extracted-ZIP protocol graphs pass automated validation;
+live BeamNG 0.39.2.1 execution remains Pending owner validation.
