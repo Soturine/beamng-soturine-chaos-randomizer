@@ -118,7 +118,7 @@ class PackageTests(unittest.TestCase):
             expected_counts = package_mod.test_counts(ROOT)
             self.assertEqual(manifest["tests"], expected_counts)
             self.assertEqual(manifest["tests"]["luaTestFunctionsUnique"], manifest["tests"]["luaExecutedCases"])
-            self.assertEqual(manifest["tests"]["luaRequirementMappings"], 664)
+            self.assertEqual(manifest["tests"]["luaRequirementMappings"], 687)
             self.assertEqual(manifest["tests"]["javaScriptChecks"], 787)
             self.assertEqual(manifest["tests"]["vueModuleGraphFiles"], 80)
             self.assertEqual(manifest["tests"]["vueModuleGraphReachableFiles"], 76)

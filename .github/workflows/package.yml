@@ -147,7 +147,7 @@ jobs:
             "dist/soturine_chaos_randomizer_${version}.zip.sha256" \
             "dist/soturine_chaos_randomizer_${version}.manifest.json" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "v${version} — Vue Module Graph Hotfix" \
+            --title "v${version} — Live Rescue: Runtime UI, Full Random and Race Stability" \
             --notes-file "$notes" \
             --verify-tag \
             --prerelease \

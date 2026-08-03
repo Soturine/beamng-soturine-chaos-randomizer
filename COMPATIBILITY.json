@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "modVersion": "0.7.1",
+  "modVersion": "0.7.2",
   "primaryBeamNGTarget": "0.39",
   "minimumBeamNGVersion": "0.39",
   "testedGameVersions": [],
