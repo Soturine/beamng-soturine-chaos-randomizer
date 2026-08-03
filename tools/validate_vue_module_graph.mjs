@@ -6,8 +6,8 @@ import { readFile, readdir, stat } from "node:fs/promises"
 import { parse as parseSfc } from "@vue/compiler-sfc"
 
 const DEFAULT_APP_ROOT = "ui/modules/apps/soturineChaosRandomizer"
-const AUDITED_EXTENSIONS = new Set([".vue", ".js", ".json", ".scss"])
-const PROJECT_EXTENSIONS = new Set([".vue", ".js", ".mjs", ".json", ".scss"])
+const AUDITED_EXTENSIONS = new Set([".vue", ".js", ".json", ".css", ".scss"])
+const PROJECT_EXTENSIONS = new Set([".vue", ".js", ".mjs", ".json", ".css", ".scss"])
 const RUNTIME_ALIASES = new Set([
   "@/bridge",
   "@/services/events",
@@ -89,7 +89,7 @@ async function importsFor(file) {
   const source = await readFile(file, "utf8")
   const extension = path.extname(file)
   if (extension === ".js" || extension === ".mjs") return scriptImports(source)
-  if (extension === ".scss") return styleImports(source)
+  if (extension === ".css" || extension === ".scss") return styleImports(source)
   if (extension !== ".vue") return []
   const parsed = parseSfc(source, { filename: file })
   if (parsed.errors.length) throw new Error(`SFC parse failed: ${file}: ${parsed.errors.join("; ")}`)
@@ -162,6 +162,7 @@ async function validateGraph(appRoot, mode) {
     projectVueImports: 0,
     projectJavaScriptImports: 0,
     projectJsonImports: 0,
+    projectCssImports: 0,
     projectScssImports: 0,
     dynamicImports: 0,
     reexports: 0,
@@ -251,6 +252,7 @@ async function validateGraph(appRoot, mode) {
       if (extension === ".vue") report.projectVueImports += 1
       else if (extension === ".js" || extension === ".mjs") report.projectJavaScriptImports += 1
       else if (extension === ".json") report.projectJsonImports += 1
+      else if (extension === ".css") report.projectCssImports += 1
       else if (extension === ".scss") report.projectScssImports += 1
       const status = await exactPathStatus(appRoot, candidate)
       if (status.caseMismatch) {
@@ -322,6 +324,7 @@ function printReport(report, json) {
   console.log(`Project .vue imports: ${report.projectVueImports}`)
   console.log(`Project JavaScript imports: ${report.projectJavaScriptImports}`)
   console.log(`Project JSON imports: ${report.projectJsonImports}`)
+  console.log(`Project CSS imports: ${report.projectCssImports}`)
   console.log(`Project SCSS imports: ${report.projectScssImports}`)
   console.log(`Dynamic imports: ${report.dynamicImports}`)
   console.log(`Reexports: ${report.reexports}`)

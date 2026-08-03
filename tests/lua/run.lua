@@ -4841,7 +4841,7 @@ tests.v061_compact_ui_contract = function()
   local navigation = read("/ui/modules/apps/soturineChaosRandomizer/components/shell/AppNavigation.vue")
   local garage = read("/ui/modules/apps/soturineChaosRandomizer/components/garage/GaragePanel.vue")
   local race = read("/ui/modules/apps/soturineChaosRandomizer/components/race/RaceStepper.vue")
-  local css = read("/ui/modules/apps/soturineChaosRandomizer/styles/app.scss")
+  local css = read("/ui/modules/apps/soturineChaosRandomizer/styles/app.css")
   local fox = read("/ui/modules/apps/soturineChaosRandomizer/assets/fox-mark.svg")
   for _, key in ipairs({"chaos", "garage", "race", "settings"}) do
     truthy(navigation:find('"' .. key .. '"', 1, true), key)

@@ -39,9 +39,12 @@ class VueModuleGraphTests(unittest.TestCase):
         self.assertEqual(report["importsScanned"], 193)
         self.assertEqual(
             report["projectVueImports"] + report["projectJavaScriptImports"]
-            + report["projectJsonImports"] + report["projectScssImports"],
+            + report["projectJsonImports"] + report["projectCssImports"]
+            + report["projectScssImports"],
             report["projectImports"],
         )
+        self.assertEqual(report["projectCssImports"], 1)
+        self.assertEqual(report["projectScssImports"], 0)
         self.assertEqual(report["directoryImports"], 0)
         self.assertEqual(report["missingModules"], 0)
         self.assertEqual(report["caseMismatches"], 0)

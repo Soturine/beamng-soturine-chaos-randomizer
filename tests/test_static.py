@@ -20,7 +20,7 @@ def frontend_source() -> str:
     return "\n".join(
         path.read_text(encoding="utf-8")
         for path in sorted(APP.rglob("*"))
-        if path.is_file() and path.suffix.lower() in {".js", ".scss", ".vue"}
+        if path.is_file() and path.suffix.lower() in {".css", ".js", ".scss", ".vue"}
     )
 
 
@@ -218,7 +218,7 @@ class StaticValidationTests(unittest.TestCase):
 
     def test_accessibility_and_controller_navigation_contracts(self) -> None:
         source = frontend_source()
-        css = (APP / "styles/app.scss").read_text(encoding="utf-8")
+        css = (APP / "styles/app.css").read_text(encoding="utf-8")
         for fragment in (
             'role="tablist"', 'role="tab"', 'role="progressbar"', 'aria-live="polite"',
             "v-bng-scoped-nav", "v-bng-on-ui-nav:back", "bng-nav-item", "autofocus",
@@ -265,13 +265,15 @@ class StaticValidationTests(unittest.TestCase):
     def test_packaging_source_enforces_native_vue_topology(self) -> None:
         package_source = (ROOT / "tools/package_mod.py").read_text(encoding="utf-8")
         validation = (ROOT / "tools/validate_package.py").read_text(encoding="utf-8")
-        for suffix in ('".vue"', '".scss"', '".mjs"'):
+        for suffix in ('".vue"', '".css"', '".scss"', '".mjs"'):
             self.assertIn(suffix, package_source)
         for required in ("app.vue", "en-US.json", "pt-BR.json", "uiProtocol.lua"):
             self.assertIn(required, validation)
         self.assertIn("FORBIDDEN_RUNTIME_PATHS", validation)
         self.assertIn("validate_extracted_vue_module_graph", validation)
+        self.assertIn("validate_extracted_vue_style_graph", validation)
         self.assertTrue((ROOT / "tools/validate_vue_module_graph.mjs").is_file())
+        self.assertTrue((ROOT / "tools/validate_vue_style_graph.mjs").is_file())
         self.assertIn('GENERATOR_VERSION = 8', package_source)
 
     def test_workflow_yaml_parses_and_uses_pinned_actions(self) -> None:
@@ -290,10 +292,14 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("npm ci --ignore-scripts", ci)
         self.assertIn("npm run validate:sfc", ci)
         self.assertIn("npm run validate:graph", ci)
+        self.assertIn("npm run validate:styles", ci)
         self.assertIn("--module-graph-only", ci)
+        self.assertIn("--style-graph-only", ci)
         package_workflow = (ROOT / ".github/workflows/package.yml").read_text(encoding="utf-8")
         self.assertIn("npm run validate:graph", package_workflow)
+        self.assertIn("npm run validate:styles", package_workflow)
         self.assertIn("--module-graph-only", package_workflow)
+        self.assertIn("--style-graph-only", package_workflow)
         self.assertIn("npm run test:ui", beta)
 
     def test_p0_and_p1_contract_modules_remain_packaged(self) -> None:

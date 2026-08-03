@@ -62,14 +62,20 @@ jobs:
       - name: Validate source Runtime UI module graph
         run: npm run validate:graph
 
+      - name: Validate source Runtime UI style graph
+        run: npm run validate:styles
+
       - name: Build deterministic ZIP for graph validation
         run: python -c "from pathlib import Path; from tools.package_mod import package; package(Path('dist'))"
 
       - name: Validate extracted ZIP Runtime UI module graph
         run: python tools/validate_package.py --module-graph-only
 
+      - name: Validate extracted ZIP Runtime UI style graph
+        run: python tools/validate_package.py --style-graph-only
+
       - name: Run Python tests
-        run: python -m unittest tests.test_architecture tests.test_package tests.test_static tests.test_vue_module_graph -v
+        run: python -m unittest tests.test_architecture tests.test_package tests.test_static tests.test_vue_module_graph tests.test_vue_style_graph -v
 
       - name: Run Lua syntax and regression tests
         run: |

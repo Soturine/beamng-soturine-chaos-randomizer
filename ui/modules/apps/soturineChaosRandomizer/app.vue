@@ -5,6 +5,7 @@ import { onMounted, onUnmounted, provide, watch } from "vue"
 import { lua, useBridge } from "@/bridge"
 import { useEvents } from "@/services/events"
 import { useSettings as useGameSettings } from "@/services/settings"
+import "./styles/app.css"
 import AppShell from "./components/shell/AppShell.vue"
 import { createCommandBridge } from "./services/commandBridge.js"
 import { createStateProtocol } from "./services/stateProtocol.js"
@@ -64,7 +65,3 @@ onUnmounted(() => {
   command.dispose()
 })
 </script>
-
-<style lang="scss">
-@use "./styles/app.scss";
-</style>
