@@ -340,8 +340,8 @@ class StaticValidationTests(unittest.TestCase):
         for row in ("| Executed | 1 |", "| Passed | 0 |", "| Failed | 1 |", "| Pending | 0 |", "| Blocked | 81 |"):
             self.assertIn(row, v070_live)
         v071_live = (ROOT / "docs/testing/v0.7.1/LIVE_TEST_REPORT.md").read_text(encoding="utf-8")
-        self.assertIn("Pending owner validation — not executed", v071_live)
-        for row in ("| Executed | 0 |", "| Passed | 0 |", "| Failed | 0 |", "| Pending | 97 |", "| Blocked | 0 |"):
+        self.assertIn("Runtime UI mounted, but UI and gameplay rescue gates failed", v071_live)
+        for row in ("| Executed | 9 |", "| Passed | 3 |", "| Failed | 6 |", "| Pending | 0 |", "| Blocked | 88 |"):
             self.assertIn(row, v071_live)
         self.assertNotRegex(corpus.lower(), r"fully validated|confirmed compatible|performance proven")
 

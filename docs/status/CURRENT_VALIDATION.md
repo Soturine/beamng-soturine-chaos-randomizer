@@ -1,23 +1,21 @@
 # Current validation
 
-Current source: **0.7.1 Experimental prerelease** on `main`.
+Current published source: **0.7.1 Experimental prerelease** on `main`.
 
-Automated status: **Passed**. The final hotfix run records 50 Python test
-methods, 398 unique Lua cases, 9,217 Lua assertions, 664 Lua requirement
-mappings, 779 JavaScript/Vue assertions, compilation of 55 Vue SFC files, and
-validation of 193 module references. The source tree and extracted release ZIP
-both have zero directory imports, missing modules, case mismatches,
-initialization cycles, and named-export errors.
+Automated v0.7.1 status: **Passed** for its source/module-graph scope. That run
+recorded 50 Python methods, 398 unique Lua cases, 9,217 Lua assertions, 664 Lua
+requirement mappings, 779 JavaScript/Vue assertions, 55 SFC compilations, and
+193 module references with zero graph errors.
 
-The first v0.7.0 live attempt failed before the HUD mounted:
-**1 Executed / 0 Passed / 1 Failed / 0 Pending / 81 Blocked**. Status:
-**Failed — Vue module graph could not load**. Observed error:
-`404 /ui/modules/apps/soturineChaosRandomizer/stores`.
+Live history supersedes the initial pending reports:
 
-v0.7.1 live BeamNG status: **Pending owner validation — not executed**.
-The initial report is **0 Executed / 0 Passed / 0 Failed / 97 Pending /
-0 Blocked**. Automated graph validation does not replace a live Runtime UI
-mount in BeamNG 0.39.
+- v0.6.9: visual reference passed; Full Random, Race generation, and stability
+  failed. Random Car and Scramble were not executed separately.
+- v0.7.0: 1 Executed / 0 Passed / 1 Failed / 0 Pending / 81 Blocked; failed on
+  `404 /ui/modules/apps/soturineChaosRandomizer/stores` before mount.
+- v0.7.1: 9 Executed / 3 Passed / 6 Failed / 0 Pending / 88 Blocked. Vue mount,
+  module graph, and automatic pt-BR passed; CSS/runtime styling, Settings
+  usability, UI latency, Full Random, Race Generate Cars, and stability failed.
 
-See [the v0.7.1 evidence index](../testing/v0.7.1/README.md) and the
-[historical v0.7.0 live report](../testing/v0.7.0/LIVE_TEST_REPORT.md).
+v0.7.2 is the rescue work in progress. No v0.7.2 live result exists yet, and
+automated evidence must not be presented as BeamNG AppHost/gameplay evidence.

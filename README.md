@@ -5,12 +5,12 @@ deterministic vehicle chaos. It can load a random vehicle, scramble the active
 vehicle, run the complete bounded pipeline, save and restore Vehicle DNA, and
 orchestrate Race placement and AI workflows.
 
-Current release: **0.7.1**, an experimental prerelease and focused native
-Runtime UI Vue module-graph hotfix. The minimum supported game version is
-**BeamNG.drive 0.39**. v0.7.0 failed its first live case with
-`404 /ui/modules/apps/soturineChaosRandomizer/stores`; 81 later cases were
-blocked. v0.7.1 passes source and extracted-ZIP graph validation, while its
-live AppHost mount remains Pending owner validation.
+Current published release: **0.7.1**, an experimental prerelease. It fixed the
+v0.7.0 module-graph 404 and mounted in BeamNG 0.39.2.1, but live testing then
+failed Runtime styling, usability, UI latency, Full Random, Race generation,
+ownership/cleanup, and stability. v0.6.9 is the historical visual reference,
+not a functionally approved fallback. v0.7.2 is the rescue candidate in
+development. Automated tests never substitute for live BeamNG evidence.
 
 ## Install or upgrade
 

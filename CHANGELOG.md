@@ -5,8 +5,9 @@ All notable changes are documented here using [Keep a Changelog](https://keepach
 ## [0.7.1] - 2026-08-02
 
 Focused P2 hotfix for the native Runtime UI Vue module graph. Automated source
-and extracted-ZIP graph validation passes; live BeamNG 0.39 AppHost validation
-remains Pending owner validation.
+and extracted-ZIP graph validation passed. Subsequent owner validation proved
+that Vue mounted and pt-BR loaded, but Runtime styling, usability, UI latency,
+Full Random, Race generation, ownership/cleanup, and stability failed.
 
 ### Fixed
 

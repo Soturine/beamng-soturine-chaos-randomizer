@@ -2,7 +2,8 @@
 
 This directory indexes the P1 performance, profiling, and efficiency evidence
 for the Experimental prerelease. Automated validation is Passed. Live BeamNG
-0.39 validation is **Pending owner validation** and was not executed here.
+The later owner session established v0.6.9 as an approved visual reference but
+a failed gameplay/stability build. See the live report for the bounded evidence.
 
 - [Automated test report](AUTOMATED_TEST_REPORT.md)
 - [Synthetic performance report](PERFORMANCE_REPORT.md)
@@ -14,4 +15,3 @@ for the Experimental prerelease. Automated validation is Passed. Live BeamNG
 
 Synthetic Lua microbenchmarks are not FPS, physics, rendering, RAM/VRAM, or
 live gameplay evidence. Automated results never change a live row from Pending.
-

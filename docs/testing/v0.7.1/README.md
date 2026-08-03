@@ -12,5 +12,7 @@ observed in v0.7.0. It does not broaden the feature scope.
 
 Automated source and extracted-ZIP validation: **Passed**.
 
-Live BeamNG 0.39 validation: **Pending owner validation — not executed**.
-Initial result: **0 Executed / 0 Passed / 0 Failed / 97 Pending / 0 Blocked**.
+Live BeamNG 0.39.2.1 validation: **Failed**. Final bounded result:
+**9 Executed / 3 Passed / 6 Failed / 0 Pending / 88 Blocked**. The module graph
+and mount passed, but Runtime CSS, usability, latency, Full Random, Race, and
+stability failed.
