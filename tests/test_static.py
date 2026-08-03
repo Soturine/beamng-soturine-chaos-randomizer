@@ -314,7 +314,7 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("uiPublisher", main)
         self.assertIn("performanceMetrics", main)
 
-    def test_required_v070_documentation_exists_and_is_honest(self) -> None:
+    def test_required_vue_release_documentation_exists_and_is_honest(self) -> None:
         required = (
             "README.md", "CHANGELOG.md", "ROADMAP.md", "docs/ARCHITECTURE.md",
             "docs/UI_VUE_ARCHITECTURE.md", "docs/UI_MIGRATION_0.7.0.md", "docs/UI_PROTOCOL.md",
@@ -326,12 +326,23 @@ class StaticValidationTests(unittest.TestCase):
             "docs/testing/v0.7.0/I18N_REPORT.md", "docs/testing/v0.7.0/PERFORMANCE_REPORT.md",
             "docs/testing/v0.7.0/REQUIREMENTS_MATRIX.md", "docs/testing/v0.7.0/RELEASE_CHECKLIST.md",
             "docs/RELEASE NOTES/RELEASE_NOTES_0.7.0.md",
+            "docs/testing/v0.7.1/README.md", "docs/testing/v0.7.1/AUTOMATED_TEST_REPORT.md",
+            "docs/testing/v0.7.1/MODULE_GRAPH_REPORT.md", "docs/testing/v0.7.1/LIVE_TEST_PLAN.md",
+            "docs/testing/v0.7.1/LIVE_TEST_REPORT.md", "docs/testing/v0.7.1/REQUIREMENTS_MATRIX.md",
+            "docs/testing/v0.7.1/RELEASE_CHECKLIST.md", "docs/RELEASE NOTES/RELEASE_NOTES_0.7.1.md",
         )
         for relative in required:
             with self.subTest(path=relative):
                 self.assertTrue((ROOT / relative).is_file())
         corpus = "\n".join((ROOT / path).read_text(encoding="utf-8") for path in required if (ROOT / path).suffix == ".md")
-        self.assertIn("Live BeamNG 0.39 validation: Pending owner validation", corpus)
+        v070_live = (ROOT / "docs/testing/v0.7.0/LIVE_TEST_REPORT.md").read_text(encoding="utf-8")
+        self.assertIn("Failed — Vue module graph could not load", v070_live)
+        for row in ("| Executed | 1 |", "| Passed | 0 |", "| Failed | 1 |", "| Pending | 0 |", "| Blocked | 81 |"):
+            self.assertIn(row, v070_live)
+        v071_live = (ROOT / "docs/testing/v0.7.1/LIVE_TEST_REPORT.md").read_text(encoding="utf-8")
+        self.assertIn("Pending owner validation — not executed", v071_live)
+        for row in ("| Executed | 0 |", "| Passed | 0 |", "| Failed | 0 |", "| Pending | 97 |", "| Blocked | 0 |"):
+            self.assertIn(row, v071_live)
         self.assertNotRegex(corpus.lower(), r"fully validated|confirmed compatible|performance proven")
 
     def test_repository_and_package_have_no_machine_paths_or_credentials(self) -> None:

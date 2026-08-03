@@ -63,4 +63,5 @@ button click.
 - Operation and target generations remain backend authority for stale callback
   rejection.
 
-Live BeamNG 0.39 validation: Pending owner validation
+The v0.7.1 source and extracted-ZIP protocol imports pass graph validation.
+Live BeamNG 0.39 execution remains Pending owner validation.

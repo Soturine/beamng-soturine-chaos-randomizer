@@ -15,7 +15,8 @@ keys, 100 layout/lifecycle cycles, Garage pagination contracts, and Race
 memory, or live UI latency. The exact v0.6.9-to-v0.7.0 comparison remains in the
 v0.7.0 live plan.
 
-Live BeamNG 0.39 validation: Pending owner validation
+v0.7.0 live performance execution was blocked before mount. v0.7.1 live
+validation remains Pending owner validation.
 
 v0.6.9 implemented the P1 performance layer without changing generator version
 6 or the Chaos/Garage/Race feature contracts.

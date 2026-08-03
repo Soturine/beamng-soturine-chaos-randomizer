@@ -1,7 +1,7 @@
 ﻿# v0.7.0 Angular to Vue feature-parity matrix
 
 Status: **100% of inventoried rows have an automated Vue destination**. Live
-visual/gameplay validation remains Pending owner validation.
+visual/gameplay validation was blocked by the module graph failure.
 
 The historical Angular source of record is preserved by the v0.6.9 tag and was
 inventoried before implementation. Backend behavior remains owned by
@@ -77,4 +77,4 @@ owns geometry, so the Vue UI records host/user sizes and uses bounded responsive
 scrolling instead of invoking the legacy private resize event. Visual proof at
 all requested sizes remains in the live plan.
 
-Live BeamNG 0.39 validation: Pending owner validation
+Live BeamNG 0.39 validation: Failed before mount; parity execution blocked

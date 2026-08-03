@@ -71,4 +71,5 @@ BeamNG loads source SFCs and modules directly, so no runtime bundle is built.
 Pinned Vue compiler and Sass packages are development-only validation tools.
 `node_modules` and source maps are forbidden in the ZIP.
 
-Live BeamNG 0.39 validation: Pending owner validation
+The v0.7.1 source and extracted-ZIP module graphs pass. Live BeamNG 0.39
+AppHost mounting remains Pending owner validation.

@@ -69,4 +69,5 @@ Official references:
 - <https://documentation.beamng.com/modding/ui/app_creation/>
 - <https://documentation.beamng.com/modding/programming/languages/>
 
-Live BeamNG 0.39 validation: Pending owner validation
+Historical outcome: v0.7.0 failed before mount on a directory-style import;
+v0.7.1 contains the module graph hotfix and remains Pending owner validation.

@@ -12,9 +12,10 @@
 - [x] Visual screenshot tests are honestly recorded as live Pending.
 - [x] ZIP, SHA-256, and manifest generated deterministically.
 - [x] Release is experimental/prerelease and live report has no fabricated execution.
-- [ ] Owner executes the 82-case live plan against the downloaded asset.
+- [x] Owner attempted the first case against the downloaded asset; it failed
+  before mount and the remaining 81 cases were blocked.
 
 Publication evidence, tag identity, remote asset download, size, checksums, and
 file count are recorded after upload in the final delivery report.
 
-Live BeamNG 0.39 validation: Pending owner validation
+Live BeamNG 0.39 validation: Failed before mount; 1 case failed and 81 blocked

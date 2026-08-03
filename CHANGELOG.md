@@ -2,10 +2,35 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-08-02
+
+Focused P2 hotfix for the native Runtime UI Vue module graph. Automated source
+and extracted-ZIP graph validation passes; live BeamNG 0.39 AppHost validation
+remains Pending owner validation.
+
+### Fixed
+
+- Replace directory-style store imports with explicit `stores/index.js` paths.
+- Add explicit, case-correct extensions to every project-local Vue,
+  JavaScript, JSON, and SCSS import while preserving host runtime aliases.
+- Prevent recurrence with a cross-platform, case-sensitive module graph
+  validator integrated into CI, packaging, and prerelease gates.
+
+### Validation
+
+- Validate 193 references with zero directory imports, missing modules, case
+  mismatches, initialization cycles, or named-export errors in source and ZIP.
+- Preserve the v0.7.0 live outcome as 1 Executed / 0 Passed / 1 Failed /
+  0 Pending / 81 Blocked after the HUD failed to mount on a `/stores` 404.
+- Define 97 owner-executed v0.7.1 cases. Mounted Vue component tests are not
+  implemented, and automated cleanup cycles are not described as AppHost runs.
+
 ## [0.7.0] - 2026-08-02
 
-Experimental P2 architecture prerelease. Automated validation passes; live
-BeamNG 0.39 validation remains Pending owner validation.
+Experimental P2 architecture prerelease. Automated validation passed, but its
+first live case failed before the HUD mounted with
+`404 /ui/modules/apps/soturineChaosRandomizer/stores`; the other 81 cases were
+blocked.
 
 ### Added
 

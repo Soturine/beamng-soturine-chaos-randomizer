@@ -41,12 +41,12 @@
 | R37 | Checksum and manifest | Package/release validation | Automated |
 | R38 | No node_modules/cache/maps/local paths in ZIP | Package gate | Automated |
 | R39 | Required documentation | Static documentation test | Automated |
-| R40 | Visual screenshots | Live plan V/D/C/G/R/L cases | Pending |
-| R41 | Real controller and CEF focus | Live plan I cases | Pending |
-| R42 | Live performance comparison | Live plan P cases | Pending |
+| R40 | Visual screenshots | Live plan V/D/C/G/R/L cases | Blocked |
+| R41 | Real controller and CEF focus | Live plan I cases | Blocked |
+| R42 | Live performance comparison | Live plan P cases | Blocked |
 | R43 | Post-v0.7.0 audit plan only | POST_V070_AUDIT_PLAN | Automated |
 
 Automated means the stated source/harness evidence passed; it does not mean the
 corresponding live BeamNG behavior was executed.
 
-Live BeamNG 0.39 validation: Pending owner validation
+Live BeamNG 0.39 validation: Failed before mount; 1 case failed and 81 blocked

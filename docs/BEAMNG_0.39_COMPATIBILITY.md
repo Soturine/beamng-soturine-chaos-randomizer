@@ -1,15 +1,16 @@
-# BeamNG.drive 0.39 compatibility — v0.7.0
+# BeamNG.drive 0.39 compatibility — v0.7.1
 
 Status: **P0 and P1 automated contracts preserved; P2 native Vue implemented;
-live owner validation Pending**.
+module graph hotfixed; live owner validation Pending**.
 
-Live BeamNG 0.39 validation: Pending owner validation
+v0.7.0 failed before the HUD mounted. v0.7.1 live BeamNG 0.39 validation:
+Pending owner validation.
 
 ## Declared compatibility
 
 `COMPATIBILITY.json` schema 2 is the source for packaging and documentation:
 
-- mod version `0.7.0`;
+- mod version `0.7.1`;
 - primary target `0.39`;
 - minimum version `0.39`;
 - native runtime `native-runtime-ui-vue`;

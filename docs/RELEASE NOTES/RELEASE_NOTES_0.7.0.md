@@ -39,11 +39,13 @@ stores, 55-SFC compilation, parity fixtures, i18n, accessibility, responsive
 layout, lifecycle cycles, security, deterministic packaging, checksum, and
 manifest contracts.
 
-Live BeamNG validation: Pending owner validation
+Live BeamNG validation: Failed — Vue module graph could not load
 
-Live BeamNG 0.39 validation: Pending owner validation
+Live BeamNG 0.39 validation: **1 Executed / 0 Passed / 1 Failed / 0 Pending /
+81 Blocked**. The HUD failed before mounting with
+`404 /ui/modules/apps/soturineChaosRandomizer/stores`.
 
-Real screenshots, game rendering, physics, controller hardware, Garage 500,
+Consequently, screenshots, game rendering, physics, controller hardware, Garage 500,
 Race 12, memory, and v0.6.9 performance comparison were not executed by the
 automated release run.
 

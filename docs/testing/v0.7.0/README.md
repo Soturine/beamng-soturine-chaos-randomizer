@@ -18,4 +18,5 @@ SFC compilation, static component contracts, deterministic packaging, and
 regression fixtures. It does not execute the mod in a game world or render CEF
 screenshots.
 
-Live BeamNG 0.39 validation: Pending owner validation
+Live BeamNG 0.39 validation: **Failed — Vue module graph could not load**.
+Final result: **1 Executed / 0 Passed / 1 Failed / 0 Pending / 81 Blocked**.

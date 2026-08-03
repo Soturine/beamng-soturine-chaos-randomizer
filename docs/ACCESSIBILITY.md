@@ -28,4 +28,5 @@ geometry but no documented programmatic resize service equivalent to the old
 Angular event. The UI therefore uses bounded scrolling and responsive content,
 and never steals focus or forces an undocumented resize during navigation.
 
-Live BeamNG 0.39 validation: Pending owner validation
+v0.7.0 live accessibility execution was blocked before mount. v0.7.1 live
+validation remains Pending owner validation.

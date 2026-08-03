@@ -1,6 +1,6 @@
 # v0.7.0 accessibility report
 
-Automated status: **Passed**. Live hardware/CEF status: **Pending**.
+Automated status: **Passed**. Live hardware/CEF status: **Blocked by module graph failure**.
 
 Covered automatically:
 
@@ -14,4 +14,4 @@ Covered automatically:
 Pending owner cases include Xbox, DualSense, CEF screen-reader semantics, focus
 under real overlays, HDR/high contrast, safe areas, and every visual scale.
 
-Live BeamNG 0.39 validation: Pending owner validation
+Live BeamNG 0.39 validation: Failed before mount; accessibility cases blocked

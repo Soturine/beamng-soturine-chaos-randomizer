@@ -26,4 +26,5 @@ Real screenshots are not available in this headless repository gate. DOM/static
 component checks are not described as screenshot tests. Visual regression
 cases remain Pending in the live plan.
 
-Live BeamNG 0.39 validation: Pending owner validation
+Live BeamNG 0.39 validation later failed before mount with the `/stores` 404;
+1 case failed and 81 were blocked. Automated success did not prove AppHost loading.

@@ -1,7 +1,9 @@
 # v0.7.0 live BeamNG test plan
 
-Status: **Pending owner validation**. Execute only against the downloaded
-v0.7.0 release ZIP and attach logs/screenshots/measurements to the report.
+Status: **Stopped after first-case failure**. The downloaded v0.7.0 release ZIP
+returned the `/stores` 404 before the HUD mounted. One case failed and the
+remaining 81 were blocked; this plan is retained to define inherited v0.7.1
+regression coverage.
 
 ## Environment
 

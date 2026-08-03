@@ -1,5 +1,13 @@
 # Troubleshooting
 
+## The Runtime UI reports `404 .../soturineChaosRandomizer/stores`
+
+That URL identifies the v0.7.0 directory-import defect. Remove every v0.7.0 or
+duplicate Randomizer ZIP, install only the v0.7.1 release ZIP, clear the BeamNG
+UI cache, reload the UI, and add the HUD app again. If v0.7.1 still requests the
+extensionless `/stores` URL, record the active mod list and relevant
+`beamng.log` lines; do not count the HUD as mounted.
+
 ## An operation progresses only after pause or remains Busy
 
 The current lifecycle keeps target polling, housekeeping, bounded read retry and
