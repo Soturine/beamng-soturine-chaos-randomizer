@@ -102,7 +102,7 @@ class StaticValidationTests(unittest.TestCase):
         compatibility = json.loads((ROOT / "COMPATIBILITY.json").read_text(encoding="utf-8"))
         main = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/main.lua").read_text(encoding="utf-8")
         notes = ROOT / "docs/RELEASE NOTES" / f"RELEASE_NOTES_{version}.md"
-        self.assertEqual(version, "0.7.0")
+        self.assertEqual(version, "0.7.1")
         self.assertEqual(app["version"], version)
         self.assertEqual(package["version"], version)
         self.assertEqual(compatibility["modVersion"], version)

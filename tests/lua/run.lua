@@ -5212,7 +5212,7 @@ tests.v070_native_vue_runtime_is_single_and_legacy_angular_is_absent = function(
   local manifest = read("/ui/modules/apps/soturineChaosRandomizer/app.json")
   local app = read("/ui/modules/apps/soturineChaosRandomizer/app.vue")
   truthy(manifest:find('"vue": true', 1, true))
-  truthy(manifest:find('"version": "0.7.0"', 1, true))
+  truthy(manifest:find('"version": "0.7.1"', 1, true))
   truthy(app:find('useEvents()', 1, true))
   truthy(app:find('SoturineChaosRandomizerState', 1, true))
   truthy(not io.open(root .. "/ui/modules/apps/soturineChaosRandomizer/app.js", "rb"))
