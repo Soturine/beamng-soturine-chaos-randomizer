@@ -90,6 +90,7 @@ local function begin(state, options)
     rollbackReason = nil,
     rollbackApplied = false,
     terminalState = nil,
+    bindingState = "unbound",
     expectedModel = options.expectedModel,
     expectedConfig = options.expectedConfig,
     seed = options.seed,
@@ -97,6 +98,13 @@ local function begin(state, options)
     catalogQuarantine = {},
     callbackDisposition = "pending",
     cleanupResult = {removed = {}, failed = {}, skipped = {}},
+    worldVehicleIdsBefore = util.deepCopy(options.worldVehicleIdsBefore or {}),
+    worldVehicleIdsAfter = {},
+    worldVehicleCountBefore = #(options.worldVehicleIdsBefore or {}),
+    worldVehicleCountAfter = nil,
+    worldVehicleDelta = nil,
+    staleCallbackCount = 0,
+    staleCallbackSideEffects = 0,
     createdAt = tonumber(options.createdAt) or 0,
   }
   domainState.active = context
@@ -127,8 +135,14 @@ local function validateCallback(state, token)
   local context = active(state, token.domain)
   if not context or context.operationId ~= token.operationId
     or context.generation ~= token.generation
-  then return false, "ignored_stale_callback" end
-  if TERMINAL[context.terminalState] then return false, "ignored_stale_callback" end
+  then
+    if context then context.staleCallbackCount = (context.staleCallbackCount or 0) + 1 end
+    return false, "ignored_stale_callback"
+  end
+  if TERMINAL[context.terminalState] then
+    context.staleCallbackCount = (context.staleCallbackCount or 0) + 1
+    return false, "ignored_stale_callback"
+  end
   if token.expectedSlot ~= nil and context.expectedSlot ~= nil
     and tostring(token.expectedSlot) ~= tostring(context.expectedSlot)
   then return false, "callback_slot_mismatch" end
@@ -227,6 +241,7 @@ local function registerCandidate(state, token, vehicleId, metadata)
   })
   if not owned then return false, result end
   context.callbackDisposition = "candidate_recorded"
+  if context.bindingState == "unbound" then context.bindingState = "candidate_observed" end
   return true, context.candidateById[key]
 end
 
@@ -250,6 +265,9 @@ local function acceptVehicle(state, context, vehicleId, role, playerVehicleIdAft
   local key, numeric = vehicleKey(vehicleId)
   if not key then return false, "accepted_vehicle_id_invalid" end
   role = role or (context.domain == "race" and "race_competitor" or "player_result")
+  if context.acceptedVehicleId ~= nil and context.acceptedVehicleId ~= numeric then
+    return false, "accepted_vehicle_cardinality_violation"
+  end
   local owned, entry = ownVehicle(state, numeric, {
     domain = context.domain, operationId = context.operationId, generation = context.generation,
     role = role, managed = context.domain == "race" or numeric ~= tonumber(context.sourceVehicleId),
@@ -259,6 +277,7 @@ local function acceptVehicle(state, context, vehicleId, role, playerVehicleIdAft
   context.acceptedVehicleId = numeric
   context.concreteVehicleId = numeric
   context.playerVehicleIdAfter = tonumber(playerVehicleIdAfter) or numeric
+  context.bindingState = "accepted"
   entry.accepted = true
   return true, entry
 end
@@ -380,6 +399,7 @@ local function terminal(state, context, terminalState, options)
     return false, "operation_already_terminal"
   end
   context.terminalState = terminalState
+  context.bindingState = "terminal"
   context.status = terminalState
   context.phase = "terminal"
   context.endedAt = tonumber(options.endedAt) or context.createdAt
@@ -387,6 +407,11 @@ local function terminal(state, context, terminalState, options)
   context.restoredVehicleId = tonumber(options.restoredVehicleId) or context.restoredVehicleId
   context.sourceStillExists = options.sourceStillExists == true
   context.playerVehicleIdAfter = tonumber(options.playerVehicleIdAfter) or context.playerVehicleIdAfter
+  if type(options.worldVehicleIdsAfter) == "table" then
+    context.worldVehicleIdsAfter = util.deepCopy(options.worldVehicleIdsAfter)
+    context.worldVehicleCountAfter = #options.worldVehicleIdsAfter
+    context.worldVehicleDelta = context.worldVehicleCountAfter - context.worldVehicleCountBefore
+  end
   context.pendingCallbacks = {}
   context.pendingCallbackCount = 0
   context.pendingTimers = 0
@@ -416,6 +441,16 @@ local function rollback(context, restoredVehicleId, reason)
   context.rollbackReason = reason
   context.restoredVehicleId = tonumber(restoredVehicleId)
   return true, "rollback_applied", context.restoredVehicleId
+end
+
+local function recordWorldAfter(context, worldVehicleIds)
+  if type(context) ~= "table" or type(worldVehicleIds) ~= "table" then
+    return false, "world_vehicle_snapshot_invalid"
+  end
+  context.worldVehicleIdsAfter = util.deepCopy(worldVehicleIds)
+  context.worldVehicleCountAfter = #worldVehicleIds
+  context.worldVehicleDelta = context.worldVehicleCountAfter - (context.worldVehicleCountBefore or 0)
+  return true, context.worldVehicleDelta
 end
 
 local function quarantine(state, context, modelKey, configKey, reason, now)
@@ -468,6 +503,7 @@ local function summary(state)
       action = context and context.action or nil,
       phase = context and context.phase or "idle",
       terminalState = context and context.terminalState or nil,
+      bindingState = context and context.bindingState or "unbound",
       sourceVehicleId = context and context.sourceVehicleId or nil,
       acceptedVehicleId = context and context.acceptedVehicleId or nil,
       candidateVehicleIds = context and util.deepCopy(context.candidateVehicleIds) or {},
@@ -475,6 +511,11 @@ local function summary(state)
       orphanVehicleIds = context and util.deepCopy(context.orphanVehicleIds or {}) or {},
       pendingCallbacks = context and context.pendingCallbackCount or 0,
       pendingTimers = context and context.pendingTimers or 0,
+      worldVehicleCountBefore = context and context.worldVehicleCountBefore or 0,
+      worldVehicleCountAfter = context and context.worldVehicleCountAfter or nil,
+      worldVehicleDelta = context and context.worldVehicleDelta or nil,
+      staleCallbackCount = context and context.staleCallbackCount or 0,
+      staleCallbackSideEffects = context and context.staleCallbackSideEffects or 0,
       quarantineCount = countEntries(domainState.sessionQuarantine),
     }
   end
@@ -508,6 +549,7 @@ M.recordRemoval = recordRemoval
 M.reap = reap
 M.terminal = terminal
 M.rollback = rollback
+M.recordWorldAfter = recordWorldAfter
 M.quarantine = quarantine
 M.isQuarantined = isQuarantined
 M.clearQuarantine = clearQuarantine

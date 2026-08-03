@@ -563,6 +563,62 @@ tests.adapter_passes_exact_replacement_target = function()
   equal(result.requestedTargetVehicleId, 42)
 end
 
+tests.v072_adapter_mutates_background_vehicle_without_player_staging = function()
+  local originalBe = be
+  local originalGetObjectByID = getObjectByID
+  local originalManager = core_vehicle_manager
+  local originalParts = core_vehicle_partmgmt
+  local playerId, enterCalls = 1, 0
+  local target = {
+    getID = function() return 42 end,
+    getJBeamFilename = function() return "race_target" end,
+  }
+  local config = {
+    partConfigFilename = "/vehicles/race_target/base.pc",
+    partsTree = {chosenPartName = "root", children = {}},
+    vars = {boost = 1},
+    paints = {{baseColor = {0, 0, 0, 1}}},
+  }
+  be = {
+    getPlayerVehicleID = function() return playerId end,
+    enterVehicle = function() enterCalls = enterCalls + 1 end,
+  }
+  getObjectByID = function(id) if id == 42 then return target end end
+  core_vehicle_manager = {
+    getVehicleData = function(id)
+      if id == 42 then return {config = config, vdata = {variables = {}}} end
+    end,
+  }
+  core_vehicle_partmgmt = {
+    setPartsTreeConfig = function() error("player parts API must not be used") end,
+    setConfigVars = function() error("player tuning API must not be used") end,
+    setConfigPaints = function() error("player paint API must not be used") end,
+    setConfigOfVehicle = function(vehicle, patch)
+      equal(vehicle, target)
+      for key, value in pairs(patch) do config[key] = util.deepCopy(value) end
+      return nil
+    end,
+  }
+  local parts = {chosenPartName = "background", children = {}}
+  truthy(adapter.applyPartsTree(parts, 42, true))
+  truthy(adapter.applyTuning({boost = 2}, 42, true))
+  local paintOk, paintResult = adapter.applyPaints({{baseColor = {1, 0, 0, 1}}}, 42, true)
+  truthy(paintOk); truthy(paintResult.verified)
+  local observedOk, observed = adapter.getVerificationState(42, true)
+  truthy(observedOk)
+  equal(observed.vehicleId, 42)
+  equal(observed.targetRole, "background_owned")
+  equal(observed.playerIndex, nil)
+  equal(config.partsTree.chosenPartName, "background")
+  equal(config.vars.boost, 2)
+  equal(playerId, 1)
+  equal(enterCalls, 0)
+  be = originalBe
+  getObjectByID = originalGetObjectByID
+  core_vehicle_manager = originalManager
+  core_vehicle_partmgmt = originalParts
+end
+
 tests.v062_adapter_reads_one_id_specific_target_snapshot = function()
   local originalBe = be
   local originalGetObjectByID = getObjectByID
@@ -5754,6 +5810,152 @@ tests.v067_race_participation_rng_and_state_machine = function()
   equal(spectator.generationState, "cancelled")
 end
 
+tests.v072_race_slots_are_independent_at_one_four_eight_and_twelve = function()
+  for _, count in ipairs({1, 4, 8, 12}) do
+    local lineup = assert(raceManager.create({
+      count = count, advancedAllowOne = count == 1,
+      episodeSeed = "v072-scale-" .. tostring(count),
+      acceptMetadataUncertain = true,
+    }))
+    local registry = managedVehicleRegistry.create(16)
+    local vehicleIds, operationSeeds = {}, {}
+    for index = 1, count do
+      local competitor = assert(raceManager.nextCompetitor(lineup))
+      equal(competitor.index, index)
+      local operationSeed = assert(raceManager.domainSeed(lineup, competitor, "operation", 1))
+      truthy(not operationSeeds[operationSeed]); operationSeeds[operationSeed] = true
+      local vehicleId = count * 100 + index
+      truthy(not vehicleIds[vehicleId]); vehicleIds[vehicleId] = true
+      local dna = sampleDNA({id = "v072-dna-" .. tostring(count) .. "-" .. tostring(index)})
+      truthy(raceManager.record(lineup, index, {
+        success = true, message = "ready", details = {
+          model = dna.final.modelKey, configuration = "base_" .. tostring(index),
+          lifecycleAcceptance = {
+            finalValidationPassed = true, busy = false, pendingWrites = 0,
+            pendingTimers = 0, pendingCallbacks = 0,
+          },
+          verifiedTraits = {sourceKind = "official", vehicleClass = "Car"},
+        },
+      }, dna, competitor.targetGeneration))
+      local entry = assert(managedVehicleRegistry.register(registry, vehicleId, {
+        competitorId = competitor.id, lineupCompetitorId = competitor.id,
+        modelKey = dna.final.modelKey, targetConfirmed = true, validated = true,
+      }))
+      truthy(managedVehicleRegistry.markReady(registry, entry.handle, entry.targetGeneration, {
+        busy = false, targetConfirmed = true, validated = true,
+      }))
+      competitor.managedHandle = entry.handle
+      competitor.currentVehicleId = vehicleId
+      competitor.spawnState = "spawned_and_retained"
+      competitor.placementState = "staged"
+    end
+    equal(#managedVehicleRegistry.list(registry), count)
+    truthy(lineupSchema.validate(lineup, {allowOne = count == 1}))
+    equal(raceManager.placementAvailability(lineup, registry, false, false).count, count)
+  end
+end
+
+tests.v072_race_failure_retry_and_stale_callbacks_preserve_other_slots = function()
+  local lineup = assert(raceManager.create({
+    count = 4, episodeSeed = "v072-failure", maxAttemptsPerCompetitor = 3,
+    acceptMetadataUncertain = true,
+  }))
+  local first = assert(raceManager.nextCompetitor(lineup))
+  local firstDNA = sampleDNA({id = "v072-first"})
+  truthy(raceManager.record(lineup, 1, {
+    success = true, message = "ready", details = {
+      lifecycleAcceptance = {finalValidationPassed = true, busy = false,
+        pendingWrites = 0, pendingTimers = 0, pendingCallbacks = 0},
+      verifiedTraits = {sourceKind = "official", vehicleClass = "Car"},
+    },
+  }, firstDNA, first.targetGeneration))
+  first.currentVehicleId = 701
+  first.spawnState = "spawned_and_retained"
+  local preservedFirst = util.deepCopy(first)
+
+  local second = assert(raceManager.nextCompetitor(lineup))
+  local staleSnapshot = util.deepCopy(second)
+  local staleOk, staleReason = raceManager.record(
+    lineup, 2, {success = true}, nil, second.targetGeneration + 1
+  )
+  equal(staleOk, false); equal(staleReason, "stale_callback_ignored")
+  truthy(util.deepEqual(second, staleSnapshot))
+  truthy(raceManager.record(lineup, 2, {
+    success = false, message = "slot two failed", details = {},
+  }, nil, second.targetGeneration))
+  equal(second.status, "Failed")
+  truthy(util.deepEqual(first, preservedFirst))
+
+  local seedAttemptOne = raceManager.domainSeed(lineup, second, "operation", 1)
+  truthy(raceManager.resolveFailure(lineup, 2, "retry"))
+  local retried = assert(raceManager.nextCompetitor(lineup))
+  equal(retried.index, 2)
+  local seedAttemptTwo = raceManager.domainSeed(lineup, retried, "operation", 2)
+  truthy(seedAttemptOne ~= seedAttemptTwo)
+  truthy(raceManager.record(lineup, 2, {
+    success = false, message = "slot two failed again", details = {},
+  }, nil, retried.targetGeneration))
+  truthy(raceManager.resolveFailure(lineup, 2, "retry"))
+  local thirdAttempt = assert(raceManager.nextCompetitor(lineup))
+  truthy(raceManager.record(lineup, 2, {
+    success = false, message = "slot two final bounded failure", details = {},
+  }, nil, thirdAttempt.targetGeneration))
+  local retryOk, retryReason = raceManager.resolveFailure(lineup, 2, "retry")
+  equal(retryOk, false); equal(retryReason, "lineup_attempt_limit")
+  truthy(util.deepEqual(first, preservedFirst))
+end
+
+tests.v072_transaction_binding_and_cardinality_are_explicit = function()
+  local domains = domainOperations.create()
+  local context = assert(domainOperations.begin(domains, {
+    domain = "race", operationId = "race-v072", action = "fullRandom",
+    expectedSlot = 2, worldVehicleIdsBefore = {1, 8},
+  }))
+  equal(context.bindingState, "unbound")
+  local token = domainOperations.callbackToken(context, "spawn", {expectedSlot = 2})
+  truthy(domainOperations.registerCandidate(domains, token, 42, {created = true}))
+  equal(context.bindingState, "candidate_observed")
+  truthy(domainOperations.acceptVehicle(domains, context, 42, "race_competitor", 1))
+  equal(context.bindingState, "accepted")
+  local secondOk, secondReason = domainOperations.acceptVehicle(
+    domains, context, 43, "race_competitor", 1
+  )
+  equal(secondOk, false); equal(secondReason, "accepted_vehicle_cardinality_violation")
+  truthy(domainOperations.terminal(domains, context, "completed", {playerVehicleIdAfter = 1}))
+  truthy(domainOperations.recordWorldAfter(context, {1, 8, 42}))
+  equal(context.worldVehicleDelta, 1)
+  equal(context.bindingState, "terminal")
+  local staleOk, staleReason = domainOperations.registerCandidate(domains, token, 99, {created = true})
+  equal(staleOk, false); equal(staleReason, "ignored_stale_callback")
+  equal(domainOperations.ownership(domains, 99), nil)
+  equal(context.staleCallbackSideEffects, 0)
+
+  local state = operationState.create()
+  assert(operationState.begin(state, "fullRandom", nil, 30))
+  local operation = operationContext.create(state, "token", 0, {
+    domain = "race", action = "fullRandom", expectedSlot = 2,
+    worldVehicleIdsBefore = {1, 8},
+  })
+  operationContext.beginLogicalTarget(operation, state, {modelKey = "car", configKey = "base.pc"}, 0)
+  operationContext.beginWait(operation, state, {modelKey = "car", configKey = "base.pc"}, "spawn", 0)
+  truthy(operationContext.rebindConcreteTarget(operation, state, {
+    vehicleId = 42, modelKey = "car", configKey = "base.pc",
+    targetRole = "background_owned", stable = true, coherentTargetRead = true,
+    observedAt = 1,
+  }, 1))
+  equal(operation.bindingState, "concrete_bound")
+  truthy(operationContext.markAccepted(operation, 42, 1))
+  local marked, markReason = operationContext.markAccepted(operation, 43, 1)
+  equal(marked, false); equal(markReason, "accepted_vehicle_cardinality_violation")
+  truthy(operationContext.markTerminal(operation, "completed", {
+    playerVehicleIdAfter = 1, worldVehicleIdsAfter = {1, 8, 42},
+  }))
+  local summary = operationContext.summary(operation)
+  equal(summary.bindingState, "terminal")
+  equal(summary.worldVehicleDelta, 1)
+  equal(summary.staleCallbackSideEffects, 0)
+end
+
 tests.v067_dynamic_race_formations_and_spacing = function()
   local frame = {
     position = {x = 0, y = 0, z = 5}, forward = {x = 0, y = 1, z = 0},
@@ -6644,6 +6846,27 @@ local v070Required = {
   {"single_runtime_ui_entry", tests.v070_native_vue_runtime_is_single_and_legacy_angular_is_absent},
 }
 
+local v072Required = {
+  {"background_parts_are_id_bound", tests.v072_adapter_mutates_background_vehicle_without_player_staging},
+  {"background_tuning_is_id_bound", tests.v072_adapter_mutates_background_vehicle_without_player_staging},
+  {"background_paint_is_id_bound", tests.v072_adapter_mutates_background_vehicle_without_player_staging},
+  {"player_is_never_race_staging", tests.v072_adapter_mutates_background_vehicle_without_player_staging},
+  {"race_scale_one", tests.v072_race_slots_are_independent_at_one_four_eight_and_twelve},
+  {"race_scale_four", tests.v072_race_slots_are_independent_at_one_four_eight_and_twelve},
+  {"race_scale_eight", tests.v072_race_slots_are_independent_at_one_four_eight_and_twelve},
+  {"race_scale_twelve", tests.v072_race_slots_are_independent_at_one_four_eight_and_twelve},
+  {"race_vehicle_ids_are_unique", tests.v072_race_slots_are_independent_at_one_four_eight_and_twelve},
+  {"race_operation_seeds_are_unique", tests.v072_race_slots_are_independent_at_one_four_eight_and_twelve},
+  {"race_failure_preserves_accepted_slot", tests.v072_race_failure_retry_and_stale_callbacks_preserve_other_slots},
+  {"race_retry_changes_only_attempt_substream", tests.v072_race_failure_retry_and_stale_callbacks_preserve_other_slots},
+  {"race_retry_limit_is_bounded", tests.v072_race_failure_retry_and_stale_callbacks_preserve_other_slots},
+  {"race_stale_callback_is_side_effect_free", tests.v072_race_failure_retry_and_stale_callbacks_preserve_other_slots},
+  {"domain_accepts_exactly_one_result", tests.v072_transaction_binding_and_cardinality_are_explicit},
+  {"binding_state_is_explicit", tests.v072_transaction_binding_and_cardinality_are_explicit},
+  {"world_vehicle_delta_is_recorded", tests.v072_transaction_binding_and_cardinality_are_explicit},
+  {"stale_callback_side_effect_count_is_zero", tests.v072_transaction_binding_and_cardinality_are_explicit},
+}
+
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")
 equal(#v060Required, 104, "0.6.0 required scenario registry")
 equal(#v060PauseLifecycleRequired, 52, "0.6.0 pause lifecycle scenario registry")
@@ -6678,6 +6901,9 @@ for _, scenario in ipairs(v069Required) do
 end
 for _, scenario in ipairs(v070Required) do
   requirementMappings[#requirementMappings + 1] = {"0.7.0:" .. scenario[1], scenario[2]}
+end
+for _, scenario in ipairs(v072Required) do
+  requirementMappings[#requirementMappings + 1] = {"0.7.2:" .. scenario[1], scenario[2]}
 end
 
 local canonicalByFunction = {}

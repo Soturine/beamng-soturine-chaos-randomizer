@@ -762,7 +762,9 @@ local function guardMutationWrite(active, stage)
   end
   local expectedVehicleId = active.reloadWriteTarget and active.reloadWriteTarget.vehicleId
     or active.operationCurrentTarget and active.operationCurrentTarget.vehicleId or active.vehicleId
-  local okObserved, observedOrError = adapter.getVerificationState(expectedVehicleId)
+  local okObserved, observedOrError = adapter.getVerificationState(
+    expectedVehicleId, active.backgroundTarget == true
+  )
   if not okObserved then return false, observedOrError end
   local observed = targetDescriptor(observedOrError)
   local valid, reason = operationState.validateContinuation(runtime.state, plan, observed)
@@ -834,6 +836,42 @@ local function failureRecord(active, phase, errorData, context)
     timestamp = os.time(),
     context = context,
   }
+end
+
+local function validateTerminalVehicleCardinality(active)
+  if not active or type(adapter.worldVehicleIds) ~= "function" then return true, {} end
+  local before = active.worldVehicleIdsBefore or {}
+  local after = adapter.worldVehicleIds()
+  local beforeSet, afterSet = {}, {}
+  for _, vehicleId in ipairs(before) do beforeSet[tostring(vehicleId)] = vehicleId end
+  for _, vehicleId in ipairs(after) do afterSet[tostring(vehicleId)] = vehicleId end
+  local sourceId = tonumber(active.originalVehicleId)
+  local acceptedId = tonumber(active.vehicleId)
+  local missingPreserved, unexpected = {}, {}
+  for key, vehicleId in pairs(beforeSet) do
+    local sourceMayBeReplaced = active.kind ~= "scramble" and sourceId == vehicleId
+    if not afterSet[key] and not sourceMayBeReplaced then missingPreserved[#missingPreserved + 1] = vehicleId end
+  end
+  for key, vehicleId in pairs(afterSet) do
+    if not beforeSet[key] and vehicleId ~= acceptedId then unexpected[#unexpected + 1] = vehicleId end
+  end
+  table.sort(missingPreserved)
+  table.sort(unexpected)
+  local acceptedPresent = acceptedId ~= nil and afterSet[tostring(acceptedId)] ~= nil
+  local scrambleStable = active.kind ~= "scramble"
+    or (#before == #after and #missingPreserved == 0 and #unexpected == 0
+      and acceptedId == sourceId)
+  local details = {
+    worldVehicleIdsBefore = util.deepCopy(before),
+    worldVehicleIdsObserved = util.deepCopy(after),
+    worldVehicleDeltaObserved = #after - #before,
+    missingPreservedVehicleIds = missingPreserved,
+    unexpectedVehicleIds = unexpected,
+    acceptedVehiclePresent = acceptedPresent,
+    ignoredBackgroundCallbacks = active.ignoredBackgroundCallbacks or 0,
+  }
+  if active.backgroundTarget then details.playerUsedAsStaging = false end
+  return acceptedPresent and #missingPreserved == 0 and #unexpected == 0 and scrambleStable, details
 end
 
 local function finishOperation(success, code, message, details, terminalState)
@@ -924,12 +962,21 @@ local function finishOperation(success, code, message, details, terminalState)
     })
     local cleanup = production.reapOwnedOrphans(active, domainTerminal)
     details.cleanupResult = util.deepCopy(cleanup)
+    local worldVehicleIdsAfter = type(adapter.worldVehicleIds) == "function"
+      and adapter.worldVehicleIds() or {}
+    productionModules.domainOperations.recordWorldAfter(
+      active.domainContext, worldVehicleIdsAfter
+    )
     productionModules.operationContext.markTerminal(production.ensureOperationContext(active), domainTerminal, {
       restoredVehicleId = details.rollback == "completed" and acceptedVehicleId or nil,
       sourceStillExists = productionModules.spawnAdapter.objectExists(active.originalVehicleId),
       playerVehicleIdAfter = currentOk and currentVehicleId or acceptedVehicleId,
       removedVehicleIds = cleanup.removed,
+      worldVehicleIdsAfter = worldVehicleIdsAfter,
     })
+    details.operationTransaction = productionModules.operationContext.summary(
+      production.ensureOperationContext(active)
+    )
   end
   if active and active.spawnTransaction then
     if (success == true or details.rollback == "completed") and tonumber(active.vehicleId) then
@@ -986,7 +1033,9 @@ local function finishOperation(success, code, message, details, terminalState)
     details.snapshotSource = active.recoveryOnly and "recovery_target" or "operation_final"
   end
   if active and (success == true or details.rollback == "completed") then
-    local readable, finalSnapshot = adapter.captureCurrentState("operation_final", active.seed, active.vehicleId)
+    local readable, finalSnapshot = adapter.captureCurrentState(
+      "operation_final", active.seed, active.vehicleId, active.backgroundTarget == true
+    )
     if readable then
       vehicleRecovery.rememberReadable(runtime.recovery, finalSnapshot)
       local accepted = success == true and (terminalState == "completed" or terminalState == "partial")
@@ -1035,7 +1084,9 @@ local function finishOperation(success, code, message, details, terminalState)
   end
   if active and active.lineupIndex and runtime.lineup.current then
     local dna = runtime.dna.pending and util.deepCopy(runtime.dna.pending) or nil
-    local okSnapshot, spawnSnapshot = adapter.captureCurrentState("lineup", active.seed, active.vehicleId)
+    local okSnapshot, spawnSnapshot = adapter.captureCurrentState(
+      "lineup", active.seed, active.vehicleId, active.backgroundTarget == true
+    )
     productionModules.raceManager.record(
       runtime.lineup.current, active.lineupIndex, runtime.lastResult, dna, active.lineupTargetGeneration
     )
@@ -1111,7 +1162,7 @@ local function finishOperation(success, code, message, details, terminalState)
         competitor.placementState = "unavailable"
       end
     end
-    if type(active.lineupPlayerVehicleId) == "number" then
+    if not active.backgroundTarget and type(active.lineupPlayerVehicleId) == "number" then
       local focused, focusReason = adapter.enterVehicle(active.lineupPlayerVehicleId)
       if not focused then
         lineup.warnings[#lineup.warnings + 1] =
@@ -1452,6 +1503,8 @@ local function beginOperation(kind, context)
     end
   end
   local seed, generator, seedSource = operationSeed()
+  local worldVehicleIdsBefore = type(adapter.worldVehicleIds) == "function"
+    and adapter.worldVehicleIds() or {}
   runtime.lastSeed = seed
   local operationTimeout = context.operationTimeout
     or (kind == "randomConfig" and 90)
@@ -1523,6 +1576,10 @@ local function beginOperation(kind, context)
     lineupPreviousSettings = util.deepCopy(context.lineupPreviousSettings),
     lineupPlayerVehicleId = context.lineupPlayerVehicleId or currentPlayerVehicleId,
     lineupOwnedTarget = context.lineupOwnedTarget == true,
+    backgroundTarget = context.backgroundTarget == true,
+    backgroundTargetVehicleId = nil,
+    unboundSpawnCallbacks = {},
+    ignoredBackgroundCallbacks = 0,
     lineupStagingPlacement = util.deepCopy(context.lineupStagingPlacement),
     reloadCount = 0,
     partPassesApplied = 0,
@@ -1544,6 +1601,7 @@ local function beginOperation(kind, context)
     engineFluidEvidence = nil,
     domain = domain,
     expectedSlot = context.expectedSlot or context.lineupIndex,
+    worldVehicleIdsBefore = util.deepCopy(worldVehicleIdsBefore),
   }
   local domainContext, superseded = productionModules.domainOperations.begin(runtime.domainOperations, {
     domain = domain,
@@ -1554,6 +1612,7 @@ local function beginOperation(kind, context)
     sourceVehicleId = vehicleId,
     seed = seed,
     createdAt = runtime.time.realMonotonicTime,
+    worldVehicleIdsBefore = util.deepCopy(worldVehicleIdsBefore),
   })
   if not domainContext then
     operationState.finish(runtime.state, "failed", superseded)
@@ -1577,6 +1636,7 @@ local function beginOperation(kind, context)
       expectedSlot = context.expectedSlot or context.lineupIndex,
       expectedLogicalTarget = context.expectedLogicalTarget,
       sourceVehicleId = vehicleId,
+      worldVehicleIdsBefore = util.deepCopy(worldVehicleIdsBefore),
     }
   )
   diagnosticsModule.write(runtime.diagnostics, "D", "operation_started", {
@@ -1620,7 +1680,9 @@ local function captureOriginal(active)
     active.originalState = nil
     return true
   end
-  local ok, snapshot = adapter.captureCurrentState(active.kind, active.seed, active.vehicleId)
+  local ok, snapshot = adapter.captureCurrentState(
+    active.kind, active.seed, active.vehicleId, active.backgroundTarget == true
+  )
   if not ok then return false, snapshot end
   vehicleRecovery.rememberReadable(runtime.recovery, snapshot)
   active.operationOriginalSnapshot = util.deepCopy(snapshot)
@@ -1955,12 +2017,14 @@ local function recordReplacementCandidate(active, result, phase)
       correlationEvidence = {strategy = result.correlationStrategy},
     })
   end
-  if active.lineupOwnedTarget and phase == "spawn" and type(result.vehicleId) == "number" then
-    active.lineupFocusSwitchInFlight = true
-    local focused, focusError = adapter.enterVehicle(result.vehicleId)
-    active.lineupFocusSwitchInFlight = false
-    if not focused then return false, focusError end
-    active.lineupFocusedVehicleId = result.vehicleId
+  if active.backgroundTarget and phase == "spawn" and type(result.vehicleId) == "number" then
+    active.backgroundTargetVehicleId = result.vehicleId
+    for _, callbackVehicleId in ipairs(active.unboundSpawnCallbacks or {}) do
+      if callbackVehicleId ~= result.vehicleId then
+        active.ignoredBackgroundCallbacks = active.ignoredBackgroundCallbacks + 1
+      end
+    end
+    active.unboundSpawnCallbacks = {}
   end
   noteProgress(active, "target", "replacement_candidate_recorded")
   diagnosticsModule.write(runtime.diagnostics, "D", "replacement_candidate_recorded", {
@@ -2077,7 +2141,9 @@ local function startNextRecovery(active)
   end
   local snapshot = step.snapshot or {}
   if step.kind == "local_rollback" then
-    local readable, currentSnapshot = adapter.captureCurrentState("recovery_local_check", active.seed, active.vehicleId)
+    local readable, currentSnapshot = adapter.captureCurrentState(
+      "recovery_local_check", active.seed, active.vehicleId, active.backgroundTarget == true
+    )
     if readable and vehicleRecovery.targetStateFingerprint(currentSnapshot) == step.fingerprint then
       active.recoveryStep = step.kind
       active.recoveryTier = step.tier
@@ -2311,7 +2377,8 @@ attemptPartBatchRollback = function(active, reason)
   local guardOk, guardError = guardMutationWrite(active, "part_batch_rollback")
   if not guardOk then return false, guardError.code or "stale_callback_ignored" end
   local okApply, applyError = adapter.applyPartsTree(
-    treeOrReason, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId
+    treeOrReason, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId,
+    active.backgroundTarget == true
   )
   if not okApply then
     partBatchRecovery.finishRollback(active.batchRecovery, false)
@@ -2373,7 +2440,8 @@ local function attemptCriticalRepair(active, currentSnapshot, currentScan, failu
   local guardOk, guardError = guardMutationWrite(active, "critical_repair")
   if not guardOk then return false, guardError.code or "critical_repair_target_changed" end
   local applied, applyError = adapter.applyPartsTree(
-    repairPlan.tree, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId
+    repairPlan.tree, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId,
+    active.backgroundTarget == true
   )
   if not applied then return false, applyError.code or "critical_repair_apply_failed" end
   noteSuccessfulWrite(active, "critical_repair")
@@ -2436,7 +2504,8 @@ applyNextIsolationBatch = function(active)
   local guardOk, guardError = guardMutationWrite(active, "part_isolation_test")
   if not guardOk then failActive(guardError, true, "parts"); return true end
   local okApply, applyError = adapter.applyPartsTree(
-    tree, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId
+    tree, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId,
+    active.backgroundTarget == true
   )
   if not okApply then failActive(applyError, true, "parts") end
   if okApply then noteSuccessfulWrite(active, "part_isolation_test") end
@@ -2491,7 +2560,9 @@ end
 local function validateFinalVehicle(active)
   setProgress("Validating final vehicle", 0.96)
   local scanStarted = adapter.clock()
-  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot(active.vehicleId)
+  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot(
+    active.vehicleId, active.backgroundTarget == true
+  )
   if not okSnapshot then
     local code = type(snapshot) == "table" and snapshot.code or "parts_read_unavailable"
     local unreadable = code == "missing_parts_tree" or code == "parts_read_unavailable"
@@ -2615,9 +2686,13 @@ local function currentDependencies(scan)
 end
 
 local function capturePendingDNA(active, details)
-  local okCapture, capture = adapter.captureCurrentState(active.kind, active.seed, active.vehicleId)
+  local okCapture, capture = adapter.captureCurrentState(
+    active.kind, active.seed, active.vehicleId, active.backgroundTarget == true
+  )
   if not okCapture then return false, capture end
-  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot(active.vehicleId)
+  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot(
+    active.vehicleId, active.backgroundTarget == true
+  )
   if not okSnapshot then return false, snapshot end
   local scan, scanError = slotScanner.scan(snapshot.tree, snapshot.metadataByPath)
   if not scan then return false, adapter.errorValue(scanError, "Vehicle DNA final slot normalization failed") end
@@ -2701,9 +2776,13 @@ end
 completeReplayGeneration = function(active, safetyResult)
   active.phase = "dna_replay_verification"
   setProgress("Verifying replayed generation", 0.97)
-  local okCapture, capture = adapter.captureCurrentState(active.kind, active.seed, active.vehicleId)
+  local okCapture, capture = adapter.captureCurrentState(
+    active.kind, active.seed, active.vehicleId, active.backgroundTarget == true
+  )
   if not okCapture then failActive(capture, true, "dna_replay_verification"); return end
-  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot(active.vehicleId)
+  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot(
+    active.vehicleId, active.backgroundTarget == true
+  )
   if not okSnapshot then failActive(snapshot, true, "dna_replay_verification"); return end
   local scan, scanError = slotScanner.scan(snapshot.tree, snapshot.metadataByPath)
   if not scan then failActive(adapter.errorValue(scanError, "Replay final slot scan failed"), true, "dna_replay_verification"); return end
@@ -2739,7 +2818,9 @@ end
 
 production.ensureEnergyStorageFloor = function(active, continuation)
   if active.energyGuardComplete then return false end
-  local okSnapshot, snapshot = adapter.getTuningSnapshot(active.vehicleId)
+  local okSnapshot, snapshot = adapter.getTuningSnapshot(
+    active.vehicleId, active.backgroundTarget == true
+  )
   if not okSnapshot then
     active.energyGuardComplete = true
     active.energyGuardUncertain = true
@@ -2835,7 +2916,8 @@ production.ensureEnergyStorageFloor = function(active, continuation)
   local guardOk, guardError = guardMutationWrite(active, "fuel_guard")
   if not guardOk then failActive(guardError, true, "fuel_guard"); return true end
   local okApply, applyError = adapter.applyTuning(
-    plan.values, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId
+    plan.values, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId,
+    active.backgroundTarget == true
   )
   if not okApply then failActive(applyError, true, "fuel_guard"); return true end
   noteSuccessfulWrite(active, "fuel_guard")
@@ -2959,7 +3041,9 @@ local function completeChaos(active)
   end
   local removed = 0
   for _, change in ipairs(active.changes) do if change.wasRemoved then removed = removed + 1 end end
-  local okReadBack, finalState = adapter.getVerificationState(active.vehicleId)
+  local okReadBack, finalState = adapter.getVerificationState(
+    active.vehicleId, active.backgroundTarget == true
+  )
   if okReadBack and active.slotLedger then
     slotCoverageLedger.markFinalParts(active.slotLedger, finalState.parts)
   end
@@ -3091,7 +3175,7 @@ startPaint = function(active)
   active.phase = "paint"
   setLifecyclePhase(active, "applying_paint", false, "paint_planning")
   setProgress("Applying paints", 0.90)
-  local okPaints, paints = adapter.getPaints(active.vehicleId)
+  local okPaints, paints = adapter.getPaints(active.vehicleId, active.backgroundTarget == true)
   if not okPaints then failActive(paints, true, "paint"); return end
   active.paintLedger = paintCoverageLedger.create(paints, active.lockProfileSnapshot and function(layer, field)
     return vehicleDNALocks.isPaintLocked(active.lockProfileSnapshot, layer, field)
@@ -3118,7 +3202,9 @@ startPaint = function(active)
     bindMutationPlan(active, "paint")
     local guardOk, guardError = guardMutationWrite(active, "paint")
     if not guardOk then failActive(guardError, true, "paint"); return end
-    local okApply, applyResult = adapter.applyPaints(result, active.vehicleId)
+    local okApply, applyResult = adapter.applyPaints(
+      result, active.vehicleId, active.backgroundTarget == true
+    )
     if not okApply then failActive(applyResult, true, "paint"); return end
     noteSuccessfulWrite(active, "paint")
     if applyResult.confirmationRequired then
@@ -3141,7 +3227,7 @@ startPaint = function(active)
       setProgress("Confirming paint read-back", 0.93)
       return
     end
-    local okReadBack, readBack = adapter.getPaints(active.vehicleId)
+    local okReadBack, readBack = adapter.getPaints(active.vehicleId, active.backgroundTarget == true)
     if okReadBack then paintCoverageLedger.readBack(active.paintLedger, readBack) end
   else
     paintCoverageLedger.readBack(active.paintLedger, paints)
@@ -3261,7 +3347,8 @@ local function applyTuningPass(active, snapshot, pass, onlyNew)
   local guardOk, guardError = guardMutationWrite(active, "tuning")
   if not guardOk then failActive(guardError, true, "tuning"); return true end
   local okApply, applyError = adapter.applyTuning(
-    values, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId
+    values, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId,
+    active.backgroundTarget == true
   )
   if not okApply then failActive(applyError, true, "tuning") end
   if okApply then noteSuccessfulWrite(active, "tuning") end
@@ -3271,7 +3358,9 @@ end
 local function processTuningReadback(active)
   setLifecyclePhase(active, "verifying_tuning", false, "tuning_readback")
   active.readBackStatus = "tuning_reload_pending"
-  local okSnapshot, snapshot = adapter.getTuningSnapshot(active.vehicleId)
+  local okSnapshot, snapshot = adapter.getTuningSnapshot(
+    active.vehicleId, active.backgroundTarget == true
+  )
   if not okSnapshot then failActive(snapshot, true, "tuning_readback"); return end
   tuningCoverageLedger.readBack(active.tuningLedger, snapshot.values, active.tuningPass or 1)
   active.readBackStatus = "ready"
@@ -3317,7 +3406,9 @@ startTuning = function(active)
   })
   if not tuningBound then failActive(adapter.errorValue(tuningBindReason, "Tuning ledger target changed"), true, "tuning"); return end
   setProgress("Applying tuning", 0.80)
-  local okSnapshot, snapshot = adapter.getTuningSnapshot(active.vehicleId)
+  local okSnapshot, snapshot = adapter.getTuningSnapshot(
+    active.vehicleId, active.backgroundTarget == true
+  )
   if not okSnapshot then failActive(snapshot, true, "tuning"); return end
   if not applyTuningPass(active, snapshot, 1, false) then
     tuningCoverageLedger.readBack(active.tuningLedger, snapshot.values, 1)
@@ -3338,7 +3429,9 @@ processMutationPass = function(active)
   active.coveragePass = (active.coveragePass or 0) + 1
   setProgress(string.format("Scanning complete slot tree (pass %d)", active.coveragePass), 0.30 + math.min(active.coveragePass, 8) * 0.045)
   local scanStarted = adapter.clock()
-  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot(active.vehicleId)
+  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot(
+    active.vehicleId, active.backgroundTarget == true
+  )
   if not okSnapshot then
     local readCode = type(snapshot) == "table" and snapshot.code or "parts_read_unavailable"
     local retryable = readCode == "missing_parts_tree" or readCode == "parts_read_unavailable"
@@ -3473,7 +3566,8 @@ processMutationPass = function(active)
     active.currentBatch = nil
     active.batchRecovery.currentBatch = nil
     local acceptedOk, acceptedSnapshot = adapter.captureCurrentState(
-      "accepted_generated_checkpoint", active.seed, active.vehicleId
+      "accepted_generated_checkpoint", active.seed, active.vehicleId,
+      active.backgroundTarget == true
     )
     if acceptedOk then
       productionModules.baselineSemantics.acceptGenerated(active.baselines, acceptedSnapshot, {
@@ -3511,7 +3605,8 @@ processMutationPass = function(active)
     end or nil,
   })
   local attemptOk, attemptSnapshot = adapter.captureCurrentState(
-    "current_mutation_attempt", active.seed, active.vehicleId
+    "current_mutation_attempt", active.seed, active.vehicleId,
+    active.backgroundTarget == true
   )
   if attemptOk then productionModules.baselineSemantics.beginAttempt(active.baselines, attemptSnapshot, {pass = active.pass}) end
   local planningDuration = math.max(0, adapter.clock() - planningStarted)
@@ -3633,7 +3728,8 @@ processMutationPass = function(active)
   local guardOk, guardError = guardMutationWrite(active, "parts")
   if not guardOk then failActive(guardError, true, "parts"); return end
   local okApply, applyError = adapter.applyPartsTree(
-    tree, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId
+    tree, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId,
+    active.backgroundTarget == true
   )
   if not okApply then failActive(applyError, true, "parts"); return end
   noteSuccessfulWrite(active, "parts")
@@ -5219,7 +5315,9 @@ processDNAParts = function(active)
   if not operationState.isCurrent(runtime.state, active.token) then return end
   if active.recoveryOnly then guardMutationWrite(active, "dna_parts"); return end
   active.phase = "dna_parts"
-  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot(active.vehicleId)
+  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot(
+    active.vehicleId, active.backgroundTarget == true
+  )
   if not okSnapshot then failActive(snapshot, true, "dna_parts"); return end
   local scan, scanError = slotScanner.scan(snapshot.tree, snapshot.metadataByPath)
   if not scan then failActive(adapter.errorValue(scanError, "Vehicle DNA parts scan failed"), true, "dna_parts"); return end
@@ -5273,7 +5371,8 @@ processDNAParts = function(active)
   local guardOk, guardError = guardMutationWrite(active, "dna_parts")
   if not guardOk then failActive(guardError, true, "dna_parts"); return end
   local okApply, applyError = adapter.applyPartsTree(
-    tree, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId
+    tree, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId,
+    active.backgroundTarget == true
   )
   if not okApply then failActive(applyError, true, "dna_parts"); return end
   noteSuccessfulWrite(active, "dna_parts")
@@ -5293,7 +5392,9 @@ startDNATuning = function(active)
     startDNAPaint(active)
     return
   end
-  local okSnapshot, snapshot = adapter.getTuningSnapshot(active.vehicleId)
+  local okSnapshot, snapshot = adapter.getTuningSnapshot(
+    active.vehicleId, active.backgroundTarget == true
+  )
   if not okSnapshot then failActive(snapshot, true, "dna_tuning"); return end
   local values, issues = vehicleDNARestore.tuningValues(active.dnaEntry, snapshot.variables, active.dnaMode)
   active.dnaExpectedTuning = util.deepCopy(values)
@@ -5314,7 +5415,8 @@ startDNATuning = function(active)
   local guardOk, guardError = guardMutationWrite(active, "dna_tuning")
   if not guardOk then failActive(guardError, true, "dna_tuning"); return end
   local okApply, applyError = adapter.applyTuning(
-    values, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId
+    values, active.reloadWriteTarget and active.reloadWriteTarget.vehicleId,
+    active.backgroundTarget == true
   )
   if not okApply then failActive(applyError, true, "dna_tuning"); return end
   noteSuccessfulWrite(active, "dna_tuning")
@@ -5331,7 +5433,7 @@ startDNAPaint = function(active)
     validateDNAFinal(active)
     return
   end
-  local okPaints, current = adapter.getPaints(active.vehicleId)
+  local okPaints, current = adapter.getPaints(active.vehicleId, active.backgroundTarget == true)
   if not okPaints then failActive(current, true, "dna_paint"); return end
   local payload = util.deepCopy(saved)
   if active.dnaMode == "exact" and #current ~= #saved then
@@ -5346,7 +5448,9 @@ startDNAPaint = function(active)
   bindMutationPlan(active, "dna_paint")
   local guardOk, guardError = guardMutationWrite(active, "dna_paint")
   if not guardOk then failActive(guardError, true, "dna_paint"); return end
-  local okApply, applyResult = adapter.applyPaints(payload, active.vehicleId)
+  local okApply, applyResult = adapter.applyPaints(
+    payload, active.vehicleId, active.backgroundTarget == true
+  )
   if not okApply then failActive(applyResult, true, "dna_paint"); return end
   noteSuccessfulWrite(active, "dna_paint")
   active.dnaExpectedPaints = payload
@@ -5436,9 +5540,13 @@ end
 verifyDNAFinal = function(active)
   active.phase = "dna_final_verification"
   setProgress("Verifying restored Vehicle DNA", 0.96)
-  local okCapture, capture = adapter.captureCurrentState(active.kind, active.seed, active.vehicleId)
+  local okCapture, capture = adapter.captureCurrentState(
+    active.kind, active.seed, active.vehicleId, active.backgroundTarget == true
+  )
   if not okCapture then failActive(capture, true, "dna_final_verification"); return end
-  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot(active.vehicleId)
+  local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot(
+    active.vehicleId, active.backgroundTarget == true
+  )
   if not okSnapshot then failActive(snapshot, true, "dna_final_verification"); return end
   local scan, scanError = slotScanner.scan(snapshot.tree, snapshot.metadataByPath)
   if not scan then failActive(adapter.errorValue(scanError, "Vehicle DNA final verification scan failed"), true, "dna_final_verification"); return end
@@ -5557,7 +5665,9 @@ local function completeStableTarget(vehicleId, verificationState, verificationDe
 
   if completedPhase == "spawn" then
     active.baseConfirmed = true
-    local baseOk, baseSnapshot = adapter.captureCurrentState(active.kind, active.seed, active.vehicleId)
+    local baseOk, baseSnapshot = adapter.captureCurrentState(
+      active.kind, active.seed, active.vehicleId, active.backgroundTarget == true
+    )
     if baseOk then
       active.operationCandidateBase = util.deepCopy(baseSnapshot)
       productionModules.baselineSemantics.setSelectedCandidate(active.baselines, baseSnapshot)
@@ -5603,7 +5713,8 @@ local function completeStableTarget(vehicleId, verificationState, verificationDe
       #(repairPlan.repairs or {})
     )
     local acceptedOk, acceptedSnapshot = adapter.captureCurrentState(
-      "critical_repair_accepted", active.seed, active.vehicleId
+      "critical_repair_accepted", active.seed, active.vehicleId,
+      active.backgroundTarget == true
     )
     if acceptedOk then
       productionModules.baselineSemantics.acceptGenerated(active.baselines, acceptedSnapshot, {
@@ -5692,7 +5803,9 @@ local function completeStableTarget(vehicleId, verificationState, verificationDe
   elseif completedPhase == "rollback" then
     local originalFailure = active.rollbackFailure or failureRecord(active, "rollback", adapter.errorValue("operation_failed", "Operation failed"))
     historyTransaction.rollbackSucceeded(active, runtime.history, historyModule.pop)
-    local readable, recoverySnapshot = adapter.captureCurrentState("recovery", active.seed, active.vehicleId)
+    local readable, recoverySnapshot = adapter.captureCurrentState(
+      "recovery", active.seed, active.vehicleId, active.backgroundTarget == true
+    )
     if readable then vehicleRecovery.rememberReadable(runtime.recovery, recoverySnapshot) end
     local recoveryStep = active.recoveryStep or "previous"
     finishOperation(false, originalFailure.code, originalFailure.message .. "; vehicle recovery completed", {
@@ -5739,6 +5852,42 @@ local function onVehicleSpawned(vehicleId)
   nominateSpawnDirectorCandidate(vehicleId, "spawn")
   if not runtime.state.busy or not runtime.active or not runtime.active.targetTracker then return end
   local active = runtime.active
+  if active.backgroundTarget then
+    local expectedVehicleId = active.backgroundTargetVehicleId
+      or active.expectedReplacementVehicleId or active.vehicleId
+    if expectedVehicleId == nil and active.replaceWriteInFlight == true then
+      if #active.unboundSpawnCallbacks < 16 then
+        active.unboundSpawnCallbacks[#active.unboundSpawnCallbacks + 1] = vehicleId
+      else
+        active.ignoredBackgroundCallbacks = active.ignoredBackgroundCallbacks + 1
+      end
+      diagnosticsModule.write(runtime.diagnostics, "D", "background_spawn_callback_deferred", {
+        vehicleId = vehicleId, expectedSlot = active.expectedSlot,
+      })
+      return
+    end
+    if type(expectedVehicleId) == "number" and vehicleId ~= expectedVehicleId then
+      active.ignoredBackgroundCallbacks = active.ignoredBackgroundCallbacks + 1
+      diagnosticsModule.write(runtime.diagnostics, "W", "background_spawn_callback_ignored", {
+        vehicleId = vehicleId, expectedVehicleId = expectedVehicleId,
+        expectedSlot = active.expectedSlot,
+      }, true)
+      return
+    end
+  end
+  if active and success == true
+    and (active.kind == "scramble" or active.kind == "randomConfig" or active.kind == "fullRandom")
+  then
+    local cardinalityOk, cardinality = validateTerminalVehicleCardinality(active)
+    details.vehicleCardinality = cardinality
+    if not cardinalityOk then
+      success = false
+      code = "vehicle_cardinality_violation"
+      message = "The operation stopped because its concrete vehicle transaction changed unrelated world vehicles"
+      terminalState = "failed"
+      details.cardinalityViolation = true
+    end
+  end
   local owner = productionModules.domainOperations.ownership(runtime.domainOperations, vehicleId)
   if owner and (owner.domain ~= active.domain or owner.operationId ~= active.domainContext.operationId
     or owner.generation ~= active.domainContext.generation)
@@ -5811,7 +5960,12 @@ local function processTargetTracking()
   if not runtime.state.busy or not active or not active.wait or not active.targetTracker then return false end
   local now = runtime.time.realMonotonicTime
   if not vehicleStabilizer.shouldPoll(active.targetTracker.stabilizer, now) then return true end
-  local okState, stateOrError = adapter.getVerificationState(nil)
+  local verificationVehicleId = active.backgroundTarget
+    and (active.backgroundTargetVehicleId or active.expectedReplacementVehicleId or active.vehicleId)
+    or nil
+  local okState, stateOrError = adapter.getVerificationState(
+    verificationVehicleId, active.backgroundTarget == true
+  )
   local observed = okState and stateOrError or nil
   if okState then
     if observed.readStatus and observed.readStatus ~= "ready" then
@@ -5843,7 +5997,7 @@ local function processTargetTracking()
     local rebound, concreteOrReason = productionModules.operationContext.rebindConcreteTarget(
       production.ensureOperationContext(active), runtime.state, {
         vehicleId = details.vehicleId,
-        source = "stable_player_read",
+        source = active.backgroundTarget and "stable_background_read" or "stable_player_read",
         observedAt = now,
         operationId = runtime.state.operationId,
         operationGeneration = runtime.state.operationGeneration,
@@ -5851,7 +6005,8 @@ local function processTargetTracking()
         modelKey = details.state.modelKey,
         configKey = details.state.configKey,
         configIdentity = details.state.configIdentity,
-        playerIndex = details.state.playerIndex or 0,
+        playerIndex = active.backgroundTarget ~= true and (details.state.playerIndex or 0) or nil,
+        targetRole = details.state.targetRole,
         readStatus = details.state.readStatus,
         coherentTargetRead = details.state.coherentTargetRead == true,
         stable = true,
@@ -5993,6 +6148,13 @@ local function onVehicleSwitched(oldId, newId, player)
   end
   if not runtime.state.busy or not runtime.active then return end
   local active = runtime.active
+  if active.backgroundTarget and (player == nil or player == 0) then
+    active.ignoredBackgroundCallbacks = active.ignoredBackgroundCallbacks + 1
+    diagnosticsModule.write(runtime.diagnostics, "D", "background_operation_player_switch_ignored", {
+      oldId = oldId, newId = newId, player = player, expectedSlot = active.expectedSlot,
+    })
+    return
+  end
   if player == nil or player == 0 then
     local owner = productionModules.domainOperations.ownership(runtime.domainOperations, newId)
     if owner and (owner.domain ~= active.domain or owner.operationId ~= active.domainContext.operationId
@@ -6040,7 +6202,7 @@ local function onVehicleSwitched(oldId, newId, player)
     end
     local accepted, reason = vehicleTargetTracker.onSwitched(
       active.targetTracker, oldId, newId, player,
-      active.replaceWriteInFlight == true or active.lineupFocusSwitchInFlight == true
+      active.replaceWriteInFlight == true
     )
     if not accepted and reason == "stale_callback_rejected" then
       runtime.state.staleCallbackCount = runtime.state.staleCallbackCount + 1
@@ -6265,6 +6427,14 @@ function production.createChaosLineup(options)
   if runtime.state.busy then
     setResult(false, "lineup_busy", "A lineup or vehicle operation is already running"); publishState(); return false
   end
+  if runtime.capabilities.managedMultiVehicle ~= true
+    or runtime.capabilities.backgroundVehicleWrite ~= true
+  then
+    setResult(false, "race_background_target_unsupported",
+      "Race generation requires ID-bound non-player vehicle writes in this BeamNG build")
+    publishState()
+    return false
+  end
   if runtime.lineup.current and runtime.lineup.current.active then
     productionModules.raceManager.cancel(runtime.lineup.current, "Superseded by a new Race generation")
     runtime.lineup.pendingNext = false
@@ -6411,7 +6581,9 @@ function production.startNextLineupCompetitor()
     lineupPreviousSettings = previousSettings,
     lineupPlayerVehicleId = runtime.lineup.current.playerVehicleId,
     lineupOwnedTarget = true,
+    backgroundTarget = true,
     lineupStagingPlacement = util.deepCopy(competitor.stagingPlacement),
+    operationTimeout = runtime.lineup.current.settings.maxWallClockSecondsPerCompetitor or 180,
   })
   if started and runtime.active then
     runtime.active.captureOperation = "fullRandom"
@@ -6421,6 +6593,9 @@ function production.startNextLineupCompetitor()
       targetGeneration = runtime.active.targetGeneration,
       stagingPlacement = util.deepCopy(competitor.stagingPlacement),
     }
+    competitor.startedAtMonotonic = runtime.time.realMonotonicTime
+    competitor.deadlineAtMonotonic = runtime.time.realMonotonicTime
+      + (runtime.lineup.current.settings.maxWallClockSecondsPerCompetitor or 180)
     competitor.spawnState = "spawning_independent_vehicle"
     competitor.randomizationState = "running"
     competitor.forceOfficialFallback = nil
@@ -6430,6 +6605,7 @@ function production.startNextLineupCompetitor()
       runtime.progress.label
     )
   else
+    runtime.settings = settingsModule.validate(previousSettings)
     productionModules.raceManager.record(
       runtime.lineup.current, competitor.index, runtime.lastResult, nil, competitor.targetGeneration
     )
@@ -7427,7 +7603,9 @@ local function processPaintConfirmation()
     guardMutationWrite(active, "paint_confirmation")
     return true
   end
-  local okObserved, observed = adapter.getVerificationState(active.vehicleId)
+  local okObserved, observed = adapter.getVerificationState(
+    active.vehicleId, active.backgroundTarget == true
+  )
   local validContext, contextReason = operationState.validateContinuation(
     runtime.state, confirmation.context or {}, okObserved and targetDescriptor(observed) or nil
   )
@@ -7441,7 +7619,9 @@ local function processPaintConfirmation()
   end
   if paintVerification.shouldCheck(confirmation, now) then
     paintVerification.recordAttempt(confirmation, now)
-    local verified, reason = adapter.verifyPaints(confirmation.expected, active.vehicleId)
+    local verified, reason = adapter.verifyPaints(
+      confirmation.expected, active.vehicleId, active.backgroundTarget == true
+    )
     diagnosticsModule.write(runtime.diagnostics, verified and "D" or "W", "paint_confirmation_attempt", {
       strategy = confirmation.strategy,
       attempt = confirmation.attempts,
@@ -7453,7 +7633,7 @@ local function processPaintConfirmation()
       active.paintConfirmation = nil
       active.readBackStatus = "ready"
       active.lastAcceptedCheckpoint = "paint_readback_confirmed"
-      local okPaints, paints = adapter.getPaints(active.vehicleId)
+      local okPaints, paints = adapter.getPaints(active.vehicleId, active.backgroundTarget == true)
       if okPaints and active.paintLedger then paintCoverageLedger.readBack(active.paintLedger, paints) end
       if active.kind == "dnaRestoreExact" or active.kind == "dnaRestoreCompatible" then
         validateDNAFinal(active)

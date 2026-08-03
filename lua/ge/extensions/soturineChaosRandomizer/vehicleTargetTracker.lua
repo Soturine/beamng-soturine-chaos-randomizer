@@ -351,7 +351,8 @@ local function observe(tracker, token, state, now, context)
     return "waiting", tracker.lastReason
   end
   tracker.lastObservedAt = now
-  addCandidate(tracker, state.vehicleId, "player_poll", {
+  local pollSource = state.targetRole == "background_owned" and "background_id_poll" or "player_poll"
+  addCandidate(tracker, state.vehicleId, pollSource, {
     observedAt = now, modelKey = state.modelKey, configKey = state.configKey,
     playerIndex = state.playerIndex, readStatus = state.readStatus,
   })

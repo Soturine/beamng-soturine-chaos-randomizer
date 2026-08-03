@@ -60,6 +60,21 @@ class ProductionModuleGraphTests(unittest.TestCase):
             "orphaned Lua production module(s); wire them into the entrypoint graph or remove them",
         )
 
+    def test_race_generation_uses_id_bound_background_writes(self) -> None:
+        adapter = (MODULE_ROOT / "apiAdapter.lua").read_text(encoding="utf-8")
+        main = (MODULE_ROOT / "main.lua").read_text(encoding="utf-8")
+
+        self.assertIn("core_vehicle_partmgmt.setConfigOfVehicle", adapter)
+        self.assertIn("backgroundTarget = true", main)
+        self.assertIn('"background_owned"', adapter)
+
+        candidate_block = main[
+            main.index("local function recordReplacementCandidate"):
+            main.index("local function issueReplacement")
+        ]
+        self.assertNotIn("adapter.enterVehicle", candidate_block)
+        self.assertNotIn("lineupFocusSwitchInFlight", candidate_block)
+
 
 if __name__ == "__main__":
     unittest.main()

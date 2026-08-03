@@ -111,6 +111,8 @@ local function getCapabilities()
     paintRead = configRead,
     paintWrite = type(core_vehicle_partmgmt) == "table"
       and type(core_vehicle_partmgmt.setConfigPaints) == "function",
+    backgroundVehicleWrite = type(core_vehicle_partmgmt) == "table"
+      and type(core_vehicle_partmgmt.setConfigOfVehicle) == "function",
     settingsRead = jsonRead,
     settingsWrite = jsonWrite,
     settingsPersistence = jsonRead and jsonWrite,
@@ -131,7 +133,9 @@ local function getCapabilities()
       and type(map.getPath) == "function",
     vehicleLuaQueue = type(getObjectByID) == "function",
     managedMultiVehicle = type(core_vehicles) == "table" and type(core_vehicles.spawnNewVehicle) == "function"
-      and type(getObjectByID) == "function" and vehicleManager,
+      and type(getObjectByID) == "function" and vehicleManager
+      and type(core_vehicle_partmgmt) == "table"
+      and type(core_vehicle_partmgmt.setConfigOfVehicle) == "function",
     raycast = type(Engine) == "table" and type(Engine.castRay) == "function",
   }
   return capabilityModel.derive(raw)
@@ -156,7 +160,19 @@ local function targetError(expectedVehicleId, currentVehicleId, source)
   })
 end
 
-local function resolveTargetVehicleId(expectedVehicleId, source)
+local function resolveTargetVehicleId(expectedVehicleId, source, allowBackgroundTarget)
+  if allowBackgroundTarget == true and type(expectedVehicleId) == "number" then
+    if type(getObjectByID) == "function" then
+      local resolved, vehicle = pcall(getObjectByID, expectedVehicleId)
+      if not resolved or vehicle == nil then
+        return false, errorValue("target_vehicle_missing", "The ID-bound background vehicle no longer exists", {
+          expectedVehicleId = expectedVehicleId,
+          source = source,
+        })
+      end
+    end
+    return true, expectedVehicleId
+  end
   local okId, currentVehicleId = getCurrentVehicleId()
   if not okId then return false, currentVehicleId end
   if type(expectedVehicleId) == "number" and currentVehicleId ~= expectedVehicleId then
@@ -165,8 +181,10 @@ local function resolveTargetVehicleId(expectedVehicleId, source)
   return true, expectedVehicleId or currentVehicleId
 end
 
-local function getCurrentVehicleObject(expectedVehicleId)
-  local okTarget, vehicleId = resolveTargetVehicleId(expectedVehicleId, "vehicle_object")
+local function getCurrentVehicleObject(expectedVehicleId, allowBackgroundTarget)
+  local okTarget, vehicleId = resolveTargetVehicleId(
+    expectedVehicleId, "vehicle_object", allowBackgroundTarget
+  )
   if not okTarget then return false, vehicleId end
   if type(vehicleId) ~= "number" then
     return false, errorValue("no_active_vehicle", "No active player vehicle was found")
@@ -176,13 +194,13 @@ local function getCurrentVehicleObject(expectedVehicleId)
     if not ok then return false, vehicle end
     if vehicle ~= nil then return true, vehicle end
   end
-  if type(getPlayerVehicle) ~= "function" then
+  if allowBackgroundTarget == true or type(getPlayerVehicle) ~= "function" then
     return false, errorValue("unsupported_api", "The active vehicle function is unavailable")
   end
   return safeCall("getPlayerVehicle", function() return getPlayerVehicle(0) end)
 end
 
-local function getCurrentVehicleData(expectedVehicleId)
+local function getCurrentVehicleData(expectedVehicleId, allowBackgroundTarget)
   local hasById = type(core_vehicle_manager) == "table"
     and type(core_vehicle_manager.getVehicleData) == "function"
   local hasPlayer = type(core_vehicle_manager) == "table"
@@ -194,7 +212,9 @@ local function getCurrentVehicleData(expectedVehicleId)
       hasPlayer = false,
     })
   end
-  local okTarget, vehicleId = resolveTargetVehicleId(expectedVehicleId, "vehicle_data")
+  local okTarget, vehicleId = resolveTargetVehicleId(
+    expectedVehicleId, "vehicle_data", allowBackgroundTarget
+  )
   if not okTarget then return false, vehicleId end
   local idSpecific = type(vehicleId) == "number" and hasById
   if not idSpecific and not hasPlayer then
@@ -219,16 +239,18 @@ local function getCurrentVehicleData(expectedVehicleId)
       source = callName,
     })
   end
-  local okFinal, finalVehicleId = getCurrentVehicleId()
-  if not okFinal then return false, finalVehicleId end
-  if finalVehicleId ~= vehicleId then
-    return false, targetError(vehicleId, finalVehicleId, "vehicle_data_readback")
+  if allowBackgroundTarget ~= true then
+    local okFinal, finalVehicleId = getCurrentVehicleId()
+    if not okFinal then return false, finalVehicleId end
+    if finalVehicleId ~= vehicleId then
+      return false, targetError(vehicleId, finalVehicleId, "vehicle_data_readback")
+    end
   end
   return true, data
 end
 
-local function getCurrentModelKey(expectedVehicleId)
-  local ok, vehicle = getCurrentVehicleObject(expectedVehicleId)
+local function getCurrentModelKey(expectedVehicleId, allowBackgroundTarget)
+  local ok, vehicle = getCurrentVehicleObject(expectedVehicleId, allowBackgroundTarget)
   if not ok then return false, vehicle end
   if not vehicle then return false, errorValue("no_active_vehicle", "No active player vehicle was found") end
   local success, model = safeCall("vehicle model key", function()
@@ -242,9 +264,9 @@ local function getCurrentModelKey(expectedVehicleId)
   return true, model
 end
 
-local function getCurrentConfig(expectedVehicleId)
+local function getCurrentConfig(expectedVehicleId, allowBackgroundTarget)
   if type(expectedVehicleId) == "number" then
-    local okData, data = getCurrentVehicleData(expectedVehicleId)
+    local okData, data = getCurrentVehicleData(expectedVehicleId, allowBackgroundTarget)
     if not okData then return false, data end
     if type(data.config) ~= "table" then
       return false, errorValue("tree_unavailable", "The target configuration is not readable yet", {
@@ -264,17 +286,21 @@ local function getCurrentConfig(expectedVehicleId)
   return true, util.deepCopy(config)
 end
 
-local function captureCurrentState(operationType, seed, expectedVehicleId)
-  local okTarget, vehicleId = resolveTargetVehicleId(expectedVehicleId, "capture_current_state")
+local function captureCurrentState(operationType, seed, expectedVehicleId, allowBackgroundTarget)
+  local okTarget, vehicleId = resolveTargetVehicleId(
+    expectedVehicleId, "capture_current_state", allowBackgroundTarget
+  )
   if not okTarget then return false, vehicleId end
   if vehicleId == nil then return false, errorValue("no_active_vehicle", "No active player vehicle was found") end
-  local okModel, modelKey = getCurrentModelKey(vehicleId)
+  local okModel, modelKey = getCurrentModelKey(vehicleId, allowBackgroundTarget)
   if not okModel then return false, modelKey end
-  local okConfig, config = getCurrentConfig(vehicleId)
+  local okConfig, config = getCurrentConfig(vehicleId, allowBackgroundTarget)
   if not okConfig then return false, config end
-  local okFinal, finalVehicleId = getCurrentVehicleId()
-  if not okFinal then return false, finalVehicleId end
-  if finalVehicleId ~= vehicleId then return false, targetError(vehicleId, finalVehicleId, "capture_readback") end
+  if allowBackgroundTarget ~= true then
+    local okFinal, finalVehicleId = getCurrentVehicleId()
+    if not okFinal then return false, finalVehicleId end
+    if finalVehicleId ~= vehicleId then return false, targetError(vehicleId, finalVehicleId, "capture_readback") end
+  end
   return true, {
     modelKey = modelKey,
     selectedConfiguration = configVerification.physicalPath(config.partConfigFilename),
@@ -551,41 +577,79 @@ local function replaceVehicle(modelKey, config, targetVehicleId, spawnPlacement)
   return true, result
 end
 
-local function ensureWriteTarget(expectedVehicleId, source)
+local function ensureWriteTarget(expectedVehicleId, source, allowBackgroundTarget)
   if type(expectedVehicleId) ~= "number" then return true end
-  local okTarget, value = resolveTargetVehicleId(expectedVehicleId, source)
+  local okTarget, value = resolveTargetVehicleId(expectedVehicleId, source, allowBackgroundTarget)
   if not okTarget then return false, value end
   return true
 end
 
-local function applyPartsTree(tree, expectedVehicleId)
+local function applyPartsTree(tree, expectedVehicleId, allowBackgroundTarget)
   if type(core_vehicle_partmgmt) ~= "table" or type(core_vehicle_partmgmt.setPartsTreeConfig) ~= "function" then
     return false, errorValue("unsupported_api", "Hierarchical part configuration is unavailable")
   end
   if type(tree) ~= "table" then return false, errorValue("invalid_parts_tree", "A valid parts tree is required") end
-  local targetOk, targetFailure = ensureWriteTarget(expectedVehicleId, "parts_write")
+  local targetOk, targetFailure = ensureWriteTarget(
+    expectedVehicleId, "parts_write", allowBackgroundTarget
+  )
   if not targetOk then return false, targetFailure end
-  local ok, result = callContract("core_vehicle_partmgmt.setPartsTreeConfig", "parts_apply_rejected", "nil_then_event", function()
+  local operationName = "core_vehicle_partmgmt.setPartsTreeConfig"
+  local targetVehicle
+  if allowBackgroundTarget == true then
+    if type(core_vehicle_partmgmt.setConfigOfVehicle) ~= "function" then
+      return false, errorValue("background_write_unsupported",
+        "This BeamNG build cannot mutate a non-player Race vehicle by ID")
+    end
+    local targetResolved, vehicleOrError = getCurrentVehicleObject(expectedVehicleId, true)
+    if not targetResolved then return false, vehicleOrError end
+    targetVehicle = vehicleOrError
+    operationName = "core_vehicle_partmgmt.setConfigOfVehicle.partsTree"
+  end
+  local ok, result = callContract(operationName, "parts_apply_rejected", "nil_then_event", function()
+    if targetVehicle then
+      return core_vehicle_partmgmt.setConfigOfVehicle(
+        targetVehicle, {partsTree = util.deepCopy(tree)}, true
+      )
+    end
     return core_vehicle_partmgmt.setPartsTreeConfig(util.deepCopy(tree), true)
   end)
   if not ok then return false, result end
   return true, result
 end
 
-local function applyTuning(values, expectedVehicleId)
+local function applyTuning(values, expectedVehicleId, allowBackgroundTarget)
   if type(core_vehicle_partmgmt) ~= "table" or type(core_vehicle_partmgmt.setConfigVars) ~= "function" then
     return false, errorValue("unsupported_api", "Tuning application is unavailable")
   end
-  local targetOk, targetFailure = ensureWriteTarget(expectedVehicleId, "tuning_write")
+  local targetOk, targetFailure = ensureWriteTarget(
+    expectedVehicleId, "tuning_write", allowBackgroundTarget
+  )
   if not targetOk then return false, targetFailure end
-  local ok, result = callContract("core_vehicle_partmgmt.setConfigVars", "tuning_apply_rejected", "nil_then_event", function()
+  local operationName = "core_vehicle_partmgmt.setConfigVars"
+  local targetVehicle
+  if allowBackgroundTarget == true then
+    if type(core_vehicle_partmgmt.setConfigOfVehicle) ~= "function" then
+      return false, errorValue("background_write_unsupported",
+        "This BeamNG build cannot tune a non-player Race vehicle by ID")
+    end
+    local targetResolved, vehicleOrError = getCurrentVehicleObject(expectedVehicleId, true)
+    if not targetResolved then return false, vehicleOrError end
+    targetVehicle = vehicleOrError
+    operationName = "core_vehicle_partmgmt.setConfigOfVehicle.vars"
+  end
+  local ok, result = callContract(operationName, "tuning_apply_rejected", "nil_then_event", function()
+    if targetVehicle then
+      return core_vehicle_partmgmt.setConfigOfVehicle(
+        targetVehicle, {vars = util.deepCopy(values or {})}, true
+      )
+    end
     return core_vehicle_partmgmt.setConfigVars(util.deepCopy(values or {}), true)
   end)
   if not ok then return false, result end
   return true, result
 end
 
-local function applyPaints(paints, expectedVehicleId)
+local function applyPaints(paints, expectedVehicleId, allowBackgroundTarget)
   if type(core_vehicle_partmgmt) ~= "table" or type(core_vehicle_partmgmt.setConfigPaints) ~= "function" then
     return false, errorValue("unsupported_api", "Paint application is unavailable")
   end
@@ -593,14 +657,33 @@ local function applyPaints(paints, expectedVehicleId)
   if not expected then
     return false, errorValue("paint_data_invalid", "Paint data could not be normalized", {reason = normalizationError})
   end
-  local targetOk, targetFailure = ensureWriteTarget(expectedVehicleId, "paint_write")
+  local targetOk, targetFailure = ensureWriteTarget(
+    expectedVehicleId, "paint_write", allowBackgroundTarget
+  )
   if not targetOk then return false, targetFailure end
   local payload = util.deepCopy(paints or {})
-  local ok, result = callContract("core_vehicle_partmgmt.setConfigPaints", "paint_apply_rejected", "nil_then_readback", function()
+  local operationName = "core_vehicle_partmgmt.setConfigPaints"
+  local targetVehicle
+  if allowBackgroundTarget == true then
+    if type(core_vehicle_partmgmt.setConfigOfVehicle) ~= "function" then
+      return false, errorValue("background_write_unsupported",
+        "This BeamNG build cannot paint a non-player Race vehicle by ID")
+    end
+    local targetResolved, vehicleOrError = getCurrentVehicleObject(expectedVehicleId, true)
+    if not targetResolved then return false, vehicleOrError end
+    targetVehicle = vehicleOrError
+    operationName = "core_vehicle_partmgmt.setConfigOfVehicle.paints"
+  end
+  local ok, result = callContract(operationName, "paint_apply_rejected", "nil_then_readback", function()
+    if targetVehicle then
+      return core_vehicle_partmgmt.setConfigOfVehicle(
+        targetVehicle, {paints = payload}, false
+      )
+    end
     return core_vehicle_partmgmt.setConfigPaints(payload, false)
   end)
   if not ok then return false, result end
-  local okConfig, config = getCurrentConfig(expectedVehicleId)
+  local okConfig, config = getCurrentConfig(expectedVehicleId, allowBackgroundTarget)
   if not okConfig then
     result.confirmationRequired = true
     result.verified = false
@@ -624,8 +707,8 @@ local function applyPaints(paints, expectedVehicleId)
   return true, result
 end
 
-local function verifyPaints(expected, expectedVehicleId)
-  local okConfig, config = getCurrentConfig(expectedVehicleId)
+local function verifyPaints(expected, expectedVehicleId, allowBackgroundTarget)
+  local okConfig, config = getCurrentConfig(expectedVehicleId, allowBackgroundTarget)
   if not okConfig then return false, "paint_readback_unavailable", config end
   local matches, reason = paintVerification.compare(expected or {}, config.paints or {})
   return matches, reason, util.deepCopy(config.paints or {})
@@ -665,32 +748,38 @@ local function verificationCandidate(source, config)
   }
 end
 
-local function getVerificationState(expectedVehicleId)
-  local okTarget, vehicleId = resolveTargetVehicleId(expectedVehicleId, "verification_start")
+local function getVerificationState(expectedVehicleId, allowBackgroundTarget)
+  local okTarget, vehicleId = resolveTargetVehicleId(
+    expectedVehicleId, "verification_start", allowBackgroundTarget
+  )
   if not okTarget then return false, vehicleId end
-  local okModel, modelKey = getCurrentModelKey(vehicleId)
+  local okModel, modelKey = getCurrentModelKey(vehicleId, allowBackgroundTarget)
   if not okModel then return false, modelKey end
 
   -- BeamNG rebuilds the ID-specific manager bundle and the player part-manager
   -- view at different lifecycle moments. Observe both independently: neither
   -- cache is allowed to veto a coherent, already-applied state in the other.
   local candidates, readErrors = {}, {}
-  local okPlayerConfig, playerConfig = getCurrentConfig(nil)
-  if okPlayerConfig then
-    candidates[#candidates + 1] = verificationCandidate("player_partmgmt", playerConfig)
-  else
-    readErrors.playerPartmgmt = util.deepCopy(playerConfig)
+  if allowBackgroundTarget ~= true then
+    local okPlayerConfig, playerConfig = getCurrentConfig(nil)
+    if okPlayerConfig then
+      candidates[#candidates + 1] = verificationCandidate("player_partmgmt", playerConfig)
+    else
+      readErrors.playerPartmgmt = util.deepCopy(playerConfig)
+    end
   end
-  local okManagerConfig, managerConfig = getCurrentConfig(vehicleId)
+  local okManagerConfig, managerConfig = getCurrentConfig(vehicleId, allowBackgroundTarget)
   if okManagerConfig then
     candidates[#candidates + 1] = verificationCandidate("manager_by_id", managerConfig)
   else
     readErrors.managerById = util.deepCopy(managerConfig)
   end
-  local okFinal, finalVehicleId = getCurrentVehicleId()
-  if not okFinal then return false, finalVehicleId end
-  if finalVehicleId ~= vehicleId then
-    return false, targetError(vehicleId, finalVehicleId, "verification_readback")
+  if allowBackgroundTarget ~= true then
+    local okFinal, finalVehicleId = getCurrentVehicleId()
+    if not okFinal then return false, finalVehicleId end
+    if finalVehicleId ~= vehicleId then
+      return false, targetError(vehicleId, finalVehicleId, "verification_readback")
+    end
   end
 
   local primary = candidates[1] or {}
@@ -702,7 +791,7 @@ local function getVerificationState(expectedVehicleId)
   for _, candidate in ipairs(candidates) do
     if type(candidate.tuning) == "table" then anyTuning = true; break end
   end
-  local okVehicleData, vehicleData = getCurrentVehicleData(vehicleId)
+  local okVehicleData, vehicleData = getCurrentVehicleData(vehicleId, allowBackgroundTarget)
   local vdata = okVehicleData and type(vehicleData.vdata) == "table" and vehicleData.vdata or {}
   local powertrainEvidence = type(vdata.powertrain) == "table" and util.deepCopy(vdata.powertrain) or nil
   local energyStorages = type(vdata.energyStorage) == "table" and util.deepCopy(vdata.energyStorage) or nil
@@ -710,7 +799,8 @@ local function getVerificationState(expectedVehicleId)
   local observation = util.shallowMerge({}, primary)
   observation = util.shallowMerge(observation, {
     vehicleId = vehicleId,
-    playerIndex = 0,
+    playerIndex = allowBackgroundTarget ~= true and 0 or nil,
+    targetRole = allowBackgroundTarget == true and "background_owned" or "player_zero",
     modelKey = modelKey,
     configCandidates = candidates,
     readiness = {
@@ -744,11 +834,11 @@ local function getSlotDefinition(parentPart, slotId)
   return nil
 end
 
-local function getCurrentSlotSnapshot(expectedVehicleId)
+local function getCurrentSlotSnapshot(expectedVehicleId, allowBackgroundTarget)
   if type(jbeamIO) ~= "table" or type(jbeamIO.getPart) ~= "function" then
     return false, errorValue("unsupported_api", "The current JBeam slot API is unavailable")
   end
-  local okData, vehicleData = getCurrentVehicleData(expectedVehicleId)
+  local okData, vehicleData = getCurrentVehicleData(expectedVehicleId, allowBackgroundTarget)
   if not okData then return false, vehicleData end
   local tree = vehicleData.config and vehicleData.config.partsTree
   if type(tree) ~= "table" then return false, errorValue("missing_parts_tree", "The active vehicle has no hierarchical parts tree") end
@@ -865,8 +955,8 @@ local function prepareConfigExpectation(configRecord)
   return configVerification.expectation(configRecord, loadedConfig)
 end
 
-local function getTuningSnapshot(expectedVehicleId)
-  local ok, data = getCurrentVehicleData(expectedVehicleId)
+local function getTuningSnapshot(expectedVehicleId, allowBackgroundTarget)
+  local ok, data = getCurrentVehicleData(expectedVehicleId, allowBackgroundTarget)
   if not ok then return false, data end
   return true, {
     variables = util.deepCopy(data.vdata and data.vdata.variables or {}),
@@ -875,8 +965,8 @@ local function getTuningSnapshot(expectedVehicleId)
   }
 end
 
-local function getPaints(expectedVehicleId)
-  local ok, config = getCurrentConfig(expectedVehicleId)
+local function getPaints(expectedVehicleId, allowBackgroundTarget)
+  local ok, config = getCurrentConfig(expectedVehicleId, allowBackgroundTarget)
   if not ok then return false, config end
   return true, util.deepCopy(config.paints or {})
 end
@@ -1362,6 +1452,7 @@ M.getCurrentConfig = getCurrentConfig
 M.captureCurrentState = captureCurrentState
 M.getRegistryData = getRegistryData
 M.readRegistrySnapshot = readRegistrySnapshot
+M.worldVehicleIds = worldVehicleIds
 M.enterVehicle = enterVehicle
 M.requestFluidEvidence = requestFluidEvidence
 M.detectKnownConflicts = detectKnownConflicts

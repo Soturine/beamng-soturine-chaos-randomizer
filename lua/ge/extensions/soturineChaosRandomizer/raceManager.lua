@@ -276,6 +276,8 @@ local function create(options)
       acceptPotentiallyUndrivable = options.acceptPotentiallyUndrivable == true,
       maxAttemptsPerCompetitor = math.max(1, math.min(10, math.floor(tonumber(options.maxAttemptsPerCompetitor) or 3))),
       maxConsecutiveFailures = math.max(1, math.min(16, math.floor(tonumber(options.maxConsecutiveFailures) or 4))),
+      maxWallClockSecondsPerCompetitor = math.max(30, math.min(300,
+        math.floor(tonumber(options.maxWallClockSecondsPerCompetitor) or 180))),
       retainAcceptedOnCancel = options.retainAcceptedOnCancel ~= false,
       formation = options.formation or "Automatic Best Fit",
       spacingMode = options.spacingMode == "manual" and "manual" or "automatic",
@@ -326,6 +328,7 @@ local function create(options)
       currentVehicleId = nil, spawnState = "planned",
       randomizationState = "pending", validationState = "pending",
       placementState = "planned", terminalResult = nil,
+      startedAtMonotonic = nil, deadlineAtMonotonic = nil,
     }
   end
   return lineup

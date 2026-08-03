@@ -47,6 +47,9 @@ local function create(state, cancellationToken, now, options)
     requestedPlacement = util.deepCopy(options.requestedPlacement),
     worldVehicleIdsBefore = util.deepCopy(options.worldVehicleIdsBefore or {}),
     worldVehicleIdsAfter = {},
+    worldVehicleCountBefore = #(options.worldVehicleIdsBefore or {}),
+    worldVehicleCountAfter = nil,
+    worldVehicleDelta = nil,
     returnedObjectEvidence = false,
     returnedVehicleId = nil,
     rejectedVehicleIds = {},
@@ -57,6 +60,7 @@ local function create(state, cancellationToken, now, options)
     removedVehicleIds = {},
     playerVehicleIdAfter = nil,
     terminalState = nil,
+    bindingState = "unbound",
     recoveryGeneration = 0,
     cancellationToken = cancellationToken,
     logicalTarget = nil,
@@ -70,6 +74,7 @@ local function create(state, cancellationToken, now, options)
     rebindCount = 0,
     ownershipReleaseCount = 0,
     staleCandidateCount = 0,
+    staleCallbackSideEffects = 0,
     candidateDrops = 0,
     createdAt = tonumber(now) or 0,
   }
@@ -89,6 +94,7 @@ local function beginLogicalTarget(context, state, target, now)
     createdAt = tonumber(now) or 0,
   }
   context.concreteTarget = nil
+  context.bindingState = "logical_bound"
   context.candidates = {}
   context.candidateById = {}
   context.destroyed = {}
@@ -103,6 +109,9 @@ local function recordCandidate(context, state, candidate)
     or candidate.targetGeneration ~= nil and candidate.targetGeneration ~= context.targetGeneration
   then
     context.staleCandidateCount = context.staleCandidateCount + 1
+    -- Rejected callbacks are observation-only: this counter is deliberately
+    -- never incremented by a stale branch because no binding/write is allowed.
+    context.staleCallbackSideEffects = 0
     return false, "stale_callback_rejected"
   end
   local vehicleId = tonumber(candidate.vehicleId)
@@ -139,6 +148,9 @@ local function recordCandidate(context, state, candidate)
   entry.operationId = context.operationId
   entry.operationGeneration = context.operationGeneration
   entry.targetGeneration = context.targetGeneration
+  if context.bindingState == "unbound" or context.bindingState == "logical_bound" then
+    context.bindingState = "candidate_observed"
+  end
   return true, entry
 end
 
@@ -151,6 +163,7 @@ local function releaseConcreteTarget(context, state, source, now)
     recordCandidate(context, state, previous)
   end
   context.concreteTarget = nil
+  context.bindingState = "logical_bound"
   context.ownershipReleaseCount = context.ownershipReleaseCount + 1
   return previous
 end
@@ -201,6 +214,7 @@ local function bindInitial(context, state, target, now)
     readStatus = target.readStatus or "ready",
     coherentTargetRead = target.coherentTargetRead ~= false,
   }
+  context.bindingState = "concrete_bound"
   return context.concreteTarget
 end
 
@@ -215,7 +229,10 @@ local function rebindConcreteTarget(context, state, candidate, now)
   then return false, "stale_callback_rejected" end
   local observedAt = tonumber(candidate.observedAt) or tonumber(now) or 0
   if observedAt < (wait.startedAt or 0) then return false, "candidate_before_current_wait" end
-  if candidate.playerIndex ~= 0 then return false, "candidate_not_player_zero" end
+  local backgroundOwned = candidate.targetRole == "background_owned"
+  if not backgroundOwned and candidate.playerIndex ~= 0 then
+    return false, "candidate_not_player_zero"
+  end
   if candidate.stable ~= true then return false, "candidate_not_stable" end
   if candidate.coherentTargetRead ~= true then return false, "candidate_read_incoherent" end
   if context.destroyed[tostring(candidate.vehicleId)] then return false, "candidate_destroyed" end
@@ -239,11 +256,13 @@ local function rebindConcreteTarget(context, state, candidate, now)
     operationId = context.operationId,
     operationGeneration = context.operationGeneration,
     targetGeneration = context.targetGeneration,
-    playerIndex = 0,
+    playerIndex = not backgroundOwned and 0 or nil,
+    targetRole = backgroundOwned and "background_owned" or "player_zero",
     readStatus = entry.readStatus,
     coherentTargetRead = true,
     correlationEvidence = util.deepCopy(entry.correlationEvidence),
   }
+  context.bindingState = "concrete_bound"
   context.rebindCount = context.rebindCount + 1
   context.lastAcceptedCheckpoint = "concrete_target_rebound"
   return true, context.concreteTarget
@@ -257,9 +276,13 @@ local function markDestroyed(context, vehicleId)
 end
 
 local function markAccepted(context, vehicleId, playerVehicleIdAfter)
+  if context.acceptedVehicleId ~= nil and context.acceptedVehicleId ~= tonumber(vehicleId) then
+    return false, "accepted_vehicle_cardinality_violation"
+  end
   context.acceptedVehicleId = tonumber(vehicleId)
   context.playerVehicleIdAfter = tonumber(playerVehicleIdAfter) or context.acceptedVehicleId
   context.lastAcceptedCheckpoint = "vehicle_accepted"
+  context.bindingState = "accepted"
   return context.acceptedVehicleId ~= nil
 end
 
@@ -267,10 +290,16 @@ local function markTerminal(context, terminalState, options)
   options = type(options) == "table" and options or {}
   if context.terminalState ~= nil then return context.terminalState == terminalState end
   context.terminalState = terminalState
+  context.bindingState = "terminal"
   context.restoredVehicleId = tonumber(options.restoredVehicleId)
   context.sourceStillExists = options.sourceStillExists == true
   context.playerVehicleIdAfter = tonumber(options.playerVehicleIdAfter) or context.playerVehicleIdAfter
   context.removedVehicleIds = util.deepCopy(options.removedVehicleIds or context.removedVehicleIds)
+  if type(options.worldVehicleIdsAfter) == "table" then
+    context.worldVehicleIdsAfter = util.deepCopy(options.worldVehicleIdsAfter)
+    context.worldVehicleCountAfter = #options.worldVehicleIdsAfter
+    context.worldVehicleDelta = context.worldVehicleCountAfter - context.worldVehicleCountBefore
+  end
   return true
 end
 
@@ -289,6 +318,7 @@ local function summary(context)
     removedVehicleIds = util.deepCopy(context.removedVehicleIds),
     playerVehicleIdAfter = context.playerVehicleIdAfter,
     terminalState = context.terminalState,
+    bindingState = context.bindingState,
     operationId = context.operationId,
     operationGeneration = context.operationGeneration,
     phaseGeneration = context.phaseGeneration,
@@ -302,6 +332,7 @@ local function summary(context)
     rebindCount = context.rebindCount,
     ownershipReleaseCount = context.ownershipReleaseCount,
     staleCandidateCount = context.staleCandidateCount,
+    staleCallbackSideEffects = context.staleCallbackSideEffects,
     candidateDrops = context.candidateDrops,
     wait = util.deepCopy(context.wait),
     requestedModel = context.requestedModel,
@@ -309,6 +340,9 @@ local function summary(context)
     requestedPlacement = util.deepCopy(context.requestedPlacement),
     worldVehicleIdsBefore = util.deepCopy(context.worldVehicleIdsBefore),
     worldVehicleIdsAfter = util.deepCopy(context.worldVehicleIdsAfter),
+    worldVehicleCountBefore = context.worldVehicleCountBefore,
+    worldVehicleCountAfter = context.worldVehicleCountAfter,
+    worldVehicleDelta = context.worldVehicleDelta,
     returnedObjectEvidence = context.returnedObjectEvidence,
     returnedVehicleId = context.returnedVehicleId,
     rejectedVehicleIds = util.deepCopy(context.rejectedVehicleIds),
