@@ -22,6 +22,7 @@ provide(STORES_KEY, stores)
 const lifecycle = createLifecycleRegistry()
 const events = useEvents()
 const gameSettings = useGameSettings()
+let mounted = false
 const protocol = createStateProtocol({
   applyFull: state => stores.applyFull(state),
   applyDiff: (domain, payload) => stores.applyDiff(domain, payload),
@@ -29,17 +30,29 @@ const protocol = createStateProtocol({
   reject: code => { stores.diagnostics.state.status = code },
 })
 
-events.on("SoturineChaosRandomizerState", envelope => protocol.apply(envelope))
-events.on("SoturineChaosRandomizerStateDiff", envelope => protocol.apply(envelope))
-events.on("SoturineChaosRandomizerDiagnostics", async payload => {
+function subscribe(name, handler) {
+  const returnedCleanup = events.on(name, handler)
+  lifecycle.add(typeof returnedCleanup === "function" ? returnedCleanup : () => events.off?.(name, handler))
+}
+
+const applyState = envelope => { if (mounted) protocol.apply(envelope) }
+const copyDiagnostics = async payload => {
+  if (!mounted) return
   const copied = await copyText(payload?.text)
-  stores.diagnostics.state.status = copied ? "diagnostics_copied" : "diagnostics_copy_failed"
-})
+  if (mounted) stores.diagnostics.state.status = copied ? "diagnostics_copied" : "diagnostics_copy_failed"
+}
 
 onMounted(async () => {
+  mounted = true
+  subscribe("SoturineChaosRandomizerState", applyState)
+  subscribe("SoturineChaosRandomizerStateDiff", applyState)
+  subscribe("SoturineChaosRandomizerDiagnostics", copyDiagnostics)
   await lua.extensions.load("soturineChaosRandomizer")
+  if (!mounted) return
   await command.send("requestState")
+  if (!mounted) return
   await gameSettings.waitForData()
+  if (!mounted) return
   stores.i18n.setGameLocale(gameSettings.values.uiLanguage)
 
   const legacyKey = "soturineChaosRandomizer.racePolicy.v067"
@@ -60,6 +73,7 @@ onMounted(async () => {
 watch(() => gameSettings.values.uiLanguage, value => stores.i18n.setGameLocale(value))
 
 onUnmounted(() => {
+  mounted = false
   lifecycle.dispose()
   protocol.reset()
   command.dispose()

@@ -10,6 +10,7 @@ import { createCompatibilityStore } from "./compatibility.js"
 import { createDiagnosticsStore } from "./diagnostics.js"
 import { createPerformanceStore } from "./performance.js"
 import { createUILayoutStore } from "./uiLayout.js"
+import { createUIPerformanceProfiler } from "../services/uiPerformance.js"
 
 export const STORES_KEY = Symbol("soturine-chaos-stores")
 
@@ -23,6 +24,7 @@ const pick = (source, fields) => Object.fromEntries(fields.filter(key => key in 
 
 export function createStores(command) {
   const initial = createDefaultState()
+  const uiPerformance = createUIPerformanceProfiler()
   const stores = {
     core: createCoreStore(pick(initial, CORE_FIELDS)),
     chaos: createChaosStore({ locks: initial.locks, settings: initial.settings }),
@@ -52,12 +54,14 @@ export function createStores(command) {
     compatibility: createCompatibilityStore(initial.compatibility),
     diagnostics: createDiagnosticsStore({ migration: initial.migration, status: "" }),
     performance: createPerformanceStore(initial.performance),
-    uiLayout: createUILayoutStore(),
+    uiLayout: createUILayoutStore(uiPerformance),
+    uiPerformance,
     i18n: createI18n(),
     command,
   }
 
   stores.applyFull = state => {
+    const started = globalThis.performance?.now?.() ?? Date.now()
     stores.core.replace(pick(state, CORE_FIELDS))
     stores.chaos.replace({ locks: state.locks || {}, settings: state.settings || {} })
     stores.garage.replace(state.garage || {})
@@ -79,11 +83,13 @@ export function createStores(command) {
     stores.compatibility.replace(state.compatibility || {})
     stores.diagnostics.replace({ migration: state.migration || {}, status: stores.diagnostics.state.status || "" })
     stores.performance.replace(state.performance || {})
-    stores.uiLayout.setCompact(state.uiMode === "collapsed")
+    stores.uiLayout.setCompact(state.uiMode === "collapsed", false)
     stores.i18n.setPreference(state.settings?.uiPreferences?.locale || "auto")
+    stores.uiPerformance.recordApply("full", started, state)
   }
 
   stores.applyDiff = (domain, payload) => {
+    const started = globalThis.performance?.now?.() ?? Date.now()
     if (domain === "core") stores.core.patch(payload)
     else if (domain === "chaos") stores.chaos.patch(payload)
     else if (domain === "garage") stores.garage.patch(payload)
@@ -92,6 +98,7 @@ export function createStores(command) {
     else if (domain === "compatibility") stores.compatibility.patch(payload)
     else if (domain === "diagnostics") stores.diagnostics.patch(payload)
     else if (domain === "performance") stores.performance.patch(payload)
+    stores.uiPerformance.recordApply("diff", started, payload)
   }
 
   return stores

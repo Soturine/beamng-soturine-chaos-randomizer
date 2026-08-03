@@ -4,14 +4,20 @@
   "version": "0.7.1",
   "type": "module",
   "scripts": {
-    "test:ui": "node tests/js/vue_runtime.test.mjs",
+    "test:ui": "node tests/js/vue_runtime.test.mjs && vitest run --config vitest.config.mjs",
+    "test:ui:mounted": "vitest run --config vitest.config.mjs",
     "validate:sfc": "node tools/validate_vue_sfc.mjs ui/modules/apps/soturineChaosRandomizer .",
     "validate:graph": "node tools/validate_vue_module_graph.mjs",
     "validate:styles": "node tools/validate_vue_style_graph.mjs"
   },
   "devDependencies": {
+    "@vitejs/plugin-vue": "6.0.1",
     "@vue/compiler-sfc": "3.5.39",
-    "sass": "1.101.0"
+    "@vue/test-utils": "2.4.6",
+    "jsdom": "26.1.0",
+    "sass": "1.101.0",
+    "vitest": "3.2.6",
+    "vue": "3.5.39"
   },
   "engines": {
     "node": ">=24"

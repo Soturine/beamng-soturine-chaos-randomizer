@@ -35,8 +35,8 @@ class VueModuleGraphTests(unittest.TestCase):
         result = self.run_graph(APP)
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
         report = json.loads(result.stdout)
-        self.assertEqual(report["filesScanned"], 78)
-        self.assertEqual(report["importsScanned"], 193)
+        self.assertEqual(report["filesScanned"], 79)
+        self.assertEqual(report["importsScanned"], 195)
         self.assertEqual(
             report["projectVueImports"] + report["projectJavaScriptImports"]
             + report["projectJsonImports"] + report["projectCssImports"]
@@ -111,9 +111,9 @@ class VueModuleGraphTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
             report = json.loads(result.stdout)
             self.assertEqual(report["zipMissingModules"], 0)
-            self.assertEqual(report["projectImports"], 154)
+            self.assertEqual(report["projectImports"], 155)
             integrated = validate_package.validate_extracted_vue_module_graph(archive)
-            self.assertEqual(integrated["importsScanned"], 193)
+            self.assertEqual(integrated["importsScanned"], 195)
 
 
 if __name__ == "__main__":

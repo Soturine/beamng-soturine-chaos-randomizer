@@ -163,8 +163,10 @@ class StaticValidationTests(unittest.TestCase):
         ):
             self.assertIn(fragment, source)
         app = (APP / "app.vue").read_text(encoding="utf-8")
-        self.assertEqual(app.count('events.on("SoturineChaosRandomizerState"'), 1)
-        self.assertEqual(app.count('events.on("SoturineChaosRandomizerStateDiff"'), 1)
+        self.assertEqual(app.count('subscribe("SoturineChaosRandomizerState"'), 1)
+        self.assertEqual(app.count('subscribe("SoturineChaosRandomizerStateDiff"'), 1)
+        self.assertIn("returnedCleanup", app)
+        self.assertIn("events.off?.(name, handler)", app)
         self.assertEqual(app.count('command.send("requestState")'), 2)
 
     def test_feature_parity_fixtures_cover_all_required_states(self) -> None:
@@ -239,6 +241,9 @@ class StaticValidationTests(unittest.TestCase):
             self.assertIn(cleanup, responsive)
         self.assertIn("onUnmounted(() => clearTimeout(timer))", garage)
         self.assertIn("onUnmounted", (APP / "app.vue").read_text(encoding="utf-8"))
+        self.assertIn("requestAnimationFrame", responsive)
+        self.assertIn("cancelAnimationFrame", responsive)
+        self.assertIn("pendingSize", responsive)
 
     def test_frontend_security_has_no_remote_or_executable_content(self) -> None:
         source = frontend_source()
