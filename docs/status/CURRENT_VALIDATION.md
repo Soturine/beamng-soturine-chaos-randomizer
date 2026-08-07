@@ -1,7 +1,9 @@
 # Current validation
 
-Current candidate: **0.7.3 experimental prerelease** on `main`, targeting
-BeamNG 0.39.4.
+Current published release: **0.7.3 experimental prerelease**, targeting BeamNG
+0.39.4. Its downloaded ZIP/checksum/manifest passed post-publication identity,
+structure, reproducibility, version, legal-file, locale, and forbidden-content
+verification.
 
 Automated status: passed for the committed release gates recorded in the
 [v0.7.3 automated results](../testing/v0.7.3/AUTOMATED_RESULTS.md). Package,

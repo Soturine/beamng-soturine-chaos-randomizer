@@ -2,19 +2,19 @@
 
 Authoritative status: **Pending owner validation**.
 
-Artifact fields will be frozen after GitHub publication. The release may be
-published as an experimental prerelease with automated gates passing; that does
-not execute any case below.
+The GitHub release assets were downloaded after publication and verified. This
+artifact verification does not execute any in-game case below.
 
 | Field | Value |
 | --- | --- |
 | Release | v0.7.3 experimental prerelease |
+| Release URL | `https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases/tag/v0.7.3` |
 | BeamNG target | 0.39.4 |
 | ZIP | `soturine_chaos_randomizer_0.7.3.zip` |
 | Bytes | 467,527 |
 | SHA-256 | `b89bfc2fc12e41d33557a4571f50b7f28b1b76a987a54eacc340409ff87a451b` |
-| Manifest commit | Release tag `v0.7.3` (exact SHA recorded after publication) |
-| Download verification | Pending publication |
+| Manifest/tag commit | `239e576d41935d975a6f58bac3d458716755b603` |
+| Download verification | Passed on 2026-08-07; 3 assets downloaded and package validator passed |
 
 | Result | Count |
 | --- | ---: |
