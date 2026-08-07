@@ -79,6 +79,7 @@ local productionModules = {
   aiModeConfirmation = require("ge/extensions/soturineChaosRandomizer/aiModeConfirmation"),
   cooperativeScheduler = require("ge/extensions/soturineChaosRandomizer/runtime/cooperativeScheduler"),
   stabilityLimits = require("ge/extensions/soturineChaosRandomizer/runtime/stabilityLimits"),
+  safetyGate = require("ge/extensions/soturineChaosRandomizer/safetyGate"),
 }
 
 local M = {}
@@ -500,8 +501,11 @@ local function publicState()
         tuning = runtime.active.pendingTuningChanges and #runtime.active.pendingTuningChanges or 0,
         paint = runtime.active.paintConfirmation and 1 or 0,
         treeTimer = runtime.active.treeRescanAt and 1 or 0,
+        safetyTimer = runtime.active.safetyRevalidateAt and 1 or 0,
         callbacks = runtime.active.targetTracker and 1 or 0,
-        timers = (runtime.active.treeRescanAt and 1 or 0) + (runtime.active.paintConfirmation and 1 or 0),
+        timers = (runtime.active.treeRescanAt and 1 or 0)
+          + (runtime.active.safetyRevalidateAt and 1 or 0)
+          + (runtime.active.paintConfirmation and 1 or 0),
         tuningPlan = runtime.active.pendingTuningPlan and 1 or 0,
         paintPlan = runtime.active.pendingPaintPlan and 1 or 0,
       },
@@ -1058,7 +1062,9 @@ local function finishOperation(success, code, message, details, terminalState)
       busy = operationState.deriveBusy(runtime.state),
       targetConfirmed = active.operationCurrentTarget ~= nil,
       pendingWrites = active.currentBatch and #active.currentBatch or 0,
-      pendingTimers = (active.treeRescanAt and 1 or 0) + (active.paintConfirmation and 1 or 0),
+      pendingTimers = (active.treeRescanAt and 1 or 0)
+        + (active.safetyRevalidateAt and 1 or 0)
+        + (active.paintConfirmation and 1 or 0),
       pendingCallbacks = active.targetTracker and 1 or 0,
       staleCallbackCount = runtime.state.staleCallbackCount,
       coverageLedgersClosed = (not active.slotLedger or active.slotLedger.closed == true)
@@ -1628,6 +1634,8 @@ local function beginOperation(kind, context)
     partPassesApplied = 0,
     safetyBaseline = nil,
     safetyResult = nil,
+    finalSafetyGate = productionModules.safetyGate.create({maxAttempts = 3, retryWindow = 1.5, retryDelay = 0.1}),
+    partsSafetyGate = productionModules.safetyGate.create({maxAttempts = 3, retryWindow = 1.0, retryDelay = 0.05}),
     phaseTimings = {},
     startedWithoutVehicle = context.startWithoutVehicle == true or vehicleId == nil,
     batchRecovery = partBatchRecovery.create(),
@@ -2634,7 +2642,99 @@ local function safetyContext(active, snapshot)
   }
 end
 
-local function validateFinalVehicle(active)
+production.safetyEvidence = function(active, snapshot)
+  local stableSamples = active.lastTargetMetrics and active.lastTargetMetrics.coherentState
+    and active.lastTargetMetrics.coherentState.stableSamples or 0
+  if stableSamples < 2 and active.targetOwnershipConfirmed == true then stableSamples = 2 end
+  local slotCurrent = active.domain ~= "race" or (
+    active.domainContext and tostring(active.domainContext.expectedSlot)
+      == tostring(active.expectedSlot)
+  )
+  -- A successful adapter snapshot is already bound to the requested target.
+  -- Keep compatibility with older/test adapters that predate the explicit
+  -- vehicle/read-coherence fields, while still honoring an explicit mismatch
+  -- or incoherent read from the production adapter.
+  local observedVehicleId = tonumber(snapshot and snapshot.vehicleId) or tonumber(active.vehicleId)
+  return {
+    operationId = active.operationId,
+    operationGeneration = active.operationGeneration,
+    targetGeneration = active.targetGeneration,
+    phaseGeneration = active.phaseGeneration,
+    expectedVehicleId = tonumber(active.vehicleId),
+    vehicleId = observedVehicleId,
+    slotId = active.expectedSlot,
+    coherent = type(snapshot) == "table" and snapshot.coherentTargetRead ~= false
+      and active.targetOwnershipConfirmed == true,
+    operationCurrent = operationState.isCurrent(runtime.state, active.token),
+    phaseCurrent = tonumber(active.phaseGeneration) == tonumber(runtime.state.phaseGeneration),
+    slotCurrent = slotCurrent,
+    stableSamples = stableSamples,
+    readStatus = snapshot and (snapshot.readStatus or "ready"),
+  }
+end
+
+production.unknownSafetyResult = function(reason, detail)
+  return {
+    status = "pending", valid = nil, decision = validator.DECISIONS.UNKNOWN_OR_PENDING,
+    profile = "unknown", classification = "unknown", failures = {},
+    warnings = {{reason = reason}}, reason = reason, detail = util.deepCopy(detail),
+  }
+end
+
+production.preserveUnconfirmedSafetyResult = function(active, result, phase)
+  if active.domain == "chaos" and tonumber(active.vehicleId) and active.domainContext then
+    productionModules.domainOperations.acceptVehicle(
+      runtime.domainOperations, active.domainContext, active.vehicleId, "player_result", active.vehicleId
+    )
+    productionModules.operationContext.markAccepted(
+      production.ensureOperationContext(active), active.vehicleId, active.vehicleId
+    )
+    if active.spawnTransaction then
+      productionModules.spawnAdapter.spawnOutcome.accept(active.spawnTransaction, active.vehicleId)
+    end
+  end
+  finishOperation(false, "safety_confirmation_unavailable",
+    "Safety could not confirm the current vehicle within the bounded readback window", {
+      safety = util.deepCopy(result), preservedCurrentResult = active.domain == "chaos",
+      safetyGate = productionModules.safetyGate.snapshot(active.finalSafetyGate or active.partsSafetyGate),
+      failurePhase = phase,
+    })
+end
+
+production.evaluateFinalSafety = function(active, result, continuation)
+  local action, details = productionModules.safetyGate.observe(
+    active.finalSafetyGate, result, runtime.time.realMonotonicTime,
+    active.settings and active.settings.allowPartialResult == true
+  )
+  if action == "retry" then
+    active.safetyRevalidateAt = details.retryAt
+    active.safetyContinuation = continuation
+    active.safetyResult = util.deepCopy(result)
+    diagnosticsModule.write(runtime.diagnostics, "D", "safety_readback_retry_scheduled", {
+      attempt = details.attempt, maxAttempts = details.maxAttempts,
+      reason = details.reason, continuation = continuation,
+    })
+    return nil, {retryPending = true, safety = util.deepCopy(result)}
+  end
+  active.safetyRevalidateAt = nil
+  active.safetyContinuation = nil
+  if action == "accept_partial" then
+    active.nonFatalPartial = true
+    active.warnings[#active.warnings + 1] =
+      "Safety evidence remained incomplete after bounded readback; the partial-result policy preserved the vehicle."
+    return true, result
+  end
+  if action == "unconfirmed" then
+    return false, adapter.errorValue("safety_confirmation_unavailable",
+      "Safety evidence remained unknown after bounded readback", {
+        decision = validator.DECISIONS.UNKNOWN_OR_PENDING,
+        safety = util.deepCopy(result), safetyGate = productionModules.safetyGate.snapshot(active.finalSafetyGate),
+      })
+  end
+  return action == "accept", result
+end
+
+local function validateFinalVehicle(active, continuation)
   setProgress("Validating final vehicle", 0.96)
   local scanStarted = adapter.clock()
   local okSnapshot, snapshot = adapter.getCurrentSlotSnapshot(
@@ -2644,20 +2744,19 @@ local function validateFinalVehicle(active)
     local code = type(snapshot) == "table" and snapshot.code or "parts_read_unavailable"
     local unreadable = code == "missing_parts_tree" or code == "parts_read_unavailable"
       or code == "temporarily_unreadable" or code == "config_read_unavailable"
-    if unreadable and active.nonFatalPartial == true then
-      return true, {
-        status = "uncertain", valid = true, profile = "unknown",
-        reason = "parts_tree_unavailable", failures = {},
-        warnings = {{reason = code}}, readError = util.deepCopy(snapshot),
-      }
+    if unreadable then
+      return production.evaluateFinalSafety(active, production.unknownSafetyResult(code, snapshot), continuation)
     end
     return false, snapshot
   end
   local scan, scanError = slotScanner.scan(snapshot.tree, snapshot.metadataByPath)
   active.slotScanDuration = (active.slotScanDuration or 0) + math.max(0, adapter.clock() - scanStarted)
-  if not scan then return false, adapter.errorValue(scanError, "Could not scan the final parts tree") end
+  if not scan then
+    return production.evaluateFinalSafety(active, production.unknownSafetyResult(scanError, snapshot), continuation)
+  end
   local graph = validator.buildGraph(scan, safetyContext(active, snapshot), {
     allowMissingParts = active.policy and active.policy.allowMissingParts == true,
+    evidence = production.safetyEvidence(active, snapshot),
   })
   if not active.safetyBaseline then active.safetyBaseline = util.deepCopy(graph) end
   local result = validator.validateGraph(graph, active.safetyBaseline, active.policy.protectCriticalParts)
@@ -2671,7 +2770,11 @@ local function validateFinalVehicle(active)
     missingParts = result.missingParts,
     heuristicPaths = graph.heuristicPaths,
   }, not result.valid)
-  if not result.valid then
+  if result.decision == validator.DECISIONS.UNKNOWN_OR_PENDING then
+    return production.evaluateFinalSafety(active, result, continuation)
+  end
+  productionModules.safetyGate.reset(active.finalSafetyGate)
+  if result.decision == validator.DECISIONS.INVALID_CONFIRMED then
     local repairing, repairReason = attemptCriticalRepair(
       active, snapshot, scan, result.failures, "validation"
     )
@@ -2679,6 +2782,7 @@ local function validateFinalVehicle(active)
       return nil, {repairStarted = true, reason = repairReason, safety = util.deepCopy(result)}
     end
     return false, adapter.errorValue("safety_validation_failed", "Final vehicle safety evidence is invalid", {
+      decision = validator.DECISIONS.INVALID_CONFIRMED,
       profile = result.profile,
       classification = result.classification,
       status = result.status,
@@ -3074,8 +3178,17 @@ production.completeRandomConfig = function(active, verificationDetails)
     },
   }
   operationState.transition(runtime.state, "validating", false)
-  local dnaSafe, dnaSafety = validateFinalVehicle(active)
-  if dnaSafe == nil and dnaSafety and dnaSafety.repairStarted then return end
+  local dnaSafe, dnaSafety = validateFinalVehicle(active, "random_config")
+  if dnaSafe == nil then return end
+  if not dnaSafe then
+    local decision = dnaSafety and dnaSafety.context and dnaSafety.context.decision
+    if decision == validator.DECISIONS.UNKNOWN_OR_PENDING then
+      production.preserveUnconfirmedSafetyResult(active, dnaSafety.context.safety, "random_config")
+    else
+      failActive(dnaSafety, decision == validator.DECISIONS.INVALID_CONFIRMED, "validation")
+    end
+    return
+  end
   if dnaSafe and production.ensureEngineFluidSafety(active, "random_config", dnaSafety) then return end
   details.safety = dnaSafe and util.deepCopy(dnaSafety) or nil
   local dnaReady, dnaOrError = false, dnaSafety
@@ -3106,9 +3219,17 @@ local function completeChaos(active)
   operationState.transition(runtime.state, "validating", false)
   active.phase = "validation"
   setLifecyclePhase(active, "final_validation", false, "chaos_final_validation")
-  local safe, safetyOrError = validateFinalVehicle(active)
-  if safe == nil and safetyOrError and safetyOrError.repairStarted then return end
-  if not safe then failActive(safetyOrError, true, "validation"); return end
+  local safe, safetyOrError = validateFinalVehicle(active, "chaos")
+  if safe == nil then return end
+  if not safe then
+    local decision = safetyOrError and safetyOrError.context and safetyOrError.context.decision
+    if decision == validator.DECISIONS.UNKNOWN_OR_PENDING then
+      production.preserveUnconfirmedSafetyResult(active, safetyOrError.context.safety, "chaos")
+    else
+      failActive(safetyOrError, decision == validator.DECISIONS.INVALID_CONFIRMED, "validation")
+    end
+    return
+  end
   if production.ensureEngineFluidSafety(active, "chaos", safetyOrError) then return end
   if active.replayGeneration then completeReplayGeneration(active, safetyOrError); return end
   local completionMessage
@@ -3589,12 +3710,34 @@ processMutationPass = function(active)
   active.slotLedger.reloadsUsed = active.reloadCount or 0
   local graph = validator.buildGraph(scan, safetyContext(active, snapshot), {
     allowMissingParts = active.policy and active.policy.allowMissingParts == true,
+    evidence = production.safetyEvidence(active, snapshot),
   })
   if not active.safetyBaseline then active.safetyBaseline = util.deepCopy(graph) end
   local safetyResult = validator.validateGraph(graph, active.safetyBaseline, active.policy.protectCriticalParts)
   active.safetyResult = safetyResult
-  local validProtection, protectionFailures = safetyResult.valid, safetyResult.failures
-  if not validProtection then
+  local safetyAction, safetyActionDetails = productionModules.safetyGate.observe(
+    active.partsSafetyGate, safetyResult, runtime.time.realMonotonicTime,
+    active.settings and active.settings.allowPartialResult == true
+  )
+  if safetyAction == "retry" then
+    active.treeRescanAt = safetyActionDetails.retryAt
+    active.treeRescanContext = operationState.captureContext(runtime.state, active.operationCurrentTarget)
+    diagnosticsModule.write(runtime.diagnostics, "D", "safety_tree_retry_scheduled", {
+      attempt = safetyActionDetails.attempt, maxAttempts = safetyActionDetails.maxAttempts,
+      reason = safetyActionDetails.reason,
+    })
+    setProgress("Waiting for current safety evidence", 0.44)
+    return
+  elseif safetyAction == "unconfirmed" then
+    production.preserveUnconfirmedSafetyResult(active, safetyResult, "parts")
+    return
+  elseif safetyAction == "accept_partial" then
+    active.nonFatalPartial = true
+    active.warnings[#active.warnings + 1] =
+      "Parts safety remained uncertain; partial-result policy preserved the bounded result."
+  end
+  local protectionFailures = safetyResult.failures
+  if safetyAction == "invalid_confirmed" then
     local persistent, persistenceReason = vehicleStabilizer.observeTreeIssue(
       active.treeStabilizer, safetyFailureFingerprint(protectionFailures)
     )
@@ -5370,9 +5513,17 @@ runDNATargetPreflight = function(active)
     if active.dnaEntry.generation.operation == "randomConfig" then
       local transitioned, transitionError = operationState.transition(runtime.state, "validating", false)
       if not transitioned then failActive(adapter.errorValue("state_error", transitionError), true, "dna_replay_verification"); return end
-      local safe, safetyOrError = validateFinalVehicle(active)
-      if safe == nil and safetyOrError and safetyOrError.repairStarted then return end
-      if not safe then failActive(safetyOrError, true, "dna_replay_verification"); return end
+      local safe, safetyOrError = validateFinalVehicle(active, "dna_replay")
+      if safe == nil then return end
+      if not safe then
+        local decision = safetyOrError and safetyOrError.context and safetyOrError.context.decision
+        if decision == validator.DECISIONS.UNKNOWN_OR_PENDING then
+          production.preserveUnconfirmedSafetyResult(active, safetyOrError.context.safety, "dna_replay_verification")
+        else
+          failActive(safetyOrError, decision == validator.DECISIONS.INVALID_CONFIRMED, "dna_replay_verification")
+        end
+        return
+      end
       completeReplayGeneration(active, safetyOrError)
     else
       active.pass = 1
@@ -5552,16 +5703,50 @@ validateDNAFinal = function(active)
     failActive(adapter.errorValue("state_error", transitionError), true, "dna_validation")
     return
   end
-  local safe, safetyOrError = validateFinalVehicle(active)
-  if safe == nil and safetyOrError and safetyOrError.repairStarted then return end
+  local safe, safetyOrError = validateFinalVehicle(active, "dna_validation")
+  if safe == nil then return end
   if not safe then
-    failActive(adapter.errorValue("dna_validation_failed", "Restored Vehicle DNA failed safety validation", {
-      cause = safetyOrError,
-    }), true, "dna_validation")
+    local decision = safetyOrError and safetyOrError.context and safetyOrError.context.decision
+    if decision == validator.DECISIONS.UNKNOWN_OR_PENDING then
+      production.preserveUnconfirmedSafetyResult(active, safetyOrError.context.safety, "dna_validation")
+    else
+      failActive(adapter.errorValue("dna_validation_failed", "Restored Vehicle DNA failed safety validation", {
+        cause = safetyOrError, decision = decision,
+      }), decision == validator.DECISIONS.INVALID_CONFIRMED, "dna_validation")
+    end
     return
   end
   active.dnaSafetyResult = util.deepCopy(safetyOrError)
   verifyDNAFinal(active)
+end
+
+production.resumeSafetyContinuation = function(active, continuation)
+  if not active or not operationState.isCurrent(runtime.state, active.token) then return false end
+  if continuation == "random_config" then
+    production.completeRandomConfig(active, active.lastVerificationDetails)
+  elseif continuation == "chaos" then
+    completeChaos(active)
+  elseif continuation == "dna_validation" then
+    validateDNAFinal(active)
+  elseif continuation == "dna_replay" then
+    local safe, safetyOrError = validateFinalVehicle(active, "dna_replay")
+    if safe == nil then return true end
+    if not safe then
+      local decision = safetyOrError and safetyOrError.context and safetyOrError.context.decision
+      if decision == validator.DECISIONS.UNKNOWN_OR_PENDING then
+        production.preserveUnconfirmedSafetyResult(active, safetyOrError.context.safety, "dna_replay_verification")
+      else
+        failActive(safetyOrError, decision == validator.DECISIONS.INVALID_CONFIRMED, "dna_replay_verification")
+      end
+    else
+      completeReplayGeneration(active, safetyOrError)
+    end
+  else
+    production.preserveUnconfirmedSafetyResult(active, active.safetyResult or production.unknownSafetyResult(
+      "safety_continuation_invalid", continuation
+    ), "validation")
+  end
+  return true
 end
 
 local function continueCreativeFromParent(active, capture, scan)
@@ -7963,6 +8148,16 @@ local function onUpdate(dtReal, dtSim, dtRaw)
     local paintStarted = adapter.clock()
     phaseWorkHandled = processPaintConfirmation()
     productionModules.performanceMetrics.record(runtime.performanceTelemetry, "paintConfirmation", math.max(0, (adapter.clock() - paintStarted) * 1000))
+  end
+  if not phaseWorkHandled and runtime.state.busy and runtime.active
+    and runtime.active.safetyRevalidateAt
+    and runtime.time.realMonotonicTime >= runtime.active.safetyRevalidateAt
+  then
+    local safetyActive = runtime.active
+    local continuation = safetyActive.safetyContinuation
+    safetyActive.safetyRevalidateAt = nil
+    safetyActive.safetyContinuation = nil
+    phaseWorkHandled = production.resumeSafetyContinuation(safetyActive, continuation)
   end
   if not phaseWorkHandled and runtime.state.busy and runtime.active and runtime.active.treeRescanAt
     and adapter.clock() >= runtime.active.treeRescanAt

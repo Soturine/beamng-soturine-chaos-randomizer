@@ -9,8 +9,9 @@ local DECISIONS = {
 }
 
 local function withDecision(result)
-  if result.valid == false then result.decision = DECISIONS.INVALID_CONFIRMED
-  elseif result.status == "uncertain" then result.decision = DECISIONS.UNKNOWN_OR_PENDING
+  if result.status == "pending" or result.valid == nil then
+    result.decision = DECISIONS.UNKNOWN_OR_PENDING
+  elseif result.valid == false then result.decision = DECISIONS.INVALID_CONFIRMED
   else result.decision = DECISIONS.VALID end
   return result
 end
@@ -313,6 +314,7 @@ local function buildGraph(scan, context, options)
     candidateCount = 0,
     maxDepth = 0,
     roleEvidence = {},
+    evidence = util.deepCopy(options.evidence),
   }
   for _, slot in ipairs(type(scan) == "table" and scan.slots or {}) do
     local selected = selectedEvidence(slot)
@@ -374,6 +376,12 @@ local function validateGraph(graph, baseline, protectCriticalParts)
   baseline = type(baseline) == "table" and baseline or graph
   local failures = {}
   local warnings = {}
+  if graph.slotCount ~= nil and (tonumber(graph.slotCount) or 0) == 0 then
+    return withDecision({status = "pending", valid = nil, profile = baseline.profile or graph.profile,
+      classification = baseline.classification or graph.classification, failures = {},
+      warnings = {{reason = "parts_tree_empty_or_registry_pending"}},
+      missingParts = util.deepCopy(graph.missingParts or {}), reason = "parts_tree_empty_or_registry_pending"})
+  end
   for _, path in ipairs(graph.missingRequired or {}) do
     failures[#failures + 1] = {slotPath = path, reason = "core_infrastructure_missing"}
   end
@@ -431,6 +439,22 @@ local function validateGraph(graph, baseline, protectCriticalParts)
     end
   end
   if #failures > 0 then
+    local evidence = graph.evidence
+    local evidenceConfirmed = evidence == nil or (
+      evidence.coherent == true
+      and tonumber(evidence.expectedVehicleId) == tonumber(evidence.vehicleId)
+      and evidence.operationCurrent == true
+      and evidence.phaseCurrent == true
+      and evidence.slotCurrent ~= false
+      and (tonumber(evidence.stableSamples) or 0) >= 2
+    )
+    if not evidenceConfirmed then
+      return withDecision({status = "pending", valid = nil, profile = baseline.profile,
+        classification = baseline.classification or graph.classification, failures = {},
+        pendingFailures = failures, warnings = warnings,
+        reason = "safety_evidence_not_current_or_stable",
+        missingParts = util.deepCopy(graph.missingParts or {})})
+    end
     return withDecision({status = "unsafe", valid = false, profile = baseline.profile,
       classification = baseline.classification or graph.classification, failures = failures,
       warnings = warnings, missingParts = util.deepCopy(graph.missingParts or {})})

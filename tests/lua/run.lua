@@ -18,6 +18,7 @@ local configVerification = require("ge/extensions/soturineChaosRandomizer/config
 local compatibility = require("ge/extensions/soturineChaosRandomizer/compatibility")
 local pathIdentity = require("ge/extensions/soturineChaosRandomizer/pathIdentity")
 local registryReadiness = require("ge/extensions/soturineChaosRandomizer/registryReadiness")
+local safetyGate = require("ge/extensions/soturineChaosRandomizer/safetyGate")
 local crc32 = require("ge/extensions/soturineChaosRandomizer/crc32")
 local failureAttribution = require("ge/extensions/soturineChaosRandomizer/failureAttribution")
 local energyStorageGuard = require("ge/extensions/soturineChaosRandomizer/energyStorageGuard")
@@ -4644,10 +4645,10 @@ tests.v061_persistent_parts_read_fails_terminally = function()
   truthy(harness.main.scramble({chaos = 100, manualSeed = "persistent-nil", seedMode = "fixed"}))
   local state = pipelineHarness.driveActive(harness, 256)
   truthy(not state.busy)
-  truthy(state.lastResult and state.lastResult.success)
-  equal(state.lastResult.code, "scramble_partial")
-  equal(state.lastResult.details.terminalOutcome, "partial_success")
-  equal(state.lastResult.details.stageReasons.parts, "parts_tree_unavailable_warning")
+  equal(state.lastResult and state.lastResult.success, false)
+  equal(state.lastResult.code, "safety_confirmation_unavailable")
+  equal(state.lastResult.details.terminalOutcome, "preserved_previous_result")
+  truthy(state.lastResult.details.preservedCurrentResult)
   equal(harness.modelKey, "fixture_old")
 end
 
@@ -6193,7 +6194,7 @@ end
 tests.v067_ternary_safety_decisions_are_evidence_based = function()
   local unknownGraph = validator.buildGraph({slots = {}}, {type = "Car"}, {})
   local unknown = validator.validateGraph(unknownGraph, unknownGraph, true)
-  equal(unknown.decision, "UNKNOWN_OR_PENDING"); truthy(unknown.valid)
+  equal(unknown.decision, "UNKNOWN_OR_PENDING"); equal(unknown.valid, nil)
   local unsafeGraph = validator.buildGraph({slots = {{
     path = "main", id = "main", currentPart = "", required = true, coreSlot = true,
     candidates = {}, allowTypes = {}, depth = 0,
@@ -6216,6 +6217,47 @@ tests.v067_ternary_safety_decisions_are_evidence_based = function()
     name = "tank", type = "fuelTank", fuelCapacity = 50,
   }}}, 0.1)
   equal(fuelUnknown.decision, "UNKNOWN_OR_PENDING")
+end
+
+tests.v073_safety_gate_requires_current_stable_evidence_and_is_bounded = function()
+  local slot = {
+    path = "main", id = "main", currentPart = "", required = true, coreSlot = true,
+    candidates = {}, allowTypes = {}, depth = 0,
+  }
+  local staleGraph = validator.buildGraph({slots = {slot}}, {type = "Car"}, {evidence = {
+    coherent = true, expectedVehicleId = 7, vehicleId = 8,
+    operationCurrent = true, phaseCurrent = true, slotCurrent = true, stableSamples = 2,
+  }})
+  local stale = validator.validateGraph(staleGraph, staleGraph, true)
+  equal(stale.decision, "UNKNOWN_OR_PENDING")
+  equal(stale.valid, nil)
+  truthy(#(stale.pendingFailures or {}) > 0)
+
+  local confirmedGraph = validator.buildGraph({slots = {slot}}, {type = "Car"}, {evidence = {
+    coherent = true, expectedVehicleId = 7, vehicleId = 7,
+    operationCurrent = true, phaseCurrent = true, slotCurrent = true, stableSamples = 2,
+  }})
+  local confirmed = validator.validateGraph(confirmedGraph, confirmedGraph, true)
+  equal(confirmed.decision, "INVALID_CONFIRMED")
+
+  local gate = safetyGate.create({maxAttempts = 3, retryWindow = 1.5, retryDelay = 0.1})
+  local action, details = safetyGate.observe(gate, stale, 0, false)
+  equal(action, "retry"); equal(details.attempt, 1)
+  action, details = safetyGate.observe(gate, stale, 0.1, false)
+  equal(action, "retry"); equal(details.attempt, 2)
+  action = safetyGate.observe(gate, stale, 0.2, false)
+  equal(action, "unconfirmed"); equal(safetyGate.snapshot(gate).attempts, 3)
+
+  safetyGate.reset(gate)
+  action = safetyGate.observe(gate, confirmed, 0.3, false)
+  equal(action, "invalid_confirmed")
+  safetyGate.reset(gate)
+  action = safetyGate.observe(gate, stale, 0.4, true)
+  equal(action, "retry")
+  action = safetyGate.observe(gate, stale, 0.5, true)
+  equal(action, "retry")
+  action = safetyGate.observe(gate, stale, 0.6, true)
+  equal(action, "accept_partial")
 end
 
 tests.v067_race_policy_inventory_and_roundtrip = function()

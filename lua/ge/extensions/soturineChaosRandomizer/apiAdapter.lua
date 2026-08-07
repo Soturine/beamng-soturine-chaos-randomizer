@@ -838,7 +838,11 @@ local function getCurrentSlotSnapshot(expectedVehicleId, allowBackgroundTarget)
   if type(jbeamIO) ~= "table" or type(jbeamIO.getPart) ~= "function" then
     return false, errorValue("unsupported_api", "The current JBeam slot API is unavailable")
   end
-  local okData, vehicleData = getCurrentVehicleData(expectedVehicleId, allowBackgroundTarget)
+  local okTarget, vehicleId = resolveTargetVehicleId(
+    expectedVehicleId, "slot_snapshot", allowBackgroundTarget
+  )
+  if not okTarget then return false, vehicleId end
+  local okData, vehicleData = getCurrentVehicleData(vehicleId, allowBackgroundTarget)
   if not okData then return false, vehicleData end
   local tree = vehicleData.config and vehicleData.config.partsTree
   if type(tree) ~= "table" then return false, errorValue("missing_parts_tree", "The active vehicle has no hierarchical parts tree") end
@@ -931,6 +935,9 @@ local function getCurrentSlotSnapshot(expectedVehicleId, allowBackgroundTarget)
       }
     end
     return {
+      vehicleId = vehicleId,
+      readStatus = "ready",
+      coherentTargetRead = true,
       tree = util.deepCopy(tree),
       metadataByPath = metadataByPath,
       variables = util.deepCopy(vehicleData.vdata and vehicleData.vdata.variables or {}),
