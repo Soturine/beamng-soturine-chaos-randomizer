@@ -104,6 +104,8 @@
   "garage.left": "ADN del vehículo izquierdo",
   "garage.right": "ADN del vehículo derecho",
   "garage.compareAction": "Comparar ADN del vehículo",
+  "garage.equal": "Sin diferencias",
+  "garage.differences": "{count} diferencias",
   "garage.importJson": "Importar JSON de ADN del vehículo",
   "garage.exportJson": "Exportar JSON",
   "garage.exportPackage": "Exportar paquete",

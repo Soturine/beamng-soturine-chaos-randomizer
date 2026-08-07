@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest"
 
 import App from "../../ui/modules/apps/soturineChaosRandomizer/app.vue"
 import AppShell from "../../ui/modules/apps/soturineChaosRandomizer/components/shell/AppShell.vue"
+import ScrSelect from "../../ui/modules/apps/soturineChaosRandomizer/components/common/ScrSelect.vue"
 import { createDefaultState } from "../../ui/modules/apps/soturineChaosRandomizer/services/defaultState.js"
 import { createStores, STORES_KEY } from "../../ui/modules/apps/soturineChaosRandomizer/stores/index.js"
 import { bridgeHarness } from "./mocks/bridge.js"
@@ -15,6 +16,12 @@ const settle = async () => {
   await flushPromises()
   await nextTick()
   await Promise.resolve()
+}
+
+const choose = async (scope, value) => {
+  await scope.find(".bng-smart-select-trigger").trigger("click")
+  await scope.find(`[role="option"][data-value="${value}"]`).trigger("click")
+  await settle()
 }
 
 const mountShell = () => {
@@ -98,9 +105,8 @@ describe("mounted Runtime UI", () => {
     expect(wrapper.findAll('.scr-nav [role="tab"]')[3].text()).toBe("Settings")
 
     await wrapper.findAll('.scr-nav [role="tab"]')[3].trigger("click")
-    const localeSelect = wrapper.find(".scr-body .scr-card .scr-field select")
-    await localeSelect.setValue("es-ES")
-    await settle()
+    const localeSelect = wrapper.findAll(".scr-select")[0]
+    await choose(localeSelect, "es-ES")
     expect(wrapper.findAll('.scr-nav [role="tab"]')[3].text()).toBe("Ajustes")
     expect(bridgeHarness.envelopes.some(value => value.command === "updateUIPreferences"
       && value.arguments[0].localeMode === "manual" && value.arguments[0].manualLocale === "es-ES")).toBe(true)
@@ -108,9 +114,73 @@ describe("mounted Runtime UI", () => {
     gameSettingsHarness.values.uiLanguage = "pt-BR"
     await nextTick()
     expect(wrapper.findAll('.scr-nav [role="tab"]')[3].text()).toBe("Ajustes")
-    await localeSelect.setValue("auto")
-    await settle()
+    await choose(localeSelect, "auto")
     expect(wrapper.findAll('.scr-nav [role="tab"]')[3].text()).toBe("Configurações")
+    wrapper.unmount()
+  })
+
+  it("uses official smart selects without native controls and preserves instance isolation", async () => {
+    const { wrapper } = mountShell()
+    await settle()
+    expect(wrapper.findAll("select")).toHaveLength(0)
+
+    await wrapper.findAll('.scr-nav [role="tab"]')[3].trigger("click")
+    await settle()
+    expect(wrapper.findAll("select")).toHaveLength(0)
+    expect(wrapper.findAll(".bng-smart-select-trigger").length).toBeGreaterThanOrEqual(5)
+
+    const controls = wrapper.findAll(".scr-select")
+    await controls[0].find(".bng-smart-select-trigger").trigger("click")
+    await controls[1].find(".bng-smart-select-trigger").trigger("click")
+    expect(controls[0].find('[role="listbox"]').exists()).toBe(true)
+    expect(controls[1].find('[role="listbox"]').exists()).toBe(true)
+    await controls[0].find(".bng-smart-select-trigger").trigger("keydown", { key: "Escape" })
+    expect(controls[0].find('[role="listbox"]').exists()).toBe(false)
+    expect(controls[1].find('[role="listbox"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it("keeps smart-select state synchronized over 50 selections and honors disabled state", async () => {
+    const wrapper = mount(ScrSelect, {
+      attachTo: document.body,
+      props: {
+        modelValue: "a",
+        label: "Fixture",
+        items: [{ value: "a", label: "Alpha" }, { value: "b", label: "Bravo" }],
+        "onUpdate:modelValue": value => wrapper.setProps({ modelValue: value }),
+      },
+    })
+    for (let cycle = 0; cycle < 50; cycle += 1) {
+      const value = cycle % 2 === 0 ? "b" : "a"
+      await choose(wrapper, value)
+      expect(wrapper.props("modelValue")).toBe(value)
+      expect(wrapper.find(".bng-smart-select-trigger").text()).toBe(value === "a" ? "Alpha" : "Bravo")
+    }
+    await wrapper.setProps({ disabled: true, modelValue: "b" })
+    expect(wrapper.find(".bng-smart-select-trigger").attributes("disabled")).toBeDefined()
+    expect(wrapper.find(".bng-smart-select-trigger").text()).toBe("Bravo")
+    wrapper.unmount()
+  })
+
+  it("normalizes map-shaped managed vehicles at ingress without crashing placement", async () => {
+    const { wrapper, stores } = mountShell()
+    const source = {
+      beta: { name: "Beta", status: "ready" },
+      alpha: { handle: "physical-alpha", name: "Alpha", status: "placed" },
+    }
+    stores.applyDiff("race", { spawnDirector: { managed: source } })
+    stores.uiLayout.setTab("race")
+    stores.uiLayout.state.raceStep = "placement"
+    await settle()
+
+    expect(stores.race.state.spawnDirector.managed.map(item => item.handle)).toEqual(["physical-alpha", "beta"])
+    expect(stores.diagnostics.state.protocolErrors.at(-1)).toMatchObject({
+      code: "normalized_state_shape",
+      path: "spawnDirector.managed",
+      receivedType: "object_map",
+    })
+    expect(wrapper.find(".scr-panel").text()).toContain("Alpha")
+    expect(wrapper.findAll("select")).toHaveLength(0)
     wrapper.unmount()
   })
 

@@ -1,2 +1,31 @@
-<template><section class="scr-card"><h3>{{ t('settings.content') }}</h3><label class="scr-field"><span>{{ t('settings.contentFilter') }}</span><select :value="settings.contentFilter" @change="update('contentFilter', $event.target.value)"><option value="everything">{{ t('settings.contentEverything') }}</option><option value="official">{{ t('settings.contentOfficial') }}</option><option value="mods">{{ t('settings.contentMods') }}</option></select></label><label class="scr-field"><span>{{ t('settings.fairness') }}</span><select :value="settings.selectionFairness" @change="update('selectionFairness', $event.target.value)"><option value="vehicle">{{ t('settings.fairnessVehicle') }}</option><option value="configuration">{{ t('settings.fairnessConfiguration') }}</option></select></label><ToggleField :model-value="settings.includeAutomation === true" :label="t('settings.includeAutomation')" @update:model-value="value => update('includeAutomation', value)" /><ToggleField :model-value="settings.includeTrailers === true" :label="t('settings.includeTrailers')" @update:model-value="value => update('includeTrailers', value)" /><ToggleField :model-value="settings.includeProps === true" :label="t('settings.includeProps')" @update:model-value="value => update('includeProps', value)" /></section></template>
-<script setup>import { useStores } from "../../stores/index.js"; import ToggleField from "../common/ToggleField.vue"; const stores = useStores(); const settings = stores.settings.state; const { t } = stores.i18n; const update = (field, value) => stores.command.send("updateSettings", [{ [field]: value }])</script>
+<template>
+  <section class="scr-card">
+    <h3>{{ t('settings.content') }}</h3>
+    <ScrSelect :model-value="settings.contentFilter" :label="t('settings.contentFilter')" :items="contentItems" @update:model-value="value => update('contentFilter', value)" />
+    <ScrSelect :model-value="settings.selectionFairness" :label="t('settings.fairness')" :items="fairnessItems" @update:model-value="value => update('selectionFairness', value)" />
+    <ToggleField :model-value="settings.includeAutomation === true" :label="t('settings.includeAutomation')" @update:model-value="value => update('includeAutomation', value)" />
+    <ToggleField :model-value="settings.includeTrailers === true" :label="t('settings.includeTrailers')" @update:model-value="value => update('includeTrailers', value)" />
+    <ToggleField :model-value="settings.includeProps === true" :label="t('settings.includeProps')" @update:model-value="value => update('includeProps', value)" />
+  </section>
+</template>
+
+<script setup>
+import { computed } from "vue"
+import { useStores } from "../../stores/index.js"
+import ScrSelect from "../common/ScrSelect.vue"
+import ToggleField from "../common/ToggleField.vue"
+
+const stores = useStores()
+const settings = stores.settings.state
+const { t } = stores.i18n
+const contentItems = computed(() => [
+  { value: "everything", label: t("settings.contentEverything") },
+  { value: "official", label: t("settings.contentOfficial") },
+  { value: "mods", label: t("settings.contentMods") },
+])
+const fairnessItems = computed(() => [
+  { value: "vehicle", label: t("settings.fairnessVehicle") },
+  { value: "configuration", label: t("settings.fairnessConfiguration") },
+])
+const update = (field, value) => stores.command.send("updateSettings", [{ [field]: value }])
+</script>

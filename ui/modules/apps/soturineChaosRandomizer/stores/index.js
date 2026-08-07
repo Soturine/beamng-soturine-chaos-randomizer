@@ -11,6 +11,7 @@ import { createDiagnosticsStore } from "./diagnostics.js"
 import { createPerformanceStore } from "./performance.js"
 import { createUILayoutStore } from "./uiLayout.js"
 import { createUIPerformanceProfiler } from "../services/uiPerformance.js"
+import { normalizeDomainPayload, normalizeFullState } from "../services/stateNormalizer.js"
 
 export const STORES_KEY = Symbol("soturine-chaos-stores")
 
@@ -62,6 +63,8 @@ export function createStores(command) {
 
   stores.applyFull = state => {
     const started = globalThis.performance?.now?.() ?? Date.now()
+    const issues = []
+    state = normalizeFullState(state, issue => issues.push(issue))
     stores.core.replace(pick(state, CORE_FIELDS))
     stores.chaos.replace({ locks: state.locks || {}, settings: state.settings || {} })
     stores.garage.replace(state.garage || {})
@@ -82,6 +85,7 @@ export function createStores(command) {
     stores.settings.replace(state.settings || {})
     stores.compatibility.replace(state.compatibility || {})
     stores.diagnostics.replace({ migration: state.migration || {}, status: stores.diagnostics.state.status || "" })
+    if (issues.length) stores.diagnostics.state.protocolErrors = issues
     stores.performance.replace(state.performance || {})
     stores.uiLayout.setCompact(state.uiMode === "collapsed", false)
     const preferences = state.settings?.uiPreferences || {}
@@ -94,6 +98,8 @@ export function createStores(command) {
 
   stores.applyDiff = (domain, payload) => {
     const started = globalThis.performance?.now?.() ?? Date.now()
+    const issues = []
+    payload = normalizeDomainPayload(domain, payload, issue => issues.push(issue))
     if (domain === "core") stores.core.patch(payload)
     else if (domain === "chaos") stores.chaos.patch(payload)
     else if (domain === "garage") stores.garage.patch(payload)
@@ -102,6 +108,12 @@ export function createStores(command) {
     else if (domain === "compatibility") stores.compatibility.patch(payload)
     else if (domain === "diagnostics") stores.diagnostics.patch(payload)
     else if (domain === "performance") stores.performance.patch(payload)
+    if (issues.length) {
+      stores.diagnostics.state.protocolErrors = [
+        ...(stores.diagnostics.state.protocolErrors || []),
+        ...issues,
+      ].slice(-20)
+    }
     stores.uiPerformance.recordApply("diff", started, payload)
   }
 

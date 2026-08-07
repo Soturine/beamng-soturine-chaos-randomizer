@@ -1,2 +1,42 @@
-<template><section class="scr-card"><h3>{{ t('settings.seed') }}</h3><label class="scr-field"><span>{{ t('settings.locale') }}</span><select :value="selectedLocale" @change="locale($event.target.value)"><option value="auto">{{ t('settings.localeAuto') }}</option><option value="en-US">English (United States)</option><option value="pt-BR">Português (Brasil)</option><option value="es-ES">Español (España)</option></select></label><label class="scr-field"><span>{{ t('settings.fixedSeed') }}</span><select :value="settings.seedMode" @change="update('seedMode', $event.target.value)"><option value="random">{{ t('settings.randomSeed') }}</option><option value="fixed">{{ t('settings.fixedSeed') }}</option></select></label><label class="scr-field"><span>{{ t('settings.manualSeed') }}</span><input :value="settings.manualSeed" maxlength="128" :disabled="settings.seedMode !== 'fixed'" @change="update('manualSeed', $event.target.value)" /></label><NumericInput :model-value="Number(settings.chaos || 75)" :label="t('settings.chaos')" :min="0" :max="100" @update:model-value="value => update('chaos', value)" /></section></template>
-<script setup>import { computed } from "vue"; import { useStores } from "../../stores/index.js"; import NumericInput from "../common/NumericInput.vue"; const stores = useStores(); const settings = stores.settings.state; const preferences = settings.uiPreferences || {}; const { t } = stores.i18n; const selectedLocale = computed(() => preferences.localeMode === "manual" ? (preferences.manualLocale || "en-US") : "auto"); const update = (field, value) => stores.command.send("updateSettings", [{ [field]: value }]); function locale(value) { const patch = value === "auto" ? { localeMode: "auto" } : { localeMode: "manual", manualLocale: value }; Object.assign(preferences, patch); stores.i18n.setPreference({ localeMode: patch.localeMode, manualLocale: patch.manualLocale || preferences.manualLocale }); stores.command.send("updateUIPreferences", [patch]) }</script>
+<template>
+  <section class="scr-card">
+    <h3>{{ t('settings.seed') }}</h3>
+    <ScrSelect :model-value="selectedLocale" :label="t('settings.locale')" :items="localeItems" @update:model-value="locale" />
+    <ScrSelect :model-value="settings.seedMode" :label="t('settings.fixedSeed')" :items="seedItems" @update:model-value="value => update('seedMode', value)" />
+    <label class="scr-field">
+      <span>{{ t('settings.manualSeed') }}</span>
+      <input :value="settings.manualSeed" maxlength="128" :disabled="settings.seedMode !== 'fixed'" @change="update('manualSeed', $event.target.value)" />
+    </label>
+    <NumericInput :model-value="Number(settings.chaos || 75)" :label="t('settings.chaos')" :min="0" :max="100" @update:model-value="value => update('chaos', value)" />
+  </section>
+</template>
+
+<script setup>
+import { computed } from "vue"
+import { useStores } from "../../stores/index.js"
+import NumericInput from "../common/NumericInput.vue"
+import ScrSelect from "../common/ScrSelect.vue"
+
+const stores = useStores()
+const settings = stores.settings.state
+const preferences = settings.uiPreferences || {}
+const { t } = stores.i18n
+const selectedLocale = computed(() => preferences.localeMode === "manual" ? (preferences.manualLocale || "en-US") : "auto")
+const localeItems = computed(() => [
+  { value: "auto", label: t("settings.localeAuto") },
+  { value: "en-US", label: "English (United States)" },
+  { value: "pt-BR", label: "Português (Brasil)" },
+  { value: "es-ES", label: "Español (España)" },
+])
+const seedItems = computed(() => [
+  { value: "random", label: t("settings.randomSeed") },
+  { value: "fixed", label: t("settings.fixedSeed") },
+])
+const update = (field, value) => stores.command.send("updateSettings", [{ [field]: value }])
+function locale(value) {
+  const patch = value === "auto" ? { localeMode: "auto" } : { localeMode: "manual", manualLocale: value }
+  Object.assign(preferences, patch)
+  stores.i18n.setPreference({ localeMode: patch.localeMode, manualLocale: patch.manualLocale || preferences.manualLocale })
+  stores.command.send("updateUIPreferences", [patch])
+}
+</script>

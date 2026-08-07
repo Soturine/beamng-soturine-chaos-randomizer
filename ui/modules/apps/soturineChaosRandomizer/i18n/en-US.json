@@ -104,6 +104,8 @@
   "garage.left": "Left Vehicle DNA",
   "garage.right": "Right Vehicle DNA",
   "garage.compareAction": "Compare Vehicle DNA",
+  "garage.equal": "No differences",
+  "garage.differences": "{count} differences",
   "garage.importJson": "Import Vehicle DNA JSON",
   "garage.exportJson": "Export JSON",
   "garage.exportPackage": "Export package",

@@ -96,6 +96,18 @@ protocol.reset()
 check(protocol.appliedVersion, 0)
 check(protocol.recoveryPending, false)
 
+const normalizerModule = await load("ui/modules/apps/soturineChaosRandomizer/services/stateNormalizer.js")
+const shapeIssues = []
+const normalizedMap = normalizerModule.normalizeManagedVehicles({
+  zeta: { name: "Zeta" },
+  alpha: { handle: "physical-alpha", name: "Alpha" },
+}, issue => shapeIssues.push(issue))
+check(normalizedMap.map(item => item.handle), ["physical-alpha", "zeta"])
+check(shapeIssues, [{ code: "normalized_state_shape", path: "spawnDirector.managed", receivedType: "object_map" }])
+check(normalizerModule.normalizeManagedVehicles("invalid", issue => shapeIssues.push(issue)), [])
+check(shapeIssues.at(-1).receivedType, "string")
+check(normalizerModule.normalizeManagedVehicles([{ handle: "ok" }, null]).map(item => item.handle), ["ok"])
+
 const reactiveStub = "const reactive = value => value"
 const domainModule = await load(
   "ui/modules/apps/soturineChaosRandomizer/stores/domainStore.js",
