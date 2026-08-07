@@ -1,0 +1,87 @@
+{
+  "fixtureVersion": 1,
+  "targetBeamNG": "0.39.4",
+  "seed": "v073-sanitized-regression",
+  "registry": {
+    "stateSequence": [
+      {"status": "warming_up", "models": [], "configurations": []},
+      {"status": "ready", "models": ["fixture_sport_mk2"], "configurations": ["fixture_sport_mk2.track_rwd"]}
+    ],
+    "model": {
+      "registryKey": "fixture_sport_mk2",
+      "displayName": "Aurora GT",
+      "sourceFile": "vehicles/fixture_sport/info.json",
+      "familyKey": "fixture_sport",
+      "subgroupKey": "mk2"
+    },
+    "configuration": {
+      "registryKey": "fixture_sport_mk2.track_rwd",
+      "displayName": "Aurora Track Edition",
+      "filename": "track_awd.pc",
+      "source": "official"
+    },
+    "historicalMetadataDelta": {
+      "baseline": "0.39.2.1",
+      "changedIn": "0.39.3",
+      "field": "configurationCategory",
+      "before": "Sport",
+      "after": "Factory"
+    }
+  },
+  "families": [
+    {"modelKey": "fixture_sport_mk1", "displayName": "Aurora", "familyKey": "fixture_sport", "subgroupKey": "mk1"},
+    {"modelKey": "fixture_sport_mk2", "displayName": "Aurora GT", "familyKey": "fixture_sport", "subgroupKey": "mk2"},
+    {"modelKey": "fixture_utility", "displayName": "Aurora", "familyKey": "fixture_utility", "subgroupKey": null}
+  ],
+  "parts": [
+    {"name": "fixture_body", "slotType": "fixture_body", "description": "Fixture body"},
+    {"name": "fixture_trim_missing_description", "slotType": "fixture_trim"},
+    {"name": "fixture_trim_empty_description", "slotType": "fixture_trim", "description": ""},
+    {"name": "fixture_unknown_slot", "description": "Part without slotType"}
+  ],
+  "incompleteModConfiguration": {
+    "registryKey": "fixture_mod.broken_custom",
+    "displayName": "Community Custom",
+    "filename": "custom.pc",
+    "parts": {"fixture_body": "fixture_mod_body"},
+    "vars": null
+  },
+  "managed": {
+    "managed-000001": {
+      "handle": "managed-000001",
+      "vehicleId": 41,
+      "slotId": "slot-001",
+      "generation": 7,
+      "ownedTemporaryIds": [41],
+      "status": "ready"
+    },
+    "managed-000002": {
+      "handle": "managed-000002",
+      "vehicleId": 42,
+      "slotId": "slot-002",
+      "generation": 8,
+      "ownedTemporaryIds": [42],
+      "status": "loading"
+    }
+  },
+  "events": {
+    "instability": {"vehicleId": 41, "generation": 7, "kind": "vehicle_instability", "removed": true},
+    "spawnRefused": {"apiResult": false, "worldVehicleIdsBefore": [1], "worldVehicleIdsAfter": [1], "expected": "DENIED_LOW_MEMORY"},
+    "missingCallback": {"operationId": "random-car-12", "generation": 12, "phase": "spawn", "elapsed": 6.1, "expected": "timeout"},
+    "identityDivergence": {"playerVehicleId": 5, "playerObjectId": 9, "expected": "unconfirmed"},
+    "reusedId": {"oldVehicleId": 41, "newVehicleId": 41, "oldGeneration": 7, "newGeneration": 9, "expected": "stale_callback_ignored"}
+  },
+  "resourceIncidents": [
+    {"renderer": "D3D11", "gpuVendor": "FixtureVendor", "worldVehicleCount": 30, "ownedVehicleCount": 2, "peakOwnedTemporaryCount": 2, "contractLimit": 1, "expected": "mod_cardinality_violation"},
+    {"renderer": "D3D12", "gpuVendor": "Intel", "worldVehicleCount": 4, "ownedVehicleCount": 1, "peakOwnedTemporaryCount": 1, "contractLimit": 1, "expected": "engine_renderer_known_issue"},
+    {"renderer": "Vulkan", "gpuVendor": "FixtureVendor", "worldVehicleCount": 4, "ownedVehicleCount": 1, "peakOwnedTemporaryCount": 1, "contractLimit": 1, "memoryGuard": "denied", "expected": "mod_memory_pressure"}
+  ],
+  "managedAI": {
+    "handle": "managed-000001",
+    "vehicleId": 41,
+    "trafficMode": false,
+    "paused": false,
+    "policy": {"driveInLane": true, "mode": "span", "speedMode": "limit"},
+    "transitionSequence": ["traffic", "managed", "paused", "managed", "stopped"]
+  }
+}

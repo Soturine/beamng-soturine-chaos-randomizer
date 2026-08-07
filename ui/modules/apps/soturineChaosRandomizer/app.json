@@ -1,10 +1,10 @@
 {
   "domElement": "<soturine-chaos-randomizer></soturine-chaos-randomizer>",
-  "name": "Soturine's Chaos Randomizer",
+  "name": "ui.apps.soturineChaosRandomizer.name",
   "types": [
     "ui.apps.categories.vehicle_control"
   ],
-  "description": "Native Vue Runtime UI for deterministic vehicle randomization, Vehicle DNA Garage, Race, and diagnostics.",
+  "description": "ui.apps.soturineChaosRandomizer.description",
   "css": {
     "right": "20px",
     "top": "120px",
@@ -14,7 +14,7 @@
     "min-height": "160px"
   },
   "author": "Soturine",
-  "version": "0.7.2",
+  "version": "0.7.3",
   "preserveAspectRatio": false,
   "directive": "soturineChaosRandomizer",
   "vue": true,

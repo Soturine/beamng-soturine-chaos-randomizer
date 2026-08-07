@@ -33,6 +33,9 @@ class PackageTests(unittest.TestCase):
             self.assertIn("lua/ge/extensions/soturineChaosRandomizer.lua", names)
             self.assertIn("ui/modules/apps/soturineChaosRandomizer/app.png", names)
             self.assertIn("ui/modules/apps/soturineChaosRandomizer/assets/fox-mark.svg", names)
+            self.assertIn("locales/translations/en-US/main.translation.json", names)
+            self.assertIn("locales/translations/pt-BR/main.translation.json", names)
+            self.assertIn("locales/translations/es-ES/main.translation.json", names)
             self.assertFalse(any(name.startswith("soturine_chaos_randomizer/") for name in names))
 
     def test_rejects_backslash_paths(self) -> None:
@@ -83,7 +86,7 @@ class PackageTests(unittest.TestCase):
             archive, _ = package_mod.package(Path(temporary), ROOT)
             names = validate_package.validate_archive(archive, package_mod.read_version(ROOT))
             roots = {name.split("/", 1)[0] for name in names}
-            self.assertTrue({"lua", "ui", "settings"}.issubset(roots))
+            self.assertTrue({"lua", "ui", "settings", "locales"}.issubset(roots))
             self.assertNotIn("soturine_chaos_randomizer", roots)
 
     def test_package_metadata_is_normalized(self) -> None:

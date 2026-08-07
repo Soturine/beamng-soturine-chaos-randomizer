@@ -51,6 +51,7 @@ def run_lua_suite(root: Path) -> tuple[str, dict[str, int]]:
         try:
             shutil.copytree(root / "lua", stage / "lua")
             shutil.copytree(root / "tests" / "lua", stage / "tests" / "lua")
+            shutil.copytree(root / "tests" / "fixtures", stage / "tests" / "fixtures")
             shutil.copytree(root / "ui", stage / "ui")
             bootstrap = stage / "run_tests.lua"
             virtual_root = "/" + stage.name

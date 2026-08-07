@@ -5284,7 +5284,7 @@ tests.v070_native_vue_runtime_is_single_and_legacy_angular_is_absent = function(
   local manifest = read("/ui/modules/apps/soturineChaosRandomizer/app.json")
   local app = read("/ui/modules/apps/soturineChaosRandomizer/app.vue")
   truthy(manifest:find('"vue": true', 1, true))
-  truthy(manifest:find('"version": "0.7.2"', 1, true))
+  truthy(manifest:find('"version": "0.7.3"', 1, true))
   truthy(app:find('useEvents()', 1, true))
   truthy(app:find('SoturineChaosRandomizerState', 1, true))
   truthy(not io.open(root .. "/ui/modules/apps/soturineChaosRandomizer/app.js", "rb"))
@@ -6299,6 +6299,22 @@ tests.v067_race_policy_inventory_and_roundtrip = function()
   truthy(imported.varietyRules.avoidDuplicateFamilies)
 end
 
+tests.v073_beamng_0394_fixture_covers_identity_failures_and_managed_ai = function()
+  local path = root .. "/tests/fixtures/v0.7.3/beamng-0.39.4.json"
+  local file = assert(io.open(path, "rb"))
+  local fixture = file:read("*a")
+  file:close()
+  truthy(fixture:find('"targetBeamNG": "0.39.4"', 1, true))
+  truthy(fixture:find('"registryKey": "fixture_sport_mk2.track_rwd"', 1, true))
+  truthy(fixture:find('"filename": "track_awd.pc"', 1, true))
+  truthy(fixture:find('"description": ""', 1, true))
+  truthy(fixture:find('"spawnRefused"', 1, true))
+  truthy(fixture:find('"identityDivergence"', 1, true))
+  truthy(fixture:find('"reusedId"', 1, true))
+  truthy(fixture:find('"driveInLane": true', 1, true))
+  truthy(fixture:find('"engine_renderer_known_issue"', 1, true))
+end
+
 tests.all_lua_sources_compile = function()
   local paths = {
     "/lua/ge/extensions/soturineChaosRandomizer.lua",
@@ -7115,6 +7131,9 @@ local v072Required = {
 }
 
 local v073Required = {
+  {"beamng_0394_fixture_identity", tests.v073_beamng_0394_fixture_covers_identity_failures_and_managed_ai},
+  {"beamng_0394_fixture_failures", tests.v073_beamng_0394_fixture_covers_identity_failures_and_managed_ai},
+  {"beamng_0394_fixture_managed_ai", tests.v073_beamng_0394_fixture_covers_identity_failures_and_managed_ai},
   {"callback_phase_token", tests.v073_callback_tokens_are_phase_vehicle_and_consumption_bound},
   {"callback_expected_vehicle", tests.v073_callback_tokens_are_phase_vehicle_and_consumption_bound},
   {"callback_single_consumption", tests.v073_callback_tokens_are_phase_vehicle_and_consumption_bound},

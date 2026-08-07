@@ -247,4 +247,19 @@ truthy(!Object.values(enUS).some(value => /<[^>]+>/.test(value)))
 truthy(!Object.values(ptBR).some(value => /<[^>]+>/.test(value)))
 truthy(!Object.values(esES).some(value => /<[^>]+>/.test(value)))
 
+const beamNG0394 = JSON.parse(await source("tests/fixtures/v0.7.3/beamng-0.39.4.json"))
+check(beamNG0394.targetBeamNG, "0.39.4")
+truthy(beamNG0394.registry.model.registryKey !== beamNG0394.registry.model.displayName)
+truthy(beamNG0394.registry.configuration.registryKey !== beamNG0394.registry.configuration.filename)
+check(Object.keys(beamNG0394.managed).length, 2)
+check(beamNG0394.managedAI.policy.driveInLane, true)
+check(new Set(beamNG0394.resourceIncidents.map(value => value.expected)).size, 3)
+
+const hostLocales = await Promise.all(["en-US", "pt-BR", "es-ES"].map(async locale =>
+  JSON.parse(await source(`locales/translations/${locale}/main.translation.json`))))
+for (const catalog of hostLocales) {
+  truthy(catalog["ui.apps.soturineChaosRandomizer.name"])
+  truthy(catalog["ui.apps.soturineChaosRandomizer.description"])
+}
+
 console.log(`SCR_UI_JS_TESTS_PASSED ${checks}`)

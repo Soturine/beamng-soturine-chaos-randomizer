@@ -20,7 +20,7 @@ except ModuleNotFoundError:  # Direct execution: python tools/package_mod.py
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-CONTENT_ROOTS = ("lua", "ui", "settings")
+CONTENT_ROOTS = ("lua", "ui", "settings", "locales")
 OPTIONAL_CONTENT_ROOTS = ("mod_info",)
 PACKAGE_FILES = ("COMPATIBILITY.json", "LICENSE", "NOTICE", "VERSION")
 ARCHIVE_PREFIX = "soturine_chaos_randomizer_"

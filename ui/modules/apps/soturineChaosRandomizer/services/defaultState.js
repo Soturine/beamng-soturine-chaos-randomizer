@@ -1,5 +1,5 @@
 export const createDefaultState = () => ({
-  extensionVersion: "0.7.2",
+  extensionVersion: "0.7.3",
   busy: false,
   uiMode: "expanded",
   operationState: "loading",

@@ -70,8 +70,11 @@ REQUIRED_PATHS = {
     "ui/modules/apps/soturineChaosRandomizer/assets/fox-mark-32.png",
     "ui/modules/apps/soturineChaosRandomizer/assets/fox-mark-48.png",
     "settings/soturineChaosRandomizer/defaults.json",
+    "locales/translations/en-US/main.translation.json",
+    "locales/translations/pt-BR/main.translation.json",
+    "locales/translations/es-ES/main.translation.json",
 }
-REQUIRED_ROOTS = {"lua", "ui", "settings"}
+REQUIRED_ROOTS = {"lua", "ui", "settings", "locales"}
 FORBIDDEN_COMPONENTS = {
     ".git",
     ".github",

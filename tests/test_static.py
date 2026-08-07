@@ -5,6 +5,7 @@ from pathlib import Path
 import re
 import shutil
 import subprocess
+import sys
 import unittest
 import xml.etree.ElementTree as ET
 
@@ -13,7 +14,7 @@ from tools import validate_package
 
 ROOT = Path(__file__).resolve().parents[1]
 APP = ROOT / "ui/modules/apps/soturineChaosRandomizer"
-PACKAGE_ROOTS = (ROOT / "lua", ROOT / "ui", ROOT / "settings")
+PACKAGE_ROOTS = (ROOT / "lua", ROOT / "ui", ROOT / "settings", ROOT / "locales")
 
 
 def frontend_source() -> str:
@@ -102,15 +103,25 @@ class StaticValidationTests(unittest.TestCase):
         compatibility = json.loads((ROOT / "COMPATIBILITY.json").read_text(encoding="utf-8"))
         main = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/main.lua").read_text(encoding="utf-8")
         notes = ROOT / "docs/RELEASE NOTES" / f"RELEASE_NOTES_{version}.md"
-        self.assertEqual(version, "0.7.2")
+        self.assertRegex(version, r"^\d+\.\d+\.\d+$")
         self.assertEqual(app["version"], version)
         self.assertEqual(package["version"], version)
         self.assertEqual(compatibility["modVersion"], version)
         self.assertEqual(compatibility["schemaVersion"], 2)
         self.assertEqual(compatibility["minimumBeamNGVersion"], "0.39")
         self.assertEqual(compatibility["uiRuntime"], "native-runtime-ui-vue")
+        self.assertEqual(compatibility["license"], "Apache-2.0")
+        self.assertEqual(package["license"], "Apache-2.0")
         self.assertIn(f'EXTENSION_VERSION = "{version}"', main)
         self.assertTrue(notes.is_file())
+
+    def test_version_synchronizer_reports_no_drift(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "tools/sync_version.py"], cwd=ROOT, text=True,
+            capture_output=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("VERSION_SYNC_OK", result.stdout)
 
     def test_native_vue_ui_identity_is_single(self) -> None:
         manifests = [json.loads(path.read_text(encoding="utf-8")) for path in (ROOT / "ui").rglob("app.json")]
