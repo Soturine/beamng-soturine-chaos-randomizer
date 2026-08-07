@@ -45,6 +45,21 @@ local function sortedKeys(source)
   return keys
 end
 
+local function stableValue(value, depth)
+  depth = depth or 0
+  if type(value) ~= "table" then return tostring(value) end
+  if depth > 10 then return "<depth>" end
+  local out = {"{"}
+  for _, key in ipairs(sortedKeys(value)) do
+    out[#out + 1] = tostring(key)
+    out[#out + 1] = "="
+    out[#out + 1] = stableValue(value[key], depth + 1)
+    out[#out + 1] = ";"
+  end
+  out[#out + 1] = "}"
+  return table.concat(out)
+end
+
 local function arrayContains(source, value)
   if type(source) ~= "table" then return false end
   for index = 1, #source do
@@ -104,6 +119,7 @@ M.isFinite = isFinite
 M.deepCopy = deepCopy
 M.copyArray = copyArray
 M.sortedKeys = sortedKeys
+M.stableValue = stableValue
 M.arrayContains = arrayContains
 M.shallowMerge = shallowMerge
 M.roundToStep = roundToStep

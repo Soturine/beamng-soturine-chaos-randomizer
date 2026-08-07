@@ -3,21 +3,6 @@ local util = require("ge/extensions/soturineChaosRandomizer/util")
 
 local M = {}
 
-local function stableValue(value, depth)
-  depth = depth or 0
-  if type(value) ~= "table" then return tostring(value) end
-  if depth > 10 then return "<depth>" end
-  local out = {"{"}
-  for _, key in ipairs(util.sortedKeys(value)) do
-    out[#out + 1] = tostring(key)
-    out[#out + 1] = "="
-    out[#out + 1] = stableValue(value[key], depth + 1)
-    out[#out + 1] = ";"
-  end
-  out[#out + 1] = "}"
-  return table.concat(out)
-end
-
 local function create(options)
   options = type(options) == "table" and options or {}
   return {
@@ -107,8 +92,8 @@ local function fingerprint(evidence)
   return table.concat({
     tostring(evidence.vehicleId), tostring(evidence.modelKey),
     tostring(configVerification.stableKey(evidence.configKey or (evidence.configIdentity and evidence.configIdentity.path))),
-    stableValue(evidence.parts or {}), stableValue(evidence.tuning or {}),
-    stableValue(evidence.powertrainEvidence or {}), stableValue(evidence.energyStorages or {}),
+    util.stableValue(evidence.parts or {}), util.stableValue(evidence.tuning or {}),
+    util.stableValue(evidence.powertrainEvidence or {}), util.stableValue(evidence.energyStorages or {}),
   }, "\30")
 end
 

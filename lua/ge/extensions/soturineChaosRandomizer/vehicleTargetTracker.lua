@@ -167,13 +167,6 @@ local function addEvent(tracker, kind, details)
   boundedAppend(tracker.events, {kind = kind, details = util.deepCopy(details)}, LIMITS.events)
 end
 
-local function staleEvent(tracker, kind, details)
-  tracker.staleCallbackCount = tracker.staleCallbackCount + 1
-  addEvent(tracker, kind, details)
-  tracker.lastReason = "stale_callback_rejected"
-  return false, tracker.lastReason
-end
-
 local function bindReturned(tracker, vehicleId, strategy)
   tracker.returnedVehicleId = vehicleId
   addCandidate(tracker, vehicleId, "replace_return", {strategy = strategy})

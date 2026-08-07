@@ -28,29 +28,14 @@ local function create(options)
   }
 end
 
-local function stableValue(value, depth)
-  depth = depth or 0
-  if type(value) ~= "table" then return tostring(value) end
-  if depth > 10 then return "<depth>" end
-  local out = {"{"}
-  for _, key in ipairs(util.sortedKeys(value)) do
-    out[#out + 1] = tostring(key)
-    out[#out + 1] = "="
-    out[#out + 1] = stableValue(value[key], depth + 1)
-    out[#out + 1] = ";"
-  end
-  out[#out + 1] = "}"
-  return table.concat(out)
-end
-
 local function targetStateFingerprint(snapshot)
   snapshot = type(snapshot) == "table" and snapshot or {}
   return table.concat({
     tostring(snapshot.modelKey or ""),
     tostring(snapshot.selectedConfiguration or (snapshot.config and snapshot.config.partConfigFilename) or ""),
-    stableValue(snapshot.partsTree or (snapshot.config and snapshot.config.partsTree) or {}),
-    stableValue(snapshot.tuning or (snapshot.config and snapshot.config.vars) or {}),
-    stableValue(snapshot.paints or (snapshot.config and snapshot.config.paints) or {}),
+    util.stableValue(snapshot.partsTree or (snapshot.config and snapshot.config.partsTree) or {}),
+    util.stableValue(snapshot.tuning or (snapshot.config and snapshot.config.vars) or {}),
+    util.stableValue(snapshot.paints or (snapshot.config and snapshot.config.paints) or {}),
   }, "\30")
 end
 
