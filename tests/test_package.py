@@ -146,7 +146,7 @@ class PackageTests(unittest.TestCase):
                 "fileCount", "zipSize", "zipSha256", "buildTimestamp",
             ):
                 self.assertIn(field, manifest)
-            self.assertEqual(manifest["primaryBeamNGTarget"], "0.39")
+            self.assertEqual(manifest["primaryBeamNGTarget"], "0.39.4")
             self.assertEqual(manifest["minimumBeamNGVersion"], "0.39")
             self.assertEqual(manifest["liveTests"]["status"], "Pending owner validation")
             if package_mod.read_version(ROOT) == "0.6.3":
