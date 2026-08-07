@@ -10,10 +10,10 @@ not execute any case below.
 | --- | --- |
 | Release | v0.7.3 experimental prerelease |
 | BeamNG target | 0.39.4 |
-| ZIP | Pending publication |
-| Bytes | Pending publication |
-| SHA-256 | Pending publication |
-| Manifest commit | Pending publication |
+| ZIP | `soturine_chaos_randomizer_0.7.3.zip` |
+| Bytes | 467,527 |
+| SHA-256 | `b89bfc2fc12e41d33557a4571f50b7f28b1b76a987a54eacc340409ff87a451b` |
+| Manifest commit | Release tag `v0.7.3` (exact SHA recorded after publication) |
 | Download verification | Pending publication |
 
 | Result | Count |
