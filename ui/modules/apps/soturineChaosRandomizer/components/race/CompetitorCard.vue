@@ -1,2 +1,41 @@
-<template><article class="scr-competitor" bng-nav-item><header><span class="scr-position">{{ competitor.position || competitor.index }}</span><input v-model="name" :aria-label="t('common.rename')" maxlength="128" @change="rename" /><code>{{ competitor.status }}</code></header><div class="scr-tech-grid"><span><code>modelKey</code>: {{ competitor.modelKey || '—' }}</span><span><code>config</code>: {{ competitor.configuration || '—' }}</span><span><code>seed</code>: {{ competitor.seed || '—' }}</span><span v-if="competitor.warning">{{ competitor.warning }}</span></div><div class="scr-actions"><button type="button" @click="$emit('move', competitor, -1)">{{ t('race.moveUp') }}</button><button type="button" @click="$emit('move', competitor, 1)">{{ t('race.moveDown') }}</button><button v-if="competitor.status === 'failed'" type="button" @click="$emit('failure', competitor, 'retry')">{{ t('common.retry') }}</button><button v-if="competitor.status === 'failed'" type="button" @click="$emit('failure', competitor, 'fallback')">{{ t('race.fallback') }}</button><button v-if="competitor.status === 'failed'" type="button" @click="$emit('failure', competitor, 'skip')">{{ t('race.skip') }}</button><button v-if="competitor.status === 'failed'" type="button" @click="$emit('failure', competitor, 'stop')">{{ t('common.stop') }}</button><button v-if="competitor.managedHandle" type="button" @click="$emit('remove', competitor)">{{ t('common.remove') }}</button></div></article></template>
-<script setup>import { ref, watch } from "vue"; import { useStores } from "../../stores/index.js"; const props = defineProps({ competitor: { type: Object, required: true } }); const emit = defineEmits(["move", "failure", "remove", "rename"]); const { i18n: { t } } = useStores(); const name = ref(props.competitor.name || ""); watch(() => props.competitor.name, value => { name.value = value || "" }); const rename = () => name.value && emit("rename", props.competitor, name.value)</script>
+<template>
+  <article class="scr-competitor" bng-nav-item>
+    <header>
+      <span class="scr-position">{{ competitor.position || competitor.index }}</span>
+      <input v-model="name" :aria-label="t('common.rename')" maxlength="128" @change="rename" />
+      <span class="scr-state-label">{{ t(`race.slotState.${stateCode}`) }}</span>
+    </header>
+    <div v-if="competitor.warning" class="scr-banner is-warning">{{ t(`result.${competitor.failureCode || 'warning'}`) }}</div>
+    <details v-if="technicalAvailable" class="scr-technical-details">
+      <summary>{{ t('common.technicalDetails') }}</summary>
+      <div class="scr-tech-grid">
+        <span>{{ t('technical.modelId') }}: <code>{{ competitor.modelKey || '—' }}</code></span>
+        <span>{{ t('technical.configurationId') }}: <code>{{ competitor.configuration || '—' }}</code></span>
+        <span>{{ t('technical.seed') }}: <code>{{ competitor.derivedSeed || competitor.seed || '—' }}</code></span>
+        <span v-if="competitor.acceptedVehicleId">{{ t('technical.vehicleId') }}: <code>{{ competitor.acceptedVehicleId }}</code></span>
+      </div>
+    </details>
+    <div class="scr-actions">
+      <button type="button" @click="$emit('move', competitor, -1)">{{ t('race.moveUp') }}</button>
+      <button type="button" @click="$emit('move', competitor, 1)">{{ t('race.moveDown') }}</button>
+      <button v-if="stateCode === 'failed'" type="button" @click="$emit('failure', competitor, 'retry')">{{ t('common.retry') }}</button>
+      <button v-if="stateCode === 'failed'" type="button" @click="$emit('failure', competitor, 'fallback')">{{ t('race.fallback') }}</button>
+      <button v-if="stateCode === 'failed'" type="button" @click="$emit('failure', competitor, 'skip')">{{ t('race.skip') }}</button>
+      <button v-if="stateCode === 'failed'" type="button" @click="$emit('failure', competitor, 'stop')">{{ t('common.stop') }}</button>
+      <button v-if="competitor.managedHandle" type="button" @click="$emit('remove', competitor)">{{ t('common.remove') }}</button>
+    </div>
+  </article>
+</template>
+
+<script setup>
+import { computed, ref, watch } from "vue"
+import { useStores } from "../../stores/index.js"
+const props = defineProps({ competitor: { type: Object, required: true } })
+const emit = defineEmits(["move", "failure", "remove", "rename"])
+const { i18n: { t } } = useStores()
+const name = ref(props.competitor.name || "")
+const stateCode = computed(() => props.competitor.phase || props.competitor.status || "planned")
+const technicalAvailable = computed(() => props.competitor.modelKey || props.competitor.configuration || props.competitor.seed)
+watch(() => props.competitor.name, value => { name.value = value || "" })
+const rename = () => name.value && emit("rename", props.competitor, name.value)
+</script>

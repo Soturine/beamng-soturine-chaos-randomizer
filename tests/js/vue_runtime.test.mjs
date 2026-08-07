@@ -137,20 +137,23 @@ for (let cycle = 0; cycle < 100; cycle += 1) {
   const layout = layoutModule.createUILayoutStore()
   const tab = ["chaos", "garage", "race", "settings"][cycle % 4]
   layout.setTab(tab)
-  layout.setCompact(cycle % 2 === 0)
-  layout.toggleDetails(tab)
   layout.recordHostSize(300 + cycle, 400 + cycle)
+  layout.setCompact(true)
+  layout.toggleDetails(tab)
+  layout.recordHostSize(200, 210)
   check(layout.state.activeTab, tab)
-  check(layout.state.details[tab], true)
+  check(layout.state.detailsOpenByTab[tab], true)
   check(layout.state.userSizeByTab[tab].width, 300 + cycle)
-  truthy(layout.preferredSize(tab).height >= 400)
+  check(layout.preferredSize(tab).height, layout.state.compactSizeByTab[tab].height)
+  layout.setCompact(false)
+  check(layout.preferredSize(tab).height, 400 + cycle)
 }
 const invalidLayout = layoutModule.createUILayoutStore()
 invalidLayout.setTab("not-a-tab")
 check(invalidLayout.state.activeTab, "chaos")
 for (const tab of ["chaos", "garage", "race", "settings"]) {
   truthy(invalidLayout.state.expandedSizeByTab[tab].height > invalidLayout.state.compactSizeByTab[tab].height)
-  check(invalidLayout.state.resizeModeByTab[tab], "host")
+  check(invalidLayout.state.resizeModeByTab[tab], "intrinsic")
 }
 
 const lifecycleModule = await load("ui/modules/apps/soturineChaosRandomizer/services/lifecycle.js")
@@ -171,6 +174,33 @@ disposedLifecycle.dispose()
 disposedLifecycle.add(() => { cleanupCount += 1 })
 check(cleanupCount, 201)
 
+const statusModule = await load(
+  "ui/modules/apps/soturineChaosRandomizer/services/statusLifecycle.js",
+  [[/import \{ reactive \} from "vue"/, reactiveStub]],
+)
+let statusNow = 1000
+let timerId = 0
+const pendingTimers = new Map()
+const status = statusModule.createStatusLifecycle({
+  now: () => statusNow,
+  setTimeout: callback => { const id = ++timerId; pendingTimers.set(id, callback); return id },
+  clearTimeout: id => pendingTimers.delete(id),
+})
+status.push({ code: "lock_profile_updated", scope: "tab", tab: "chaos", ttl: 500 })
+status.push({ code: "lock_profile_updated", scope: "tab", tab: "chaos", ttl: 500 })
+check(status.items.length, 1, "equal statuses must be deduplicated")
+check(status.current("race"), null, "tab status must not leak")
+check(status.current("chaos").code, "lock_profile_updated")
+status.replaceOperation({ code: "applying_parts", operationId: "op-1", persistent: true })
+check(status.current("chaos", "op-1").code, "applying_parts")
+status.replaceOperation({ code: "validating", operationId: "op-1", persistent: true })
+check(status.items.filter(item => item.scope === "operation").length, 1)
+statusNow = 2000
+status.prune()
+check(status.items.some(item => item.code === "lock_profile_updated"), false)
+status.dispose()
+check(status.items.length, 0)
+
 const enUS = JSON.parse(await source("ui/modules/apps/soturineChaosRandomizer/i18n/en-US.json"))
 const ptBR = JSON.parse(await source("ui/modules/apps/soturineChaosRandomizer/i18n/pt-BR.json"))
 const esES = JSON.parse(await source("ui/modules/apps/soturineChaosRandomizer/i18n/es-ES.json"))
@@ -186,7 +216,7 @@ const i18nModule = await load(
 const i18n = i18nModule.createI18n()
 check(i18n.locale.value, "en-US")
 check(i18n.t("nav.garage"), "Garage")
-check(i18n.t("missing.semantic.key"), "missing.semantic.key")
+check(i18n.t("missing.semantic.key"), "Key")
 check(i18n.t("status.progress", { percent: 42 }), "42% complete")
 check(i18n.plural("race.competitors", 1), "1 competitor")
 check(i18n.plural("race.competitors", 4), "4 competitors")
@@ -211,7 +241,7 @@ check(i18n.manualLocale.value, "es-ES")
 check(Object.keys(enUS).length, Object.keys(ptBR).length)
 check(Object.keys(enUS).length, Object.keys(esES).length)
 truthy(Object.keys(enUS).length >= 180)
-for (const technical of ["modelKey", "generatorVersion", "stateVersion", "operationId"]) check(i18n.t(technical), technical)
+for (const technical of ["modelKey", "generatorVersion", "stateVersion", "operationId"]) truthy(i18n.t(technical) !== technical)
 truthy(ptBR["garage.restoreConfirm"].length > enUS["garage.restoreConfirm"].length)
 truthy(!Object.values(enUS).some(value => /<[^>]+>/.test(value)))
 truthy(!Object.values(ptBR).some(value => /<[^>]+>/.test(value)))

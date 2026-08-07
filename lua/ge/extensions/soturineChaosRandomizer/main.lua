@@ -4579,6 +4579,7 @@ local function getVehicleDNALocks(id)
     for _, slot in ipairs(scan.slots or {}) do
       result.slots[#result.slots + 1] = {
         path = slot.path, slotId = slot.id, partName = slot.currentPart,
+        displayName = slot.description or slot.id,
         category = vehicleDNALocks.classifySlot(slot), locked = vehicleDNALocks.isSlotLocked(profile, slot),
       }
     end

@@ -12,6 +12,12 @@
   accent-color: var(--scr-orange);
 }
 .scr-app *, .scr-app *::before, .scr-app *::after { box-sizing: border-box; }
+.scr-app.is-compact {
+  width: min(100%, var(--scr-target-width));
+  height: min(100%, var(--scr-target-height));
+  min-height: 0;
+  align-self: start;
+}
 .scr-app button, .scr-app input, .scr-app select, .scr-app textarea { font: inherit; }
 .scr-app button { min-height: 32px; padding: 5px 9px; color: var(--scr-cream); background: #35383e; border: 1px solid #575c65; border-radius: 4px; cursor: pointer; }
 .scr-app button:hover:not(:disabled), .scr-app button:focus-visible { border-color: var(--scr-orange-bright); background: #444951; outline: 2px solid transparent; }
@@ -67,17 +73,22 @@
 .scr-dna-card.is-selected { border-color: var(--scr-orange); }
 .scr-card-main { width: 100%; display: grid; grid-template-columns: 64px 1fr; gap: 7px; text-align: left; background: transparent !important; border: 0 !important; }
 .scr-card-main > span { min-width: 0; display: flex; flex-direction: column; }
-.scr-card-main strong, .scr-card-main small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.scr-card-main strong, .scr-card-main small { white-space: normal; overflow-wrap: anywhere; }
 .scr-thumbnail { min-height: 48px; position: relative; display: grid; place-items: center; overflow: hidden; border-radius: 4px; background: var(--scr-brown); }
 .scr-thumbnail img { width: 100%; height: 100%; object-fit: cover; }
 .scr-thumbnail small { position: absolute; right: 2px; bottom: 2px; padding: 1px 3px; background: #000c; color: #ffcf8a; font-size: .55rem; }
 .scr-pagination { display: flex; justify-content: space-between; align-items: center; gap: 5px; }
 .scr-competitor-list, .scr-managed-ai { display: grid; gap: 5px; }
+.scr-race-counters { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 4px; padding: 6px; background: #202328; border-radius: 5px; font-size: .72rem; }
 .scr-competitor { padding: 6px; background: #292c31; border-left: 3px solid var(--scr-orange); }
 .scr-competitor header { display: grid; grid-template-columns: auto 1fr auto; gap: 5px; align-items: center; }
 .scr-position { display: grid; place-items: center; width: 25px; height: 25px; border-radius: 50%; background: var(--scr-orange); color: #130803; font-weight: 800; }
 .scr-tech-grid { display: grid; gap: 3px; margin: 6px 0; font-size: .7rem; overflow-wrap: anywhere; }
 .scr-tech-grid code, .scr-app code { color: #ffb37e; font-family: var(--fnt-mono, monospace); }
+.scr-technical-details { margin-block: 6px; font-size: .7rem; }
+.scr-lock-group { display: grid; gap: 4px; margin-block: 8px; }
+.scr-lock-group h4 { margin: 0; color: var(--scr-orange-bright); }
+.scr-lock-row { display: grid; grid-template-columns: 1fr auto; gap: 6px; align-items: center; padding: 3px; border-bottom: 1px solid #454951; }
 .scr-banner { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; border-left: 3px solid #5ca9ef; background: #26313b; font-size: .74rem; }
 .scr-banner.is-warning { border-color: #ffb02e; background: #3c301d; }
 .scr-banner.is-error { border-color: #ef5c5c; background: #3b2222; }
@@ -95,12 +106,14 @@
 .scr-dialog::backdrop { background: #000a; }
 .scr-dialog-actions { display: flex; justify-content: flex-end; gap: 6px; }
 .scr-state { min-height: 90px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 12px; text-align: center; color: #c7cad0; }
+.scr-error-boundary { border: 1px solid #ef5c5c; border-radius: 5px; background: #3b2222; }
 .scr-spinner { width: 22px; height: 22px; border: 3px solid #555; border-top-color: var(--scr-orange); border-radius: 50%; animation: scr-spin .8s linear infinite; }
 .scr-compact { min-height: 0; flex: 1; padding: 7px; overflow: auto; display: grid; gap: 6px; align-content: start; }
 .scr-compact > header { display: flex; justify-content: space-between; color: var(--scr-orange-bright); text-transform: uppercase; }
 .scr-compact-summary { display: grid; gap: 5px; }
 .scr-app.is-compact .scr-header { min-height: 42px; }
 .scr-app.is-compact .scr-header img { width: 28px; height: 28px; }
+.scr-app.is-compact .scr-progress { padding-block: 4px; }
 .scr-tooltip-anchor { position: relative; }
 .scr-tooltip { position: absolute; left: 50%; bottom: calc(100% + 5px); z-index: 50; display: none; min-width: 120px; padding: 4px 6px; background: #050505; color: white; border-radius: 3px; }
 .scr-tooltip-anchor:hover .scr-tooltip, .scr-tooltip-anchor:focus-within .scr-tooltip { display: block; }

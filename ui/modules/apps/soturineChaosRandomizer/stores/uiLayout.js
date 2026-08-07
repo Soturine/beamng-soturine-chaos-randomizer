@@ -9,13 +9,18 @@ export const createUILayoutStore = (profiler = null) => {
     chaos: { width: 340, height: 250 }, garage: { width: 340, height: 270 },
     race: { width: 360, height: 290 }, settings: { width: 340, height: 240 },
   }
+  const detailsOpenByTab = { chaos: false, garage: false, race: false, settings: false }
+  const lastExpandedSizeByTab = Object.fromEntries(
+    Object.entries(expandedSizeByTab).map(([tab, size]) => [tab, { ...size }]),
+  )
   const state = reactive({
     activeTab: "chaos", raceStep: "cars", garageSection: "saved", compact: false,
-    details: { chaos: false, garage: false, race: false, settings: false },
+    details: detailsOpenByTab, detailsOpenByTab,
     garageView: "grid", width: 340, height: 520, reducedMotion: false,
-    expandedSizeByTab, compactSizeByTab,
-    resizeModeByTab: { chaos: "host", garage: "host", race: "host", settings: "host" },
-    userSizeByTab: { chaos: null, garage: null, race: null, settings: null },
+    expandedSizeByTab, compactSizeByTab, lastExpandedSizeByTab,
+    userSizeByTab: lastExpandedSizeByTab,
+    resizeModeByTab: { chaos: "intrinsic", garage: "intrinsic", race: "intrinsic", settings: "intrinsic" },
+    geometryRevision: 0,
     dialog: null, lastFocused: null,
   })
   const tabs = ["chaos", "garage", "race", "settings"]
@@ -27,18 +32,32 @@ export const createUILayoutStore = (profiler = null) => {
     name: "uiLayout", state, profiler,
     setTab(tab) { if (tabs.includes(tab)) mutateLocal("tabSwitch", () => { state.activeTab = tab }) },
     setCompact(value, profile = true) {
-      const mutation = () => { state.compact = value === true }
+      const mutation = () => {
+        const next = value === true
+        if (next === state.compact) return
+        if (next && !state.compact) {
+          state.lastExpandedSizeByTab[state.activeTab] = { width: state.width, height: state.height }
+        }
+        state.compact = next
+        const preferred = next ? state.compactSizeByTab[state.activeTab]
+          : state.lastExpandedSizeByTab[state.activeTab] || state.expandedSizeByTab[state.activeTab]
+        state.width = preferred.width
+        state.height = preferred.height
+        state.geometryRevision += 1
+      }
       if (profile) mutateLocal("buttonResponse", mutation)
       else mutation()
     },
     recordHostSize(width, height) {
       state.width = Math.max(1, Math.round(Number(width) || state.width))
       state.height = Math.max(1, Math.round(Number(height) || state.height))
-      state.userSizeByTab[state.activeTab] = { width: state.width, height: state.height }
+      if (!state.compact) state.lastExpandedSizeByTab[state.activeTab] = { width: state.width, height: state.height }
     },
     preferredSize(tab = state.activeTab) {
-      return state.userSizeByTab[tab] || (state.compact ? state.compactSizeByTab[tab] : state.expandedSizeByTab[tab])
+      return state.compact ? state.compactSizeByTab[tab]
+        : state.lastExpandedSizeByTab[tab] || state.expandedSizeByTab[tab]
     },
+    noteGeometryApplied() { state.geometryRevision += 1 },
     toggleDetails(tab = state.activeTab) { if (tab in state.details) mutateLocal("buttonResponse", () => { state.details[tab] = !state.details[tab] }) },
   }
 }

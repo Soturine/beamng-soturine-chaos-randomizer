@@ -1,4 +1,4 @@
-<template><AppShell /></template>
+<template><ErrorBoundary scope="application" area-key="app.title"><AppShell /></ErrorBoundary></template>
 
 <script setup>
 import { onMounted, onUnmounted, provide, watch } from "vue"
@@ -7,6 +7,7 @@ import { useEvents } from "@/services/events"
 import { useSettings as useGameSettings } from "@/services/settings"
 import "./styles/app.css"
 import AppShell from "./components/shell/AppShell.vue"
+import ErrorBoundary from "./components/common/ErrorBoundary.vue"
 import { createCommandBridge } from "./services/commandBridge.js"
 import { createStateProtocol } from "./services/stateProtocol.js"
 import { createLifecycleRegistry } from "./services/lifecycle.js"
@@ -76,6 +77,7 @@ onUnmounted(() => {
   mounted = false
   lifecycle.dispose()
   protocol.reset()
+  stores.status.dispose()
   command.dispose()
 })
 </script>

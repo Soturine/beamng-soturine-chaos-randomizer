@@ -4,7 +4,7 @@ export const createDefaultState = () => ({
   uiMode: "expanded",
   operationState: "loading",
   lifecyclePhase: "idle",
-  progress: { label: "Loading extension", value: 0 },
+  progress: { phase: "idle", phaseProgress: 0, overallProgress: 0, value: 0 },
   lastResult: null,
   seed: "",
   capabilities: {},

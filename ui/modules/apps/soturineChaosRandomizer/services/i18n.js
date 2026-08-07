@@ -4,6 +4,11 @@ import ptBR from "../i18n/pt-BR.json"
 import esES from "../i18n/es-ES.json"
 
 const messages = { "en-US": enUS, "pt-BR": ptBR, "es-ES": esES }
+const humanizeKey = key => {
+  const leaf = String(key || "").split(".").pop() || ""
+  const words = leaf.replace(/([a-z0-9])([A-Z])/g, "$1 $2").replaceAll("_", " ").replaceAll("-", " ").trim()
+  return words ? words.charAt(0).toLocaleUpperCase() + words.slice(1) : "Unknown"
+}
 export const normalizeLocale = value => {
   const language = String(value || "").trim().toLowerCase().replaceAll("_", "-")
   if (language.startsWith("pt")) return "pt-BR"
@@ -24,7 +29,7 @@ export function createI18n() {
   }
 
   function t(key, values = {}) {
-    const translated = messages[locale.value]?.[key] ?? messages["en-US"][key] ?? key
+    const translated = messages[locale.value]?.[key] ?? messages["en-US"][key] ?? humanizeKey(key)
     return interpolate(translated, values)
   }
 
@@ -49,6 +54,7 @@ export function createI18n() {
 
   return {
     locale, localeMode, manualLocale, t, plural, formatNumber,
+    has: key => messages[locale.value]?.[key] !== undefined || messages["en-US"][key] !== undefined,
     setGameLocale: value => { gameLocale.value = normalizeLocale(value) },
     setPreference,
   }

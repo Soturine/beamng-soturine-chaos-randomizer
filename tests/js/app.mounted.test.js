@@ -1,10 +1,11 @@
 import { flushPromises, mount } from "@vue/test-utils"
-import { nextTick } from "vue"
+import { defineComponent, h, nextTick } from "vue"
 import { describe, expect, it, vi } from "vitest"
 
 import App from "../../ui/modules/apps/soturineChaosRandomizer/app.vue"
 import AppShell from "../../ui/modules/apps/soturineChaosRandomizer/components/shell/AppShell.vue"
 import ScrSelect from "../../ui/modules/apps/soturineChaosRandomizer/components/common/ScrSelect.vue"
+import ErrorBoundary from "../../ui/modules/apps/soturineChaosRandomizer/components/common/ErrorBoundary.vue"
 import { createDefaultState } from "../../ui/modules/apps/soturineChaosRandomizer/services/defaultState.js"
 import { createStores, STORES_KEY } from "../../ui/modules/apps/soturineChaosRandomizer/stores/index.js"
 import { bridgeHarness } from "./mocks/bridge.js"
@@ -73,7 +74,7 @@ describe("mounted Runtime UI", () => {
     expect(wrapper.findAll(".scr-body .scr-card").length).toBeGreaterThanOrEqual(6)
 
     await tabs()[0].trigger("click")
-    stores.core.state.lastResult = { success: true, message: "Done" }
+    stores.status.push({ code: "completed", scope: "tab", tab: "chaos", severity: "success" })
     await nextTick()
     await wrapper.find(".scr-global-status button").trigger("click")
     await settle()
@@ -184,12 +185,40 @@ describe("mounted Runtime UI", () => {
     wrapper.unmount()
   })
 
+  it("isolates component failures, keeps the surrounding shell, and retries without backend commands", async () => {
+    const command = { calls: [], async send(name, args = []) { this.calls.push([name, args]); return { success: true } } }
+    const stores = createStores(command)
+    let mounts = 0
+    const ThrowingChild = defineComponent({
+      name: "ThrowingPlacementFixture",
+      setup() { mounts += 1; throw new Error("managed state incompatible") },
+      render: () => h("div"),
+    })
+    const ShellFixture = defineComponent({
+      setup: () => () => h("main", [
+        h("nav", { class: "fixture-nav" }, "Navigation remains"),
+        h(ErrorBoundary, { scope: "race:placement", areaKey: "race.step.placement", backKey: "errors.backToCars" }, { default: () => h(ThrowingChild) }),
+      ]),
+    })
+    const wrapper = mount(ShellFixture, { global: { provide: { [STORES_KEY]: stores } } })
+    await settle()
+    expect(wrapper.find(".fixture-nav").exists()).toBe(true)
+    expect(wrapper.find(".scr-error-boundary").text()).toContain("Could not load Placement")
+    expect(wrapper.find(".scr-error-boundary").attributes("data-error-code")).toBe("ui_component_error")
+    await wrapper.find(".scr-error-boundary button").trigger("click")
+    await settle()
+    expect(wrapper.find(".scr-error-boundary").exists()).toBe(true)
+    expect(mounts).toBe(2)
+    expect(command.calls).toHaveLength(0)
+    wrapper.unmount()
+  })
+
   it("opens backend-driven Details and applies domain diffs without a full request", async () => {
     const wrapper = mount(App, { attachTo: document.body })
     await settle()
     const initialRequests = bridgeHarness.envelopes.filter(value => value.command === "requestState").length
     const state = createDefaultState()
-    state.lastResult = { success: true, message: "Completed" }
+    state.lastResult = { success: true, code: "completed", message: "Completed" }
     eventHarness.emit("SoturineChaosRandomizerState", {
       protocolVersion: 2,
       stateVersion: 1,
@@ -209,7 +238,7 @@ describe("mounted Runtime UI", () => {
       dirtySections: ["core"],
     })
     await nextTick()
-    expect(wrapper.find(".scr-global-status").text()).toContain("mounted-diff-seed")
+    expect(wrapper.find(".scr-global-status").text()).not.toContain("mounted-diff-seed")
     expect(bridgeHarness.envelopes.filter(value => value.command === "requestState")).toHaveLength(initialRequests)
     wrapper.unmount()
   })
@@ -247,7 +276,7 @@ describe("mounted Runtime UI", () => {
       await settle()
       expect(wrapper.findAll(".scr-body > .scr-panel")).toHaveLength(1)
     }
-    for (let index = 0; index < 20; index += 1) {
+    for (let index = 0; index < 50; index += 1) {
       const label = stores.uiLayout.state.compact ? "Expanded mode" : "Compact mode"
       await wrapper.find(`button[aria-label="${label}"]`).trigger("click")
       await settle()
@@ -255,7 +284,7 @@ describe("mounted Runtime UI", () => {
     const summary = stores.uiPerformance.summary.value
     expect(summary.tabSwitchP95Ms).toBeLessThan(50)
     expect(summary.buttonResponseP95Ms).toBeLessThan(50)
-    expect(summary.renderCount).toBe(60)
+    expect(summary.renderCount).toBe(90)
     expect(summary.fullStateApplies).toBe(0)
     expect(summary.diffApplies).toBe(0)
     console.log(`SCR_UI_LATENCY_METRICS ${JSON.stringify(summary)}`)

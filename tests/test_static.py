@@ -52,7 +52,7 @@ class StaticValidationTests(unittest.TestCase):
             cwd=ROOT, text=True, capture_output=True,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Validated 55 Vue SFC files.", result.stdout)
+        self.assertIn("Validated 57 Vue SFC files.", result.stdout)
 
     def test_no_trailing_whitespace(self) -> None:
         extensions = {".js", ".json", ".lua", ".md", ".mjs", ".py", ".scss", ".svg", ".txt", ".vue", ".yml", ""}
@@ -134,11 +134,11 @@ class StaticValidationTests(unittest.TestCase):
             "SeedSettings", "ContentSettings", "SafetySettings", "PerformanceSettings",
             "PersistenceSettings", "CompatibilitySettings", "DetailsPanel", "StatusBanner",
             "EmptyState", "ErrorState", "LoadingState", "ConfirmDialog", "Tooltip", "IconButton",
-            "SegmentedControl", "NumericInput", "ToggleField",
+            "SegmentedControl", "NumericInput", "ToggleField", "ScrSelect", "ErrorBoundary",
         }
         components = {path.stem for path in (APP / "components").rglob("*.vue")}
         self.assertEqual(components, expected_components)
-        self.assertEqual(len(list(APP.rglob("*.vue"))), 55)
+        self.assertEqual(len(list(APP.rglob("*.vue"))), len(expected_components) + 1)  # app.vue plus components
         stores = {path.stem for path in (APP / "stores").glob("*.js")}
         self.assertTrue({"core", "chaos", "garage", "race", "settings", "compatibility", "diagnostics", "performance", "uiLayout"} <= stores)
 
@@ -217,7 +217,8 @@ class StaticValidationTests(unittest.TestCase):
                 self.assertIn("race.competitors.one", catalog)
                 self.assertIn("race.competitors.other", catalog)
         service = (APP / "services/i18n.js").read_text(encoding="utf-8")
-        self.assertIn('messages["en-US"][key] ?? key', service)
+        self.assertIn('messages["en-US"][key] ?? humanizeKey(key)', service)
+        self.assertIn("humanizeKey", service)
         self.assertIn("Intl.NumberFormat", service)
         self.assertIn('language.startsWith("es")', service)
         self.assertIn("localeMode", service)

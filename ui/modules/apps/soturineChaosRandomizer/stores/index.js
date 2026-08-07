@@ -12,6 +12,7 @@ import { createPerformanceStore } from "./performance.js"
 import { createUILayoutStore } from "./uiLayout.js"
 import { createUIPerformanceProfiler } from "../services/uiPerformance.js"
 import { normalizeDomainPayload, normalizeFullState } from "../services/stateNormalizer.js"
+import { createStatusLifecycle } from "../services/statusLifecycle.js"
 
 export const STORES_KEY = Symbol("soturine-chaos-stores")
 
@@ -26,6 +27,7 @@ const pick = (source, fields) => Object.fromEntries(fields.filter(key => key in 
 export function createStores(command) {
   const initial = createDefaultState()
   const uiPerformance = createUIPerformanceProfiler()
+  let lastResultStatusSignature = ""
   const stores = {
     core: createCoreStore(pick(initial, CORE_FIELDS)),
     chaos: createChaosStore({ locks: initial.locks, settings: initial.settings }),
@@ -57,8 +59,34 @@ export function createStores(command) {
     performance: createPerformanceStore(initial.performance),
     uiLayout: createUILayoutStore(uiPerformance),
     uiPerformance,
+    status: createStatusLifecycle(),
     i18n: createI18n(),
     command,
+  }
+
+  const syncStatus = () => {
+    const core = stores.core.state
+    if (core.busy) {
+      stores.status.replaceOperation({
+        code: core.progress?.phase || core.lifecyclePhase || "working",
+        severity: "info", operationId: core.progress?.operationId,
+        persistent: true,
+      })
+      return
+    }
+    stores.status.replaceOperation(null)
+    const result = core.lastResult
+    if (!result?.code) return
+    const signature = `${result.success}:${result.code}:${result.details?.operationId || ""}`
+    if (signature === lastResultStatusSignature) return
+    lastResultStatusSignature = signature
+    stores.status.push({
+      code: result.code,
+      scope: "tab",
+      tab: stores.uiLayout.state.activeTab,
+      severity: result.success === false ? "error" : "success",
+      ttl: result.success === false ? 12000 : 5000,
+    })
   }
 
   stores.applyFull = state => {
@@ -94,6 +122,7 @@ export function createStores(command) {
       manualLocale: preferences.manualLocale || (preferences.locale !== "auto" ? preferences.locale : "en-US"),
     })
     stores.uiPerformance.recordApply("full", started, state)
+    syncStatus()
   }
 
   stores.applyDiff = (domain, payload) => {
@@ -115,6 +144,7 @@ export function createStores(command) {
       ].slice(-20)
     }
     stores.uiPerformance.recordApply("diff", started, payload)
+    if (domain === "core") syncStatus()
   }
 
   return stores

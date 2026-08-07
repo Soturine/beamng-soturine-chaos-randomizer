@@ -6,6 +6,13 @@
       <label class="scr-field"><span>{{ t('race.episodeSeed') }}</span><input :value="options.episodeSeed || ''" maxlength="128" @change="update('episodeSeed', $event.target.value)" /></label>
       <ScrSelect :model-value="options.preset || 'Balanced'" :label="t('race.preset')" :items="presetItems" @update:model-value="preset" />
     </div>
+    <div class="scr-race-counters" role="status" aria-live="polite">
+      <span>{{ t('race.counter.configured', { count: Number(options.count || 0) }) }}</span>
+      <span>{{ t('race.counter.planned', { count: Number(summary.plannedOpponents || 0) }) }}</span>
+      <span>{{ t('race.counter.generated', { count: Number(summary.generated || 0) }) }}</span>
+      <span>{{ t('race.counter.ready', { count: Number(summary.ready || 0) }) }}</span>
+      <span>{{ t('race.counter.failed', { count: Number(summary.failed || 0) }) }}</span>
+    </div>
     <RacePolicyPanel :open="false" />
     <div class="scr-actions">
       <button v-if="!current?.active && !core.busy" type="button" class="is-hot" :disabled="conflict" @click="generate">{{ t('race.generate') }}</button>
@@ -30,6 +37,7 @@ const core = stores.core.state
 const options = stores.race.state.options
 const { t } = stores.i18n
 const current = computed(() => stores.race.state.lineup?.current)
+const summary = computed(() => current.value?.summary || {})
 const conflict = computed(() => !options.allowOfficialVehicles && !options.allowModVehicles)
 const presets = ["Balanced", "Maximum Chaos", "Mods Showcase", "Custom"]
 const participationItems = computed(() => [
