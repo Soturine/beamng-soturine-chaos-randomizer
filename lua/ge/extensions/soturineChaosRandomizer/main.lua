@@ -682,12 +682,19 @@ end
 
 local function noteProgress(active, kind, reason)
   if active and active.progressWatchdog then
-    progressWatchdog.note(active.progressWatchdog, kind, reason, runtime.time.realMonotonicTime)
+    local semantic = progressWatchdog.note(
+      active.progressWatchdog, kind, reason, runtime.time.realMonotonicTime
+    )
+    if semantic and active.domainContext then
+      active.domainContext.semanticProgressSequence =
+        (active.domainContext.semanticProgressSequence or 0) + 1
+    end
   end
 end
 
 local function setLifecyclePhase(active, phase, timeout, reason)
-  if active and active.lifecyclePhase ~= phase then
+  local phaseChanged = active and active.lifecyclePhase ~= phase
+  if phaseChanged then
     if active.lifecyclePhase and active.phaseStartedAt then
       active.phaseTimings = active.phaseTimings or {}
       active.phaseTimings[active.lifecyclePhase] = (active.phaseTimings[active.lifecyclePhase] or 0)
@@ -701,6 +708,16 @@ local function setLifecyclePhase(active, phase, timeout, reason)
     if active then
       active.lifecyclePhase = phase
       active.phaseGeneration = runtime.state.phaseGeneration
+      if active.domainContext then
+        productionModules.domainOperations.setPhase(active.domainContext, phase, "active")
+      end
+      if active.progressWatchdog then
+        progressWatchdog.setDeadlines(
+          active.progressWatchdog,
+          runtime.state.deadline,
+          runtime.state.operationDeadline
+        )
+      end
       if active.lineupIndex and runtime.lineup.current then
         local racePhase = phase == "selecting" and "Selecting"
           or (phase == "issuing_spawn" or phase == "tracking_target_identity" or phase == "stabilizing_tree") and "Loading"
@@ -715,7 +732,7 @@ local function setLifecyclePhase(active, phase, timeout, reason)
         end
       end
     end
-    noteProgress(active, "phase", reason or phase)
+    if phaseChanged then noteProgress(active, "phase", reason or phase) end
   end
   return ok, phaseError
 end
@@ -915,6 +932,19 @@ local function finishOperation(success, code, message, details, terminalState)
     end
     if active.paintLedger and paintCoverageLedger.isComplete(active.paintLedger) then
       active.paintLedger.closed, active.paintLedger.closeReason = true, "terminal_readback_complete"
+    end
+  end
+  if active and success == true
+    and (active.kind == "scramble" or active.kind == "randomConfig" or active.kind == "fullRandom")
+  then
+    local cardinalityOk, cardinality = validateTerminalVehicleCardinality(active)
+    details.vehicleCardinality = cardinality
+    if not cardinalityOk then
+      success = false
+      code = "vehicle_cardinality_violation"
+      message = "The operation stopped because its concrete vehicle transaction changed unrelated world vehicles"
+      terminalState = "failed"
+      details.cardinalityViolation = true
     end
   end
   operationState.finish(runtime.state, terminalState, success and nil or code)
@@ -1516,10 +1546,7 @@ local function beginOperation(kind, context)
     and adapter.worldVehicleIds() or {}
   runtime.lastSeed = seed
   local operationTimeout = context.operationTimeout
-    or (kind == "randomConfig" and 90)
-    or ((type(kind) == "string" and kind:sub(1, 3) == "dna") and 240)
-    or (kind == "fullRandom" and 240)
-    or 180
+    or productionModules.stabilityLimits.operationTimeoutMs(runtime.stabilityLimits, kind, domain) / 1000
   operationTimeout = math.min(
     operationTimeout, runtime.stabilityLimits.maxOperationWallClockMs / 1000
   )
@@ -1572,8 +1599,10 @@ local function beginOperation(kind, context)
     phaseGeneration = runtime.state.phaseGeneration,
     targetGeneration = runtime.state.targetGeneration,
     recoveryOnly = false,
-    progressWatchdog = progressWatchdog.create(adapter.clock(), {
-      warningAfter = 10, stalledAfter = 30,
+    progressWatchdog = progressWatchdog.create(runtime.time.realMonotonicTime, {
+      warningAfter = kind == "randomConfig" and 5 or 10,
+      stalledAfter = kind == "randomConfig" and 15 or 30,
+      operationDeadline = runtime.time.realMonotonicTime + operationTimeout,
     }),
     phase = kind == "scramble" and "parts" or "selection",
     stressIteration = context.stressIteration,
@@ -1872,6 +1901,14 @@ local function enterWaiting(active, phase, afterReload, expected, label, value)
     )
     or "tracking_target_identity"
   setLifecyclePhase(active, lifecyclePhase, active.waitTimeout or WAIT_TIMEOUT, "wait:" .. tostring(phase))
+  active.phaseCallbackTokens = {
+    onVehicleSpawned = production.domainCallbackToken(active, "onVehicleSpawned", {
+      expectedSlot = active.expectedSlot,
+    }),
+    onVehicleSwitched = production.domainCallbackToken(active, "onVehicleSwitched", {
+      expectedSlot = active.expectedSlot,
+    }),
+  }
   if phase == "parts" or phase == "part_isolation_test" or phase == "part_batch_rollback"
     or phase == "dna_parts" or phase == "critical_repair"
   then
@@ -2001,12 +2038,27 @@ local function recordReplacementCandidate(active, result, phase)
     operationContext.returnedVehicleId = result.spawnTransaction.returnedVehicleId
     operationContext.rejectedVehicleIds = util.deepCopy(result.spawnTransaction.rejectedVehicleIds)
     operationContext.spawnOutcome = result.spawnTransaction.outcome
+    local afterIds = result.spawnTransaction.worldVehicleIdsAfter or {}
+    local present = {}
+    for _, worldId in ipairs(afterIds) do present[tostring(worldId)] = true end
+    for _, ownedId in ipairs(active.domainContext and active.domainContext.ownedTemporaryIds or {}) do
+      if not present[tostring(ownedId)] then
+        productionModules.domainOperations.recordRemoval(
+          runtime.domainOperations, ownedId, "replacement_world_snapshot_absent"
+        )
+      end
+    end
   end
   if active.targetTracker and type(result.vehicleId) == "number" then
     vehicleTargetTracker.bindReturned(active.targetTracker, result.vehicleId, result.correlationStrategy)
   end
   if type(result.vehicleId) == "number" then
-    local callbackToken = production.domainCallbackToken(active, phase, {expectedSlot = active.expectedSlot})
+    if active.backgroundTarget then
+      for _, token in pairs(active.phaseCallbackTokens or {}) do token.expectedVehicleId = result.vehicleId end
+    end
+    local callbackToken = production.domainCallbackToken(active, phase, {
+      expectedSlot = active.expectedSlot, expectedVehicleId = result.vehicleId,
+    })
     if callbackToken then
       local registered, registerReason = productionModules.domainOperations.registerCandidate(
         runtime.domainOperations, callbackToken, result.vehicleId, {
@@ -2015,6 +2067,9 @@ local function recordReplacementCandidate(active, result, phase)
         }
       )
       if not registered then
+        if registerReason == "owned_temporary_cardinality_violation" then
+          productionModules.spawnAdapter.deleteVehicle(result.vehicleId)
+        end
         return false, adapter.errorValue(registerReason, "The replacement candidate belongs to a stale or foreign operation")
       end
     end
@@ -2059,6 +2114,13 @@ local function issueReplacement(active, modelKey, config, phase)
   active.replaceIssuedAt = adapter.clock()
   active.replaceTargetVehicleId = active.reloadWriteTarget and active.reloadWriteTarget.vehicleId
     or active.vehicleId
+  local capacity, capacityReason = productionModules.domainOperations.canCreateTemporary(
+    runtime.domainOperations, active.domainContext, active.replaceTargetVehicleId
+  )
+  if not capacity then
+    return false, adapter.errorValue(capacityReason,
+      "The operation already owns a live temporary vehicle and cannot create another")
+  end
   active.replaceWriteInFlight = true
   local ok, result = adapter.replaceVehicle(
     modelKey, config, active.replaceTargetVehicleId,
@@ -3506,7 +3568,7 @@ processMutationPass = function(active)
   if not scan then failActive(adapter.errorValue(scanError, "Could not scan the current parts tree"), active.destructiveStarted, "parts"); return end
   if active.lastTreeSignature ~= scan.signature then
     active.lastTreeSignature = scan.signature
-    noteProgress(active, "tree", "parts_tree_changed")
+    noteProgress(active, "batch", "parts_tree_changed")
   end
   active.lastScanMetrics = util.deepCopy(scan.metrics)
   if active.coveragePass == 1 then
@@ -5654,7 +5716,7 @@ local function completeStableTarget(vehicleId, verificationState, verificationDe
   runtime.state.expectedTarget = util.deepCopy(stableTarget)
   active.readBackStatus = "ready"
   active.lastAcceptedCheckpoint = completedPhase .. "_readback_confirmed"
-  noteProgress(active, "target", "target_identity_and_tree_confirmed")
+  noteProgress(active, "readback", "target_identity_and_tree_confirmed")
   active.wait = nil
   active.waitContext = nil
   active.targetTracker = nil
@@ -5890,19 +5952,6 @@ local function onVehicleSpawned(vehicleId)
       return
     end
   end
-  if active and success == true
-    and (active.kind == "scramble" or active.kind == "randomConfig" or active.kind == "fullRandom")
-  then
-    local cardinalityOk, cardinality = validateTerminalVehicleCardinality(active)
-    details.vehicleCardinality = cardinality
-    if not cardinalityOk then
-      success = false
-      code = "vehicle_cardinality_violation"
-      message = "The operation stopped because its concrete vehicle transaction changed unrelated world vehicles"
-      terminalState = "failed"
-      details.cardinalityViolation = true
-    end
-  end
   local owner = productionModules.domainOperations.ownership(runtime.domainOperations, vehicleId)
   if owner and (owner.domain ~= active.domain or owner.operationId ~= active.domainContext.operationId
     or owner.generation ~= active.domainContext.generation)
@@ -5923,29 +5972,43 @@ local function onVehicleSpawned(vehicleId)
     }, true)
     return
   end
-  local domainToken = production.domainCallbackToken(active, "onVehicleSpawned", {vehicleId = vehicleId, expectedSlot = active.expectedSlot})
-  local domainAccepted, domainReason = productionModules.domainOperations.registerCandidate(
-    runtime.domainOperations, domainToken, vehicleId, {
-      source = "onVehicleSpawned", created = vehicleId ~= active.originalVehicleId,
+  local expectedCallbackVehicleId = active.expectedReplacementVehicleId
+    or active.backgroundTargetVehicleId
+  local callbackCorrelated = expectedCallbackVehicleId == nil
+    or tonumber(expectedCallbackVehicleId) == tonumber(vehicleId)
+  if callbackCorrelated then
+    local domainToken = active.phaseCallbackTokens and active.phaseCallbackTokens.onVehicleSpawned
+      or production.domainCallbackToken(active, "onVehicleSpawned", {
+        expectedVehicleId = vehicleId, expectedSlot = active.expectedSlot,
+      })
+    local domainAccepted, domainReason = productionModules.domainOperations.registerCandidate(
+      runtime.domainOperations, domainToken, vehicleId, {
+        source = "onVehicleSpawned", created = vehicleId ~= active.originalVehicleId,
+        observedAt = runtime.time.realMonotonicTime,
+      }
+    )
+    if not domainAccepted then
+      runtime.state.staleCallbackCount = runtime.state.staleCallbackCount + 1
+      diagnosticsModule.write(runtime.diagnostics, "W", domainReason, {
+        source = "onVehicleSpawned", vehicleId = vehicleId, activeDomain = active.domain,
+      }, true)
+      return
+    end
+    productionModules.operationContext.recordCandidate(production.ensureOperationContext(active), runtime.state, {
+      vehicleId = vehicleId,
+      source = "onVehicleSpawned",
       observedAt = runtime.time.realMonotonicTime,
-    }
-  )
-  if not domainAccepted then
-    runtime.state.staleCallbackCount = runtime.state.staleCallbackCount + 1
-    diagnosticsModule.write(runtime.diagnostics, "W", domainReason, {
-      source = "onVehicleSpawned", vehicleId = vehicleId, activeDomain = active.domain,
-    }, true)
-    return
+      operationId = runtime.state.operationId,
+      operationGeneration = runtime.state.operationGeneration,
+      targetGeneration = runtime.state.targetGeneration,
+      readStatus = "candidate_only",
+    })
+  else
+    diagnosticsModule.write(runtime.diagnostics, "D", "callback_vehicle_mismatch_observed_only", {
+      source = "onVehicleSpawned", vehicleId = vehicleId,
+      expectedVehicleId = expectedCallbackVehicleId,
+    })
   end
-  productionModules.operationContext.recordCandidate(production.ensureOperationContext(active), runtime.state, {
-    vehicleId = vehicleId,
-    source = "onVehicleSpawned",
-    observedAt = runtime.time.realMonotonicTime,
-    operationId = runtime.state.operationId,
-    operationGeneration = runtime.state.operationGeneration,
-    targetGeneration = runtime.state.targetGeneration,
-    readStatus = "candidate_only",
-  })
   local accepted, reason = vehicleTargetTracker.onSpawned(active.targetTracker, vehicleId)
   if not accepted and reason == "stale_callback_rejected" then
     runtime.state.staleCallbackCount = runtime.state.staleCallbackCount + 1
@@ -6006,7 +6069,7 @@ local function processTargetTracking()
     setLifecyclePhase(active, "stabilizing_tree", active.waitTimeout or WAIT_TIMEOUT, "target_identity_confirmed")
     active.targetTracker.phaseGeneration = runtime.state.phaseGeneration
     active.waitContext.phaseGeneration = runtime.state.phaseGeneration
-    noteProgress(active, "target", "target_identity_confirmed")
+    noteProgress(active, "binding", "target_identity_confirmed")
   end
   if status == "stable" then
     local rebound, concreteOrReason = productionModules.operationContext.rebindConcreteTarget(
@@ -6048,7 +6111,7 @@ local function processTargetTracking()
     runtime.state.vehicleId = concrete.vehicleId
     runtime.state.expectedTarget = util.deepCopy(active.logicalTarget)
     active.lastAcceptedCheckpoint = "concrete_target_rebound"
-    noteProgress(active, "target", "concrete_target_rebound")
+    noteProgress(active, "binding", "concrete_target_rebound")
     diagnosticsModule.write(runtime.diagnostics, "I", "concrete_target_rebound", {
       target = concrete,
       logicalTarget = util.deepCopy(active.logicalTarget),
@@ -6059,7 +6122,7 @@ local function processTargetTracking()
       phaseGeneration = runtime.state.phaseGeneration,
       targetGeneration = runtime.state.targetGeneration,
     }, true)
-    noteProgress(active, "tree", "target_tree_converged")
+    noteProgress(active, "readback", "target_tree_converged")
     completeStableTarget(details.vehicleId, details.state, details.verification)
     return true
   end
@@ -6187,33 +6250,47 @@ local function onVehicleSwitched(oldId, newId, player)
   end
   if active.targetTracker then
     if player == nil or player == 0 then
-      local domainToken = production.domainCallbackToken(active, "onVehicleSwitched", {
-        vehicleId = newId, expectedSlot = active.expectedSlot,
-      })
-      local registered, registerReason = productionModules.domainOperations.registerCandidate(
-        runtime.domainOperations, domainToken, newId, {
-          source = "onVehicleSwitched", created = newId ~= active.originalVehicleId,
+      local expectedCallbackVehicleId = active.expectedReplacementVehicleId
+        or active.backgroundTargetVehicleId
+      local callbackCorrelated = active.replaceWriteInFlight ~= true
+        and (expectedCallbackVehicleId == nil
+          or tonumber(expectedCallbackVehicleId) == tonumber(newId))
+      if callbackCorrelated then
+        local domainToken = active.phaseCallbackTokens and active.phaseCallbackTokens.onVehicleSwitched
+          or production.domainCallbackToken(active, "onVehicleSwitched", {
+            expectedVehicleId = newId, expectedSlot = active.expectedSlot,
+          })
+        local registered, registerReason = productionModules.domainOperations.registerCandidate(
+          runtime.domainOperations, domainToken, newId, {
+            source = "onVehicleSwitched", created = newId ~= active.originalVehicleId,
+            observedAt = runtime.time.realMonotonicTime,
+          }
+        )
+        if not registered then
+          runtime.state.staleCallbackCount = runtime.state.staleCallbackCount + 1
+          diagnosticsModule.write(runtime.diagnostics, "W", registerReason, {
+            source = "onVehicleSwitched", oldId = oldId, newId = newId,
+          }, true)
+          return
+        end
+        productionModules.operationContext.recordCandidate(production.ensureOperationContext(active), runtime.state, {
+          vehicleId = newId,
+          source = "onVehicleSwitched",
           observedAt = runtime.time.realMonotonicTime,
-        }
-      )
-      if not registered then
-        runtime.state.staleCallbackCount = runtime.state.staleCallbackCount + 1
-        diagnosticsModule.write(runtime.diagnostics, "W", registerReason, {
+          operationId = runtime.state.operationId,
+          operationGeneration = runtime.state.operationGeneration,
+          targetGeneration = runtime.state.targetGeneration,
+          playerIndex = 0,
+          readStatus = "candidate_only",
+          correlationEvidence = {oldId = oldId},
+        })
+      else
+        diagnosticsModule.write(runtime.diagnostics, "D", "callback_vehicle_mismatch_observed_only", {
           source = "onVehicleSwitched", oldId = oldId, newId = newId,
-        }, true)
-        return
+          expectedVehicleId = expectedCallbackVehicleId,
+          replaceWriteInFlight = active.replaceWriteInFlight == true,
+        })
       end
-      productionModules.operationContext.recordCandidate(production.ensureOperationContext(active), runtime.state, {
-        vehicleId = newId,
-        source = "onVehicleSwitched",
-        observedAt = runtime.time.realMonotonicTime,
-        operationId = runtime.state.operationId,
-        operationGeneration = runtime.state.operationGeneration,
-        targetGeneration = runtime.state.targetGeneration,
-        playerIndex = 0,
-        readStatus = "candidate_only",
-        correlationEvidence = {oldId = oldId},
-      })
     end
     local accepted, reason = vehicleTargetTracker.onSwitched(
       active.targetTracker, oldId, newId, player,

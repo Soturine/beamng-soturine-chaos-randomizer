@@ -13,6 +13,11 @@ local function create(options)
     yieldedFrames = 0,
     dropped = 0,
     lastKind = nil,
+    resumed = 0,
+    lastStepDurationMs = 0,
+    maxSingleStepMs = 0,
+    totalStepDurationMs = 0,
+    phaseDurationMs = {},
   }
 end
 
@@ -42,7 +47,21 @@ local function tick(state, handler, options)
     executed = executed + 1
     state.executed = state.executed + 1
     state.lastKind = item.kind
-    handler(item.kind, util.deepCopy(item.payload), item.key)
+    local stepStarted = clock()
+    local continuation = handler(item.kind, item.payload, item.key)
+    local durationMs = math.max(0, (clock() - stepStarted) * 1000)
+    state.lastStepDurationMs = durationMs
+    state.maxSingleStepMs = math.max(state.maxSingleStepMs, durationMs)
+    state.totalStepDurationMs = state.totalStepDurationMs + durationMs
+    state.phaseDurationMs[item.kind] = (state.phaseDurationMs[item.kind] or 0) + durationMs
+    if type(continuation) == "table" and continuation.done == false then
+      local resumed, reason = enqueue(
+        state, continuation.kind or item.kind, continuation.key or item.key,
+        continuation.payload or item.payload
+      )
+      if resumed then state.resumed = state.resumed + 1
+      else state.lastContinuationError = reason end
+    end
   end
   if state.head > #state.queue then
     state.queue, state.head = {}, 1
@@ -68,6 +87,12 @@ local function snapshot(state)
     yieldedFrames = state.yieldedFrames,
     dropped = state.dropped,
     lastKind = state.lastKind,
+    resumed = state.resumed,
+    lastStepDurationMs = state.lastStepDurationMs,
+    maxSingleStepMs = state.maxSingleStepMs,
+    totalStepDurationMs = state.totalStepDurationMs,
+    phaseDurationMs = util.deepCopy(state.phaseDurationMs),
+    lastContinuationError = state.lastContinuationError,
   }
 end
 

@@ -4452,12 +4452,18 @@ tests.v060_progress_watchdog_contract = function()
   equal(progressWatchdog.evaluate(watchdog, 2.1, false), "warning")
   equal(progressWatchdog.evaluate(watchdog, 4.1, false), "stalled")
   progressWatchdog.observePause(watchdog, true, 4.2)
-  progressWatchdog.note(watchdog, "target", "target_evidence", 4.3)
+  local callbackAdvanced, callbackClass = progressWatchdog.note(
+    watchdog, "target", "vehicle_spawn_callback", 4.25
+  )
+  equal(callbackAdvanced, false); equal(callbackClass, "callback_noise")
+  equal(progressWatchdog.evaluate(watchdog, 4.3, false), "stalled")
+  progressWatchdog.note(watchdog, "binding", "target_evidence_confirmed", 4.3)
   truthy(watchdog.pauseDependentProgressDetected)
   equal(progressWatchdog.evaluate(watchdog, 20, true), "waiting_for_simulation_resume")
   truthy(not watchdog.stalled)
   local report = progressWatchdog.snapshot(watchdog, 20)
-  equal(report.lastTargetEvidenceAt, 4.3)
+  equal(report.lastSemanticProgressAt, 4.3)
+  equal(report.callbackNoiseCount, 1)
 end
 
 tests.v060_actions_complete_without_pause_toggle = function()
@@ -5668,7 +5674,9 @@ tests.v067_domain_operations_isolate_chaos_race_and_garage = function()
   truthy(domainOperations.registerCandidate(state, chaosToken, 2, {created = true}))
   local allowed, reason = domainOperations.canMutate(state, chaos, 103)
   equal(allowed, false); equal(reason, "race_competitor_requires_explicit_transfer")
-  truthy(domainOperations.validateCallback(state, raceToken))
+  local duplicateRace, duplicateRaceReason = domainOperations.validateCallback(state, raceToken)
+  equal(duplicateRace, false); equal(duplicateRaceReason, "callback_already_consumed")
+  truthy(domainOperations.validateCallback(state, domainOperations.callbackToken(race, "probe")))
 
   local nextRace, superseded = domainOperations.begin(state, {
     domain = "race", operationId = "race-2", action = "generate_cars", createdAt = 3,
@@ -5676,7 +5684,9 @@ tests.v067_domain_operations_isolate_chaos_race_and_garage = function()
   truthy(nextRace); equal(superseded.terminalState, "superseded")
   local valid, staleReason = domainOperations.validateCallback(state, raceToken)
   equal(valid, false); equal(staleReason, "ignored_stale_callback")
-  truthy(domainOperations.validateCallback(state, chaosToken))
+  local duplicateChaos, duplicateChaosReason = domainOperations.validateCallback(state, chaosToken)
+  equal(duplicateChaos, false); equal(duplicateChaosReason, "callback_already_consumed")
+  truthy(domainOperations.validateCallback(state, domainOperations.callbackToken(chaos, "probe")))
 
   local garage = assert(domainOperations.begin(state, {
     domain = "garage", operationId = "garage-1", action = "restore", sourceVehicleId = 7,
@@ -5723,12 +5733,17 @@ tests.v067_cardinality_and_rollback_are_idempotent = function()
   }))
   local token = domainOperations.callbackToken(context, "replace")
   truthy(domainOperations.registerCandidate(state, token, 11, {created = true}))
-  truthy(domainOperations.registerCandidate(state, token, 12, {created = true}))
+  local duplicate, duplicateReason = domainOperations.registerCandidate(state, token, 12, {created = true})
+  equal(duplicate, false); equal(duplicateReason, "callback_already_consumed")
+  local secondToken = domainOperations.callbackToken(context, "replace_retry")
+  local second, secondReason = domainOperations.registerCandidate(state, secondToken, 12, {created = true})
+  equal(second, false); equal(secondReason, "owned_temporary_cardinality_violation")
   truthy(domainOperations.acceptVehicle(state, context, 11, "player_result", 11))
   truthy(domainOperations.terminal(state, context, "completed", {playerVehicleIdAfter = 11}))
   equal(context.acceptedVehicleId, 11); equal(context.playerVehicleIdAfter, 11)
   equal(domainOperations.ownership(state, 11).accepted, true)
-  equal(domainOperations.ownership(state, 12).role, "orphan")
+  equal(domainOperations.ownership(state, 12), nil)
+  equal(context.peakOwnedTemporaryCount, 1)
 
   local rollbackContext = assert(domainOperations.begin(state, {
     domain = "chaos", operationId = "full-2", action = "fullRandom", sourceVehicleId = 20,
@@ -5968,15 +5983,19 @@ tests.v072_scheduler_limits_and_watchdog_are_bounded = function()
     maxOperationWallClockMs = 1, maxRaceGenerationWallClockMs = 99999999,
     maxSpawnAttemptsPerFrame = 99, maxHeavyReloadsPerFrame = 99,
   })
-  equal(limits.maxConcurrentVehicleBuilds, 2)
-  equal(limits.maxOwnedTemporaryVehicles, 4)
-  equal(limits.maxRetriesPerTarget, 10)
-  equal(limits.maxRetriesPerRaceSlot, 10)
+  equal(limits.maxConcurrentVehicleBuilds, 1)
+  equal(limits.maxOwnedTemporaryVehicles, 1)
+  equal(limits.maxRetriesPerTarget, 3)
+  equal(limits.maxRetriesPerRaceSlot, 3)
   equal(limits.maxStaleCallbacksPerOperation, 256)
   equal(limits.maxOperationWallClockMs, 10000)
-  equal(limits.maxRaceGenerationWallClockMs, 7200000)
+  equal(limits.maxRaceGenerationWallClockMs, 360000)
   equal(limits.maxSpawnAttemptsPerFrame, 2)
   equal(limits.maxHeavyReloadsPerFrame, 2)
+  equal(stabilityLimits.operationTimeoutMs(limits, "randomConfig", "chaos"), 30000)
+  equal(stabilityLimits.operationTimeoutMs(limits, "scramble", "chaos"), 60000)
+  equal(stabilityLimits.operationTimeoutMs(limits, "fullRandom", "chaos"), 120000)
+  equal(stabilityLimits.operationTimeoutMs(limits, "fullRandom", "race"), 120000)
 
   local scheduler = cooperativeScheduler.create({limit = 4})
   truthy(cooperativeScheduler.enqueue(scheduler, "spawn", "slot:1", {slot = 1}))
@@ -5991,6 +6010,17 @@ tests.v072_scheduler_limits_and_watchdog_are_bounded = function()
     executed[#executed + 1] = {kind = kind, slot = payload.slot}
   end, {maxSteps = 1, budgetMs = 10, clock = function() return 0 end})
   equal(steps, 1); equal(pending, 0); equal(#executed, 2)
+
+  truthy(cooperativeScheduler.enqueue(scheduler, "parts", "parts:1", {step = 1}))
+  steps, pending = cooperativeScheduler.tick(scheduler, function(_, payload)
+    if payload.step == 1 then return {done = false, payload = {step = 2}} end
+  end, {maxSteps = 1, budgetMs = 10, clock = function() return 0 end})
+  equal(steps, 1); equal(pending, 1)
+  equal(cooperativeScheduler.snapshot(scheduler).resumed, 1)
+  steps, pending = cooperativeScheduler.tick(scheduler, function(_, payload)
+    equal(payload.step, 2)
+  end, {maxSteps = 1, budgetMs = 10, clock = function() return 0 end})
+  equal(steps, 1); equal(pending, 0)
 
   local watchdog = progressWatchdog.create(0, {warningAfter = 2, stalledAfter = 4})
   progressWatchdog.observeMetrics(watchdog, {
@@ -6010,6 +6040,110 @@ tests.v072_scheduler_limits_and_watchdog_are_bounded = function()
   equal(report.temporaryVehicleCount, 1)
   equal(report.callbackCount, 7)
   equal(report.frameBudgetOverruns, 3)
+end
+
+
+tests.v073_callback_tokens_are_phase_vehicle_and_consumption_bound = function()
+  local state = domainOperations.create()
+  local context = assert(domainOperations.begin(state, {
+    domain = "chaos", operationId = "v073-callback", action = "fullRandom",
+    sourceVehicleId = 1, worldVehicleIdsBefore = {1},
+  }))
+  local oldPhase = domainOperations.callbackToken(context, "spawn", {expectedVehicleId = 2})
+  truthy(domainOperations.setPhase(context, "binding", "active"))
+  local oldAccepted, oldReason = domainOperations.registerCandidate(state, oldPhase, 2, {created = true})
+  equal(oldAccepted, false); equal(oldReason, "callback_phase_mismatch")
+  equal(domainOperations.ownership(state, 2), nil)
+
+  local token = domainOperations.callbackToken(context, "spawn", {expectedVehicleId = 2})
+  local wrong, wrongReason = domainOperations.registerCandidate(state, token, 3, {created = true})
+  equal(wrong, false); equal(wrongReason, "callback_vehicle_mismatch")
+  truthy(domainOperations.registerCandidate(state, token, 2, {created = true}))
+  local duplicate, duplicateReason = domainOperations.registerCandidate(state, token, 2, {created = true})
+  equal(duplicate, false); equal(duplicateReason, "callback_already_consumed")
+  equal(context.staleCallbackSideEffects, 0)
+  truthy(#state.callbackDiagnostics >= 3)
+  truthy(#state.callbackDiagnostics <= 32)
+end
+
+tests.v073_full_random_cardinality_and_scramble_identity_are_absolute = function()
+  local state = domainOperations.create()
+  local full = assert(domainOperations.begin(state, {
+    domain = "chaos", operationId = "v073-full", action = "fullRandom",
+    sourceVehicleId = 1, worldVehicleIdsBefore = {1},
+  }))
+  local first = domainOperations.callbackToken(full, "spawn", {expectedVehicleId = 2})
+  truthy(domainOperations.registerCandidate(state, first, 2, {created = true}))
+  local blocked, blockedReason = domainOperations.canCreateTemporary(state, full, nil)
+  equal(blocked, false); equal(blockedReason, "owned_temporary_cardinality_violation")
+  local second = domainOperations.callbackToken(full, "spawn_retry", {expectedVehicleId = 3})
+  local added, addReason = domainOperations.registerCandidate(state, second, 3, {created = true})
+  equal(added, false); equal(addReason, "owned_temporary_cardinality_violation")
+  equal(full.peakOwnedTemporaryCount, 1)
+  truthy(domainOperations.terminal(state, full, "failed", {worldVehicleIdsAfter = {1}}))
+
+  local scramble = assert(domainOperations.begin(state, {
+    domain = "chaos", operationId = "v073-scramble", action = "scramble",
+    sourceVehicleId = 1, worldVehicleIdsBefore = {1},
+  }))
+  local stale, staleReason = domainOperations.registerCandidate(state, first, 3, {created = true})
+  equal(stale, false); equal(staleReason, "ignored_stale_callback")
+  local same = domainOperations.callbackToken(scramble, "reload", {expectedVehicleId = 1})
+  truthy(domainOperations.registerCandidate(state, same, 1, {created = false}))
+  truthy(domainOperations.acceptVehicle(state, scramble, 1, "player_result", 1))
+  local changed = domainOperations.callbackToken(scramble, "reload", {expectedVehicleId = 9})
+  local changedOk, changedReason = domainOperations.registerCandidate(state, changed, 9, {created = true})
+  equal(changedOk, false); equal(changedReason, "scramble_identity_changed")
+  equal(#scramble.ownedTemporaryIds, 0)
+  equal(scramble.acceptedConcreteId, 1)
+end
+
+tests.v073_race_slots_cannot_reuse_accepted_physical_vehicles = function()
+  local state = domainOperations.create()
+  local slotOne = assert(domainOperations.begin(state, {
+    domain = "race", operationId = "race-slot-1", action = "fullRandom", expectedSlot = 1,
+  }))
+  local oneToken = domainOperations.callbackToken(slotOne, "spawn", {expectedSlot = 1, expectedVehicleId = 41})
+  truthy(domainOperations.registerCandidate(state, oneToken, 41, {created = true}))
+  truthy(domainOperations.acceptVehicle(state, slotOne, 41, "race_competitor", 1))
+  truthy(domainOperations.terminal(state, slotOne, "completed"))
+
+  local slotTwo = assert(domainOperations.begin(state, {
+    domain = "race", operationId = "race-slot-2", action = "fullRandom", expectedSlot = 2,
+  }))
+  local wrongSlot = domainOperations.callbackToken(slotTwo, "spawn", {expectedSlot = 1, expectedVehicleId = 42})
+  local wrongSlotOk, wrongSlotReason = domainOperations.registerCandidate(state, wrongSlot, 42, {created = true})
+  equal(wrongSlotOk, false); equal(wrongSlotReason, "callback_slot_mismatch")
+  local reused = domainOperations.callbackToken(slotTwo, "spawn", {expectedSlot = 2, expectedVehicleId = 41})
+  local reusedOk, reusedReason = domainOperations.registerCandidate(state, reused, 41, {created = true})
+  equal(reusedOk, false); equal(reusedReason, "vehicle_owned_by_other_slot")
+  equal(domainOperations.ownership(state, 41).slot, 1)
+  local twoToken = domainOperations.callbackToken(slotTwo, "spawn", {expectedSlot = 2, expectedVehicleId = 42})
+  truthy(domainOperations.registerCandidate(state, twoToken, 42, {created = true}))
+  truthy(domainOperations.acceptVehicle(state, slotTwo, 42, "race_competitor", 1))
+  equal(domainOperations.ownership(state, 42).slot, 2)
+end
+
+tests.v073_callback_sequence_fault_injection_is_side_effect_free = function()
+  for iteration = 1, 64 do
+    local state = domainOperations.create()
+    local context = assert(domainOperations.begin(state, {
+      domain = "chaos", operationId = "fault-" .. tostring(iteration),
+      action = "randomConfig", sourceVehicleId = 1,
+    }))
+    local expectedId = 1000 + iteration
+    local token = domainOperations.callbackToken(context, "spawn", {expectedVehicleId = expectedId})
+    local wrongId = expectedId + 10000
+    local wrong, wrongReason = domainOperations.registerCandidate(state, token, wrongId, {created = true})
+    equal(wrong, false); equal(wrongReason, "callback_vehicle_mismatch")
+    truthy(domainOperations.registerCandidate(state, token, expectedId, {created = true}))
+    truthy(domainOperations.acceptVehicle(state, context, expectedId, "player_result", expectedId))
+    truthy(domainOperations.terminal(state, context, iteration % 2 == 0 and "completed" or "cancelled"))
+    local late, lateReason = domainOperations.registerCandidate(state, token, wrongId, {created = true})
+    equal(late, false); equal(lateReason, "ignored_stale_callback")
+    equal(domainOperations.ownership(state, wrongId), nil)
+    equal(context.staleCallbackSideEffects, 0)
+  end
 end
 
 tests.v067_dynamic_race_formations_and_spacing = function()
@@ -6928,6 +7062,26 @@ local v072Required = {
   {"watchdog_has_aborting_cleaning_terminal_states", tests.v072_scheduler_limits_and_watchdog_are_bounded},
 }
 
+local v073Required = {
+  {"callback_phase_token", tests.v073_callback_tokens_are_phase_vehicle_and_consumption_bound},
+  {"callback_expected_vehicle", tests.v073_callback_tokens_are_phase_vehicle_and_consumption_bound},
+  {"callback_single_consumption", tests.v073_callback_tokens_are_phase_vehicle_and_consumption_bound},
+  {"callback_diagnostics_bounded", tests.v073_callback_tokens_are_phase_vehicle_and_consumption_bound},
+  {"full_random_one_temporary", tests.v073_full_random_cardinality_and_scramble_identity_are_absolute},
+  {"full_random_peak_temporary_one", tests.v073_full_random_cardinality_and_scramble_identity_are_absolute},
+  {"full_random_then_scramble_isolated", tests.v073_full_random_cardinality_and_scramble_identity_are_absolute},
+  {"scramble_same_concrete_vehicle", tests.v073_full_random_cardinality_and_scramble_identity_are_absolute},
+  {"scramble_zero_temporary", tests.v073_full_random_cardinality_and_scramble_identity_are_absolute},
+  {"race_callback_slot_bound", tests.v073_race_slots_cannot_reuse_accepted_physical_vehicles},
+  {"race_accepted_vehicle_not_reused", tests.v073_race_slots_cannot_reuse_accepted_physical_vehicles},
+  {"race_slot_physical_ids_unique", tests.v073_race_slots_cannot_reuse_accepted_physical_vehicles},
+  {"callback_fault_injection_64_sequences", tests.v073_callback_sequence_fault_injection_is_side_effect_free},
+  {"late_callback_side_effect_free", tests.v073_callback_sequence_fault_injection_is_side_effect_free},
+  {"semantic_watchdog_ignores_callback_noise", tests.v060_progress_watchdog_contract},
+  {"cooperative_scheduler_resumes", tests.v072_scheduler_limits_and_watchdog_are_bounded},
+  {"interactive_operation_timeouts", tests.v072_scheduler_limits_and_watchdog_are_bounded},
+}
+
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")
 equal(#v060Required, 104, "0.6.0 required scenario registry")
 equal(#v060PauseLifecycleRequired, 52, "0.6.0 pause lifecycle scenario registry")
@@ -6965,6 +7119,9 @@ for _, scenario in ipairs(v070Required) do
 end
 for _, scenario in ipairs(v072Required) do
   requirementMappings[#requirementMappings + 1] = {"0.7.2:" .. scenario[1], scenario[2]}
+end
+for _, scenario in ipairs(v073Required) do
+  requirementMappings[#requirementMappings + 1] = {"0.7.3:" .. scenario[1], scenario[2]}
 end
 
 local canonicalByFunction = {}

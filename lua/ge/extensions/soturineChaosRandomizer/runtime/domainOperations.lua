@@ -33,7 +33,24 @@ local function create(options)
     orphanVehicleIds = {},
     orphanQueue = {}, orphanQueueHead = 1, orphanQueued = {},
     cleanupLog = {},
+    callbackDiagnostics = {},
   }
+end
+
+local function boundedDiagnostic(state, context, code, token)
+  local record = {
+    code = tostring(code), domain = token and token.domain or nil,
+    operationId = token and token.operationId or nil,
+    generation = token and token.generation or nil,
+    callbackToken = token and token.callbackToken or nil,
+    kind = token and token.kind or nil,
+  }
+  state.callbackDiagnostics[#state.callbackDiagnostics + 1] = record
+  while #state.callbackDiagnostics > 32 do table.remove(state.callbackDiagnostics, 1) end
+  if context then
+    context.callbackDiagnostics[#context.callbackDiagnostics + 1] = util.deepCopy(record)
+    while #context.callbackDiagnostics > 16 do table.remove(context.callbackDiagnostics, 1) end
+  end
 end
 
 local function archive(state, domainState, context)
@@ -66,6 +83,7 @@ local function begin(state, options)
     operationId = operationId,
     generation = domainState.generation,
     action = action,
+    operationKind = action,
     phase = "created",
     status = "active",
     expectedSlot = options.expectedSlot,
@@ -73,18 +91,29 @@ local function begin(state, options)
     logicalTarget = util.deepCopy(options.expectedLogicalTarget),
     concreteVehicleId = nil,
     sourceVehicleId = tonumber(options.sourceVehicleId),
+    sourceConcreteId = tonumber(options.sourceVehicleId),
+    controlledConcreteId = tonumber(options.sourceVehicleId),
+    candidateConcreteId = nil,
+    acceptedConcreteId = nil,
     sourceStillExists = options.sourceVehicleId ~= nil,
     candidateVehicleIds = {},
     candidateById = {},
     createdVehicleIds = {},
     removedVehicleIds = {},
     ownedVehicleIds = {},
+    ownedTemporaryIds = {},
     acceptedVehicleId = nil,
     restoredVehicleId = nil,
     playerVehicleIdAfter = nil,
     pendingCallbacks = {},
     pendingCallbackCount = 0,
     pendingTimers = 0,
+    phaseSequence = 0,
+    semanticProgressSequence = 0,
+    callbackSequence = 0,
+    consumedCallbackTokens = {},
+    callbackDiagnostics = {},
+    cancelToken = options.cancelToken,
     timeoutState = "idle",
     recoveryState = "idle",
     rollbackReason = nil,
@@ -106,6 +135,12 @@ local function begin(state, options)
     staleCallbackCount = 0,
     staleCallbackSideEffects = 0,
     staleCallbackEffectsPrevented = 0,
+    peakOwnedTemporaryCount = 0,
+    peakWorldVehicleCount = #(options.worldVehicleIdsBefore or {}),
+    worldVehicleIdsCurrent = util.deepCopy(options.worldVehicleIdsBefore or {}),
+    unexpectedNewIds = {},
+    identityChangeReason = nil,
+    lastCallbackToken = nil,
     createdAt = tonumber(options.createdAt) or 0,
   }
   domainState.active = context
@@ -118,19 +153,28 @@ end
 
 local function callbackToken(context, kind, values)
   values = type(values) == "table" and values or {}
+  context.callbackSequence = (context.callbackSequence or 0) + 1
+  local sequence = context.callbackSequence
   return {
     domain = context.domain,
     operationId = context.operationId,
     generation = context.generation,
     kind = kind or "callback",
+    callbackToken = tostring(context.operationId) .. ":" .. tostring(context.generation)
+      .. ":" .. tostring(context.phaseSequence or 0) .. ":" .. tostring(sequence),
+    phase = context.phase,
+    phaseSequence = context.phaseSequence or 0,
     expectedSlot = values.expectedSlot or context.expectedSlot,
+    slotId = values.slotId or values.expectedSlot or context.expectedSlot,
     expectedLogicalTarget = util.deepCopy(values.expectedLogicalTarget or context.expectedLogicalTarget),
+    expectedVehicleId = tonumber(values.expectedVehicleId or values.vehicleId),
     vehicleId = tonumber(values.vehicleId),
   }
 end
 
-local function validateCallback(state, token)
+local function validateCallback(state, token, observedVehicleId, consume)
   if type(token) ~= "table" or not DOMAINS[token.domain] then
+    boundedDiagnostic(state, nil, "callback_token_invalid", token)
     return false, "callback_token_invalid"
   end
   local context = active(state, token.domain)
@@ -141,22 +185,53 @@ local function validateCallback(state, token)
       context.staleCallbackCount = (context.staleCallbackCount or 0) + 1
       context.staleCallbackEffectsPrevented = (context.staleCallbackEffectsPrevented or 0) + 1
     end
+    boundedDiagnostic(state, context, "ignored_stale_callback", token)
     return false, "ignored_stale_callback"
   end
   if TERMINAL[context.terminalState] then
     context.staleCallbackCount = (context.staleCallbackCount or 0) + 1
     context.staleCallbackEffectsPrevented = (context.staleCallbackEffectsPrevented or 0) + 1
+    boundedDiagnostic(state, context, "ignored_stale_callback", token)
     return false, "ignored_stale_callback"
+  end
+  if token.phaseSequence ~= nil and tonumber(token.phaseSequence) ~= tonumber(context.phaseSequence) then
+    context.staleCallbackCount = (context.staleCallbackCount or 0) + 1
+    context.staleCallbackEffectsPrevented = (context.staleCallbackEffectsPrevented or 0) + 1
+    boundedDiagnostic(state, context, "callback_phase_mismatch", token)
+    return false, "callback_phase_mismatch"
   end
   if token.expectedSlot ~= nil and context.expectedSlot ~= nil
     and tostring(token.expectedSlot) ~= tostring(context.expectedSlot)
-  then return false, "callback_slot_mismatch" end
+  then boundedDiagnostic(state, context, "callback_slot_mismatch", token); return false, "callback_slot_mismatch" end
+  local observed = tonumber(observedVehicleId)
+  if token.expectedVehicleId ~= nil and observed ~= nil
+    and tonumber(token.expectedVehicleId) ~= observed
+  then boundedDiagnostic(state, context, "callback_vehicle_mismatch", token); return false, "callback_vehicle_mismatch" end
+  local key = token.callbackToken
+  if type(key) ~= "string" or key == "" then
+    boundedDiagnostic(state, context, "callback_token_missing", token)
+    return false, "callback_token_missing"
+  end
+  if context.consumedCallbackTokens[key] then
+    context.staleCallbackCount = (context.staleCallbackCount or 0) + 1
+    context.staleCallbackEffectsPrevented = (context.staleCallbackEffectsPrevented or 0) + 1
+    boundedDiagnostic(state, context, "callback_already_consumed", token)
+    return false, "callback_already_consumed"
+  end
+  if consume == true then
+    context.consumedCallbackTokens[key] = true
+    context.lastCallbackToken = key
+  end
   return true, context
 end
 
 local function setPhase(context, phase, status)
   if TERMINAL[context.terminalState] then return false, "operation_terminal" end
-  context.phase = tostring(phase or context.phase)
+  local nextPhase = tostring(phase or context.phase)
+  if nextPhase ~= context.phase then
+    context.phaseSequence = (context.phaseSequence or 0) + 1
+    context.phase = nextPhase
+  end
   context.status = tostring(status or context.status)
   return true
 end
@@ -171,6 +246,9 @@ local function ownVehicle(state, vehicleId, metadata)
   local replacing = current and (current.domain ~= metadata.domain
     or current.operationId ~= metadata.operationId
     or current.generation ~= metadata.generation)
+  if replacing and current.role == "race_competitor" and current.accepted == true
+    and metadata.transfer ~= true
+  then return false, "vehicle_owned_by_other_slot" end
   if replacing and metadata.transfer ~= true and current.terminal ~= true and current.removed ~= true then
     return false, "vehicle_owned_by_other_operation"
   end
@@ -223,12 +301,31 @@ local function transferVehicle(state, vehicleId, target)
 end
 
 local function registerCandidate(state, token, vehicleId, metadata)
-  local valid, contextOrReason = validateCallback(state, token)
+  local valid, contextOrReason = validateCallback(state, token, vehicleId, true)
   if not valid then return false, contextOrReason end
   local context = contextOrReason
   local key, numeric = vehicleKey(vehicleId)
   if not key then return false, "candidate_id_invalid" end
   metadata = type(metadata) == "table" and metadata or {}
+  local sourceId = tonumber(context.sourceVehicleId)
+  local created = metadata.created ~= false and numeric ~= sourceId
+  if context.action == "scramble" and numeric ~= sourceId then
+    context.identityChangeReason = "scramble_concrete_vehicle_changed"
+    boundedDiagnostic(state, context, "scramble_identity_changed", token)
+    return false, "scramble_identity_changed"
+  end
+  if created and context.domain == "chaos" and not context.candidateById[key] then
+    local temporaryCount = 0
+    for _, ownedId in ipairs(context.ownedTemporaryIds or {}) do
+      local entry = ownership(state, ownedId)
+      if entry and entry.removed ~= true and entry.accepted ~= true then temporaryCount = temporaryCount + 1 end
+    end
+    if temporaryCount >= 1 then
+      context.cardinalityViolation = "peak_owned_temporary_count"
+      boundedDiagnostic(state, context, "owned_temporary_cardinality_violation", token)
+      return false, "owned_temporary_cardinality_violation"
+    end
+  end
   if not context.candidateById[key] then
     context.candidateById[key] = {
       vehicleId = numeric, source = metadata.source or token.kind,
@@ -236,8 +333,6 @@ local function registerCandidate(state, token, vehicleId, metadata)
     }
     context.candidateVehicleIds[#context.candidateVehicleIds + 1] = numeric
   end
-  local sourceId = tonumber(context.sourceVehicleId)
-  local created = metadata.created ~= false and numeric ~= sourceId
   local role = context.domain == "race" and "race_candidate" or "player_candidate"
   local owned, result = ownVehicle(state, numeric, {
     domain = context.domain, operationId = context.operationId, generation = context.generation,
@@ -245,11 +340,35 @@ local function registerCandidate(state, token, vehicleId, metadata)
     created = created, accepted = false, updatedAt = metadata.observedAt,
   })
   if not owned then return false, result end
+  context.candidateConcreteId = numeric
+  if created and not util.arrayContains(context.ownedTemporaryIds, numeric) then
+    context.ownedTemporaryIds[#context.ownedTemporaryIds + 1] = numeric
+  end
+  local currentTemporaryCount = 0
+  for _, ownedId in ipairs(context.ownedTemporaryIds) do
+    local entry = ownership(state, ownedId)
+    if entry and entry.removed ~= true and entry.accepted ~= true then currentTemporaryCount = currentTemporaryCount + 1 end
+  end
+  context.peakOwnedTemporaryCount = math.max(context.peakOwnedTemporaryCount or 0, currentTemporaryCount)
   context.callbackDisposition = "candidate_recorded"
   if context.bindingState == "UNBOUND" or context.bindingState == "BINDING" then
     context.bindingState = "CANDIDATE_DISCOVERED"
   end
   return true, context.candidateById[key]
+end
+
+local function canCreateTemporary(state, context, replacingVehicleId)
+  if type(context) ~= "table" then return false, "operation_context_missing" end
+  local replacing = tonumber(replacingVehicleId)
+  local count = 0
+  for _, vehicleId in ipairs(context.ownedTemporaryIds or {}) do
+    local entry = ownership(state, vehicleId)
+    if entry and entry.removed ~= true and entry.accepted ~= true and tonumber(vehicleId) ~= replacing then
+      count = count + 1
+    end
+  end
+  if count >= 1 then return false, "owned_temporary_cardinality_violation" end
+  return true, "temporary_capacity_available"
 end
 
 local function addPendingCallback(context, token)
@@ -272,6 +391,10 @@ local function acceptVehicle(state, context, vehicleId, role, playerVehicleIdAft
   local key, numeric = vehicleKey(vehicleId)
   if not key then return false, "accepted_vehicle_id_invalid" end
   role = role or (context.domain == "race" and "race_competitor" or "player_result")
+  if context.action == "scramble" and numeric ~= tonumber(context.sourceVehicleId) then
+    context.identityChangeReason = "scramble_concrete_vehicle_changed"
+    return false, "scramble_identity_changed"
+  end
   if context.acceptedVehicleId ~= nil and context.acceptedVehicleId ~= numeric then
     return false, "accepted_vehicle_cardinality_violation"
   end
@@ -282,10 +405,15 @@ local function acceptVehicle(state, context, vehicleId, role, playerVehicleIdAft
   })
   if not owned then return false, entry end
   context.acceptedVehicleId = numeric
+  context.acceptedConcreteId = numeric
   context.concreteVehicleId = numeric
+  context.controlledConcreteId = tonumber(playerVehicleIdAfter) or numeric
   context.playerVehicleIdAfter = tonumber(playerVehicleIdAfter) or numeric
   context.bindingState = "BOUND"
   entry.accepted = true
+  for index = #context.ownedTemporaryIds, 1, -1 do
+    if tonumber(context.ownedTemporaryIds[index]) == numeric then table.remove(context.ownedTemporaryIds, index) end
+  end
   return true, entry
 end
 
@@ -331,6 +459,11 @@ local function recordRemoval(state, vehicleId, reason)
     if context and context.operationId == entry.operationId and context.generation == entry.generation
       and not util.arrayContains(context.removedVehicleIds, numeric)
     then context.removedVehicleIds[#context.removedVehicleIds + 1] = numeric end
+    if context then
+      for index = #context.ownedTemporaryIds, 1, -1 do
+        if tonumber(context.ownedTemporaryIds[index]) == numeric then table.remove(context.ownedTemporaryIds, index) end
+      end
+    end
     entry.removed = true
     entry.removalReason = reason
   end
@@ -455,8 +588,18 @@ local function recordWorldAfter(context, worldVehicleIds)
     return false, "world_vehicle_snapshot_invalid"
   end
   context.worldVehicleIdsAfter = util.deepCopy(worldVehicleIds)
+  context.worldVehicleIdsCurrent = util.deepCopy(worldVehicleIds)
   context.worldVehicleCountAfter = #worldVehicleIds
   context.worldVehicleDelta = context.worldVehicleCountAfter - (context.worldVehicleCountBefore or 0)
+  context.peakWorldVehicleCount = math.max(context.peakWorldVehicleCount or 0, #worldVehicleIds)
+  local before = {}
+  for _, vehicleId in ipairs(context.worldVehicleIdsBefore or {}) do before[tostring(vehicleId)] = true end
+  context.unexpectedNewIds = {}
+  for _, vehicleId in ipairs(worldVehicleIds) do
+    if not before[tostring(vehicleId)] and not util.arrayContains(context.ownedVehicleIds, vehicleId) then
+      context.unexpectedNewIds[#context.unexpectedNewIds + 1] = vehicleId
+    end
+  end
   return true, context.worldVehicleDelta
 end
 
@@ -524,6 +667,13 @@ local function summary(state)
       staleCallbackCount = context and context.staleCallbackCount or 0,
       staleCallbackSideEffects = context and context.staleCallbackSideEffects or 0,
       staleCallbackEffectsPrevented = context and context.staleCallbackEffectsPrevented or 0,
+      phaseSequence = context and context.phaseSequence or 0,
+      semanticProgressSequence = context and context.semanticProgressSequence or 0,
+      ownedTemporaryIds = context and util.deepCopy(context.ownedTemporaryIds) or {},
+      peakOwnedTemporaryCount = context and context.peakOwnedTemporaryCount or 0,
+      peakWorldVehicleCount = context and context.peakWorldVehicleCount or 0,
+      unexpectedNewIds = context and util.deepCopy(context.unexpectedNewIds) or {},
+      lastCallbackToken = context and context.lastCallbackToken or nil,
       quarantineCount = countEntries(domainState.sessionQuarantine),
     }
   end
@@ -532,7 +682,8 @@ local function summary(state)
     if not entry.removed then owned = owned + 1 end
     if entry.role == "orphan" and not entry.removed then orphan = orphan + 1 end
   end
-  return {domains = domains, ownedVehicles = owned, orphanVehicles = orphan}
+  return {domains = domains, ownedVehicles = owned, orphanVehicles = orphan,
+    callbackDiagnostics = util.deepCopy(state.callbackDiagnostics)}
 end
 
 M.DOMAINS = DOMAINS
@@ -548,6 +699,7 @@ M.ownVehicle = ownVehicle
 M.ownership = ownership
 M.transferVehicle = transferVehicle
 M.registerCandidate = registerCandidate
+M.canCreateTemporary = canCreateTemporary
 M.addPendingCallback = addPendingCallback
 M.resolvePendingCallback = resolvePendingCallback
 M.acceptVehicle = acceptVehicle
