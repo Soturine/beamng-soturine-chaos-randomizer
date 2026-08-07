@@ -108,7 +108,7 @@ local runtime = {
   lastSeed = nil,
   lastResult = nil,
   lastFailure = nil,
-  progress = {label = "Ready", value = 0},
+  progress = {phase = "idle", phaseProgress = 0, overallProgress = 0, value = 0},
   recentModels = {},
   recentConfigs = {},
   recentRandomCarResults = {},
@@ -365,6 +365,7 @@ local function publicState()
       episodeSeed = runtime.lineup.current.episodeSeed, preset = runtime.lineup.current.preset,
       active = runtime.lineup.current.active == true,
       generationState = runtime.lineup.current.generationState,
+      processingState = runtime.lineup.current.processingState,
       participationMode = runtime.lineup.current.participationMode,
       playerParticipates = runtime.lineup.current.playerParticipates == true,
       playerVehicleId = runtime.lineup.current.playerVehicleId,
@@ -382,6 +383,8 @@ local function publicState()
         seed = competitor.seed, selectionSeed = competitor.selectionSeed,
         mutationSeed = competitor.mutationSeed, placementSeed = competitor.placementSeed,
         status = competitor.status, warning = competitor.warning,
+        phase = competitor.phase, phaseProgress = competitor.phaseProgress,
+        terminalState = competitor.terminalState, failureCode = competitor.failureCode,
         dnaId = competitor.dnaId, modelKey = competitor.modelKey,
         position = competitor.position, configuration = competitor.configuration,
         source = util.deepCopy(competitor.source), dependencies = util.deepCopy(competitor.dependencies),
@@ -390,6 +393,11 @@ local function publicState()
         managedHandle = competitor.managedHandle,
         competitorId = competitor.competitorId or competitor.id,
         operationId = competitor.operationId, generation = competitor.generation,
+        slotId = competitor.slotId, derivedSeed = competitor.derivedSeed,
+        candidateVehicleId = competitor.candidateVehicleId,
+        acceptedVehicleId = competitor.acceptedVehicleId,
+        ownedTemporaryIds = util.deepCopy(competitor.ownedTemporaryIds),
+        retryCount = competitor.retryCount,
         requestedIndex = competitor.requestedIndex,
         logicalCandidate = util.deepCopy(competitor.logicalCandidate),
         currentVehicleId = competitor.currentVehicleId,
@@ -657,7 +665,7 @@ production.publishProgress = function(force)
   runtime.pendingProgressPublish = false
   local started = adapter.clock()
   local payload = {
-    progress = {label = runtime.progress.label, value = runtime.progress.value},
+    progress = util.deepCopy(runtime.progress),
     busy = operationState.deriveBusy(runtime.state), operationState = runtime.state.state,
     lifecyclePhase = runtime.state.phase,
   }
@@ -677,9 +685,30 @@ production.publishProgress = function(force)
   return true
 end
 
-local function setProgress(label, value)
-  runtime.progress.label = label
-  runtime.progress.value = util.clamp(value or 0, 0, 1)
+local function setProgress(_, value)
+  local active = runtime.active
+  local phase = active and (active.lifecyclePhase or active.phase) or runtime.state.phase or "idle"
+  local phaseProgress = util.clamp(value or 0, 0, 1)
+  local overall = phaseProgress
+  if active and active.lineupIndex and runtime.lineup.current then
+    local total = math.max(1, #(runtime.lineup.current.competitors or {}))
+    overall = util.clamp(((active.lineupIndex - 1) + phaseProgress) / total, 0, 1)
+  end
+  local sameOperation = runtime.progress.operationId == runtime.state.operationId
+  local sameRace = active and active.lineupIndex and runtime.progress.raceId == runtime.lineup.current.id
+  if sameOperation or sameRace then overall = math.max(runtime.progress.overallProgress or 0, overall) end
+  runtime.progress = {
+    operationId = runtime.state.operationId,
+    raceId = active and active.lineupIndex and runtime.lineup.current.id or nil,
+    phase = phase,
+    phaseProgress = phaseProgress,
+    overallProgress = overall,
+    value = overall,
+    pass = active and active.pass or nil,
+    attempt = active and (active.retryCount or active.configRetryCount) or nil,
+    slotId = active and active.expectedSlot or nil,
+    label = phase,
+  }
   productionModules.uiPublisher.mark(runtime.uiPublisher, "progressDirty")
   production.publishProgress(false)
 end
@@ -723,15 +752,16 @@ local function setLifecyclePhase(active, phase, timeout, reason)
         )
       end
       if active.lineupIndex and runtime.lineup.current then
-        local racePhase = phase == "selecting" and "Selecting"
-          or (phase == "issuing_spawn" or phase == "tracking_target_identity" or phase == "stabilizing_tree") and "Loading"
-          or (phase == "final_validation") and "Verifying"
+        local racePhase = phase == "selecting" and "selecting_vehicle"
+          or phase == "issuing_spawn" and "spawning_vehicle"
+          or (phase == "tracking_target_identity" or phase == "stabilizing_tree") and "binding_vehicle"
+          or (phase == "final_validation") and "validating"
           or (phase == "planning_parts" or phase == "applying_parts" or phase == "waiting_parts_reload"
             or phase == "planning_tuning" or phase == "applying_tuning" or phase == "waiting_tuning_reload"
-            or phase == "applying_paint" or phase == "verifying_paint") and "Randomizing"
+            or phase == "applying_paint" or phase == "verifying_paint") and "randomizing"
         if racePhase then
           productionModules.raceManager.setPhase(
-            runtime.lineup.current, active.lineupIndex, racePhase, runtime.progress.label
+            runtime.lineup.current, active.lineupIndex, racePhase, runtime.progress.phaseProgress
           )
         end
       end
@@ -1104,7 +1134,15 @@ local function finishOperation(success, code, message, details, terminalState)
     end
   end
   setResult(success, code, message, details)
-  runtime.progress = {label = success and "Complete" or message, value = success and 1 or 0}
+  runtime.progress = {
+    operationId = active and active.operationId or runtime.state.operationId,
+    raceId = active and active.lineupIndex and runtime.lineup.current and runtime.lineup.current.id or nil,
+    phase = success and "complete" or terminalState == "cancelled" and "cancelled" or "failed",
+    phaseProgress = 1,
+    overallProgress = success and 1 or (runtime.progress.overallProgress or 0),
+    value = success and 1 or (runtime.progress.overallProgress or 0),
+    slotId = active and active.expectedSlot or nil,
+  }
   diagnosticsModule.write(runtime.diagnostics, success and "I" or "E", "operation_finished", {
     code = code,
     message = message,
@@ -1131,10 +1169,26 @@ local function finishOperation(success, code, message, details, terminalState)
     local okSnapshot, spawnSnapshot = adapter.captureCurrentState(
       "lineup", active.seed, active.vehicleId, active.backgroundTarget == true
     )
+    local competitor = runtime.lineup.current.competitors[active.lineupIndex]
+    if competitor and active.domainContext then
+      local candidates = active.domainContext.candidateVehicleIds or {}
+      competitor.slotId = tostring(active.lineupIndex)
+      competitor.operationId = active.domainContext.operationId
+      competitor.generation = active.domainContext.generation
+      competitor.derivedSeed = active.seed
+      competitor.candidateVehicleId = candidates[#candidates]
+      competitor.acceptedVehicleId = active.domainContext.acceptedVehicleId
+      competitor.ownedTemporaryIds = util.deepCopy(active.domainContext.ownedTemporaryIds or {})
+      competitor.baseline = active.operationOriginalSnapshot and {
+        vehicleId = active.operationOriginalSnapshot.vehicleId,
+        modelKey = active.operationOriginalSnapshot.modelKey,
+        configKey = active.operationOriginalSnapshot.selectedConfiguration,
+      } or nil
+      competitor.retryCount = math.max(0, (competitor.attemptCount or 0))
+    end
     productionModules.raceManager.record(
       runtime.lineup.current, active.lineupIndex, runtime.lastResult, dna, active.lineupTargetGeneration
     )
-    local competitor = runtime.lineup.current.competitors[active.lineupIndex]
     if competitor and okSnapshot then competitor.spawnConfig = util.deepCopy(spawnSnapshot.config) end
     if dna and runtime.capabilities.dnaWrite then
       local updated = vehicleDNAStorage.add(runtime.dna.library, dna)
@@ -1145,13 +1199,16 @@ local function finishOperation(success, code, message, details, terminalState)
     end
     local lineup = runtime.lineup.current
     local accepted = competitor and (
-      competitor.status == "Ready" or competitor.status == "Ready with warnings"
-        or competitor.status == "Partial" and lineup.acceptPartial == true
+      competitor.status == "ready" or competitor.status == "ready_with_warnings"
+        or competitor.status == "partial" and lineup.acceptPartial == true
     )
     if accepted and (type(active.vehicleId) ~= "number"
       or active.vehicleId == active.lineupPlayerVehicleId)
     then
-      competitor.status = "Failed"
+      competitor.status = "failed"
+      competitor.phase = "failed"
+      competitor.terminalState = "failed"
+      competitor.failureCode = "independent_target_missing"
       competitor.validationState = "independent_target_missing"
       competitor.warning = "Generation did not retain an independent competitor vehicle"
       accepted = false
@@ -1190,7 +1247,10 @@ local function finishOperation(success, code, message, details, terminalState)
         competitor.spawnState = "spawned_and_retained"
         competitor.placementState = "staged"
       else
-        competitor.status = "Failed"
+        competitor.status = "failed"
+        competitor.phase = "failed"
+        competitor.terminalState = "failed"
+        competitor.failureCode = "managed_registry_failed"
         competitor.validationState = "registry_failed"
         competitor.warning = "Generated vehicle could not be registered as an isolated managed competitor"
         accepted = false
@@ -1228,7 +1288,8 @@ local function finishOperation(success, code, message, details, terminalState)
       if lineup.consecutiveFailures >= (lineup.maxConsecutiveFailures or 4) then
         lineup.active = false
         lineup.generationState = productionModules.raceManager.summary(lineup).ready > 0
-          and "partial_ready" or "failed"
+          and "lineup_partial" or "lineup_failed"
+        lineup.processingState = "lineup_processing_finished"
         lineup.warnings[#lineup.warnings + 1] = "Generation stopped at the consecutive failure limit"
       end
     end
@@ -6723,7 +6784,7 @@ function production.createChaosLineup(options)
     return false
   end
   local lineup, reason = productionModules.raceManager.create(options)
-  if not lineup then setResult(false, reason, "Chaos Lineup options are invalid"); publishState(); return false end
+  if not lineup then setResult(false, reason, "Race grid options are invalid"); publishState(); return false end
   local playerOk, playerVehicleId = adapter.getCurrentVehicleId()
   if lineup.playerParticipates and (not playerOk or type(playerVehicleId) ~= "number") then
     setResult(false, "lineup_player_vehicle_required",
@@ -6731,7 +6792,7 @@ function production.createChaosLineup(options)
     publishState()
     return false
   end
-  lineup.generationState = "validating_slots"
+  lineup.generationState = "lineup_processing"
   local frameOk, frame = productionModules.spawnAdapter.cameraFrame()
   if not frameOk then
     setResult(false, "lineup_staging_frame_unavailable", "Safe Race staging positions are unavailable", {reason = frame})
@@ -6749,7 +6810,8 @@ function production.createChaosLineup(options)
     headingMode = "camera", minimumObjectDistance = 3, interval = 0.25,
   }, productionModules.spawnAdapter.raycastGround, production.occupiedManagedPositions())
   if not staging then
-    lineup.generationState = "failed"
+    lineup.generationState = "lineup_failed"
+    lineup.processingState = "lineup_processing_finished"
     setResult(false, "lineup_staging_unsafe", "Race cars were not generated because safe staging failed", {
       reason = stagingReason,
     })
@@ -6773,7 +6835,7 @@ function production.createChaosLineup(options)
     competitor.stagingPlacement = util.deepCopy(staging.placements[index])
   end
   runtime.lineup.current = lineup
-  lineup.generationState = "spawning"
+  lineup.generationState = "lineup_processing"
   runtime.lineup.pendingNext = true
   local persisted, persistReason = production.persistCurrentLineup()
   if not persisted then
@@ -6781,7 +6843,7 @@ function production.createChaosLineup(options)
     runtime.lineup.pendingNext = false
   end
   setResult(persisted, persisted and "lineup_started" or "lineup_storage_failed",
-    persisted and "Chaos Lineup generation started" or "Chaos Lineup was created but its initial checkpoint could not be saved",
+    persisted and "Race grid generation started" or "The Race grid was created but its initial checkpoint could not be saved",
     {episodeSeed = lineup.episodeSeed, count = #lineup.competitors,
       totalVehicles = lineup.totalVehicles, aiOpponents = lineup.aiOpponentCount,
       playerParticipates = lineup.playerParticipates, cleanup = cleanup,
@@ -6795,17 +6857,27 @@ function production.startNextLineupCompetitor()
   runtime.lineup.pendingNext = false
   local competitor = productionModules.raceManager.nextCompetitor(runtime.lineup.current)
   if not competitor then
+    local summary = productionModules.raceManager.summary(runtime.lineup.current)
     local saved, reason = production.persistCurrentLineup()
-    setResult(saved, saved and "lineup_ready" or "lineup_storage_failed", saved and "Chaos Lineup generation finished" or "Lineup finished but storage verification failed", {
-      summary = productionModules.raceManager.summary(runtime.lineup.current), reason = reason,
+    local outcome = runtime.lineup.current.generationState
+    local accepted = outcome == "lineup_ready" or outcome == "lineup_partial"
+    setResult(saved and accepted, saved and outcome or "lineup_storage_failed",
+      saved and (outcome == "lineup_ready" and "Race grid ready"
+        or outcome == "lineup_partial" and "Race grid generation completed partially"
+        or "Race grid generation finished without a usable opponent")
+        or "Race grid finished but storage verification failed", {
+      summary = summary, processingState = "lineup_processing_finished", reason = reason,
     })
     publishState()
     return false
   end
   local checkpointed, checkpointReason = production.persistCurrentLineup()
   if not checkpointed then
-    competitor.status = "Failed"
-    competitor.generationStatus = "Failed"
+    competitor.status = "failed"
+    competitor.phase = "failed"
+    competitor.terminalState = "failed"
+    competitor.failureCode = "lineup_storage_failed"
+    competitor.generationStatus = "failed"
     competitor.warning = "Generation checkpoint failed; retry after storage is available"
     runtime.lineup.current.active = false
     runtime.lineup.pendingNext = false
@@ -6832,7 +6904,7 @@ function production.startNextLineupCompetitor()
   local acceptedCompetitors = {}
   local rules = runtime.lineup.current.varietyRules or {}
   for _, previous in ipairs(runtime.lineup.current.competitors or {}) do
-    if previous.index < competitor.index and (previous.status == "Ready" or previous.status == "Ready with warnings" or previous.status == "Partial") then
+    if previous.index < competitor.index and (previous.status == "ready" or previous.status == "ready_with_warnings" or previous.status == "partial") then
       acceptedCompetitors[#acceptedCompetitors + 1] = util.deepCopy(previous)
       if rules.avoidDuplicateModels and previous.modelKey then excludedModels[#excludedModels + 1] = previous.modelKey end
       if rules.avoidDuplicateConfigurations and previous.modelKey and previous.configuration then
@@ -6878,8 +6950,8 @@ function production.startNextLineupCompetitor()
     competitor.forceOfficialFallback = nil
     productionModules.raceManager.setPhase(
       runtime.lineup.current, competitor.index,
-      runtime.state.phase == "selecting" and "Selecting" or "Loading",
-      runtime.progress.label
+      runtime.state.phase == "selecting" and "selecting_vehicle" or "binding_vehicle",
+      runtime.progress.phaseProgress
     )
   else
     runtime.settings = settingsModule.validate(previousSettings)
@@ -7006,7 +7078,8 @@ function production.previewLineupSpawn(options)
     if dna then
       competitors[1] = {
         index = 1, id = "selected-dna:" .. dna.id, name = dna.name,
-        status = "Ready", raceStatus = "Pending", dnaId = dna.id,
+        status = "ready", phase = "ready", phaseProgress = 1,
+        terminalState = "ready", raceStatus = "Pending", dnaId = dna.id,
         dna = util.deepCopy(dna), modelKey = dna.final and dna.final.modelKey,
       }
     else
@@ -7014,8 +7087,8 @@ function production.previewLineupSpawn(options)
     end
   elseif lineup then
     for _, competitor in ipairs(lineup.competitors) do
-      local accepted = competitor.status == "Ready" or competitor.status == "Ready with warnings"
-        or (competitor.status == "Partial" and lineup.acceptPartial)
+      local accepted = competitor.status == "ready" or competitor.status == "ready_with_warnings"
+        or (competitor.status == "partial" and lineup.acceptPartial)
       if accepted then competitors[#competitors + 1] = competitor end
     end
     table.sort(competitors, function(left, right)
@@ -7082,7 +7155,6 @@ function production.previewLineupSpawn(options)
   plan.competitors = competitors
   runtime.spawnDirector.preview = plan
   if lineup then
-    lineup.generationState = lineup.generationState == "failed" and "partial_ready" or lineup.generationState
     lineup.placementPreview = {
       status = "preview_ready", count = #plan.placements,
       requestedMode = plan.options.requestedMode, effectiveMode = plan.options.mode,
@@ -7119,7 +7191,7 @@ function production.startLineupSpawn(options)
     plan.competitors = {plan.competitors[1]}
   end
   plan.active, plan.cursor, plan.nextAt = true, 1, adapter.clock()
-  if runtime.lineup.current then runtime.lineup.current.generationState = "placing" end
+  if runtime.lineup.current then runtime.lineup.current.placementState = "placing" end
   runtime.spawnDirector.run = plan
   runtime.spawnDirector.preview = nil
   setResult(true, "spawn_director_started", "Spawn Director started sequential spawning")
@@ -7280,7 +7352,7 @@ function production.processSpawnDirector()
     run.active = false
     runtime.spawnDirector.lastResult = {success = #run.failures == 0, spawned = #run.spawned, failed = #run.failures}
     if runtime.lineup.current then
-      runtime.lineup.current.generationState = #run.failures == 0 and "ready" or "partial_ready"
+      runtime.lineup.current.placementState = #run.failures == 0 and "ready" or "partial"
       runtime.lineup.current.placementPreview = nil
     end
     production.persistCurrentLineup()
@@ -7542,8 +7614,8 @@ end
 function production.startManagedAI(options)
   options = type(options) == "table" and util.deepCopy(options) or {}
   local lineup = runtime.lineup.current
-  if lineup and (lineup.active == true or (lineup.generationState ~= "ready"
-    and not (lineup.generationState == "partial_ready" and lineup.acceptPartial == true)))
+  if lineup and (lineup.active == true or (lineup.generationState ~= "lineup_ready"
+    and not (lineup.generationState == "lineup_partial" and lineup.acceptPartial == true)))
   then
     setResult(false, "race_formation_not_ready",
       "Race AI cannot start until generation and Placement are ready or an accepted partial formation is ready.")

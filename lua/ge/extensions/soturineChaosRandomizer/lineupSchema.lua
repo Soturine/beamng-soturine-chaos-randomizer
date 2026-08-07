@@ -8,11 +8,29 @@ M.MIN_COMPETITORS = 2
 M.MAX_COMPETITORS = 16
 
 local STATUSES = {
+  planned = true, selecting_vehicle = true, spawning_vehicle = true,
+  binding_vehicle = true, randomizing = true, validating = true,
+  ready = true, ready_with_warnings = true, partial = true, failed = true,
+  cancelled = true, skipped = true,
+  -- Accepted only while importing persisted pre-v0.7.3 data.
   Pending = true, Selecting = true, Loading = true, Randomizing = true, Verifying = true,
   Generating = true, Ready = true, ["Ready with warnings"] = true,
   Partial = true, Failed = true, Skipped = true,
   Cancelled = true,
   ["Quarantined candidate replaced"] = true, Spawned = true, Destroyed = true,
+}
+local LEGACY_STATUS = {
+  Pending = "planned", Selecting = "selecting_vehicle", Loading = "binding_vehicle",
+  Randomizing = "randomizing", Verifying = "validating", Generating = "spawning_vehicle",
+  Ready = "ready", ["Ready with warnings"] = "ready_with_warnings",
+  Partial = "partial", Failed = "failed", Skipped = "skipped", Cancelled = "cancelled",
+  Spawned = "ready", Destroyed = "failed", ["Quarantined candidate replaced"] = "failed",
+}
+local LEGACY_GENERATION_STATE = {
+  planning = "lineup_processing", spawning = "lineup_processing", binding = "lineup_processing",
+  placing = "lineup_processing", running = "lineup_processing",
+  ready = "lineup_ready", partial_ready = "lineup_partial", partial = "lineup_partial",
+  failed = "lineup_failed", cancelled = "lineup_cancelled",
 }
 local RACE_STATUSES = {
   Pending = true, Ready = true, Eliminated = true, Qualified = true,
@@ -96,7 +114,9 @@ local function sanitizedImport(lineup)
     playerParticipates = lineup.playerParticipates == true,
     totalVehicles = lineup.totalVehicles or #lineup.competitors,
     aiOpponentCount = lineup.aiOpponentCount or #lineup.competitors,
-    generationState = lineup.generationState or "ready",
+    generationState = LEGACY_GENERATION_STATE[lineup.generationState]
+      or lineup.generationState or "lineup_ready",
+    processingState = lineup.processingState or "lineup_processing_finished",
     maxAttemptsPerCompetitor = lineup.maxAttemptsPerCompetitor,
     maxConsecutiveFailures = lineup.maxConsecutiveFailures,
     competitors = {},
@@ -104,7 +124,13 @@ local function sanitizedImport(lineup)
   for _, competitor in ipairs(type(lineup.competitors) == "table" and lineup.competitors or {}) do
     copy.competitors[#copy.competitors + 1] = {
       index = competitor.index, id = competitor.id, name = competitor.name,
-      seed = competitor.seed, status = competitor.status, warning = competitor.warning,
+      seed = competitor.seed, status = LEGACY_STATUS[competitor.status] or competitor.status,
+      phase = LEGACY_STATUS[competitor.phase] or competitor.phase
+        or LEGACY_STATUS[competitor.status] or competitor.status,
+      phaseProgress = competitor.phaseProgress,
+      terminalState = LEGACY_STATUS[competitor.terminalState] or competitor.terminalState,
+      failureCode = competitor.failureCode,
+      warning = competitor.warning,
       selectionSeed = competitor.selectionSeed, mutationSeed = competitor.mutationSeed,
       placementSeed = competitor.placementSeed,
       dnaId = competitor.dnaId, vehicleDNAId = competitor.vehicleDNAId or competitor.dnaId,
@@ -119,6 +145,11 @@ local function sanitizedImport(lineup)
       competitorId = competitor.competitorId or competitor.id,
       requestedIndex = competitor.requestedIndex or competitor.index,
       operationId = competitor.operationId, generation = competitor.generation,
+      slotId = competitor.slotId, derivedSeed = competitor.derivedSeed,
+      candidateVehicleId = competitor.candidateVehicleId,
+      acceptedVehicleId = competitor.acceptedVehicleId,
+      ownedTemporaryIds = util.deepCopy(competitor.ownedTemporaryIds),
+      baseline = util.deepCopy(competitor.baseline), retryCount = competitor.retryCount,
       logicalCandidate = util.deepCopy(competitor.logicalCandidate),
       currentVehicleId = competitor.currentVehicleId,
       spawnState = competitor.spawnState, randomizationState = competitor.randomizationState,

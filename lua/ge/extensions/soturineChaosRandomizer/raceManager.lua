@@ -18,8 +18,8 @@ local RULE_DEFAULTS = {
 
 local PARTICIPATION_MODES = {player = true, spectator = true}
 local GENERATION_STATES = {
-  planning = true, validating_slots = true, spawning = true, binding = true,
-  placing = true, ready = true, partial_ready = true, failed = true, cancelled = true,
+  lineup_processing = true, lineup_ready = true, lineup_partial = true,
+  lineup_failed = true, lineup_cancelled = true,
 }
 
 local TRAIT_FIELDS = {
@@ -262,7 +262,7 @@ local function create(options)
     kind = "soturineChaosLineup", lineupSchemaVersion = schema.SCHEMA_VERSION,
     generatorVersion = 6,
     id = "lineup-" .. string.format("%08X", rng.hashText(episodeSeed .. ":" .. tostring(os.time()))),
-    name = type(options.name) == "string" and options.name:sub(1, 80) or "Chaos Lineup",
+    name = type(options.name) == "string" and options.name:sub(1, 80) or "Race Grid",
     episodeSeed = episodeSeed, preset = preset, createdAt = os.time(), updatedAt = os.time(),
     settings = {
       preset = preset, count = count,
@@ -296,9 +296,10 @@ local function create(options)
       },
     }, varietyRules = varietyRules,
     spawnPlan = {}, aiPlan = {}, warnings = {}, dependencies = {},
-    collectionName = "Chaos Lineup — " .. os.date("%Y-%m-%d"),
+    collectionName = "Race Grid - " .. os.date("%Y-%m-%d"),
     competitors = {}, nextIndex = 1, active = true,
-    generationState = "planning",
+    generationState = "lineup_processing",
+    processingState = "lineup_processing",
     participationMode = participationMode,
     playerParticipates = playerParticipates,
     totalVehicles = count,
@@ -319,12 +320,17 @@ local function create(options)
       selectionSeed = rng.new(seed .. ":selection").seed,
       mutationSeed = rng.new(seed .. ":mutation").seed,
       placementSeed = rng.new(seed .. ":placement").seed,
-      status = "Pending", raceStatus = "Pending", traits = {verified = {}},
+      status = "planned", phase = "planned", phaseProgress = 0,
+      terminalState = nil, failureCode = nil,
+      raceStatus = "Pending", traits = {verified = {}},
       compatibility = {status = "local"},
       attemptCount = 0, position = index, targetGeneration = 0,
       generationClosed = false,
       vehicleDNAId = nil, thumbnail = nil, notes = "",
       operationId = nil, generation = 0, logicalCandidate = nil,
+      slotId = tostring(index), derivedSeed = seed,
+      candidateVehicleId = nil, acceptedVehicleId = nil,
+      ownedTemporaryIds = {}, baseline = nil, retryCount = 0,
       currentVehicleId = nil, spawnState = "planned",
       randomizationState = "pending", validationState = "pending",
       placementState = "planned", terminalResult = nil,
@@ -338,19 +344,21 @@ local function nextCompetitor(lineup)
   if not lineup or not lineup.active then return nil end
   for index = lineup.nextIndex or 1, #lineup.competitors do
     local competitor = lineup.competitors[index]
-    if competitor.status == "Pending" then
+    if competitor.status == "planned" then
       competitor.targetGeneration = (competitor.targetGeneration or 0) + 1
       competitor.generationToken = competitor.id .. ":target:" .. tostring(competitor.targetGeneration)
       competitor.pendingWrites = 0
       competitor.pendingTimers = 0
       competitor.pendingCallbacks = 0
-      competitor.status = "Selecting"
+      competitor.status = "selecting_vehicle"
+      competitor.phase = "selecting_vehicle"
+      competitor.phaseProgress = 0
       competitor.spawnState = "spawning"
       competitor.randomizationState = "selecting"
       competitor.validationState = "pending"
       competitor.placementState = "staging"
       competitor.generation = competitor.targetGeneration
-      lineup.generationState = "spawning"
+      lineup.generationState = "lineup_processing"
       lineup.nextIndex = index
       lineup.updatedAt = os.time()
       return competitor
@@ -358,9 +366,10 @@ local function nextCompetitor(lineup)
   end
   lineup.active = false
   local summaryResult = M.summary and M.summary(lineup) or nil
-  if summaryResult and summaryResult.ready == summaryResult.total then lineup.generationState = "ready"
-  elseif summaryResult and summaryResult.ready + summaryResult.partial > 0 then lineup.generationState = "partial_ready"
-  else lineup.generationState = "failed" end
+  if summaryResult and summaryResult.ready == summaryResult.total then lineup.generationState = "lineup_ready"
+  elseif summaryResult and summaryResult.ready + summaryResult.partial > 0 then lineup.generationState = "lineup_partial"
+  else lineup.generationState = "lineup_failed" end
+  lineup.processingState = "lineup_processing_finished"
   lineup.updatedAt = os.time()
   return nil
 end
@@ -368,16 +377,19 @@ end
 local function setPhase(lineup, index, phase, progress)
   local competitor = lineup and lineup.competitors and lineup.competitors[index]
   if not competitor or competitor.generationClosed then return false, "lineup_competitor_closed" end
-  local allowed = {Selecting = true, Loading = true, Randomizing = true, Verifying = true}
+  local allowed = {
+    planned = true, selecting_vehicle = true, spawning_vehicle = true,
+    binding_vehicle = true, randomizing = true, validating = true,
+  }
   if not allowed[phase] then return false, "lineup_phase_invalid" end
   competitor.status = phase
+  competitor.phase = phase
   competitor.generationStatus = phase
-  competitor.randomizationState = phase == "Selecting" and "selecting"
-    or phase == "Loading" and "loading" or phase == "Randomizing" and "randomizing"
-    or "verifying"
-  competitor.progress = progress
-  lineup.generationState = phase == "Loading" and "binding"
-    or phase == "Verifying" and "placing" or "spawning"
+  competitor.randomizationState = phase
+  competitor.phaseProgress = util.clamp(tonumber(progress) or 0, 0, 1)
+  competitor.progress = competitor.phaseProgress
+  lineup.generationState = "lineup_processing"
+  lineup.processingState = "lineup_processing"
   lineup.updatedAt = os.time()
   return true
 end
@@ -385,12 +397,15 @@ end
 local function cancel(lineup, reason)
   if not lineup then return false, "lineup_missing" end
   for _, competitor in ipairs(lineup.competitors or {}) do
-    if not competitor.generationClosed and competitor.status ~= "Ready"
-      and competitor.status ~= "Ready with warnings" and competitor.status ~= "Partial"
-      and competitor.status ~= "Failed" and competitor.status ~= "Skipped"
+    if not competitor.generationClosed and competitor.status ~= "ready"
+      and competitor.status ~= "ready_with_warnings" and competitor.status ~= "partial"
+      and competitor.status ~= "failed" and competitor.status ~= "skipped"
     then
-      competitor.status = "Cancelled"
-      competitor.generationStatus = "Cancelled"
+      competitor.status = "cancelled"
+      competitor.phase = "cancelled"
+      competitor.phaseProgress = 1
+      competitor.terminalState = "cancelled"
+      competitor.generationStatus = "cancelled"
       competitor.generationClosed = true
       competitor.warning = reason or "Race generation cancelled by user"
       competitor.spawnState = "cancelled"
@@ -399,7 +414,8 @@ local function cancel(lineup, reason)
     end
   end
   lineup.active = false
-  lineup.generationState = "cancelled"
+  lineup.generationState = "lineup_cancelled"
+  lineup.processingState = "lineup_processing_finished"
   lineup.updatedAt = os.time()
   return true
 end
@@ -431,10 +447,14 @@ local function record(lineup, index, result, dna, targetGeneration)
     and competitor.pendingWrites == 0 and competitor.pendingTimers == 0 and competitor.pendingCallbacks == 0
     and dna ~= nil
   competitor.status = result.success == true and (
-    details.partial and "Partial"
-    or ready and ((hasWarnings or acceptedWarning) and "Ready with warnings" or "Ready")
-    or "Partial"
-  ) or "Failed"
+    details.partial and "partial"
+    or ready and ((hasWarnings or acceptedWarning) and "ready_with_warnings" or "ready")
+    or "partial"
+  ) or "failed"
+  competitor.phase = competitor.status
+  competitor.phaseProgress = 1
+  competitor.terminalState = competitor.status
+  competitor.failureCode = result.success == true and nil or result.code
   competitor.generationStatus = competitor.status
   competitor.warning = result.success == true and details.partial and result.message or (result.success and nil or result.message)
   competitor.dna = dna and util.deepCopy(dna) or nil
@@ -458,14 +478,14 @@ local function record(lineup, index, result, dna, targetGeneration)
   if result.success ~= true then
     competitor.spawnState = "failed"
     competitor.placementState = "failed"
-  elseif competitor.status == "Partial" then
+  elseif competitor.status == "partial" then
     competitor.placementState = "partial_ready"
   end
   if acceptanceBlocked then
     competitor.warning = uncertain and not lineup.acceptMetadataUncertain
       and "Metadata-uncertain result requires explicit acceptance"
       or "Potentially undrivable result requires explicit acceptance"
-  elseif competitor.status == "Partial" and not lineup.acceptPartial then
+  elseif competitor.status == "partial" and not lineup.acceptPartial then
     competitor.warning = "Partial result requires explicit acceptance"
   elseif acceptedWarning and not competitor.warning then
     competitor.warning = uncertain and "Metadata uncertainty was explicitly accepted"
@@ -522,21 +542,24 @@ end
 local function resolveFailure(lineup, index, action)
   local competitor = lineup and lineup.competitors and lineup.competitors[index]
   if not competitor then return false, "lineup_competitor_missing" end
-  if competitor.status ~= "Failed" and competitor.status ~= "Partial" then return false, "lineup_competitor_not_failed" end
+  if competitor.status ~= "failed" and competitor.status ~= "partial" then return false, "lineup_competitor_not_failed" end
   if action == "retry" then
     if (competitor.attemptCount or 0) >= (lineup.maxAttemptsPerCompetitor or 3) then return false, "lineup_attempt_limit" end
-    competitor.status, competitor.generationStatus, competitor.generationClosed = "Pending", "Pending", false
+    competitor.status, competitor.phase, competitor.generationStatus, competitor.generationClosed = "planned", "planned", "planned", false
+    competitor.phaseProgress, competitor.terminalState, competitor.failureCode = 0, nil, nil
     competitor.warning = "Retry requested with a new target generation and independent retry substream"
     competitor.spawnState, competitor.validationState, competitor.placementState = "planned", "pending", "planned"
     lineup.nextIndex, lineup.active = index, true
   elseif action == "fallback" then
-    competitor.status, competitor.generationStatus, competitor.generationClosed = "Pending", "Pending", false
+    competitor.status, competitor.phase, competitor.generationStatus, competitor.generationClosed = "planned", "planned", "planned", false
+    competitor.phaseProgress, competitor.terminalState, competitor.failureCode = 0, nil, nil
     competitor.forceOfficialFallback = true
     competitor.warning = "Verified official fallback requested"
     competitor.spawnState, competitor.validationState, competitor.placementState = "planned", "pending", "planned"
     lineup.nextIndex, lineup.active = index, true
   elseif action == "skip" then
-    competitor.status, competitor.generationStatus, competitor.generationClosed = "Skipped", "Skipped", true
+    competitor.status, competitor.phase, competitor.generationStatus, competitor.generationClosed = "skipped", "skipped", "skipped", true
+    competitor.phaseProgress, competitor.terminalState = 1, "skipped"
     competitor.warning = "Slot skipped by user"
     competitor.spawnState, competitor.validationState, competitor.placementState = "skipped", "skipped", "skipped"
     lineup.nextIndex, lineup.active = math.max(lineup.nextIndex or 1, index + 1), true
@@ -553,24 +576,37 @@ end
 local function summary(lineup)
   local result = {
     active = lineup and lineup.active == true, total = 0, ready = 0, partial = 0,
-    failed = 0, pending = 0, retries = 0, quarantinedCandidates = 0,
+    failed = 0, cancelled = 0, pending = 0, generated = 0,
+    retries = 0, quarantinedCandidates = 0,
     totalGenerationTime = lineup and math.max(0, os.time() - (tonumber(lineup.createdAt) or os.time())) or 0,
     generationState = lineup and lineup.generationState or "failed",
     totalVehicles = lineup and (lineup.totalVehicles or #(lineup.competitors or {})) or 0,
     aiOpponents = lineup and (lineup.aiOpponentCount or #(lineup.competitors or {})) or 0,
     playerParticipates = lineup and lineup.playerParticipates == true,
   }
+  result.configuredVehicles = result.totalVehicles
+  result.plannedOpponents = result.aiOpponents
   for _, competitor in ipairs(lineup and lineup.competitors or {}) do
     result.total = result.total + 1
-    if competitor.status == "Ready" or competitor.status == "Ready with warnings" then result.ready = result.ready + 1
-    elseif competitor.status == "Partial" then result.partial = result.partial + 1
-    elseif competitor.status == "Failed" or competitor.status == "Cancelled" then result.failed = result.failed + 1
+    if tonumber(competitor.currentVehicleId) then result.generated = result.generated + 1 end
+    if competitor.status == "ready" or competitor.status == "ready_with_warnings" then result.ready = result.ready + 1
+    elseif competitor.status == "partial" then result.partial = result.partial + 1
+    elseif competitor.status == "failed" then result.failed = result.failed + 1
+    elseif competitor.status == "cancelled" then result.cancelled = result.cancelled + 1
     else result.pending = result.pending + 1 end
     result.retries = result.retries + math.max(0, (competitor.attemptCount or 0) - 1)
     if competitor.forceOfficialFallback or competitor.quarantinedCandidateReplaced then
       result.quarantinedCandidates = result.quarantinedCandidates + 1
     end
   end
+  local terminal = result.ready + result.partial + result.failed + result.cancelled
+  local activeProgress = 0
+  for _, competitor in ipairs(lineup and lineup.competitors or {}) do
+    if competitor.generationClosed ~= true then
+      activeProgress = math.max(activeProgress, util.clamp(tonumber(competitor.phaseProgress) or 0, 0, 1))
+    end
+  end
+  result.overallProgress = result.total > 0 and util.clamp((terminal + activeProgress) / result.total, 0, 1) or 0
   return result
 end
 

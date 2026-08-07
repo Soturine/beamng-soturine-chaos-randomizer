@@ -3974,13 +3974,13 @@ tests.v060_lineup_seeds_progress_schema_and_storage = function()
     },
   }
   truthy(not lineupManager.record(lineup, 1, accepted, sampleDNA({id = "dna-stale"}), first.targetGeneration + 1))
-  equal(first.status, "Selecting")
+  equal(first.status, "selecting_vehicle")
   truthy(lineupManager.record(lineup, 1, accepted, sampleDNA({id = "dna-ready"}), first.targetGeneration))
-  equal(first.status, "Ready")
+  equal(first.status, "ready")
   local second = assert(lineupManager.nextCompetitor(lineup))
   local secondGeneration = second.targetGeneration
   truthy(lineupManager.record(lineup, 2, {success = false, message = "fixture"}, nil, secondGeneration))
-  second.status = "Pending"
+  second.status = "planned"
   lineup.nextIndex = 2
   local retry = assert(lineupManager.nextCompetitor(lineup))
   equal(retry.targetGeneration, secondGeneration + 1)
@@ -4011,7 +4011,7 @@ tests.v060_lineup_variety_substreams_and_failure_actions = function()
     diversifySource = true, maxAttemptsPerCompetitor = 3,
   }))
   local first = lineup.competitors[1]
-  first.status = "Ready"
+  first.status = "ready"
   first.traits = {verified = {
     modelKey = "model_a", configuration = "base", family = "family_a",
     vehicleClass = "Car", sourceKind = "official",
@@ -4048,16 +4048,16 @@ tests.v060_lineup_variety_substreams_and_failure_actions = function()
   local thirdAgain = assert(lineupManager.domainSeed(lineup, lineup.competitors[3], "operation", 1))
   equal(thirdOperation, thirdAgain)
 
-  second.status, second.attemptCount = "Failed", 1
+  second.status, second.attemptCount = "failed", 1
   truthy(lineupManager.resolveFailure(lineup, 2, "retry"))
-  equal(second.status, "Pending")
-  second.status = "Failed"
+  equal(second.status, "planned")
+  second.status = "failed"
   truthy(lineupManager.resolveFailure(lineup, 2, "fallback"))
   truthy(second.forceOfficialFallback)
-  second.status = "Failed"
+  second.status = "failed"
   truthy(lineupManager.resolveFailure(lineup, 2, "skip"))
-  equal(second.status, "Skipped")
-  lineup.competitors[3].status = "Failed"
+  equal(second.status, "skipped")
+  lineup.competitors[3].status = "failed"
   truthy(lineupManager.resolveFailure(lineup, 3, "stop"))
   truthy(not lineup.active)
 
@@ -4069,7 +4069,7 @@ tests.v060_lineup_variety_substreams_and_failure_actions = function()
   local strict = assert(lineupManager.create({count = 2, episodeSeed = "strict"}))
   local strictCompetitor = assert(lineupManager.nextCompetitor(strict))
   truthy(lineupManager.record(strict, 1, lifecycleResult, sampleDNA({id = "strict-dna"}), strictCompetitor.targetGeneration))
-  equal(strictCompetitor.status, "Partial")
+  equal(strictCompetitor.status, "partial")
   truthy(strictCompetitor.warning:find("requires explicit acceptance", 1, true) ~= nil)
   local permissive = assert(lineupManager.create({
     count = 2, episodeSeed = "permissive", preset = "Custom",
@@ -4077,7 +4077,7 @@ tests.v060_lineup_variety_substreams_and_failure_actions = function()
   }))
   local permissiveCompetitor = assert(lineupManager.nextCompetitor(permissive))
   truthy(lineupManager.record(permissive, 1, lifecycleResult, sampleDNA({id = "permissive-dna"}), permissiveCompetitor.targetGeneration))
-  equal(permissiveCompetitor.status, "Ready with warnings")
+  equal(permissiveCompetitor.status, "ready_with_warnings")
 end
 
 tests.v060_spawn_plans_are_camera_relative_and_safe = function()
@@ -4697,13 +4697,13 @@ end
 tests.v061_race_statuses_and_cancel_are_terminal = function()
   local lineup = assert(lineupManager.create({count = 3, preset = "Balanced", episodeSeed = "v061-race"}))
   local competitor = assert(lineupManager.nextCompetitor(lineup))
-  equal(competitor.status, "Selecting")
-  truthy(lineupManager.setPhase(lineup, 1, "Loading", "Loading target"))
-  truthy(lineupManager.setPhase(lineup, 1, "Randomizing", "Applying parts"))
-  truthy(lineupManager.setPhase(lineup, 1, "Verifying", "Final validation"))
+  equal(competitor.status, "selecting_vehicle")
+  truthy(lineupManager.setPhase(lineup, 1, "binding_vehicle", 0.2))
+  truthy(lineupManager.setPhase(lineup, 1, "randomizing", 0.6))
+  truthy(lineupManager.setPhase(lineup, 1, "validating", 0.9))
   truthy(lineupManager.cancel(lineup, "fixture cancel"))
   truthy(not lineup.active)
-  for _, entry in ipairs(lineup.competitors) do equal(entry.status, "Cancelled") end
+  for _, entry in ipairs(lineup.competitors) do equal(entry.status, "cancelled") end
   equal(lineupManager.summary(lineup).pending, 0)
 end
 
@@ -5486,10 +5486,10 @@ tests.v066_race_contexts_ids_partial_cancel_and_placement_are_isolated = functio
       lifecycleAcceptance = {finalValidationPassed = true, busy = false, pendingWrites = 0, pendingTimers = 0, pendingCallbacks = 0},
       verifiedTraits = {sourceKind = "official", vehicleClass = "Car"}},
   }, partialDNA, first.targetGeneration))
-  equal(first.status, "Partial")
+  equal(first.status, "partial")
   local second = assert(raceManager.nextCompetitor(partialLineup)); equal(second.index, 2)
   truthy(raceManager.cancel(partialLineup, "cancelled during competitor 2 of 4"))
-  equal(second.status, "Cancelled"); equal(partialLineup.competitors[4].status, "Cancelled")
+  equal(second.status, "cancelled"); equal(partialLineup.competitors[4].status, "cancelled")
   equal(partialLineup.active, false)
 end
 
@@ -5797,7 +5797,7 @@ tests.v067_race_participation_rng_and_state_machine = function()
   }))
   equal(spectator.totalVehicles, 4); equal(spectator.aiOpponentCount, 4)
   equal(#spectator.competitors, 4); equal(spectator.settings.countSemantics, "total_vehicles")
-  equal(spectator.generationState, "planning")
+  equal(spectator.generationState, "lineup_processing")
   local player = assert(raceManager.create({
     count = 4, participationMode = "player", episodeSeed = "v067-participation",
   }))
@@ -5806,6 +5806,11 @@ tests.v067_race_participation_rng_and_state_machine = function()
   local seeds = {}
   for _, competitor in ipairs(spectator.competitors) do
     truthy(not seeds[competitor.seed]); seeds[competitor.seed] = true
+    equal(competitor.slotId, tostring(competitor.index))
+    equal(competitor.derivedSeed, competitor.seed)
+    equal(#competitor.ownedTemporaryIds, 0)
+    equal(competitor.phase, "planned")
+    equal(competitor.phaseProgress, 0)
     truthy(competitor.selectionSeed ~= competitor.mutationSeed)
     truthy(competitor.mutationSeed ~= competitor.placementSeed)
   end
@@ -5825,7 +5830,12 @@ tests.v067_race_participation_rng_and_state_machine = function()
   truthy(raceManager.resolveFailure(spectator, 1, "retry"))
   equal(first.spawnState, "planned"); equal(first.placementState, "planned")
   truthy(raceManager.cancel(spectator, "fixture cancellation"))
-  equal(spectator.generationState, "cancelled")
+  equal(spectator.generationState, "lineup_cancelled")
+  equal(spectator.processingState, "lineup_processing_finished")
+  local summary = raceManager.summary(spectator)
+  equal(summary.configuredVehicles, 4); equal(summary.plannedOpponents, 4)
+  equal(summary.generated, 0); equal(summary.cancelled, 4)
+  truthy(summary.overallProgress >= 0 and summary.overallProgress <= 1)
 end
 
 tests.v072_race_slots_are_independent_at_one_four_eight_and_twelve = function()
@@ -5901,7 +5911,7 @@ tests.v072_race_failure_retry_and_stale_callbacks_preserve_other_slots = functio
   truthy(raceManager.record(lineup, 2, {
     success = false, message = "slot two failed", details = {},
   }, nil, second.targetGeneration))
-  equal(second.status, "Failed")
+  equal(second.status, "failed")
   truthy(util.deepEqual(first, preservedFirst))
 
   local seedAttemptOne = raceManager.domainSeed(lineup, second, "operation", 1)
