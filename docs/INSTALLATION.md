@@ -1,13 +1,25 @@
 # Installation
 
-1. Download the named mod ZIP and its SHA-256 file from the project release.
-2. Verify the checksum against that exact ZIP.
-3. Copy the ZIP without extracting it into the active BeamNG user folder's `mods` directory.
-4. Disable older copies of Soturine's Chaos Randomizer.
-5. Start BeamNG, enable the mod in Mod Manager, enter Freeroam, open UI Apps, and add the app.
+1. Download the named mod ZIP, `.sha256`, and manifest from the project release.
+   Do not use GitHub's automatic source archive.
+2. Compute SHA-256 for the ZIP and compare it with the checksum and manifest.
+3. Copy the ZIP without extracting it into the active BeamNG user folder's
+   `mods` directory.
+4. Disable or remove older Randomizer ZIPs so only one version is active.
+5. Start BeamNG, enable the mod, enter a level, open **UI Apps**, and add
+   Soturine's Chaos Randomizer.
+6. Confirm the header version matches `VERSION` inside the downloaded ZIP.
 
-The ZIP root must contain `lua/`, `ui/`, and `settings/`. GitHub source archives add a wrapper directory and are not installable mod artifacts.
+The archive root must contain `lua/`, `ui/`, `settings/`, `locales/`,
+`COMPATIBILITY.json`, `LICENSE`, `NOTICE`, and `VERSION`. A wrapper directory,
+`node_modules`, tests, docs, source maps, or nested ZIP indicates the wrong
+artifact.
 
-For candidate testing, record the exact ZIP filename, byte size, SHA-256, Git commit, BeamNG full build, user profile, map, and enabled-mod set before running any case.
+For validation, record ZIP filename, bytes, SHA-256, manifest commit, BeamNG
+full build, renderer, hardware, user profile, map, traffic, enabled mods, and
+locale before the first case. Never replace the tested asset midway through a
+report.
 
-If the extension or UI does not appear, follow [Troubleshooting](TROUBLESHOOTING.md) and inspect `beamng.log` before clearing evidence.
+If the extension or UI does not appear, follow
+[Troubleshooting](TROUBLESHOOTING.md) and preserve relevant `beamng.log` lines
+before clearing cache or changing the environment.

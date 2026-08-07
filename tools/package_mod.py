@@ -180,6 +180,7 @@ def live_test_counts(root: Path = REPOSITORY_ROOT) -> dict[str, int]:
     version = read_version(root)
     documentation_version = str(release_identity(version)["documentationVersion"])
     candidates = (
+        root / "docs" / "testing" / f"v{documentation_version}" / "LIVE_RESULTS.md",
         root / "docs" / "testing" / f"v{documentation_version}" / "LIVE_TEST_REPORT.md",
         root / "docs" / f"INTERACTIVE_TEST_REPORT_{version}.md",
         root / "docs" / f"INTERACTIVE_TEST_PLAN_{version}.md",

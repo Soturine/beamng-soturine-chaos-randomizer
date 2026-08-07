@@ -2,6 +2,74 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.3] - 2026-08-07
+
+Experimental prerelease targeting BeamNG 0.39.4. Automated validation passed;
+real gameplay remains **Pending owner validation** until the owner executes the
+downloaded GitHub release ZIP.
+
+### Fixed
+
+- Replaced native selects with `ScrSelect` over BeamNG `BngSmartSelect` and
+  normalized map/array state before Vue components consume it.
+- Added app/tab/Race-step error boundaries, scoped status expiry/deduplication,
+  translated structured progress, real compact content, human lock labels, and
+  accurate Race configured/opponent/ready/failed/cancelled counters.
+- Bound callbacks to operation, generation, phase, expected vehicle, slot, and
+  one-time consumption; stale callbacks and recycled IDs are side-effect free.
+- Enforced one temporary/one accepted target for single-target Chaos, zero
+  spawn/replacement for Scramble, and exclusive physical ownership per Race slot.
+- Made Safety decisions ternary and bounded so UNKNOWN evidence cannot authorize
+  destructive cleanup or rollback.
+
+### Changed
+
+- Race publishes explicit selection/spawn/bind/randomize/validate and terminal
+  outcomes, including partial, failed, and cancelled lineups.
+- Progress is a monotonic structured protocol projected and translated by Vue.
+- `VERSION` is canonical and a synchronization gate checks package, mod, Lua,
+  and UI metadata.
+- Declared license is consistently Apache-2.0. Unused Sass and duplicate/dead
+  helpers were removed.
+
+### Performance
+
+- Heavy phases are cooperative and bounded by centralized short operation/phase/
+  slot limits and a semantic watchdog. Automated mounted UI latency remains
+  below its synthetic 50 ms p95 budget; no live FPS or latency claim is made.
+
+### Compatibility
+
+- Primary target is BeamNG 0.39.4, with 0.39.2.1 retained as historical failure
+  evidence. `0.39.4 changelog not yet publicly documented at implementation time`.
+- Added packaged en-US, pt-BR, and es-ES BeamNG locale metadata plus sanitized
+  fixtures for registry/config identity, subgroups, metadata change, JBeam
+  descriptions, instability, spawn refusal, ID reuse, memory classification,
+  and managed AI `driveInLane` state.
+
+### Documentation
+
+- Replaced release-specific README/architecture guidance with stable system
+  documentation, current compatibility and troubleshooting guidance, versioned
+  release notes, and an owner evidence template.
+
+### Testing
+
+- Added 0.39.4 fixture consumption in Lua, JavaScript, and Python; fault/callback,
+  status, compact, select, boundary, Race ownership, package locale, license,
+  and version synchronization gates.
+
+### Known limitations
+
+- AppHost outer-frame layout, safe areas/scaling/alignment, controller input,
+  renderers, third-party vehicles, and gameplay require live owner evidence.
+- `main.lua` and `apiAdapter.lua` decomposition is future v0.8.0 work.
+
+### Live validation status
+
+- 0 executed / 0 passed / 0 failed / 61 pending / 0 blocked.
+- Status: **Pending owner validation**.
+
 ## [0.7.2] - 2026-08-03
 
 Rescue prerelease for Runtime UI rendering, bounded Chaos transactions, Race

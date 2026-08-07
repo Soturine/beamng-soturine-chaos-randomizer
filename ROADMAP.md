@@ -1,51 +1,26 @@
 # Roadmap
 
-This roadmap describes direction, not release evidence. Completed changes are
-recorded in [CHANGELOG.md](CHANGELOG.md).
+This file contains future work only. Completed behavior and release evidence
+belong in [CHANGELOG.md](CHANGELOG.md) and [versioned testing](docs/testing/).
 
-## Release sequence
+## v0.8.0 — coordinator decomposition
 
-- **v0.6.8 — P0:** essential BeamNG 0.39 compatibility.
-- **v0.6.9 — P1:** performance, profiling, and efficiency.
-- **v0.7.0 — P2:** native Runtime UI Vue migration, i18n, accessibility, and UI
-  architecture modernization. Its first live case failed before mount because
-  the Runtime UI could not resolve a directory-style import.
-- **v0.7.1 — P2 hotfix:** explicit native Vue module graph paths and source/ZIP
-  graph gates. It mounted in 0.39.2.1 but failed live styling, latency, Full
-  Random, Race, cleanup, and stability checks.
-- **v0.7.2 — live rescue:** runtime CSS, mounted Vue lifecycle and latency
-  coverage, bounded concrete-target Chaos transactions, independent Race slot
-  ownership, watchdog/scheduler limits, and automatic Spanish localization.
-  Automated validation is required; live validation remains owner-executed.
-- **Post-v0.7.0:** fresh audit after BeamNG 0.39.x hotfixes. The audit is planned
-  in [POST_V070_AUDIT_PLAN.md](docs/POST_V070_AUDIT_PLAN.md) and is intentionally
-  not executed as part of v0.7.0.
+- Reduce `main.lua` to bootstrap, lifecycle wiring, and public routing.
+- Extract `chaosCoordinator`, `raceGenerationCoordinator`, and
+  `garageCoordinator` with explicit command boundaries.
+- Share one `operationLifecycle` for start, cancel, timeout, cleanup, and
+  terminal publication.
+- Separate `runtimeUpdateLoop`, `eventRouter`, and `statePublisher`.
+- Decompose `apiAdapter` by registry, vehicle identity, mutation, persistence,
+  and host integration capability.
+- Replace remaining compatibility facades after migration and live evidence.
 
-## Current validation
+## Later
 
-- Execute the v0.7.2 live matrix against the downloaded release ZIP on a clean
-  BeamNG 0.39 profile.
-- Record visual, controller, scaling, Garage 500, Race 12, lifecycle, and
-  performance comparison evidence without converting source inspection into a
-  live result.
-- Keep the release experimental until owner evidence supports promotion.
+- Execute larger property/fault campaigns without raising interactive budgets.
+- Expand verified compatibility only when owner-supplied live artifacts exist.
+- Evaluate additional Runtime UI host capabilities through public BeamNG APIs.
+- Improve Garage and Race authoring workflows while preserving data schemas and
+  deterministic replay.
 
-## After v0.7.2
-
-- Reinspect the then-current 0.39.x release notes, official docs, installed
-  runtime source, APIs, deprecations, known issues, and representative mod
-  interactions.
-- Re-audit physics, AI, HUD/Runtime UI, performance, architecture, dead code,
-  regressions, and compatibility.
-- Decide the next scope from fresh evidence rather than expanding this hotfix.
-
-## 1.0 exit criteria
-
-- No known P0 lifecycle, ownership, recovery, Busy, fuel, or data-integrity
-  defect.
-- Repeated clean-profile testing against exact published artifacts.
-- Representative official/mod content coverage and honest capability
-  degradation.
-- Stable settings, Vehicle DNA, Race, UI protocol, and compatibility policy.
-- Reproducible assets, green CI, immutable release history, and current owner,
-  architecture, security, troubleshooting, and validation documentation.
+These items are not implemented or promised for a particular date.

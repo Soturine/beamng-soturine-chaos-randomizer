@@ -1,340 +1,78 @@
 # Troubleshooting
 
-## The Runtime UI reports `404 .../soturineChaosRandomizer/stores`
+## App missing or blank
 
-That URL identifies the v0.7.0 directory-import defect. Remove every v0.7.0 or
-duplicate Randomizer ZIP, install only the v0.7.1 release ZIP, clear the BeamNG
-UI cache, reload the UI, and add the HUD app again. If v0.7.1 still requests the
-extensionless `/stores` URL, record the active mod list and relevant
-`beamng.log` lines; do not count the HUD as mounted.
+Confirm the named release mod ZIP—not a source archive—is enabled and no older
+copy is active. Verify the ZIP root and checksum, preserve `beamng.log`, then
+reload the UI and re-add the HUD app. A missing module, CSS, locale, or asset is
+a package failure and should include the exact internal path in the report.
 
-## An operation progresses only after pause or remains Busy
+## A view reports a render error
 
-The current lifecycle keeps target polling, housekeeping, bounded read retry and
-deadlines to real-time update processing. Pause or frame-step must not be used
-as a workaround. Leave the simulation state unchanged, open **Details**, then
-use **Cancel safely** and **Copy diagnostics** if the phase stalls. A terminal
-timeout must release Busy and identify the wait/read phase.
+The error boundary should keep the app shell and other tabs mounted. Copy the
+diagnostic payload before retrying. Record active tab, locale, compact state,
+last command, operation/generation, and the first stack entry. Retry must not
+duplicate the prior command.
 
-If this occurs with a third-party vehicle, record its version, the operation
-seed, operation/phase/target generations, target ID chain and whether its parts
-tree was temporarily unavailable. An unrelated mod Lua error is not by itself
-proof that the Randomizer-selected configuration is faulty.
+## Select cannot be opened or changed
 
-## The same clean and randomized vehicles alternate
+Record mouse/keyboard/controller input, focus state, selected value, option
+shape, disabled/empty state, UI scale, and locale. Every dropdown is `ScrSelect`
+over `BngSmartSelect`; a native `<select>` or a raw technical value in normal UI
+is a defect.
 
-Stop retrying and copy diagnostics. The runtime invalidates old selection, parts,
-tuning and paint plans before recovery and quarantines the failed candidate.
-Recovery is generation-isolated and must not start the failed randomization
-again. Its candidate/recovery fingerprints terminate repeated cycles. A new
-click receives new entropy unless **Fixed manual seed** is explicitly active.
+## Busy or progress stalls
 
-## Locks or a fixed seed unexpectedly remain active
+Do not use pause/frame-step as a workaround. Open Details, copy diagnostics, and
+use **Cancel safely**. Record phase, phase/overall progress, watchdog age,
+pending callbacks/writes/timers, operation and target generations, and concrete
+vehicle ID. A deadline must end in aborting/cleaning/terminal state.
 
-Open **Settings**. Current defaults use zero locks and
-Random every run. Locks persist only when **Remember locks between sessions** is
-enabled. **Unlock All** clears active session locks; **Clear fixed seed** returns
-to random mode.
+## Random Car or Full Random creates extra vehicles
 
-## Race cannot open Placement or Drive
+Stop further operations and preserve the world vehicle list plus transaction
+ownership diagnostics. Do not manually delete a candidate before evidence is
+captured. A single-target operation may have the source plus at most one owned
+temporary in flight and exactly one accepted target at completion.
 
-Placement requires at least one retained, ready managed competitor and no
-active generation/placement operation. Hover/read the displayed reason: no
-lineup, current vehicle operation, current Placement operation, or no retained
-targets are distinct states. Generate Cars must leave one simultaneous unique
-vehicle ID per accepted card and preserve the original player vehicle. Applying
-Placement moves those same IDs; it must not create duplicates. Drive requires
-confirmed managed cars. Failed or Partial competitors show bounded retry,
-fallback, skip and stop actions and must never remain Pending indefinitely.
+## Scramble changes or replaces the vehicle
 
-## BeamLR or Driver Assistance warning appears
+Capture object ID, model/config identity, parts/tuning readback, generation, and
+instability/removal events. Scramble must use zero spawn/replace calls and keep
+the same concrete object unless the game removes it, in which case it must fail
+clearly without touching another vehicle.
 
-The owner found that removing BeamLR and the hidden
-`scripts/driver_assistance_angelo234` scripts stopped the old 22%/57% hard
-freeze. The Randomizer only warns when it can safely detect those loaded
-extensions or mounted paths. It does not disable, delete or modify either mod,
-and it does not claim to fix their Lua. Reproduce Randomizer lifecycle issues
-first in a clean profile, then re-enable third-party content one item at a time
-and attach both the warning and `beamng.log`.
+## Race slot is missing, duplicated, or controls another vehicle
 
-## Combustion vehicle reports no oil or disabled engine
+Export slot ID, derived seed, attempt, phase, candidate/accepted IDs, owned
+temporary IDs, managed handle, and generation for every competitor. Placement
+and AI are allowed only for terminal-ready managed entries. Stop AI before
+manual vehicle cleanup.
 
-Fuel-tank evidence is not engine-oil evidence. Details should show the direct
-vehicle-VM probe source, confidence, oil mass/minimum, stable samples and any
-oil-critical/disabled state. A proven zero/below-safe/disabled combustion
-engine must not be accepted. If evidence remains unavailable after the bounded
-requests, the result is partial and makes no oil-safety claim. No unsupported
-runtime oil setter is fabricated; capture diagnostics and use the verified
-accepted/recovery baseline.
+## Registry/config names look wrong
 
-## The app does not appear
+Do not infer identity from the visible label or `.pc` filename. Reindex once and
+record model registry key, config registry key/path, display label, family,
+subgroup, source, and whether the registry was warming up or ready.
 
-1. Install the versioned mod ZIP, not a GitHub source archive.
-2. Confirm `lua/`, `ui/`, and `settings/` are at the ZIP root.
-3. Enable the mod, reload UI, and add **Soturine's Chaos Randomizer** from UI Apps.
-4. Check `beamng.log` for `SoturineChaosRandomizer`, invalid app data, or JavaScript errors.
-5. Validate a local build with `python tools/validate_package.py`.
+## Compact layout leaves empty space
 
-## One or more actions are disabled
+Record tab, inner content dimensions, outer AppHost frame, UI scale, alignment,
+safe zones, locale, and saved layout history. The app controls internal compact
+content; BeamNG controls the outer persisted HUD frame. Do not patch a private
+AppHost method.
 
-Open Settings/Details and read the capability notes.
+## Renderer, VRAM, or OOM incident
 
-- Random Car needs registry, spawn/replace, and lifecycle confirmation. Its internal operation remains `randomConfig`.
-- Scramble needs hierarchical parts read/write and lifecycle confirmation.
-- Full Random needs both sets.
-- Missing tuning or paint APIs do not disable parts; those optional stages are skipped with a warning.
+Record BeamNG build, renderer, GPU vendor/model, VRAM, map, traffic count,
+world/owned vehicle counts, peak owned temporary count, operation, and phase.
+Classify only with evidence as `mod_cardinality_violation`,
+`mod_memory_pressure`, `engine_renderer_known_issue`, or `unknown`. Suspecting a
+driver issue does not relax the mod's ownership/cardinality limits.
 
-After a BeamNG update, an internal API may have changed. Do not continue destructive testing until `apiAdapter.lua` is re-audited.
+## Preparing a report
 
-## No content matches the filter
-
-- `Everything` includes official, mod, user, and unknown sources.
-- `Official only` and `Mods only` intentionally exclude unknown metadata.
-- Exact Automation, trailer, and prop types are opt-in.
-- Press **Reindex Content** after content changes.
-- Advanced shows the unknown-source count and separate blacklist counts.
-
-An arbitrary source title is no longer guessed to be a mod. A pack needs `modID`/`modId` or the exact current mod marker to appear in Mods-only.
-
-## A write was rejected immediately
-
-Phase-specific codes include:
-
-- `vehicle_replace_rejected`;
-- `parts_apply_rejected`;
-- `tuning_apply_rejected`;
-- `paint_apply_rejected`.
-
-These mean the synchronous call returned an explicit rejection or threw. A missing/changed intermediate ID alone is not rejection; the tracker can bind a later stable player target. The randomizer does not wait 25 seconds after a known rejection. Diagnostic context retains the thrown detail when available.
-
-## A reload event arrived but the operation still waits
-
-`onVehicleSpawned` is only a candidate hint. v0.6.4 completes from coherent
-current-player read-back, even with no callback, and ignores early/late/
-duplicate/stale callbacks that cannot prove the active phase. Inspect
-`configCandidates`, `evidenceSource`, readiness, player/model/config, parts/tree
-status, and generation IDs. A fresh player part-manager view may legitimately
-win over a stale ID-manager bundle, but evidence is never mixed across views.
-
-`config_identity_unverified` means none of the coherent candidates proved the
-selected configuration by normalized path, scoped key, or minimal signature.
-Model identity alone remains insufficient for a selected-config claim.
-
-## Vehicle replacement could not be correlated
-
-Replacement callbacks nominate candidates; they do not force success or cancellation. The tracker accepts returned/callback/player-0 candidates, rejects auxiliary/wrong/stale/destroyed candidates, and waits for stable phase-specific evidence. `operation_deadline_exceeded` means no candidate satisfied that evidence before the real deadline. A real unrelated player switch still cancels safely.
-
-Wait for BeamNG to settle, inspect `vehicle_target_candidate`, `vehicle_target_rebound`, `vehicle_target_stable`, and lifecycle diagnostics, and retry with no simultaneous vehicle-manager action. Undo is intentionally refused outside the vehicle context that created its history entry.
-
-## Paint remains on Confirming read-back
-
-The installed 0.38 source applies `setConfigPaints(..., false)` without a vehicle respawn. The extension therefore performs a short, bounded, tolerant cache read-back on `onUpdate`; it does not wait for `onVehicleSpawned`.
-
-`paint_apply_unconfirmed` means the requested fields did not appear before that bounded window expired. Extra fields and layers do not cause failure, and only requested supported fields are compared. A failed confirmation triggers rollback when a destructive write began.
-
-## An operation timed out
-
-The code identifies the exact wait: vehicle replace, parts reload, tuning reload, rollback, or Undo. After a timeout:
-
-1. let the game finish any outstanding load;
-2. inspect whether rollback completed;
-3. enable diagnostics and reproduce once;
-4. test the selected configuration/part directly in normal BeamNG tools;
-5. Reindex;
-6. retry in a clean profile with the smallest mod set.
-
-Do not rapidly start more operations while the game is still loading.
-
-## A part candidate is blacklisted
-
-Advanced shows the last blocked ID, reason, failure count, and seed. Part IDs include model, slot path, and candidate; they do not share the configuration namespace.
-
-A multi-candidate batch is initially recorded only as suspect because the extension cannot prove which member caused the failure. Repeated independent failure fingerprints can temporarily suppress the candidate and later promote it; a confirmed successful application reduces or clears its suspicion. Suspect storage, fingerprints, and age are bounded. Reindex clears all session model/config/part/tuning failures, suspects, and blacklists.
-
-## Scramble changes little or nothing
-
-- Increase Chaos.
-- Confirm the current slots expose alternatives.
-- Protected critical concepts retain current/default parts.
-- Blacklisted candidates are filtered.
-- A parent change defers descendants until the next pass.
-- Optional tuning/paint stages may be unavailable; read Capability notes.
-
-A safe zero-change result is valid and does not create an Undo entry unless another stage actually writes.
-
-## A part failed after reload
-
-One transient incomplete tree is rescanned. When the same structural absence persists across coherent scans, the parts pipeline restores the pre-batch snapshot, verifies that rollback, quarantines the model/configuration/slot/candidate combination, and tries a bounded alternative. Look for `part_batch_rollback`, `part_candidate_quarantined`, and retry-budget diagnostics.
-
-If localized rollback itself fails or the bounded budget is exhausted after a
-confirmed incompatible write, the full operation may roll back. An optional
-empty slot, non-standard mod `required` hint, or persistently unreadable tree is
-classified separately; public Chaos preserves a stable partial result rather
-than restoring stock solely for that uncertainty. Reindex clears session
-quarantine; do not repeatedly select a known broken part while BeamNG reloads.
-
-## A broken configuration left no active vehicle
-
-The recovery ladder tries the operation's previous snapshot, then the session last-known-good configuration, then a safe official configuration. Three consecutive load failures open an official-only circuit breaker. Locks do not block recovery; incompatible model-bound locks become visibly unresolved afterward.
-
-Random Car and Full Random can start without an active player vehicle. Scramble cannot infer a model in that state, so use **Spawn safe vehicle** or Random Car. Even if every automatic recovery step fails, the busy flag, operation token, timers, and tracker should be cleared. Use **Copy diagnostics**, retry the quarantine when appropriate, and report any permanently disabled UI as a regression.
-
-## Thumbnail capture reports a state mismatch or invalid PNG
-
-Default capture requires the selected DNA's exact model, normalized configuration, slots, tuning, and paints both before and after the screenshot. Restore the entry first, or choose the explicit non-exact override; that result is marked non-exact in metadata.
-
-Imported/captured PNGs must pass signature, chunk order/length, CRC, IHDR/IDAT/IEND, trailing-payload, and chunk-count validation. A same-size file or valid header alone is insufficient.
-
-## The result does not drive
-
-**Protect Critical Parts is not a drivability guarantee.** It prevents detectable required/core absence and blocks unproven critical substitutions, but it cannot understand every mechanical relationship or third-party script.
-
-The result safety status can be `validated`, `uncertain`, or `not_applicable`. Evidence profiles cover standard road, electric, hybrid-like, Automation, trailer, prop, special, and unknown shapes without assuming fuel, a gearbox, four wheels, steering, or exactly one differential. `uncertain` is an honest lack of sufficient metadata, not a successful physics validation.
-
-Use Undo immediately. If history is unavailable after restart, use BeamNG's normal saved/default configuration tools; history is session-only.
-
-## Undo is unavailable after an early failure
-
-This is intentional when failure happened before the first destructive write. The original snapshot is not committed to history until immediately before that write. A failed scan/selection therefore creates no no-op Undo entry.
-
-If a write began, the entry is retained unless automatic rollback succeeds. Successful rollback removes the redundant entry; failed rollback preserves evidence.
-
-## Immediate click used the wrong setting
-
-The UI sends the displayed action and complete settings snapshot in one Lua call. If the result reports a different manual seed/filter/Chaos value, collect the UI state and JavaScript log because that is a regression. Settings/search timers are cancelled on action or app destroy.
-
-For `.vdna.zip`, place exactly one package at `/settings/soturineChaosRandomizer/vehicleDNA/inbox/import.vdna.zip`. General-purpose compressed ZIPs are intentionally unsupported; export a package from this mod. A validation error should identify archive, directory, entry, checksum, manifest, schema, or thumbnail bounds before confirmation becomes available.
-
-If a managed Gallery image is missing or rejected, the card should fall back without affecting Vehicle DNA. Load the DNA's model before capture, keep the current vehicle visible, and check capability notes plus `beamng.log`. Capture remains interactive Pending for this alpha.
-
-## Developer stress stopped
-
-Expected stop reasons include manual cancellation, iteration limit, duration limit, stop-on-failure, map change, vehicle change, and mod-state change. Stress never overlaps a normal action. Inspect `getDeveloperStressState()` and tagged logs for aggregate counts/failure seeds.
-
-The diagnostic is developer-only; do not expose it as an unattended gameplay loop.
-
-## Settings do not persist
-
-Packaged defaults are read from:
-
-```text
-/settings/soturineChaosRandomizer/defaults.json
-```
-
-Validated user settings are written through BeamNG VFS to:
-
-```text
-/settings/soturineChaosRandomizer/settings.json
-```
-
-If persistence is unavailable, Advanced shows a capability warning. The settings snapshot can still apply for the current action/session.
-
-## Save Vehicle DNA is unavailable
-
-The button appears only after a successful operation also completes a fresh final capture, fresh hierarchical scan, normalization, schema validation, and fingerprints. It stays unavailable after an operation failure or DNA capture failure. Check the tagged `dna_capture_failed` diagnostic; the gameplay result can still be valid even when it could not be serialized.
-
-Saving is explicit and `autoSaveDNA` is fixed off. A persistence failure leaves the pending entry available for retry and does not silently report success.
-
-## Preflight says target inspection is required
-
-Registry preflight never changes the vehicle. Installed 0.38.6 APIs do not expose a proven hierarchical slot tree for an arbitrary unloaded target, so a different active model produces `target_inspection_required`. Starting Restore Exact or Restore Compatible captures the current vehicle, loads the saved normalized/model-scoped base, and runs the target-tree preflight. Any Exact mismatch—or an unauthorized Compatible partial—rolls back to the captured vehicle.
-
-## Restore stops on pass budget or no progress
-
-The parent-first planner derives its budget from saved/current tree depth, then enforces a 12-pass minimum, 128-pass maximum, 120-second deadline, and repeated/no-progress guards. Codes such as `dna_restore_timeout`, `dna_restore_no_progress`, `dna_restore_repeated_state`, or `dna_restore_pass_limit` mean the transaction stopped safely and attempted rollback; collect the compatibility report and diagnostic log rather than retrying indefinitely.
-
-## Storage reports recovered
-
-`dna_storage_recovered` means a backup/primary write or primary read-back failed and the validated last-known-good document was restored immediately. Preserve the diagnostics and inspect filesystem/antivirus conditions. `dna_storage_recovery_failed` means the restoration attempt also failed; the in-memory library is not silently presented as durable.
-
-Load the matching base/model through normal BeamNG controls, wait for it to settle, then rerun preflight. Do not interpret a matching fingerprint alone as exact compatibility.
-
-## Compatible restore reports partial
-
-Open every preflight section before confirmation. Partial means at least one slot/part/tuning variable/paint layer/dependency is missing or a value will be clamped/omitted. The operation never chooses a random fallback. Required/core parts and ambiguous slot mappings block unsafe application.
-
-The final result lists deviations. If an applied subset fails read-back or safety validation, the entire transaction rolls back.
-
-## The Vehicle DNA library is corrupt
-
-Primary storage is `/settings/soturineChaosRandomizer/vehicleDNA/library.json`; the only recovery copy is `library.last-known-good.json`. Startup schema/fingerprint-validates the primary and then the backup. A recovered library shows `last_known_good_recovered` in Garage state. If both are invalid, normal randomization still loads with an empty/unavailable Garage rather than executing or rewriting unknown data.
-
-Preserve both files before troubleshooting. Never paste private mod content into an issue. In-game restart recovery remains an interactive Pending case for this alpha.
-
-## Import or export was rejected
-
-Pasted import accepts one JSON object up to 131,072 characters and then applies stricter canonical/schema/fingerprint limits. Common codes identify future schema, invalid format, duplicate slot/tuning keys, non-finite values, excessive depth/size, or a fingerprint mismatch. Unknown top-level fields are discarded except bounded `extensions` data.
-
-Copy JSON is independent of file export. Optional file export always writes the adapter-controlled `/settings/soturineChaosRandomizer/vehicleDNA/export.json`; DNA names and IDs never become paths.
-
-## Operation waits while the game is paused
-
-GE polling, callbacks, deadlines, Cancel, Copy diagnostics, and operation
-details remain active while paused. A genuinely physics-dependent phase may
-say that simulation progress is required, but target/config/parts read-back
-must not require toggling pause. If pause/unpause changes a stuck outcome,
-capture diagnostics and report `pause_toggle_unblocked_operation`; never use
-the toggle as a workaround to certify the result.
-
-## Operation appears stalled or remains Busy
-
-Open operation details and record phase, operation/phase/target generations,
-target/tree status, clocks, pending counts, and stale callback count. A warning
-does not trigger early rollback while the phase is legitimately waiting for
-simulation. Use Copy diagnostics, then Cancel and roll back. If Cancel or Copy
-is unavailable, treat that as a lifecycle regression.
-
-## A recovered or previous vehicle changed unexpectedly
-
-Stop further randomization and capture diagnostics. The recovery state must be
-`recoveryOnly`; the old mutation plan/current batch/tuning/paint/timers must be
-absent. Look for `stale_callback_rejected`, `stale_timer_rejected`,
-`recovery_snapshot_old_generation`, and `recovery_loop_detected`. The original
-snapshot is not automatically completed-good, and a readable recovery snapshot
-must not resume the failed Scramble.
-
-## A Race Car remains Partial
-
-Inspect coverage, lifecycle acceptance, pending counts, DNA, metadata
-uncertainty, and potentially-undrivable status. Ready requires final validation,
-Busy false, DNA present, and zero pending writes/timers/callbacks. Partial,
-metadata-uncertain, and potentially-undrivable acceptance are separate creation
-choices. Storage checkpoint failure stops generation; restore storage access
-and use Retry slot.
-
-## Spawn preview or managed target failed
-
-`ground_not_found`, `slope_too_high`, `position_blocked`, and
-`outside_supported_area` are safety rejections. Player, road, or destination
-headings fail explicitly when their evidence is missing; they do not fall back
-to camera. An unverified target is failed/DNS, never Ready. For an ID-changing
-mod, record the returned ID, callback candidates, final ID, target generation,
-and read-back reason.
-
-## AI mode is unavailable or no route exists
-
-Destination/Route require the current map's NavGraph APIs and a reachable path.
-NavGraph is not the visual GPS line. Move the destination or add route points
-when `navgraph_route_unreachable` is reported. Chase/Follow need a distinct real
-vehicle target. Recorded/Scripted playback is intentionally unavailable in the
-audited build contract. Include the capability reason in reports.
-
-## Useful issue report
-
-Provide BeamNG full build, randomizer version/commit, content name/version/source/license, operation, visible settings, displayed seed, smallest mod set, relevant tagged logs, and whether Reindex/clean profile changes the result. Do not upload paid/private content or personal paths. Follow [Security](../SECURITY.md) for sensitive reports.
-
-## v0.7.2 Runtime UI has no styles
-
-Confirm only the v0.7.2 ZIP is enabled, clear the UI cache, and re-add the HUD
-app. The ZIP must contain `styles/app.css`; `.scss` files are invalid runtime
-content. Run both source and extracted-ZIP style graph validators. A missing CSS
-or asset, remote URL, source map, or Sass import is a package defect.
-
-## Chaos or Race reports a binding/watchdog failure
-
-Do not repeatedly click the action. Open Details and record operation/domain,
-binding state, source/accepted/target IDs, world counts, owned/temporary peak,
-stale callbacks, stage age, limit reason, and cleanup result. `UNBOUND`,
-`BOUND_MISMATCH`, `DESTROYED`, `stalled`, or `aborting` are explicit safe
-failures; they must not be hidden by increasing timeouts. Verify the player was
-never used as Race staging and accepted competitors remain present.
+Use the versioned [evidence template](testing/v0.7.3/EVIDENCE_TEMPLATE.md).
+Attach the downloaded artifact identity, minimal reproduction, expected and
+actual terminal state, diagnostic export, and relevant log window. Keep live
+status **Pending owner validation** until the owner completes the case.

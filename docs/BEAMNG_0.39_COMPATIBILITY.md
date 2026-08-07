@@ -1,84 +1,81 @@
-# BeamNG.drive 0.39 compatibility — v0.7.1
+# BeamNG.drive 0.39 compatibility
 
-Status: **P0 and P1 automated contracts preserved; P2 native Vue implemented;
-module graph hotfixed; live owner validation Pending**.
+Declared primary target: **0.39.4**. Minimum declared family: **0.39**. Release
+stage: **experimental prerelease**. Live status: **Pending owner validation**.
+`COMPATIBILITY.json` is the machine-readable source of these declarations.
 
-v0.7.0 failed before the HUD mounted. v0.7.1 live BeamNG 0.39 validation:
-Pending owner validation.
+## Evidence policy
 
-## Declared compatibility
+Source inspection, official notes, sanitized fixtures, and automated tests prove
+only their stated contracts. They do not prove that the published ZIP completed
+gameplay inside BeamNG. `testedGameVersions` therefore remains empty until the
+owner returns complete evidence for the downloaded asset.
 
-`COMPATIBILITY.json` schema 2 is the source for packaging and documentation:
+`0.39.4 changelog not yet publicly documented at implementation time`
 
-- mod version `0.7.1`;
-- primary target `0.39`;
-- minimum version `0.39`;
-- native runtime `native-runtime-ui-vue`;
-- no packaged Angular fallback;
-- no claimed tested build (`testedGameVersions` is empty);
-- experimental prerelease stage.
+The installed local game reports 0.39.4.0 and was used only to inspect public
+runtime/component contracts and to host the Lua console tests. Official BeamNG
+hotfix notes available on 2026-08-07 documented 0.39.1 through 0.39.3.
 
-Version 0.6.9 remains the last release for the Angular host and the last to
-declare a 0.38.6 minimum. Source inspection of an installed 0.39.2.1 build is
-contract evidence, not live mod execution.
+## Version matrix
 
-## Official and installed evidence
+| BeamNG | Relevant contract | Current claim |
+| --- | --- | --- |
+| 0.39 | Native Runtime UI/AppHost and minimum supported family | Declared, automated contract only |
+| 0.39.1 | Early 0.39 hotfix baseline | No live claim |
+| 0.39.2 / 0.39.2.1 | Historical owner evidence and prior failures | Historical baseline only |
+| 0.39.3 | HUD scalable metrics, metadata/config fixes, translation fixes, `driveInLane` preservation, known Intel D3D12 VRAM/OOM limitation | Incorporated into design/fixtures; no live claim |
+| 0.39.4 | Primary target | Pending owner validation |
 
-Public sources inspected include official UI/HUD App creation, programming
-language/translation guidance, and release information. The public App Creation
-page still centers the Angular workflow. Installed 0.39 source supplies the
-newer HUD App contract: app discovery recognizes a colocated `app.vue`, and
-AppHost selects it ahead of the Angular slot for the same one app record.
+## Runtime UI and locales
 
-Installed native apps and services established the SFC, bridge, event cleanup,
-settings locale, component, tooltip, UINav, and responsive-host conventions.
-The migration decision and documentation divergence are recorded in
-[UI_MIGRATION_0.7.0.md](UI_MIGRATION_0.7.0.md).
+The sole frontend is the Vue Runtime UI app beside `app.json`; no Angular
+fallback is packaged. `ScrSelect` wraps the inspected 0.39.4 `BngSmartSelect`
+contract. BeamNG host catalogs under `locales/translations/en-US`, `pt-BR`, and
+`es-ES` provide the app picker name/description, while parity-complete internal
+Vue catalogs provide app content. Runtime aliases such as `pt_BR`, `pt_PT`,
+`es_ES`, and `es_419` map to the internal language families without becoming
+vehicle identity.
 
-Official references:
+Outer HUD coordinates, safe areas, scalable metrics, alignment, and persisted
+layout are AppHost-owned. The mod does not call undocumented host resize APIs.
 
-- <https://documentation.beamng.com/modding/ui/>
-- <https://documentation.beamng.com/modding/ui/app_creation/>
-- <https://documentation.beamng.com/modding/programming/languages/>
-- <https://www.beamng.com/game/news/patch/beamng-drive-v0-38/>
+## Registry, configurations, and subgroups
 
-## Preserved P0 contracts
+Registry key, display name, and configuration filename are separate fields.
+Selection and persistence use stable registry/config keys; translated labels do
+not affect seeds. Family and subgroup keys let Race diversify distinct families
+without treating every variant as unrelated. Empty or missing JBeam descriptions
+fall back to a safe human label; raw slot paths are diagnostic-only.
 
-- registry readiness is bounded and retains the last complete index;
-- registry keys, exact physical path case, normalized comparison paths, display
-  labels, and technical IDs stay separate;
-- replacement/spawn uses coherent stable readback and exact cardinality;
-- cleanup can remove only transaction-owned objects;
-- operation/phase/target/recovery generations reject stale callbacks;
-- temporary failures do not quarantine catalog content;
-- settings, lineups, and Vehicle DNA use backup/readback/rollback persistence;
-- safety uses valid/invalid/unknown decisions rather than promoting uncertainty;
-- conflicts remain warnings with explicit recommended action.
+Temporary empty/partial registry reads retain the last atomic valid index and
+retry within a wall-clock budget. Official metadata changes between 0.39.2.1
+and 0.39.3 are represented as mutable fixture data, not immutable assumptions.
 
-## Preserved P1 contracts
+## Instability, spawn, and identity
 
-- opt-in bounded profiler with p50/p95/p99;
-- configurable frame and UI/index budgets;
-- low-GC vehicle iteration and owned reusable buffers;
-- generation-aware OOBB dimension and registry caches;
-- cancellable/restartable incremental indexing;
-- full initial state plus bounded dirty diffs;
-- aggregate diagnostics and hook/byte counters;
-- adaptive polling and AI mode confirmation;
-- unchanged deterministic vectors and generator version 6.
+Vehicle instability, manual removal, spawn refusal, missing callback, divergent
+player ID/object, and recycled IDs are distinct evidence. Future writes stop
+when the bound generation disappears. Cleanup is ownership-scoped and cannot
+delete a different or externally spawned vehicle. A refused spawn preserves the
+source and terminates inside the phase limit.
 
-## Runtime UI capability
+## Race AI and `driveInLane`
 
-The package has one app manifest and one Vue entry. No Angular runtime file is
-present. The bridge has a fixed frontend command schema and a Lua allowlist;
-state carries protocol, sequence, domain, and lifecycle generations. Remount
-requests state without restarting the backend. Private runtime APIs are not used
-for outer-window resizing.
+The desired `driveInLane` policy belongs to each managed Race entry. Traffic →
+managed → pause → resume → stop transitions do not broadcast commands to
+unowned vehicles and do not resend unchanged commands per frame. Because 0.39.3
+changed lane-policy preservation, the full transition remains a live case.
 
-## Pending live evidence
+## Renderers and memory incidents
 
-Registration, cache behavior, rendering, physics, input hardware, 80–200%
-scaling, HDR, ultrawide, multi-monitor, Garage 500, Race 12, AI/NavGraph,
-third-party content, mount/unmount memory, and v0.6.9 performance comparison all
-remain Pending in the live report. No stronger compatibility or performance
-claim is made from automation alone.
+The live matrix covers default launcher, D3D11/fallback, forced D3D12, Vulkan,
+and Intel+D3D12 when hardware is available. Incident evidence records BeamNG
+version, renderer, GPU/VRAM, map, traffic/world/owned counts, peak temporary
+ownership, operation, and phase. Classification separates
+`mod_cardinality_violation`, `mod_memory_pressure`,
+`engine_renderer_known_issue`, and `unknown`. The cardinality contract applies
+even when a renderer/driver defect is suspected.
+
+See [the v0.7.3 live plan](testing/v0.7.3/LIVE_TEST_PLAN.md) for cases and
+[live results](testing/v0.7.3/LIVE_RESULTS.md) for the current evidence state.

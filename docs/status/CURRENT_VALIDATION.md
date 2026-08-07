@@ -1,22 +1,18 @@
 # Current validation
 
-Current published source: **0.7.2 Experimental rescue prerelease** on `main`.
+Current candidate: **0.7.3 experimental prerelease** on `main`, targeting
+BeamNG 0.39.4.
 
-Automated v0.7.2 status: **Passed locally before publication** for source,
-mounted Vue, Lua regression, module/style graph, deterministic package,
-checksum, manifest, and prerelease evidence gates. Exact final counts and hashes
-are in the release manifest. This evidence is not a live BeamNG result.
+Automated status: passed for the committed release gates recorded in the
+[v0.7.3 automated results](../testing/v0.7.3/AUTOMATED_RESULTS.md). Package,
+checksum, manifest, and downloaded-asset verification are frozen during release
+publication. Automated evidence is not a live BeamNG result.
 
-Live history:
+Live status: **Pending owner validation** — 0 executed / 0 passed / 0 failed /
+61 pending / 0 blocked. See [live results](../testing/v0.7.3/LIVE_RESULTS.md).
 
-- v0.6.9: visual pass; Full Random, Race generation, and stability failed.
-  Random Car and Scramble were not separately executed.
-- v0.7.0: 1 executed / 0 passed / 1 failed / 0 pending / 81 blocked; failed on
-  `404 /ui/modules/apps/soturineChaosRandomizer/stores` before Vue mount.
-- v0.7.1: 9 executed / 3 passed / 6 failed / 0 pending / 88 blocked. Mount,
-  module graph, and pt-BR passed; Runtime CSS/usability, latency, Full Random,
-  Race, cleanup, and stability failed.
-- v0.7.2: 0 executed / 0 passed / 0 failed / 138 pending / 0 blocked;
-  **Pending owner validation**.
+Historical reports remain unchanged in their versioned directories. In
+particular, 0.39.2.1 failures from earlier releases are baseline evidence, not a
+claim about 0.39.4.
 
-Headless visual screenshot tests: Not implemented
+Headless visual screenshot tests: not implemented.

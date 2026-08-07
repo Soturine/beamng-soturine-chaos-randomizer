@@ -1,46 +1,55 @@
-# UI design and accessibility
+# UI design
 
-The UI has four top-level destinations: **Chaos**, **Garage**, **Race**, and
-**Settings**. The graphite/black visual system uses restrained orange emphasis
-and the local v0.6.1 fox artwork. The decorative fox cannot consume the title's
-flexible text width.
+The app is a native Runtime UI Vue HUD App with four destinations: **Chaos**,
+**Garage**, **Race**, and **Settings**. The backend remains available if a
+single view fails.
 
-## Information architecture
+## Information hierarchy
 
-- **Chaos** contains Random Car, Scramble, Full Random, the Chaos slider,
-  conditional seed/lock warnings, and operation status.
-- **Garage** contains Saved, Compare, and Share for Vehicle DNA.
-- **Race** follows Cars → Placement → Drive. Internal `lineup` names remain only
-  at compatibility boundaries.
-- **Settings** owns seed mode, locks, content policy, diagnostics, Undo, and
-  Reindex.
+Primary actions and current outcome appear first. Advanced policy, raw
+diagnostics, technical IDs, and uncommon recovery actions use progressive
+disclosure. Normal screens use human model, configuration, lock, phase, and
+failure labels; paths and internal keys are restricted to developer/details
+areas.
 
-## Size and modes
+## Selection controls
 
-The manifest starts at 340×300 px with a 300×120 px minimum. Expanded height is
-computed from rendered header, navigation, and body content, clamped to
-240–720 px and the available screen. Collapsed height is content-based and
-clamped to 120–220 px. A user's manual expanded height remains a floor. A
-`MutationObserver` schedules measurement after content changes; a one-pixel
-deadband and last-applied/manual-height tracking prevent resize feedback loops.
+All dropdown behavior goes through `ScrSelect`, a thin adapter over BeamNG's
+official `BngSmartSelect`. It accepts primitive or `{value,label}` options,
+normalizes values, emits one change, supports disabled/empty states, keyboard
+and controller navigation, and lets the host component manage focus and
+selected-item scrolling. There are no native HTML `<select>` controls.
 
-Expanded mode exposes navigation and the selected workflow. Collapsed mode
-retains identity, action/status/progress, and Cancel while Busy. Contextual
-views scroll only when measured content exceeds the safe viewport limit.
+## Failure isolation and status
 
-## Slider and operation feedback
+Error boundaries wrap the app, active tab, and failure-prone Race steps. A
+boundary keeps the shell/navigation mounted, exposes a localized retry and
+copy-diagnostics action, and does not replay a command automatically. Status
+records are scoped by view/operation, deduplicated, expiring, and cleared on
+supersession or teardown. Backend codes and structured progress are translated
+only at presentation time.
 
-The Chaos range input is transparent over a real track and orange fill element.
-The fill width is the clamped `0–100%` value, so it does not depend on a custom
-property inside a browser pseudo-element. The 0/50/79/100 calculations and
-out-of-range clamping have JavaScript tests.
+## Compact presentation
 
-Busy status shows phase, progress, safe Cancel, Details, and diagnostic copy. A
-stalled warning remains visible and actionable. Destructive concurrent actions
-are disabled while cancellation and diagnostics remain available.
+Compact mode changes body content, spacing, and the app's requested internal
+geometry for every tab. Each tab has bounded compact and expanded metrics;
+switching tab, locale, Details, or remount recomputes them without accumulating
+observers or timers. BeamNG's AppHost owns the outer saved frame, scalable
+metrics, alignment, and safe areas. The child app does not call a private host
+resize API, so live outer-frame behavior remains an owner validation case.
 
-Controls retain labels, `:focus-visible` treatment, polite live regions,
-progressbar semantics, bounded scroll areas, confirmations, and a fixed
-allowlisted Lua bridge. Rendering, scaling, input behavior, no-scroll default
-Chaos layout, and fox appearance remain Pending in the current [live test
-plan](testing/v0.6.4/LIVE_TEST_PLAN.md).
+## Accessibility and input
+
+- Semantic buttons, labels, headings, status regions, and focus-visible styles
+  support keyboard use and assistive interpretation.
+- UINav/controller direction and Back are delegated through supported Runtime
+  UI components and directives.
+- An unfocused HUD must not capture steering/gamepad input; interaction mode is
+  explicit.
+- Layout tolerates UI scale, alignment, localization expansion, and safe zones.
+- Color is not the sole signal for busy, warning, failure, or completion.
+
+The automated mounted suite covers boundary failure, every select adapter, 50
+compact cycles, 100 mount cycles, locale changes, status lifecycle, focus, and
+synthetic local-response latency. Safe areas, host scaling, and real controller
+behavior remain **Pending owner validation**.

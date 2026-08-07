@@ -1,52 +1,50 @@
 # Compatibility
 
-Compatibility is evidence-based and version-specific. v0.7.2 declares
-BeamNG.drive `0.39` as both its primary target and minimum supported version.
-`COMPATIBILITY.json` is the single machine-readable source for this policy.
-Source/API inspection is complete; live 0.39 owner validation is Pending and is
-not implied by automated results. v0.6.9 remains the final Angular release and
-the final release with a 0.38.6 minimum.
+Compatibility is evidence-based. `COMPATIBILITY.json` is the machine-readable
+source for the current mod version, BeamNG target/minimum, UI runtime, release
+stage, license, and live status. The detailed 0.39 analysis is in
+[BeamNG 0.39 compatibility](BEAMNG_0.39_COMPATIBILITY.md).
 
-The v0.7.2 identity is native Runtime UI Vue, UI protocol 2, generator 6,
-Vehicle DNA schema 1, settings schema 9, and UI preferences schema 2. The
-broader post-v0.7.0 compatibility audit remains deliberately out of scope.
-
-v0.7.0 reads the current player's part-manager configuration and the ID-specific
-manager bundle independently. A matching coherent source may confirm an
-already-applied state while another cache is stale. This is not a permissive
-fallback: model/configuration and phase evidence must match, the player ID is
-rechecked, and one chosen view supplies all mutable-state evidence.
+The current identity is native Runtime UI Vue, UI protocol 2, generator 6,
+Vehicle DNA schema 1, settings schema 9, and UI preferences schema 2. These
+schema/generator numbers are independent from the release version and were not
+incremented without a data-format reason.
 
 ## Content discovery
 
-The mod uses the mounted BeamNG registry and loaded vehicle data. It has no model, part, slot, or tuning catalog. Official vehicles, config packs, full vehicle mods, part packs, wheel packs, user configurations, Automation exports, trailers, and props are classified from current metadata and capabilities.
-
-Source classifications are `official`, `mod`, `user`, and `unknown`. Unknown evidence is never silently promoted. Automation, trailer, and prop participation is opt-in.
+The mod uses the mounted BeamNG registry and loaded vehicle data; it ships no
+vehicle catalog. Registry key, display name, and configuration filename are
+separate. Official vehicles, config/part/wheel packs, user configurations,
+Automation exports, trailers, props, families, and subgroups are classified from
+current metadata and capabilities. Source classifications are `official`,
+`mod`, `user`, and `unknown`; unknown is never promoted by label heuristics.
 
 ## Capability states
 
 | State | Meaning |
 | --- | --- |
-| `available` | Required API and coherent read/write evidence are present. |
+| `available` | Supported API and coherent evidence are present. |
 | `degraded` | A bounded alternative exists with reduced behavior. |
-| `temporarily_unreadable` | The API exists but current data is not yet coherent; bounded retry is allowed. |
-| `unsupported` | The environment exposes no supported path. |
-| `failed` | A supported path was attempted and returned or threw a failure. |
+| `temporarily_unreadable` | Current data is not coherent; bounded retry is allowed. |
+| `unsupported` | No supported path is exposed. |
+| `failed` | A supported path returned or threw a confirmed failure. |
 
-One malformed variable, storage, or optional feature does not fail the entire operation. The pipeline prefers BeamNG metadata, then loaded data, generic inference, conservative fallback, and finally an explicit skip with diagnostics. Fuel uncertainty and optional/non-standard mod missing-part metadata are nonfatal warnings; documented core-slot or proven baseline functional loss remains fatal.
+Optional malformed metadata produces a localized warning/skip. Proven loss of a
+required structural role remains fatal. Transient reads remain UNKNOWN until
+stable evidence confirms valid or invalid.
 
-## Persistence compatibility
+## Persistence
 
-- Settings schema 9 transactionally migrates older supported settings with a
-  last-known-good backup, readback, verified rollback, and migration report.
-- Vehicle DNA schema 1 retains generator 4/5/6 identity; older seeds are not reinterpreted as generator 6.
-- `raceManager.lua` is canonical internally, while historical Lineup storage, methods, and imports remain compatible through a facade.
-- Release tags and assets are immutable; older archives remain in their release records.
+- Settings schema 9 migrates supported settings transactionally with backup,
+  readback, rollback, and a migration report.
+- Vehicle DNA schema 1 preserves generator 4/5/6 identity; old seeds are not
+  reinterpreted as generator 6.
+- `raceManager.lua` is canonical while historical Lineup storage/import methods
+  remain data-compatible through a facade.
+- Release tags/assets are immutable; historical reports retain their original
+  versions and evidence.
 
-## Current evidence
-
-See [CURRENT_COMPATIBILITY_MATRIX.md](status/CURRENT_COMPATIBILITY_MATRIX.md) for the candidate status. Real third-party compatibility requires recording the content name/version, source, BeamNG build, mod commit/artifact checksum, settings, seed, terminal result, diagnostics, and log outcome.
-
-Detailed 0.39 findings, preserved P0/P1 decisions, and implemented v0.7.0 P2
-work are in
-[BEAMNG_0.39_COMPATIBILITY.md](BEAMNG_0.39_COMPATIBILITY.md).
+Real compatibility requires the downloaded artifact SHA, BeamNG full build,
+content/version, renderer, environment, settings, seed, terminal result,
+diagnostics, and logs. The [current matrix](status/CURRENT_COMPATIBILITY_MATRIX.md)
+remains **Pending owner validation** until the owner supplies that evidence.

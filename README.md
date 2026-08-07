@@ -1,153 +1,127 @@
 # Soturine's Chaos Randomizer
 
 Soturine's Chaos Randomizer is an experimental BeamNG.drive HUD App for
-deterministic vehicle chaos. It can load a random vehicle, scramble the active
-vehicle, run the complete bounded pipeline, save and restore Vehicle DNA, and
-orchestrate Race placement and AI workflows.
+deterministic vehicle randomization. It combines bounded Chaos operations,
+Vehicle DNA capture and restore, and multi-vehicle Race orchestration in one
+native Runtime UI Vue app.
 
-Current published release: **0.7.2**, an experimental rescue prerelease. It
-ships plain runtime CSS, mounted Vue coverage, bounded single-target Chaos
-transactions, independent Race slot ownership, automatic Spanish localization,
-and cooperative lifecycle limits. Live BeamNG 0.39.2.1 validation remains
-Pending owner validation. v0.6.9 is only the historical visual reference;
-v0.7.0 failed before Vue mount, and v0.7.1 mounted but failed live UI and
-gameplay checks. Automated tests never substitute for live BeamNG evidence.
+## Features
 
-## Install or upgrade
+- **Random Car** selects and binds one verified replacement vehicle.
+- **Scramble** changes the currently bound vehicle without spawning a clone.
+- **Full Random** runs vehicle, parts, tuning, paint, validation, and recovery as
+  one owned transaction.
+- **Garage** stores, compares, imports, exports, mutates, and restores Vehicle
+  DNA with explicit compatibility checks.
+- **Race** generates isolated competitor slots, places owned vehicles, and
+  controls only their managed AI.
+- Reproducible seeds, locks, progress, diagnostics, cancellation, and Undo are
+  available throughout the app.
 
-1. Download `soturine_chaos_randomizer_0.7.2.zip` from the
-   [v0.7.2 release](https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases/tag/v0.7.2).
-   Do not use GitHub's automatic source archive.
-2. Put the ZIP, without extracting it, in the BeamNG user folder's `mods`
-   directory.
-3. Remove or disable every older Chaos Randomizer ZIP. Only one version may be
-   active.
-4. Start BeamNG 0.39, enable the mod, open HUD Apps, and add
-   **Soturine's Chaos Randomizer**.
-5. Confirm `0.7.2` appears in the orange header.
+## Current UI
 
-The release also provides a SHA-256 file and a JSON manifest. A valid package
-has `lua/`, `ui/`, `settings/`, `COMPATIBILITY.json`, `LICENSE`, `NOTICE`, and
-`VERSION` at its root.
+The app has four destinations: Chaos, Garage, Race, and Settings. It uses
+BeamNG Runtime UI components, controller/UINav navigation, an actual compact
+presentation, localized status messages, and technical identifiers only in
+explicit diagnostic views. Local artwork and CSS are packaged with the mod;
+runtime access does not depend on a CDN or `node_modules`.
 
-Version 0.6.9 is the last Angular release and the last release declaring a
-0.38.6 minimum. Versions 0.7.0 onward do not package an Angular fallback because the
-installed 0.39 AppHost already chooses a colocated `app.vue` as the native app
-entry, while no supported single-entry mechanism provides an older-runtime
-fallback without risking two mounts or two subscriptions.
+## Installation
 
-## Native Vue UI
+1. Download the mod ZIP and checksum from the
+   [latest GitHub release](https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases/latest).
+   Use the named mod asset, not GitHub's automatic source archive.
+2. Verify the SHA-256 checksum.
+3. Place the ZIP, without extracting it, in the active BeamNG user folder's
+   `mods` directory.
+4. Disable older copies of the Randomizer, start BeamNG, enter a level, then add
+   the app from **UI Apps**.
 
-The app has four tabs:
+See [Installation](docs/INSTALLATION.md) for exact verification and upgrade
+steps.
 
-- **Chaos** — Random Car, Scramble, Full Random, locks, mutation, recovery,
-  result details, progress, safe cancel, and diagnostics.
-- **Garage** — Vehicle DNA save, search, filter, sort, pagination, details,
-  exact/compatible restore, replay, mutation, metadata, thumbnails, comparison,
-  and JSON/package sharing.
-- **Race** — Cars, Placement, Drive, the complete Race Policy, competitor
-  recovery, formations, managed vehicles, destination/route, and AI controls.
-- **Settings** — seed, content, safety, performance, persistence,
-  compatibility, and language.
+## Quick start
 
-Each tab has a tab-specific compact representation. Details state is also kept
-per tab. The native AppHost owns the outer window geometry; the app responds to
-host resize without private resize APIs and retains per-tab user-size
-observations for deterministic layout decisions.
+Open **Chaos**, choose a seed mode, and run Random Car, Scramble, or Full
+Random. Keep **Details** open when collecting evidence. Use **Cancel safely**
+instead of deleting an in-flight vehicle. For Race, configure Cars first, wait
+for every slot to reach a terminal state, then continue to Placement and Drive.
 
-The interface uses real buttons and labels, visible focus, scoped UINav,
-directional tab navigation, Back/Cancel handling, focus-trapped confirmation
-dialogs, high-contrast tokens, and reduced-motion behavior. Mouse, keyboard,
-and controller paths have automated structural coverage; hardware execution is
-still Pending.
+## Modes
 
-## Languages
+- Chaos is single-target and enforces explicit physical ownership.
+- Garage operations are data-first; destructive restore occurs only after
+  preflight and confirmed target evidence.
+- Race counts the player separately from generated opponents and gives each
+  competitor a stable slot identity, generation, seed, and owned vehicle set.
+- Settings controls content policies, locks, safety, persistence, language, and
+  diagnostic detail.
 
-The UI includes:
+## Compatibility
 
-- English (`en-US`), the fallback catalog;
-- Brazilian Portuguese (`pt-BR`);
-- Spanish (`es-ES`), also selected for regional `es-*` game locales.
+The declared target and minimum version live in
+[`COMPATIBILITY.json`](COMPATIBILITY.json). Compatibility claims are
+evidence-based: automated validation can pass while in-game validation remains
+**Pending owner validation**. See
+[BeamNG 0.39 compatibility](docs/BEAMNG_0.39_COMPATIBILITY.md) and
+[current validation](docs/status/CURRENT_VALIDATION.md).
 
-The game language is used by default. Settings can override the locale for the
-app. Translation affects presentation only: seeds, model/configuration keys,
-locks, Vehicle DNA, Race Policy IDs, ordering, and deterministic generation do
-not depend on translated labels. See [i18n](docs/I18N.md).
+## Data and safety
 
-## Determinism and safety
+The mod writes only its settings, cache, Vehicle DNA library, lineups, and
+managed thumbnails below its own BeamNG user-data namespace. Imported data is
+bounded and treated as inert JSON. Recovery and cleanup require operation,
+generation, target, and ownership evidence; unrelated vehicles must never be
+deleted or mutated.
 
-Random Car selects one eligible model/configuration. Scramble keeps the active
-base and mutates its discoverable slot tree, tuning, and paint. Full Random
-combines both in one transaction. Success is based on bounded coherent
-readback, not on UI callbacks.
+Read [Security](SECURITY.md), [Safety model](docs/SAFETY_MODEL.md), and
+[Vehicle DNA](docs/VEHICLE_DNA.md) before testing third-party content.
 
-The backend preserves the P0 ownership, cardinality, stale-callback, rollback,
-quarantine, registry, path-identity, migration, and ternary-safety contracts.
-It also preserves the P1 profiler, frame budgets, low-GC iteration, reusable
-buffers, caches, incremental indexing, dirty UI diffs, diagnostics aggregation,
-adaptive polling, and AI confirmation.
+## Experimental limitations
 
-Generator version remains 6 and Vehicle DNA schema remains 1. Settings schema
-is 9 and UI preferences schema is 2; the latter persists automatic/manual
-locale mode and Race Policy values with migration.
+- The project is published as a prerelease until the owner executes the
+  versioned matrix against the downloaded release asset.
+- Outer HUD placement and saved-frame migration belong to BeamNG's AppHost;
+  the child app changes its content geometry but does not call private host APIs.
+- Renderer-, driver-, mod-, and vehicle-specific behavior needs live evidence.
+- Exact restore depends on compatible content; safe partial results are reported
+  rather than silently claimed as exact.
 
-## Data and privacy
+## Documentation
 
-Settings, lock preferences, Vehicle DNA, lineups, caches, and migration reports
-remain in the BeamNG user data area managed by the mod. Upgrading does not
-discard valid libraries. Keep a backup before live testing import, restore, or
-large Garage/Race scenarios.
+- [User guide](docs/USER_GUIDE.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [UI protocol](docs/UI_PROTOCOL.md)
+- [Troubleshooting](docs/TROUBLESHOOTING.md)
+- [Testing evidence](docs/testing/)
+- [Changelog](CHANGELOG.md) and [GitHub Releases](https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases)
 
-Diagnostics redact personal paths and contain no credentials. The UI accepts
-only allowlisted, schema-checked commands. Import text is parsed as data,
-bounded to 128 KiB at the bridge, and never interpolated as Lua code. The
-package contains no CDN, remote runtime asset, npm runtime, `node_modules`, or
-source map.
+## Development
 
-## Troubleshooting
-
-- If the app does not appear, verify BeamNG 0.39+, remove old mod ZIPs, clear
-  the UI cache, reload the UI, and check `beamng.log` for the extension name.
-- If a log still shows the v0.7.0 `/stores` 404, remove every older ZIP, install
-  only v0.7.2, clear the UI cache, and reload the UI.
-- If state appears stale, remove and re-add the HUD App. A remount requests one
-  full state and does not restart an active backend operation.
-- If a command is unavailable, open Details or Settings → Compatibility. The
-  UI reports capability degradation instead of pretending the action ran.
-- If a restore or import warns, review the compatibility/preflight report
-  before confirmation.
-- For deeper recovery and data locations, see
-  [Troubleshooting](docs/TROUBLESHOOTING.md) and
-  [Installation](docs/INSTALLATION.md).
-
-## Validation and development
-
-The automated gate runs Python, production Lua 5.1 fixtures, JavaScript/Vue
-service and state tests, SFC compilation with pinned Vue 3.5 tooling, static
-accessibility/i18n/parity/security checks, deterministic packaging, checksum,
-and manifest verification.
+The repository uses Lua compatible with the BeamNG runtime, Vue 3 SFCs, plain
+runtime CSS, Node-based UI checks, and Python packaging tests. Start with:
 
 ```text
 npm ci --ignore-scripts
+npm run validate:version
 npm run validate:sfc
 npm run validate:graph
 npm run validate:styles
 npm run test:ui
 python -m unittest discover -s tests -v
-python tools/package_mod.py
-python tools/validate_package.py
 ```
 
-Development dependencies validate source only and are never included in the
-mod ZIP. See [testing evidence](docs/testing/v0.7.2/README.md),
-[architecture](docs/UI_VUE_ARCHITECTURE.md), and the
-[UI protocol](docs/UI_PROTOCOL.md).
+Build and validate the deterministic mod asset with
+`python tools/package_mod.py` and `python tools/validate_package.py`.
 
-## Release status
+## Contributing
 
-Version 0.7.2 is an experimental prerelease. Automated validation does not
-replace the [live test plan](docs/testing/v0.7.2/LIVE_TEST_PLAN.md). Results must
-be recorded against the downloaded release ZIP before any stronger gameplay,
-compatibility, visual, input, or performance claim is made.
+Keep changes deterministic, bounded, and covered at the lowest useful layer.
+Do not convert automated or fixture evidence into a live BeamNG claim. Follow
+[`AGENTS.md`](AGENTS.md), preserve unrelated work, and update the appropriate
+versioned evidence when behavior changes.
 
-License: [MIT](LICENSE). Security policy: [SECURITY.md](SECURITY.md).
+## License
+
+Licensed under [Apache License 2.0](LICENSE). See [NOTICE](NOTICE) for required
+attribution.

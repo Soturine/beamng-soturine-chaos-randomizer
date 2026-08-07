@@ -123,6 +123,18 @@ class StaticValidationTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("VERSION_SYNC_OK", result.stdout)
 
+    def test_declared_license_matches_legal_files(self) -> None:
+        readme = (ROOT / "README.md").read_text(encoding="utf-8")
+        package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
+        compatibility = json.loads((ROOT / "COMPATIBILITY.json").read_text(encoding="utf-8"))
+        license_text = (ROOT / "LICENSE").read_text(encoding="utf-8")
+        self.assertEqual(package["license"], "Apache-2.0")
+        self.assertEqual(compatibility["license"], "Apache-2.0")
+        self.assertIn("Apache License 2.0", readme)
+        self.assertIn("Apache License", license_text)
+        self.assertTrue((ROOT / "NOTICE").is_file())
+        self.assertNotRegex(readme, r"(?i)License:\s*\[MIT\]")
+
     def test_native_vue_ui_identity_is_single(self) -> None:
         manifests = [json.loads(path.read_text(encoding="utf-8")) for path in (ROOT / "ui").rglob("app.json")]
         self.assertEqual(len(manifests), 1)
