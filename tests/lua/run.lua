@@ -3916,7 +3916,7 @@ tests.v064_uncertain_fuel_metadata_preserves_randomized_result = function()
   truthy(not state.busy)
   equal(state.lastResult.success, true)
   equal(state.lastResult.code, 'random_config_partial')
-  equal(state.lastResult.details.terminalOutcome, 'partial_success')
+  equal(state.lastResult.details.terminalOutcome, 'SUCCESS_WITH_WARNING')
   equal(state.lastResult.details.energyStorages.status, 'uncertain_warning')
   truthy(#state.lastResult.details.warnings > 0)
   equal(harness.modelKey, 'fixture_new')
@@ -4647,7 +4647,7 @@ tests.v061_persistent_parts_read_fails_terminally = function()
   truthy(not state.busy)
   equal(state.lastResult and state.lastResult.success, false)
   equal(state.lastResult.code, "safety_confirmation_unavailable")
-  equal(state.lastResult.details.terminalOutcome, "preserved_previous_result")
+  equal(state.lastResult.details.terminalOutcome, "FAILED_NO_CHANGE")
   truthy(state.lastResult.details.preservedCurrentResult)
   equal(harness.modelKey, "fixture_old")
 end
@@ -6109,6 +6109,53 @@ tests.v073_full_random_cardinality_and_scramble_identity_are_absolute = function
   equal(scramble.acceptedConcreteId, 1)
 end
 
+tests.v074_replacement_cardinality_uses_expected_sets_and_preserves_external_ids = function()
+  local state = domainOperations.create()
+  local replacement = assert(domainOperations.begin(state, {
+    domain = "chaos", operationId = "v074-random-car", action = "randomConfig",
+    sourceVehicleId = 17, worldVehicleIdsBefore = {17, 99},
+  }))
+  truthy(domainOperations.expectRemoval(replacement, 17))
+  truthy(domainOperations.expectAddition(replacement, 23))
+  local token = domainOperations.callbackToken(replacement, "spawn", {expectedVehicleId = 23})
+  truthy(domainOperations.registerCandidate(state, token, 23, {created = true}))
+  truthy(domainOperations.acceptVehicle(state, replacement, 23, "player_result", 23))
+  local valid, report = domainOperations.classifyWorldDelta(replacement, {23})
+  truthy(valid)
+  equal(report.expectedRemovedIds[1], 17)
+  equal(report.expectedAddedIds[1], 23)
+  equal(report.acceptedIds[1], 23)
+  equal(report.unexpectedRemovedIds[1], 99)
+  equal(#report.unexpectedAddedIds, 0)
+  equal(#replacement.ownedTemporaryIds, 0)
+  equal(domainOperations.ownership(state, 23).accepted, true)
+
+  valid, report = domainOperations.classifyWorldDelta(replacement, {23, 77})
+  truthy(valid)
+  equal(report.unexpectedRemovedIds[1], 99)
+  equal(report.unexpectedAddedIds[1], 77)
+  equal(domainOperations.ownership(state, 77), nil)
+end
+
+tests.v074_scramble_cardinality_is_owned_identity_not_global_delta = function()
+  local state = domainOperations.create()
+  local scramble = assert(domainOperations.begin(state, {
+    domain = "chaos", operationId = "v074-scramble", action = "scramble",
+    sourceVehicleId = 17, worldVehicleIdsBefore = {17, 99},
+  }))
+  local token = domainOperations.callbackToken(scramble, "reload", {expectedVehicleId = 17})
+  truthy(domainOperations.registerCandidate(state, token, 17, {created = false}))
+  truthy(domainOperations.acceptVehicle(state, scramble, 17, "player_result", 17))
+  local valid, report = domainOperations.classifyWorldDelta(scramble, {17, 77})
+  truthy(valid)
+  equal(report.scrambleIdentityValid, true)
+  equal(#report.expectedRemovedIds, 0)
+  equal(#report.expectedAddedIds, 0)
+  equal(#scramble.ownedTemporaryIds, 0)
+  equal(report.unexpectedRemovedIds[1], 99)
+  equal(report.unexpectedAddedIds[1], 77)
+end
+
 tests.v073_race_slots_cannot_reuse_accepted_physical_vehicles = function()
   local state = domainOperations.create()
   local slotOne = assert(domainOperations.begin(state, {
@@ -7153,6 +7200,13 @@ local v073Required = {
   {"interactive_operation_timeouts", tests.v072_scheduler_limits_and_watchdog_are_bounded},
 }
 
+local v074Required = {
+  {"random_car_expected_remove_add_sets", tests.v074_replacement_cardinality_uses_expected_sets_and_preserves_external_ids},
+  {"random_car_external_removal_is_diagnostic", tests.v074_replacement_cardinality_uses_expected_sets_and_preserves_external_ids},
+  {"random_car_external_addition_is_not_owned", tests.v074_replacement_cardinality_uses_expected_sets_and_preserves_external_ids},
+  {"scramble_owned_identity_ignores_external_delta", tests.v074_scramble_cardinality_is_owned_identity_not_global_delta},
+}
+
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")
 equal(#v060Required, 104, "0.6.0 required scenario registry")
 equal(#v060PauseLifecycleRequired, 52, "0.6.0 pause lifecycle scenario registry")
@@ -7193,6 +7247,9 @@ for _, scenario in ipairs(v072Required) do
 end
 for _, scenario in ipairs(v073Required) do
   requirementMappings[#requirementMappings + 1] = {"0.7.3:" .. scenario[1], scenario[2]}
+end
+for _, scenario in ipairs(v074Required) do
+  requirementMappings[#requirementMappings + 1] = {"0.7.4:" .. scenario[1], scenario[2]}
 end
 
 local canonicalByFunction = {}

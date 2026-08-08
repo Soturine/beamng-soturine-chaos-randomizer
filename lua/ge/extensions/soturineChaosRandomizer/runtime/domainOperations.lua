@@ -102,6 +102,9 @@ local function begin(state, options)
     removedVehicleIds = {},
     ownedVehicleIds = {},
     ownedTemporaryIds = {},
+    expectedRemovedIds = {},
+    expectedAddedIds = {},
+    acceptedIds = {},
     acceptedVehicleId = nil,
     restoredVehicleId = nil,
     playerVehicleIdAfter = nil,
@@ -139,6 +142,10 @@ local function begin(state, options)
     peakWorldVehicleCount = #(options.worldVehicleIdsBefore or {}),
     worldVehicleIdsCurrent = util.deepCopy(options.worldVehicleIdsBefore or {}),
     unexpectedNewIds = {},
+    unexpectedRemovedIds = {},
+    missingExpectedAddedIds = {},
+    missingExpectedRemovedIds = {},
+    transactionCardinalityValid = nil,
     identityChangeReason = nil,
     lastCallbackToken = nil,
     createdAt = tonumber(options.createdAt) or 0,
@@ -405,6 +412,9 @@ local function acceptVehicle(state, context, vehicleId, role, playerVehicleIdAft
   })
   if not owned then return false, entry end
   context.acceptedVehicleId = numeric
+  if not util.arrayContains(context.acceptedIds, numeric) then
+    context.acceptedIds[#context.acceptedIds + 1] = numeric
+  end
   context.acceptedConcreteId = numeric
   context.concreteVehicleId = numeric
   context.controlledConcreteId = tonumber(playerVehicleIdAfter) or numeric
@@ -415,6 +425,82 @@ local function acceptVehicle(state, context, vehicleId, role, playerVehicleIdAft
     if tonumber(context.ownedTemporaryIds[index]) == numeric then table.remove(context.ownedTemporaryIds, index) end
   end
   return true, entry
+end
+
+local function expectId(list, vehicleId)
+  local _, numeric = vehicleKey(vehicleId)
+  if numeric == nil then return false, "expected_vehicle_id_invalid" end
+  if not util.arrayContains(list, numeric) then list[#list + 1] = numeric end
+  return true, numeric
+end
+
+local function expectRemoval(context, vehicleId)
+  if type(context) ~= "table" then return false, "operation_context_missing" end
+  return expectId(context.expectedRemovedIds, vehicleId)
+end
+
+local function expectAddition(context, vehicleId)
+  if type(context) ~= "table" then return false, "operation_context_missing" end
+  return expectId(context.expectedAddedIds, vehicleId)
+end
+
+local function classifyWorldDelta(context, worldVehicleIds)
+  if type(context) ~= "table" or type(worldVehicleIds) ~= "table" then
+    return false, "world_vehicle_snapshot_invalid"
+  end
+  local before, after = {}, {}
+  for _, vehicleId in ipairs(context.worldVehicleIdsBefore or {}) do before[tostring(vehicleId)] = tonumber(vehicleId) end
+  for _, vehicleId in ipairs(worldVehicleIds) do after[tostring(vehicleId)] = tonumber(vehicleId) end
+  local expectedRemoved, expectedAdded = {}, {}
+  for _, vehicleId in ipairs(context.expectedRemovedIds or {}) do expectedRemoved[tostring(vehicleId)] = tonumber(vehicleId) end
+  for _, vehicleId in ipairs(context.expectedAddedIds or {}) do expectedAdded[tostring(vehicleId)] = tonumber(vehicleId) end
+  local observedRemoved, observedAdded = {}, {}
+  local unexpectedRemoved, unexpectedAdded = {}, {}
+  local missingRemoved, missingAdded = {}, {}
+  for key, vehicleId in pairs(before) do
+    if not after[key] then
+      observedRemoved[#observedRemoved + 1] = vehicleId
+      if not expectedRemoved[key] then unexpectedRemoved[#unexpectedRemoved + 1] = vehicleId end
+    end
+  end
+  for key, vehicleId in pairs(after) do
+    if not before[key] then
+      observedAdded[#observedAdded + 1] = vehicleId
+      if not expectedAdded[key] then unexpectedAdded[#unexpectedAdded + 1] = vehicleId end
+    end
+  end
+  for key, vehicleId in pairs(expectedRemoved) do if after[key] then missingRemoved[#missingRemoved + 1] = vehicleId end end
+  for key, vehicleId in pairs(expectedAdded) do if not after[key] then missingAdded[#missingAdded + 1] = vehicleId end end
+  local acceptedPresent = true
+  for _, vehicleId in ipairs(context.acceptedIds or {}) do
+    if not after[tostring(vehicleId)] then acceptedPresent = false; break end
+  end
+  local sourcePresent = context.sourceVehicleId ~= nil and after[tostring(context.sourceVehicleId)] ~= nil
+  local scrambleIdentityValid = context.action ~= "scramble"
+    or (sourcePresent and tonumber(context.acceptedVehicleId) == tonumber(context.sourceVehicleId))
+  local report = {
+    expectedRemovedIds = util.deepCopy(context.expectedRemovedIds or {}),
+    expectedAddedIds = util.deepCopy(context.expectedAddedIds or {}),
+    ownedTemporaryIds = util.deepCopy(context.ownedTemporaryIds or {}),
+    acceptedIds = util.deepCopy(context.acceptedIds or {}),
+    observedRemovedIds = observedRemoved,
+    observedAddedIds = observedAdded,
+    unexpectedRemovedIds = unexpectedRemoved,
+    unexpectedAddedIds = unexpectedAdded,
+    missingExpectedRemovedIds = missingRemoved,
+    missingExpectedAddedIds = missingAdded,
+    acceptedPresent = acceptedPresent,
+    scrambleIdentityValid = scrambleIdentityValid,
+    ownedWorldDelta = #observedAdded - #observedRemoved,
+    worldVehicleDelta = #worldVehicleIds - #(context.worldVehicleIdsBefore or {}),
+  }
+  for _, values in ipairs({report.observedRemovedIds, report.observedAddedIds,
+    report.unexpectedRemovedIds, report.unexpectedAddedIds,
+    report.missingExpectedRemovedIds, report.missingExpectedAddedIds}) do table.sort(values) end
+  report.valid = #missingRemoved == 0 and #missingAdded == 0
+    and acceptedPresent and scrambleIdentityValid
+  report.hasExternalWorldChanges = #unexpectedRemoved > 0 or #unexpectedAdded > 0
+  return report.valid, report
 end
 
 local function canMutate(state, context, vehicleId)
@@ -462,6 +548,11 @@ local function recordRemoval(state, vehicleId, reason)
     if context then
       for index = #context.ownedTemporaryIds, 1, -1 do
         if tonumber(context.ownedTemporaryIds[index]) == numeric then table.remove(context.ownedTemporaryIds, index) end
+      end
+      if entry.accepted ~= true then
+        for index = #context.expectedAddedIds, 1, -1 do
+          if tonumber(context.expectedAddedIds[index]) == numeric then table.remove(context.expectedAddedIds, index) end
+        end
       end
     end
     entry.removed = true
@@ -592,13 +683,14 @@ local function recordWorldAfter(context, worldVehicleIds)
   context.worldVehicleCountAfter = #worldVehicleIds
   context.worldVehicleDelta = context.worldVehicleCountAfter - (context.worldVehicleCountBefore or 0)
   context.peakWorldVehicleCount = math.max(context.peakWorldVehicleCount or 0, #worldVehicleIds)
-  local before = {}
-  for _, vehicleId in ipairs(context.worldVehicleIdsBefore or {}) do before[tostring(vehicleId)] = true end
-  context.unexpectedNewIds = {}
-  for _, vehicleId in ipairs(worldVehicleIds) do
-    if not before[tostring(vehicleId)] and not util.arrayContains(context.ownedVehicleIds, vehicleId) then
-      context.unexpectedNewIds[#context.unexpectedNewIds + 1] = vehicleId
-    end
+  local valid, report = classifyWorldDelta(context, worldVehicleIds)
+  if type(report) == "table" then
+    context.unexpectedNewIds = util.deepCopy(report.unexpectedAddedIds)
+    context.unexpectedRemovedIds = util.deepCopy(report.unexpectedRemovedIds)
+    context.missingExpectedAddedIds = util.deepCopy(report.missingExpectedAddedIds)
+    context.missingExpectedRemovedIds = util.deepCopy(report.missingExpectedRemovedIds)
+    context.transactionCardinalityValid = valid
+    context.cardinalityReport = util.deepCopy(report)
   end
   return true, context.worldVehicleDelta
 end
@@ -673,6 +765,12 @@ local function summary(state)
       peakOwnedTemporaryCount = context and context.peakOwnedTemporaryCount or 0,
       peakWorldVehicleCount = context and context.peakWorldVehicleCount or 0,
       unexpectedNewIds = context and util.deepCopy(context.unexpectedNewIds) or {},
+      unexpectedRemovedIds = context and util.deepCopy(context.unexpectedRemovedIds) or {},
+      expectedRemovedIds = context and util.deepCopy(context.expectedRemovedIds) or {},
+      expectedAddedIds = context and util.deepCopy(context.expectedAddedIds) or {},
+      acceptedIds = context and util.deepCopy(context.acceptedIds) or {},
+      transactionCardinalityValid = context and context.transactionCardinalityValid or nil,
+      cardinalityReport = context and util.deepCopy(context.cardinalityReport) or nil,
       lastCallbackToken = context and context.lastCallbackToken or nil,
       quarantineCount = countEntries(domainState.sessionQuarantine),
     }
@@ -703,6 +801,9 @@ M.canCreateTemporary = canCreateTemporary
 M.addPendingCallback = addPendingCallback
 M.resolvePendingCallback = resolvePendingCallback
 M.acceptVehicle = acceptVehicle
+M.expectRemoval = expectRemoval
+M.expectAddition = expectAddition
+M.classifyWorldDelta = classifyWorldDelta
 M.canMutate = canMutate
 M.markOrphan = markOrphan
 M.recordRemoval = recordRemoval

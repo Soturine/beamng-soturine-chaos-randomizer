@@ -897,39 +897,15 @@ local function failureRecord(active, phase, errorData, context)
 end
 
 local function validateTerminalVehicleCardinality(active)
-  if not active or type(adapter.worldVehicleIds) ~= "function" then return true, {} end
-  local before = active.worldVehicleIdsBefore or {}
+  if not active or type(adapter.worldVehicleIds) ~= "function" or not active.domainContext then return true, {} end
   local after = adapter.worldVehicleIds()
-  local beforeSet, afterSet = {}, {}
-  for _, vehicleId in ipairs(before) do beforeSet[tostring(vehicleId)] = vehicleId end
-  for _, vehicleId in ipairs(after) do afterSet[tostring(vehicleId)] = vehicleId end
-  local sourceId = tonumber(active.originalVehicleId)
-  local acceptedId = tonumber(active.vehicleId)
-  local missingPreserved, unexpected = {}, {}
-  for key, vehicleId in pairs(beforeSet) do
-    local sourceMayBeReplaced = active.kind ~= "scramble" and sourceId == vehicleId
-    if not afterSet[key] and not sourceMayBeReplaced then missingPreserved[#missingPreserved + 1] = vehicleId end
-  end
-  for key, vehicleId in pairs(afterSet) do
-    if not beforeSet[key] and vehicleId ~= acceptedId then unexpected[#unexpected + 1] = vehicleId end
-  end
-  table.sort(missingPreserved)
-  table.sort(unexpected)
-  local acceptedPresent = acceptedId ~= nil and afterSet[tostring(acceptedId)] ~= nil
-  local scrambleStable = active.kind ~= "scramble"
-    or (#before == #after and #missingPreserved == 0 and #unexpected == 0
-      and acceptedId == sourceId)
-  local details = {
-    worldVehicleIdsBefore = util.deepCopy(before),
-    worldVehicleIdsObserved = util.deepCopy(after),
-    worldVehicleDeltaObserved = #after - #before,
-    missingPreservedVehicleIds = missingPreserved,
-    unexpectedVehicleIds = unexpected,
-    acceptedVehiclePresent = acceptedPresent,
-    ignoredBackgroundCallbacks = active.ignoredBackgroundCallbacks or 0,
-  }
-  if active.backgroundTarget then details.playerUsedAsStaging = false end
-  return acceptedPresent and #missingPreserved == 0 and #unexpected == 0 and scrambleStable, details
+  productionModules.domainOperations.recordWorldAfter(active.domainContext, after)
+  local valid, details = productionModules.domainOperations.classifyWorldDelta(active.domainContext, after)
+  details.worldVehicleIdsBefore = util.deepCopy(active.worldVehicleIdsBefore or {})
+  details.worldVehicleIdsObserved = util.deepCopy(after)
+  details.ignoredBackgroundCallbacks = active.ignoredBackgroundCallbacks or 0
+  details.playerUsedAsStaging = active.backgroundTarget and false or nil
+  return valid, details
 end
 
 local function finishOperation(success, code, message, details, terminalState)
@@ -968,19 +944,6 @@ local function finishOperation(success, code, message, details, terminalState)
       active.paintLedger.closed, active.paintLedger.closeReason = true, "terminal_readback_complete"
     end
   end
-  if active and success == true
-    and (active.kind == "scramble" or active.kind == "randomConfig" or active.kind == "fullRandom")
-  then
-    local cardinalityOk, cardinality = validateTerminalVehicleCardinality(active)
-    details.vehicleCardinality = cardinality
-    if not cardinalityOk then
-      success = false
-      code = "vehicle_cardinality_violation"
-      message = "The operation stopped because its concrete vehicle transaction changed unrelated world vehicles"
-      terminalState = "failed"
-      details.cardinalityViolation = true
-    end
-  end
   operationState.finish(runtime.state, terminalState, success and nil or code)
   if active then vehicleRecovery.cleanup(active) end
   if active and active.domainContext then
@@ -999,16 +962,18 @@ local function finishOperation(success, code, message, details, terminalState)
       if active.domain == "chaos" and active.kind ~= "scramble"
         and type(active.originalVehicleId) == "number"
         and active.originalVehicleId ~= acceptedVehicleId
-        and productionModules.spawnAdapter.objectExists(active.originalVehicleId)
       then
-        local deleted, deleteReason = productionModules.spawnAdapter.deleteVehicle(active.originalVehicleId)
-        if deleted then
-          productionModules.domainOperations.recordRemoval(
-            runtime.domainOperations, active.originalVehicleId, "replaced_player_source_removed"
-          )
-          details.sourceVehicleRemoved = active.originalVehicleId
-        else
-          details.cardinalityCleanupWarning = deleteReason
+        productionModules.domainOperations.expectRemoval(active.domainContext, active.originalVehicleId)
+        if productionModules.spawnAdapter.objectExists(active.originalVehicleId) then
+          local deleted, deleteReason = productionModules.spawnAdapter.deleteVehicle(active.originalVehicleId)
+          if deleted then
+            productionModules.domainOperations.recordRemoval(
+              runtime.domainOperations, active.originalVehicleId, "replaced_player_source_removed"
+            )
+            details.sourceVehicleRemoved = active.originalVehicleId
+          else
+            details.cardinalityCleanupWarning = deleteReason
+          end
         end
       end
     elseif details.rollback == "completed" and acceptedVehicleId ~= nil then
@@ -1049,6 +1014,17 @@ local function finishOperation(success, code, message, details, terminalState)
     details.operationTransaction = productionModules.operationContext.summary(
       production.ensureOperationContext(active)
     )
+    if success == true and (active.kind == "scramble" or active.kind == "randomConfig" or active.kind == "fullRandom") then
+      local cardinalityOk, cardinality = validateTerminalVehicleCardinality(active)
+      details.vehicleCardinality = cardinality
+      if not cardinalityOk then
+        details.cardinalityWarning = "expected_vehicle_transaction_incomplete"
+        active.nonFatalPartial = true
+      elseif cardinality.hasExternalWorldChanges then
+        details.cardinalityWarning = "unrelated_world_change_observed"
+        active.nonFatalPartial = true
+      end
+    end
   end
   if active and active.spawnTransaction then
     if (success == true or details.rollback == "completed") and tonumber(active.vehicleId) then
@@ -1078,13 +1054,15 @@ local function finishOperation(success, code, message, details, terminalState)
     details.repairAttempts = util.deepCopy(active.criticalRepairAttempts or {})
     details.rollbackReason = active.rollbackFailure and active.rollbackFailure.code or nil
   end
-  details.terminalOutcome = details.criticalRepairSucceeded == true and "success_with_critical_repair"
-    or terminalState == "completed" and "success"
-    or terminalState == "partial" and "partial_success"
-    or terminalState == "cancelled" and "cancelled"
-    or details.preservedCurrentResult == true and "preserved_previous_result"
-    or details.rollback == "completed" and "full_rollback"
-    or "failed"
+  details.legacyTerminalOutcome = details.criticalRepairSucceeded == true and "success_with_critical_repair"
+    or terminalState == "completed" and "success" or terminalState == "partial" and "partial_success"
+    or terminalState == "cancelled" and "cancelled" or details.preservedCurrentResult == true and "preserved_previous_result"
+    or details.rollback == "completed" and "full_rollback" or "failed"
+  details.terminalOutcome = terminalState == "cancelled" and "CANCELLED"
+    or details.rollback == "completed" and "FAILED_ROLLED_BACK"
+    or success == true and (terminalState == "partial" or active and active.nonFatalPartial == true
+      or details.cardinalityWarning ~= nil or details.criticalRepairSucceeded == true) and "SUCCESS_WITH_WARNING"
+    or success == true and "SUCCESS" or "FAILED_NO_CHANGE"
   if active then
     details.targetGeneration = active.targetGeneration
     details.lifecycleAcceptance = {
@@ -2122,6 +2100,7 @@ local function recordReplacementCandidate(active, result, phase)
     vehicleTargetTracker.bindReturned(active.targetTracker, result.vehicleId, result.correlationStrategy)
   end
   if type(result.vehicleId) == "number" then
+    productionModules.domainOperations.expectAddition(active.domainContext, result.vehicleId)
     if active.backgroundTarget then
       for _, token in pairs(active.phaseCallbackTokens or {}) do token.expectedVehicleId = result.vehicleId end
     end
