@@ -6158,6 +6158,25 @@ tests.v074_scramble_cardinality_is_owned_identity_not_global_delta = function()
   equal(report.unexpectedAddedIds[1], 77)
 end
 
+tests.v074_reload_and_readback_metrics_are_bounded_and_structured = function()
+  local harness = pipelineHarness.new()
+  truthy(pipelineHarness.driveSuccess(harness, "fullRandom", {manualSeed = "v074-reload-budget"}))
+  local state = harness.main.requestState()
+  local metrics = state.lastResult.details.runtimeMetrics
+  truthy(type(metrics) == "table")
+  truthy(type(metrics.partsReloadCount) == "number")
+  truthy(type(metrics.readbackCount) == "number")
+  truthy(type(metrics.repairReloadCount) == "number")
+  truthy(type(metrics.reloadDuration) == "number")
+  truthy(type(metrics.phaseDuration) == "number")
+  truthy(type(metrics.maxSingleStep) == "number")
+  equal(metrics.reloadBudget.mutationTarget, 1)
+  equal(metrics.reloadBudget.repairLimit, 1)
+  equal(metrics.reloadBudget.hardLimit, 4)
+  truthy(metrics.partsReloadCount <= metrics.reloadBudget.hardLimit)
+  truthy(metrics.repairReloadCount <= metrics.reloadBudget.hardLimit)
+end
+
 tests.v073_race_slots_cannot_reuse_accepted_physical_vehicles = function()
   local state = domainOperations.create()
   local slotOne = assert(domainOperations.begin(state, {
@@ -7266,6 +7285,13 @@ local v074Required = {
   {"safety_policy_acceptance_axis", tests.v074_safety_v2_separates_integrity_drivability_policy_and_fluids},
   {"safety_unknown_is_non_destructive", tests.v074_safety_v2_separates_integrity_drivability_policy_and_fluids},
   {"fluid_states_are_four_way", tests.v074_safety_v2_separates_integrity_drivability_policy_and_fluids},
+  {"parts_reload_count_is_instrumented", tests.v074_reload_and_readback_metrics_are_bounded_and_structured},
+  {"readback_count_is_instrumented", tests.v074_reload_and_readback_metrics_are_bounded_and_structured},
+  {"repair_reload_count_is_instrumented", tests.v074_reload_and_readback_metrics_are_bounded_and_structured},
+  {"reload_duration_is_instrumented", tests.v074_reload_and_readback_metrics_are_bounded_and_structured},
+  {"phase_duration_is_instrumented", tests.v074_reload_and_readback_metrics_are_bounded_and_structured},
+  {"max_single_step_is_instrumented", tests.v074_reload_and_readback_metrics_are_bounded_and_structured},
+  {"parts_reload_hard_limit_is_low", tests.v074_reload_and_readback_metrics_are_bounded_and_structured},
 }
 
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")

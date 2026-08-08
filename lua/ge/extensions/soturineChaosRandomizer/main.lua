@@ -1112,6 +1112,26 @@ local function finishOperation(success, code, message, details, terminalState)
       end
     end
   end
+  if active then
+    if active.lifecyclePhase and active.phaseStartedAt then
+      active.phaseTimings = active.phaseTimings or {}
+      active.phaseTimings[active.lifecyclePhase] = (active.phaseTimings[active.lifecyclePhase] or 0)
+        + math.max(0, runtime.time.realMonotonicTime - active.phaseStartedAt)
+      active.phaseStartedAt = runtime.time.realMonotonicTime
+    end
+    local phaseDuration = 0
+    for _, duration in pairs(active.phaseTimings or {}) do phaseDuration = phaseDuration + (tonumber(duration) or 0) end
+    active.phaseDuration = phaseDuration
+    details.runtimeMetrics = {
+      partsReloadCount = active.partsReloadCount or 0,
+      readbackCount = active.readbackCount or 0,
+      repairReloadCount = active.repairReloadCount or 0,
+      reloadDuration = active.reloadDuration or 0,
+      phaseDuration = active.phaseDuration or 0,
+      maxSingleStep = active.maxSingleStep or 0,
+      reloadBudget = util.deepCopy(active.reloadBudget),
+    }
+  end
   setResult(success, code, message, details)
   runtime.progress = {
     operationId = active and active.operationId or runtime.state.operationId,
@@ -1132,6 +1152,13 @@ local function finishOperation(success, code, message, details, terminalState)
       kind = active.kind,
       duration = math.max(0, adapter.clock() - active.startedAt),
       reloadCount = active.reloadCount or 0,
+      partsReloadCount = active.partsReloadCount or 0,
+      readbackCount = active.readbackCount or 0,
+      repairReloadCount = active.repairReloadCount or 0,
+      reloadDuration = active.reloadDuration or 0,
+      phaseDuration = active.phaseDuration or 0,
+      maxSingleStep = active.maxSingleStep or 0,
+      reloadBudget = util.deepCopy(active.reloadBudget),
       slotScanDuration = active.slotScanDuration or 0,
       mutationPlanningDuration = active.mutationPlanningDuration or 0,
       slotCount = active.lastScanMetrics and active.lastScanMetrics.slotCount or 0,
@@ -1671,6 +1698,13 @@ local function beginOperation(kind, context)
     ignoredBackgroundCallbacks = 0,
     lineupStagingPlacement = util.deepCopy(context.lineupStagingPlacement),
     reloadCount = 0,
+    partsReloadCount = 0,
+    readbackCount = 0,
+    repairReloadCount = 0,
+    reloadDuration = 0,
+    phaseDuration = 0,
+    maxSingleStep = 0,
+    reloadBudget = {mutationTarget = 1, repairLimit = 1, hardLimit = 4, hardLimitReached = false},
     partPassesApplied = 0,
     safetyBaseline = nil,
     safetyResult = nil,
@@ -1932,6 +1966,7 @@ end
 
 local function enterWaiting(active, phase, afterReload, expected, label, value)
   active.phase = phase
+  active.reloadStartedAt = runtime.time.realMonotonicTime
   active.afterReload = afterReload
   local target = (phase == "spawn" or phase == "rollback" or phase == "undo" or phase == "dna_base_spawn")
     and "waitingForVehicle" or "waitingForReload"
@@ -4009,6 +4044,19 @@ processMutationPass = function(active)
     return
   end
 
+  if (active.partsReloadCount or 0) >= (active.reloadBudget and active.reloadBudget.hardLimit or 4) then
+    active.reloadBudget.hardLimitReached = true
+    active.nonFatalPartial = true
+    active.slotLedger.limitReason = "parts_reload_hard_limit"
+    active.convergence.limitReason = "parts_reload_hard_limit"
+    active.stageReasons.parts = "coverage_limit_parts_reload_hard_limit"
+    active.warnings[#active.warnings + 1] =
+      "Part mutation stopped at the bounded reload limit; the last coherent result was preserved."
+    operationState.transition(runtime.state, "tuning", false)
+    startTuning(active)
+    return
+  end
+
   local expectedParts = {}
   for _, decision in ipairs(actual) do expectedParts[decision.slotPath] = decision.selectedPart end
   active.currentBatch = util.deepCopy(actual)
@@ -5804,6 +5852,7 @@ validateDNAFinal = function(active)
     end
     return
   end
+
   active.dnaSafetyResult = util.deepCopy(safetyOrError)
   verifyDNAFinal(active)
 end
@@ -6003,6 +6052,19 @@ local function completeStableTarget(vehicleId, verificationState, verificationDe
   then
     active.reloadCount = (active.reloadCount or 0) + 1
   end
+  active.readbackCount = (active.readbackCount or 0) + 1
+  if active.reloadStartedAt then
+    active.reloadDuration = (active.reloadDuration or 0)
+      + math.max(0, runtime.time.realMonotonicTime - active.reloadStartedAt)
+    active.reloadStartedAt = nil
+  end
+  if completedPhase == "parts" or completedPhase == "dna_parts"
+    or completedPhase == "part_batch_rollback" or completedPhase == "part_isolation_test"
+    or completedPhase == "critical_repair"
+  then active.partsReloadCount = (active.partsReloadCount or 0) + 1 end
+  if completedPhase == "critical_repair" or completedPhase == "part_batch_rollback"
+    or completedPhase == "part_isolation_test"
+  then active.repairReloadCount = (active.repairReloadCount or 0) + 1 end
 
   if completedPhase == "parts" or completedPhase == "part_isolation_test"
     or completedPhase == "part_batch_rollback" or completedPhase == "dna_parts"
@@ -8415,6 +8477,11 @@ local function onUpdate(dtReal, dtSim, dtRaw)
     production.publishProgress(true)
   end
   local updateElapsedMs = math.max(0, (adapter.clock() - updateStarted) * 1000)
+  if runtime.active then
+    runtime.active.maxSingleStep = math.max(runtime.active.maxSingleStep or 0, updateElapsedMs)
+  elseif activeAtFrameStart then
+    activeAtFrameStart.maxSingleStep = math.max(activeAtFrameStart.maxSingleStep or 0, updateElapsedMs)
+  end
   productionModules.performanceMetrics.record(runtime.performanceTelemetry, "onUpdate", updateElapsedMs)
   local mode = runtime.lineup.current and runtime.lineup.current.active and "race"
     or runtime.state.busy and "busy" or "idle"
