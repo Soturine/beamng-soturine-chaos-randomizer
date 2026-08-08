@@ -285,6 +285,7 @@ local function create(options)
       longitudinalSpacing = tonumber(options.longitudinalSpacing) or 8,
       lateralSpacing = tonumber(options.lateralSpacing) or 5,
       safetyMargin = tonumber(options.safetyMargin) or 1.5,
+      previewEnabled = options.previewEnabled ~= false,
       actionSettings = {
         chaos = options.chaos,
         contentFilter = options.contentFilter,

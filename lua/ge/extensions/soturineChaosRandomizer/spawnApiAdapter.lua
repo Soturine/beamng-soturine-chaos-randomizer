@@ -280,7 +280,37 @@ end
 local function drawPreview(placements)
   if debugDrawer == nil or type(ColorF) ~= "function" then return false end
   for _, placement in ipairs(placements or {}) do
-    pcall(function() debugDrawer:drawSphere(vector(placement.position), 0.6, ColorF(0.1, 0.8, 1, 0.65)) end)
+    pcall(function()
+      local palette = {
+        player = {0.2, 0.7, 1}, planned = {0.7, 0.7, 0.7}, generating = {1, 0.72, 0.12},
+        ready = {0.2, 0.9, 0.35}, ready_with_warnings = {0.95, 0.65, 0.15}, failed = {1, 0.2, 0.2},
+      }
+      local rgb = palette[placement.visual] or palette.planned
+      local color = ColorF(rgb[1], rgb[2], rgb[3], 0.8)
+      local position = vector(placement.position)
+      local forward = placement.forward or {x = 0, y = 1, z = 0}
+      local width = tonumber(placement.dimensions and placement.dimensions.width) or 2
+      local length = tonumber(placement.dimensions and placement.dimensions.length) or 4.8
+      local fx, fy = tonumber(forward.x) or 0, tonumber(forward.y) or 1
+      local magnitude = math.max(0.0001, math.sqrt(fx * fx + fy * fy))
+      fx, fy = fx / magnitude, fy / magnitude
+      local rx, ry = fy, -fx
+      local function point(longitudinal, lateral, z)
+        return vector({x = placement.position.x + fx * longitudinal + rx * lateral,
+          y = placement.position.y + fy * longitudinal + ry * lateral,
+          z = placement.position.z + (z or 0.1)})
+      end
+      local a, b = point(length * 0.5, width * 0.5), point(length * 0.5, -width * 0.5)
+      local c, d = point(-length * 0.5, -width * 0.5), point(-length * 0.5, width * 0.5)
+      debugDrawer:drawSphere(position, 0.35, color)
+      debugDrawer:drawLine(a, b, color); debugDrawer:drawLine(b, c, color)
+      debugDrawer:drawLine(c, d, color); debugDrawer:drawLine(d, a, color)
+      debugDrawer:drawLine(position, point(length * 0.65, 0, 0.25), color)
+      if type(placement.label) == "string" and type(ColorI) == "function" then
+        debugDrawer:drawTextAdvanced(point(0, 0, 1.2), placement.label, color,
+          true, false, ColorI(0, 0, 0, 210), false, true)
+      end
+    end)
   end
   return true
 end

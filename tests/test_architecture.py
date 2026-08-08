@@ -72,7 +72,11 @@ class ProductionModuleGraphTests(unittest.TestCase):
             main.index("local function recordReplacementCandidate"):
             main.index("local function issueReplacement")
         ]
-        self.assertNotIn("adapter.enterVehicle", candidate_block)
+        self.assertIn("productionModules.raceFocusGuard.restore", candidate_block)
+        self.assertIn("playerVehicleId = active.lineupPlayerVehicleId", candidate_block)
+        self.assertIn("candidateVehicleId = result.vehicleId", candidate_block)
+        self.assertEqual(candidate_block.count("adapter.enterVehicle"), 1)
+        self.assertIn("enterVehicle = adapter.enterVehicle", candidate_block)
         self.assertNotIn("lineupFocusSwitchInFlight", candidate_block)
 
 

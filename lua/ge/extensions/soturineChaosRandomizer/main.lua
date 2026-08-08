@@ -52,6 +52,7 @@ local productionModules = {
   userDataMigration = require("ge/extensions/soturineChaosRandomizer/userDataMigration"),
   raceManager = require("ge/extensions/soturineChaosRandomizer/raceManager"),
   raceFocusGuard = require("ge/extensions/soturineChaosRandomizer/raceFocusGuard"),
+  racePreview = require("ge/extensions/soturineChaosRandomizer/racePreview"),
   lineupSchema = require("ge/extensions/soturineChaosRandomizer/lineupSchema"),
   lineupStorage = require("ge/extensions/soturineChaosRandomizer/lineupStorage"),
   managedRegistry = require("ge/extensions/soturineChaosRandomizer/managedVehicleRegistry"),
@@ -134,6 +135,7 @@ local runtime = {
   managedVehicles = productionModules.managedRegistry.create(32),
   domainOperations = productionModules.domainOperations.create(),
   spawnDirector = {preview = nil, run = nil, lastResult = nil},
+  racePreview = nil,
   aiDirector = productionModules.aiDirector.create(32),
   destination = productionModules.destinationMarker.create(),
   aiRoute = productionModules.routePlanner.create(16),
@@ -377,6 +379,7 @@ local function publicState()
       varietyRules = util.deepCopy(runtime.lineup.current.varietyRules),
       stagingPreview = util.deepCopy(runtime.lineup.current.stagingPreview),
       placementPreview = util.deepCopy(runtime.lineup.current.placementPreview),
+      worldPreview = util.deepCopy(runtime.racePreview),
       summary = productionModules.raceManager.summary(runtime.lineup.current), competitors = {},
     }
     for _, competitor in ipairs(runtime.lineup.current.competitors or {}) do
@@ -1276,6 +1279,16 @@ local function finishOperation(success, code, message, details, terminalState)
         competitor.placementState = "unavailable"
       end
     end
+    if accepted and competitor and type(active.vehicleId) == "number" then
+      local dimensions = productionModules.spawnAdapter.vehicleDimensions(
+        active.vehicleId, active.targetGeneration or 0
+      )
+      if type(dimensions) == "table" then
+        dimensions.source = "actual_vehicle_bounds"
+        competitor.previewDimensions = util.deepCopy(dimensions)
+      end
+    end
+    productionModules.racePreview.update(runtime.racePreview, lineup)
     if active.backgroundTarget and type(active.lineupPlayerVehicleId) == "number" then
       local focused, focusReason = adapter.enterVehicle(active.lineupPlayerVehicleId)
       if not focused then
@@ -6735,6 +6748,7 @@ local function onClientEndMission()
   productionModules.destinationMarker.clear(runtime.destination)
   productionModules.routePlanner.clear(runtime.aiRoute)
   runtime.spawnDirector.preview = nil
+  runtime.racePreview = nil
   if runtime.spawnDirector.run then runtime.spawnDirector.run.active = false end
   production.controlManagedAI("reset")
 end
@@ -6830,6 +6844,7 @@ function production.cancelRaceGeneration(reason)
   if not lineup then return false end
   reason = reason or "Race generation cancelled by user"
   runtime.lineup.pendingNext = false
+  runtime.racePreview = nil
   productionModules.raceManager.cancel(lineup, reason)
   lineup.removeAcceptedOnCancel = lineup.settings and lineup.settings.retainAcceptedOnCancel == false
   if runtime.active and runtime.active.domain == "race" then
@@ -6945,6 +6960,22 @@ function production.createChaosLineup(options)
   for index, competitor in ipairs(lineup.competitors) do
     competitor.stagingPlacement = util.deepCopy(staging.placements[index])
   end
+  local playerPlacement
+  if playerOk and type(playerVehicleId) == "number" then
+    local positionOk, position = productionModules.spawnAdapter.objectPosition(playerVehicleId)
+    local forwardOk, forward = productionModules.spawnAdapter.playerForward()
+    local playerDimensions = productionModules.spawnAdapter.vehicleDimensions(playerVehicleId, 0)
+    if positionOk then
+      playerPlacement = {
+        position = position, forward = forwardOk and forward or frame.forward,
+        normal = {x = 0, y = 0, z = 1}, dimensions = playerDimensions,
+      }
+    end
+  end
+  runtime.racePreview = productionModules.racePreview.build(
+    "generation_staging", staging, lineup, playerPlacement,
+    lineup.settings.previewEnabled ~= false
+  )
   runtime.lineup.current = lineup
   lineup.generationState = "lineup_processing"
   runtime.lineup.pendingNext = true
@@ -7265,6 +7296,16 @@ function production.previewLineupSpawn(options)
   if not plan then setResult(false, reason, "Spawn preview is unsafe: " .. tostring(reason)); publishState(); return false end
   plan.competitors = competitors
   runtime.spawnDirector.preview = plan
+  local previewLineup = {competitors = competitors}
+  local playerPlacement
+  if lineup and type(lineup.playerVehicleId) == "number" then
+    local positionOk, position = productionModules.spawnAdapter.objectPosition(lineup.playerVehicleId)
+    local forwardOk, forward = productionModules.spawnAdapter.playerForward()
+    if positionOk then playerPlacement = {position = position, forward = forwardOk and forward or frame.forward} end
+  end
+  runtime.racePreview = productionModules.racePreview.build(
+    "final_grid", plan, previewLineup, playerPlacement, true
+  )
   if lineup then
     lineup.placementPreview = {
       status = "preview_ready", count = #plan.placements,
@@ -7305,6 +7346,7 @@ function production.startLineupSpawn(options)
   if runtime.lineup.current then runtime.lineup.current.placementState = "placing" end
   runtime.spawnDirector.run = plan
   runtime.spawnDirector.preview = nil
+  runtime.racePreview = nil
   setResult(true, "spawn_director_started", "Spawn Director started sequential spawning")
   publishState()
   return true
@@ -7575,6 +7617,7 @@ end
 
 function production.cancelLineupSpawn()
   runtime.spawnDirector.preview = nil
+  runtime.racePreview = nil
   local run = runtime.spawnDirector.run
   if run then
     run.active = false
@@ -8319,7 +8362,11 @@ local function onUpdate(dtReal, dtSim, dtRaw)
   end
 
   local previewStarted = adapter.clock()
-  if runtime.spawnDirector.preview then productionModules.spawnAdapter.drawPreview(runtime.spawnDirector.preview.placements) end
+  if runtime.racePreview and runtime.racePreview.enabled then
+    productionModules.spawnAdapter.drawPreview(productionModules.racePreview.placements(runtime.racePreview))
+  elseif runtime.spawnDirector.preview then
+    productionModules.spawnAdapter.drawPreview(runtime.spawnDirector.preview.placements)
+  end
   productionModules.destinationMarker.draw(runtime.destination)
   productionModules.performanceMetrics.record(runtime.performanceTelemetry, "preview", math.max(0, (adapter.clock() - previewStarted) * 1000))
   if runtime.stress and runtime.stress.active
@@ -8702,6 +8749,7 @@ M.onExtensionUnloaded = function()
   if runtime.active then vehicleRecovery.cleanup(runtime.active) end
   runtime.active = nil
   runtime.spawnDirector.preview = nil
+  runtime.racePreview = nil
   if runtime.spawnDirector.run then runtime.spawnDirector.run.active = false end
   productionModules.destinationMarker.clear(runtime.destination)
   productionModules.routePlanner.clear(runtime.aiRoute)

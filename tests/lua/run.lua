@@ -52,6 +52,7 @@ local lineupSchema = require("ge/extensions/soturineChaosRandomizer/lineupSchema
 local lineupManager = require("ge/extensions/soturineChaosRandomizer/lineupManager")
 local raceManager = require("ge/extensions/soturineChaosRandomizer/raceManager")
 local raceFocusGuard = require("ge/extensions/soturineChaosRandomizer/raceFocusGuard")
+local racePreview = require("ge/extensions/soturineChaosRandomizer/racePreview")
 local lineupStorage = require("ge/extensions/soturineChaosRandomizer/lineupStorage")
 local managedVehicleRegistry = require("ge/extensions/soturineChaosRandomizer/managedVehicleRegistry")
 local spawnDirector = require("ge/extensions/soturineChaosRandomizer/spawnDirector")
@@ -6259,6 +6260,67 @@ tests.v074_race_focus_slots_and_dna_are_isolated = function()
   equal(domainOperations.ownership(domains, 101).removed, nil)
 end
 
+tests.v074_race_previews_are_read_only_structured_and_generation_scoped = function()
+  local worldMutations = {spawn = 0, delete = 0, focus = 0, physics = 0}
+  local plan = {
+    options = {
+      mode = "Grid", requestedMode = "Grid", headingMode = "road",
+      spacingMode = "automatic", resolvedLateralSpacing = 3.25,
+      resolvedLongitudinalSpacing = 6.5, safetyMargin = 1.75,
+      spawnVehicle = function() worldMutations.spawn = worldMutations.spawn + 1 end,
+      deleteVehicle = function() worldMutations.delete = worldMutations.delete + 1 end,
+      enterVehicle = function() worldMutations.focus = worldMutations.focus + 1 end,
+      setPhysics = function() worldMutations.physics = worldMutations.physics + 1 end,
+    },
+    placements = {
+      {position = {x = 10, y = 20, z = 1}, forward = {x = 1, y = 0, z = 0}},
+      {position = {x = 10, y = 27, z = 1}, forward = {x = 1, y = 0, z = 0}},
+    },
+  }
+  local lineup = {competitors = {
+    {name = "Alpha", status = "selecting_vehicle", currentVehicleId = 101,
+      previewDimensions = {width = 2.2, length = 5.1, source = "actual_vehicle_bounds"}},
+    {name = "Bravo", status = "planned", currentVehicleId = 102},
+  }}
+  local player = {
+    position = {x = 3, y = 4, z = 1}, forward = {x = 0, y = 1, z = 0},
+    dimensions = {width = 2, length = 4.5, source = "actual_vehicle_bounds"}, vehicleId = 7,
+  }
+  local staging = racePreview.build("generation_staging", plan, lineup, player, true)
+  equal(staging.kind, "generation_staging")
+  equal(staging.heading, "road")
+  equal(staging.formation, "Grid")
+  equal(staging.spacing.lateral, 3.25)
+  equal(staging.spacing.longitudinal, 6.5)
+  equal(#staging.slots, 3)
+  equal(staging.slots[1].slot, 0)
+  equal(staging.slots[1].visual, "player")
+  equal(staging.slots[2].bounds.source, "actual_vehicle_bounds")
+  equal(staging.slots[3].bounds.source, "estimated_fallback")
+  truthy(not util.deepEqual(staging.slots[2].transform, staging.slots[3].transform))
+  equal(util.stableValue(staging):find("vehicleId", 1, true), nil)
+  equal(worldMutations.spawn + worldMutations.delete + worldMutations.focus + worldMutations.physics, 0)
+
+  lineup.competitors[2].status = "failed"
+  lineup.competitors[2].previewDimensions = {width = 2.5, length = 6, source = "actual_vehicle_bounds"}
+  truthy(racePreview.update(staging, lineup))
+  equal(staging.slots[3].visual, "failed")
+  equal(staging.slots[3].bounds.source, "actual_vehicle_bounds")
+  local placements = racePreview.placements(staging)
+  equal(#placements, 3)
+  equal(placements[3].visual, "failed")
+
+  local finalGrid = racePreview.build("final_grid", plan, lineup, player, true)
+  equal(finalGrid.kind, "final_grid")
+  equal(staging.kind, "generation_staging")
+  truthy(racePreview.clear(staging, "race_cancelled") ~= nil)
+  equal(staging.enabled, false)
+  equal(staging.clearedReason, "race_cancelled")
+  equal(#staging.slots, 0)
+  equal(#racePreview.placements(staging), 0)
+  equal(worldMutations.spawn + worldMutations.delete + worldMutations.focus + worldMutations.physics, 0)
+end
+
 tests.v073_race_slots_cannot_reuse_accepted_physical_vehicles = function()
   local state = domainOperations.create()
   local slotOne = assert(domainOperations.begin(state, {
@@ -7381,6 +7443,12 @@ local v074Required = {
   {"race_failure_does_not_block_later_slot", tests.v074_race_focus_slots_and_dna_are_isolated},
   {"race_accepted_slot_survives_other_cleanup", tests.v074_race_focus_slots_and_dna_are_isolated},
   {"race_counts_reflect_ready_physical_slots", tests.v074_race_focus_slots_and_dna_are_isolated},
+  {"race_generation_preview_is_structured", tests.v074_race_previews_are_read_only_structured_and_generation_scoped},
+  {"race_final_grid_preview_is_distinct", tests.v074_race_previews_are_read_only_structured_and_generation_scoped},
+  {"race_preview_has_zero_world_mutations", tests.v074_race_previews_are_read_only_structured_and_generation_scoped},
+  {"race_preview_omits_vehicle_ids", tests.v074_race_previews_are_read_only_structured_and_generation_scoped},
+  {"race_preview_uses_fallback_then_actual_bounds", tests.v074_race_previews_are_read_only_structured_and_generation_scoped},
+  {"race_preview_cleanup_is_generation_scoped", tests.v074_race_previews_are_read_only_structured_and_generation_scoped},
 }
 
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")
