@@ -80,6 +80,7 @@ local productionModules = {
   cooperativeScheduler = require("ge/extensions/soturineChaosRandomizer/runtime/cooperativeScheduler"),
   stabilityLimits = require("ge/extensions/soturineChaosRandomizer/runtime/stabilityLimits"),
   safetyGate = require("ge/extensions/soturineChaosRandomizer/safetyGate"),
+  safetyModel = require("ge/extensions/soturineChaosRandomizer/runtime/safetyModel"),
 }
 
 local M = {}
@@ -2710,7 +2711,24 @@ production.safetyEvidence = function(active, snapshot)
     slotCurrent = slotCurrent,
     stableSamples = stableSamples,
     readStatus = snapshot and (snapshot.readStatus or "ready"),
+    objectExists = tonumber(active.vehicleId) ~= nil,
+    ownershipCurrent = active.targetOwnershipConfirmed == true
+      or active.operationCurrentTarget ~= nil,
+    bindConverged = stableSamples >= 2,
+    treeConverged = stableSamples >= 2 and type(snapshot) == "table"
+      and snapshot.coherentTargetRead ~= false,
+    bindDeadlineExpired = false,
+    convergenceDeadlineExpired = false,
   }
+end
+
+production.layerSafety = function(active, result, snapshot)
+  local policy = util.shallowMerge(active.policy or {}, {
+    allowPartialResult = active.settings and active.settings.allowPartialResult == true,
+  })
+  return productionModules.safetyModel.layer(
+    result, policy, production.safetyEvidence(active, snapshot)
+  )
 end
 
 production.unknownSafetyResult = function(reason, detail)
@@ -2764,6 +2782,20 @@ production.evaluateFinalSafety = function(active, result, continuation)
       "Safety evidence remained incomplete after bounded readback; the partial-result policy preserved the vehicle."
     return true, result
   end
+  if action == "accept_warning" then
+    active.nonFatalPartial = true
+    active.warnings[#active.warnings + 1] =
+      "The stable result was accepted with warnings by the selected chaos policy."
+    return true, result
+  end
+  if action == "policy_rejected" then
+    return false, adapter.errorValue("rejected_by_chaos_policy",
+      "The stable result does not satisfy the selected chaos policy", {
+        runtimeIntegrity = result.runtimeIntegrity,
+        drivability = result.drivability,
+        chaosAcceptance = result.chaosAcceptance,
+      })
+  end
   if action == "unconfirmed" then
     return false, adapter.errorValue("safety_confirmation_unavailable",
       "Safety evidence remained unknown after bounded readback", {
@@ -2800,6 +2832,7 @@ local function validateFinalVehicle(active, continuation)
   })
   if not active.safetyBaseline then active.safetyBaseline = util.deepCopy(graph) end
   local result = validator.validateGraph(graph, active.safetyBaseline, active.policy.protectCriticalParts)
+  result = production.layerSafety(active, result, snapshot)
   active.safetyResult = result
   diagnosticsModule.write(runtime.diagnostics, result.valid and "D" or "E", "safety_validation", {
     phase = "validation",
@@ -3754,6 +3787,7 @@ processMutationPass = function(active)
   })
   if not active.safetyBaseline then active.safetyBaseline = util.deepCopy(graph) end
   local safetyResult = validator.validateGraph(graph, active.safetyBaseline, active.policy.protectCriticalParts)
+  safetyResult = production.layerSafety(active, safetyResult, snapshot)
   active.safetyResult = safetyResult
   local safetyAction, safetyActionDetails = productionModules.safetyGate.observe(
     active.partsSafetyGate, safetyResult, runtime.time.realMonotonicTime,
@@ -3775,6 +3809,18 @@ processMutationPass = function(active)
     active.nonFatalPartial = true
     active.warnings[#active.warnings + 1] =
       "Parts safety remained uncertain; partial-result policy preserved the bounded result."
+  elseif safetyAction == "accept_warning" then
+    active.nonFatalPartial = true
+    active.warnings[#active.warnings + 1] =
+      "The stable parts result was accepted with warnings by the selected chaos policy."
+  elseif safetyAction == "policy_rejected" then
+    failActive(adapter.errorValue("rejected_by_chaos_policy",
+      "The stable parts result does not satisfy the selected chaos policy", {
+        runtimeIntegrity = safetyResult.runtimeIntegrity,
+        drivability = safetyResult.drivability,
+        chaosAcceptance = safetyResult.chaosAcceptance,
+      }), false, "validation")
+    return
   end
   local protectionFailures = safetyResult.failures
   if safetyAction == "invalid_confirmed" then
@@ -3806,7 +3852,8 @@ processMutationPass = function(active)
     failActive(adapter.errorValue("critical_state_invalid", "Critical or required parts are missing after reload", {
       failures = protectionFailures,
       criticalRepairReason = criticalRepairReason,
-    }), true, "validation")
+      destructiveRollbackAuthorized = safetyResult.destructiveRollbackAuthorized == true,
+    }), safetyResult.destructiveRollbackAuthorized == true, "validation")
     return
   end
   vehicleStabilizer.observeTreeIssue(active.treeStabilizer, nil)
@@ -8062,7 +8109,10 @@ production.onFluidProbe = function(evidence)
   end
   local assessment = productionModules.engineFluidGuard.assess(evidence, guard.classification)
   active.engineFluidReport = assessment
-  if assessment.valid == false then
+  local fluidPermissive = active.policy and (active.policy.allowMissingParts == true
+    or tonumber(active.policy.slider) == 100)
+    or active.settings and active.settings.allowPartialResult == true
+  if assessment.valid == false and not fluidPermissive then
     guard.failurePending = adapter.errorValue(
       "engine_fluid_safety_failed",
       "Direct vehicle evidence found an unsafe engine-fluid state; no unverified runtime setter was used",
@@ -8071,12 +8121,14 @@ production.onFluidProbe = function(evidence)
   else
     guard.complete = true
     guard.resumePending = true
-    active.readBackStatus = assessment.status == "safe" and "engine_fluid_safe" or "engine_fluid_uncertain"
-    if assessment.status ~= "safe" then
+    active.readBackStatus = assessment.fluidState == "FLUID_OK" and "engine_fluid_safe" or "engine_fluid_uncertain"
+    if assessment.fluidState ~= "FLUID_OK" then
       active.engineFluidUncertain = true
       active.nonFatalPartial = true
       active.warnings[#active.warnings + 1] =
-        "Engine-fluid runtime evidence was incomplete; this result is preserved without a fluid-safety claim."
+        (assessment.fluidState == "UNSAFE_CONFIRMED"
+          and "The selected chaos policy accepted a confirmed unsafe fluid state with a warning."
+          or "Engine-fluid runtime evidence was incomplete; this result is preserved without a fluid-safety claim.")
     end
   end
   diagnosticsModule.write(runtime.diagnostics,
@@ -8113,6 +8165,7 @@ production.processEngineFluidGuard = function()
     active.nonFatalPartial = true
     active.engineFluidReport = {
       valid = nil, status = "unavailable", classification = guard.classification,
+      fluidState = "UNKNOWN",
       source = "bounded_vehicle_lua_probe", attempts = guard.attempts,
       lastEvidence = util.deepCopy(guard.lastEvidence), lastError = util.deepCopy(guard.lastError),
     }

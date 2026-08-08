@@ -8,12 +8,24 @@ local DECISIONS = {
   UNKNOWN_OR_PENDING = "UNKNOWN_OR_PENDING",
 }
 
+local FLUID_STATES = {
+  FLUID_OK = "FLUID_OK",
+  UNSAFE_CONFIRMED = "UNSAFE_CONFIRMED",
+  UNKNOWN = "UNKNOWN",
+  NOT_APPLICABLE = "NOT_APPLICABLE",
+}
+
 local function withDecision(report)
   if report.valid == false then report.decision = DECISIONS.INVALID_CONFIRMED
   elseif report.valid == nil or report.status == "uncertain" or report.status == "unavailable"
     or report.status == "combustion_engine_runtime_missing"
   then report.decision = DECISIONS.UNKNOWN_OR_PENDING
   else report.decision = DECISIONS.VALID end
+  report.fluidState = report.status == "not_applicable" and FLUID_STATES.NOT_APPLICABLE
+    or report.valid == false and FLUID_STATES.UNSAFE_CONFIRMED
+    or report.valid == nil and FLUID_STATES.UNKNOWN
+    or report.status == "uncertain" and FLUID_STATES.UNKNOWN
+    or FLUID_STATES.FLUID_OK
   return report
 end
 
@@ -154,5 +166,6 @@ M.protectTuning = protectTuning
 M.assess = assess
 M.signature = signature
 M.DECISIONS = DECISIONS
+M.FLUID_STATES = FLUID_STATES
 
 return M

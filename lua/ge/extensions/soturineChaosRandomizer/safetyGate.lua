@@ -35,7 +35,8 @@ local function observe(state, result, now, allowPartial)
     state.attempts = 0
     state.firstAttemptAt = nil
     state.terminal = true
-    return "accept", result
+    if result.chaosAcceptance == "REJECT_BY_POLICY" then return "policy_rejected", result end
+    return result.chaosAcceptance == "ACCEPT_WITH_WARNING" and "accept_warning" or "accept", result
   end
   if decision == DECISIONS.INVALID_CONFIRMED then
     state.terminal = true

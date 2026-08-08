@@ -19,6 +19,7 @@ local compatibility = require("ge/extensions/soturineChaosRandomizer/compatibili
 local pathIdentity = require("ge/extensions/soturineChaosRandomizer/pathIdentity")
 local registryReadiness = require("ge/extensions/soturineChaosRandomizer/registryReadiness")
 local safetyGate = require("ge/extensions/soturineChaosRandomizer/safetyGate")
+local safetyModel = require("ge/extensions/soturineChaosRandomizer/runtime/safetyModel")
 local crc32 = require("ge/extensions/soturineChaosRandomizer/crc32")
 local failureAttribution = require("ge/extensions/soturineChaosRandomizer/failureAttribution")
 local energyStorageGuard = require("ge/extensions/soturineChaosRandomizer/energyStorageGuard")
@@ -3739,7 +3740,8 @@ tests.v063_tuning_pipeline_reaches_fixed_point_after_multiple_waves = function()
   pipelineHarness.driveActive(harness, 256)
   local state = harness.main.requestState()
   truthy(not state.busy, "tuning waves remained Busy at " .. tostring(state.lifecyclePhase))
-  equal(state.lastResult.code, "completed")
+  equal(state.lastResult.code, "scramble_partial")
+  equal(state.lastResult.details.terminalOutcome, "SUCCESS_WITH_WARNING")
   local tuningWrites = 0
   for _, write in ipairs(harness.writes) do if write.kind == "tuning" then tuningWrites = tuningWrites + 1 end end
   equal(tuningWrites, 3)
@@ -6317,6 +6319,60 @@ tests.v073_safety_gate_requires_current_stable_evidence_and_is_bounded = functio
   equal(action, "accept_partial")
 end
 
+tests.v074_safety_v2_separates_integrity_drivability_policy_and_fluids = function()
+  local functionalFailure = {
+    decision = "INVALID_CONFIRMED", valid = false, status = "unsafe",
+    classification = "drivable_combustion",
+    failures = {{reason = "required_role_missing:wheel"}}, warnings = {}, missingParts = {},
+  }
+  local converged = {
+    objectExists = true, ownershipCurrent = true, bindConverged = true, treeConverged = true,
+  }
+  local maximum = safetyModel.layer(functionalFailure, {
+    chaos = 100, allowMissingParts = true, protectCriticalParts = false,
+  }, converged)
+  equal(maximum.runtimeIntegrity, "HEALTHY")
+  equal(maximum.drivability, "UNDRIVABLE")
+  equal(maximum.chaosAcceptance, "ACCEPT_WITH_WARNING")
+  equal(maximum.decision, "VALID")
+  truthy(maximum.valid)
+
+  local strict = safetyModel.layer(functionalFailure, {
+    chaos = 20, allowMissingParts = false, allowPartialResult = false, protectCriticalParts = true,
+  }, converged)
+  equal(strict.runtimeIntegrity, "HEALTHY")
+  equal(strict.drivability, "UNDRIVABLE")
+  equal(strict.chaosAcceptance, "REJECT_BY_POLICY")
+  equal(strict.decision, "INVALID_CONFIRMED")
+  equal(strict.destructiveRollbackAuthorized, false)
+  local gate = safetyGate.create()
+  equal(safetyGate.observe(gate, strict, 0, false), "invalid_confirmed")
+
+  local missingObject = safetyModel.layer(functionalFailure, {chaos = 100}, {
+    objectExists = false, ownershipCurrent = true, bindConverged = true, treeConverged = true,
+  })
+  equal(missingObject.runtimeIntegrity, "INVALID_CONFIRMED")
+  equal(missingObject.decision, "INVALID_CONFIRMED")
+
+  local transient = safetyModel.layer({
+    decision = "UNKNOWN_OR_PENDING", valid = nil, status = "pending", classification = "unknown",
+  }, {chaos = 100}, {
+    objectExists = true, ownershipCurrent = true, bindConverged = false, treeConverged = false,
+  })
+  equal(transient.runtimeIntegrity, "UNKNOWN_OR_PENDING")
+  equal(transient.drivability, "UNKNOWN")
+  equal(transient.decision, "UNKNOWN_OR_PENDING")
+
+  equal(engineFluidGuard.assess(nil, "drivable_combustion").fluidState, "UNKNOWN")
+  equal(engineFluidGuard.assess({available = false}, "drivable_combustion").fluidState, "UNKNOWN")
+  equal(engineFluidGuard.assess({available = true, engines = {}}, "drivable_combustion").fluidState, "UNKNOWN")
+  equal(engineFluidGuard.assess({available = true, engines = {{oilMass = 0}}}, "drivable_combustion").fluidState,
+    "UNSAFE_CONFIRMED")
+  equal(engineFluidGuard.assess({available = true, engines = {{oilMass = 4}}}, "drivable_combustion").fluidState,
+    "FLUID_OK")
+  equal(engineFluidGuard.assess(nil, "prop").fluidState, "NOT_APPLICABLE")
+end
+
 tests.v067_race_policy_inventory_and_roundtrip = function()
   local expected = {
     "avoidDuplicateModels", "avoidDuplicateConfigurations", "avoidDuplicateFamilies",
@@ -7205,6 +7261,11 @@ local v074Required = {
   {"random_car_external_removal_is_diagnostic", tests.v074_replacement_cardinality_uses_expected_sets_and_preserves_external_ids},
   {"random_car_external_addition_is_not_owned", tests.v074_replacement_cardinality_uses_expected_sets_and_preserves_external_ids},
   {"scramble_owned_identity_ignores_external_delta", tests.v074_scramble_cardinality_is_owned_identity_not_global_delta},
+  {"safety_runtime_integrity_axis", tests.v074_safety_v2_separates_integrity_drivability_policy_and_fluids},
+  {"safety_drivability_axis", tests.v074_safety_v2_separates_integrity_drivability_policy_and_fluids},
+  {"safety_policy_acceptance_axis", tests.v074_safety_v2_separates_integrity_drivability_policy_and_fluids},
+  {"safety_unknown_is_non_destructive", tests.v074_safety_v2_separates_integrity_drivability_policy_and_fluids},
+  {"fluid_states_are_four_way", tests.v074_safety_v2_separates_integrity_drivability_policy_and_fluids},
 }
 
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")
