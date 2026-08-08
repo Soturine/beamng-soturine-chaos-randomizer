@@ -29,6 +29,11 @@ Back, focus, and disabled/empty behavior follow the host component. Compact mode
 uses per-tab internal metrics and content changes. The AppHost retains authority
 over the outer frame, UI scale, alignment, and safe zones.
 
+`ResizeObserver` measures the app container and assigns `scr-width-narrow`,
+`scr-width-medium`, or `scr-width-wide` across the required 320–720 px range.
+Component/CSS layout follows those classes; viewport media queries do not decide
+HUD content geometry.
+
 `app.vue` imports one packaged plain-CSS asset. There is no SCSS runtime source,
 Sass build step, remote asset, or source map in the mod ZIP. Graph/style gates
 validate both source and packaged topology.

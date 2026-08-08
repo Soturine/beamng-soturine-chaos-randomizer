@@ -13,8 +13,9 @@ native Runtime UI Vue app.
   one owned transaction.
 - **Garage** stores, compares, imports, exports, mutates, and restores Vehicle
   DNA with explicit compatibility checks.
-- **Race** generates isolated competitor slots, places owned vehicles, and
-  controls only their managed AI.
+- **Race** previews generation and final-grid footprints without world mutation,
+  generates isolated competitor slots, places owned vehicles, and controls only
+  their managed AI.
 - Reproducible seeds, locks, progress, diagnostics, cancellation, and Undo are
   available throughout the app.
 
@@ -23,8 +24,9 @@ native Runtime UI Vue app.
 The app has four destinations: Chaos, Garage, Race, and Settings. It uses
 BeamNG Runtime UI components, controller/UINav navigation, an actual compact
 presentation, localized status messages, and technical identifiers only in
-explicit diagnostic views. Local artwork and CSS are packaged with the mod;
-runtime access does not depend on a CDN or `node_modules`.
+explicit diagnostic views. Layout responds to measured app width while BeamNG
+owns outer placement. Local artwork and CSS are packaged with the mod; runtime
+access does not depend on a CDN or `node_modules`.
 
 ## Installation
 

@@ -140,14 +140,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version="$(tr -d '\r\n' < VERSION)"
-          notes="docs/RELEASE NOTES/RELEASE_NOTES_${version}.md"
+          notes="docs/releases/v${version}.md"
           test -f "$notes"
           gh release create "$GITHUB_REF_NAME" \
             "dist/soturine_chaos_randomizer_${version}.zip" \
             "dist/soturine_chaos_randomizer_${version}.zip.sha256" \
             "dist/soturine_chaos_randomizer_${version}.manifest.json" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "v${version} — Live Rescue: Runtime UI, Full Random and Race Stability" \
+            --title "v${version} — Live-derived stabilization" \
             --notes-file "$notes" \
             --verify-tag \
             --prerelease \

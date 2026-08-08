@@ -16,6 +16,8 @@ One bounded heavy job is scheduled at a time. Stale generation/token callbacks
 return before mutation. An accepted slot becomes managed and is removed from
 temporary ownership. Failure, retry, cancel, and cleanup affect only the
 operation's still-owned temporaries; accepted competitors in other slots remain.
+Any focus change caused by background spawn is restored to the player
+immediately; the candidate remains addressable only by its proven slot-owned ID.
 
 ## Player and spectator semantics
 
@@ -31,6 +33,15 @@ Best Fit and the directional/line/grid/circle/custom plans perform ground,
 slope, heading, distance, and spacing checks. Confirmation moves the already
 managed exact IDs and performs stable position readback; it does not spawn
 replacement clones.
+
+## World preview
+
+Generation preview and final-grid preview are distinct overlays. Generation
+preview shows where the player and planned slots will stage before an opponent
+is spawned; final-grid preview shows destination footprints before teleport.
+Both use pure placement plans and debug drawing only. Controls cover origin,
+heading source, formation, spacing, safety margin, and custom position. Preview
+cleanup occurs on cancel, map change, and extension unload.
 
 ## Drive and domain isolation
 

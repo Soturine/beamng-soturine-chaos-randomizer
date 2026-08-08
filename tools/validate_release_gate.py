@@ -39,10 +39,18 @@ MANIFEST_STATUS_KEYS = {
 
 def _release_documents(root: Path, version: str) -> tuple[Path, Path]:
     documentation_version = str(release_identity(version)["documentationVersion"])
-    report = root / "docs" / "testing" / f"v{documentation_version}" / "LIVE_TEST_REPORT.md"
-    notes = root / "docs" / "RELEASE NOTES" / f"RELEASE_NOTES_{version}.md"
+    report_candidates = (
+        root / "docs" / "testing" / f"v{documentation_version}" / "LIVE_RESULTS.md",
+        root / "docs" / "testing" / f"v{documentation_version}" / "LIVE_TEST_REPORT.md",
+    )
+    notes_candidates = (
+        root / "docs" / "releases" / f"v{version}.md",
+        root / "docs" / "RELEASE NOTES" / f"RELEASE_NOTES_{version}.md",
+    )
+    report = next((path for path in report_candidates if path.is_file()), report_candidates[0])
+    notes = next((path for path in notes_candidates if path.is_file()), notes_candidates[0])
     if not report.is_file():
-        raise ReleaseGateError(f"Live report does not exist: {report}")
+        raise ReleaseGateError(f"Live results do not exist: {report}")
     if not notes.is_file():
         raise ReleaseGateError(f"Release notes do not exist: {notes}")
     return report, notes

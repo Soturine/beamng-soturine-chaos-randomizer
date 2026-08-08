@@ -35,7 +35,7 @@ No profile assumes four wheels, a single motor, one storage device, a gearbox, a
 
 The baseline graph is captured from the loaded base state. A new graph is built after every verified parts reload and again before completion. Validation always rejects missing required/core slots and loss of required-role counts. With protection enabled, it also rejects loss of baseline-proven applicable energy, propulsion, and power-path roles.
 
-Internal results are:
+Runtime integrity results are:
 
 - `safe`: applicable baseline evidence remains present;
 - `uncertain`: no unsafe loss was found, but metadata cannot support a stronger claim;
@@ -43,6 +43,12 @@ Internal results are:
 - `not_applicable`: a prop has no applicable vehicle-function assertion, while structural checks still passed.
 
 An `uncertain` or `not_applicable` result is never described as drivable. Only an interactive BeamNG test with logs can provide gameplay evidence, and the current matrix remains Pending.
+
+The v0.7.4 decision layer additionally reports drivability independently
+(`DRIVABLE`, `PARTIAL`, `UNDRIVABLE`, `UNKNOWN`, or `NA`) and policy acceptance
+(`ACCEPT`, `ACCEPT_WARN`, or `REJECT`). Fluid probes report `FLUID_OK`,
+`UNSAFE_CONFIRMED`, `UNKNOWN`, or `NA`; only confirmed unsafe evidence can make
+the integrity path destructive.
 
 ## Determinism and scope
 

@@ -12,6 +12,10 @@ disclosure. Normal screens use human model, configuration, lock, phase, and
 failure labels; paths and internal keys are restricted to developer/details
 areas.
 
+Responsive decisions use the measured app container width, not the game window.
+The required 320–720 px range maps to narrow, medium, and wide content classes;
+BeamNG AppHost remains the sole owner of persisted outer placement.
+
 ## Selection controls
 
 All dropdown behavior goes through `ScrSelect`, a thin adapter over BeamNG's
@@ -37,6 +41,10 @@ switching tab, locale, Details, or remount recomputes them without accumulating
 observers or timers. BeamNG's AppHost owns the outer saved frame, scalable
 metrics, alignment, and safe areas. The child app does not call a private host
 resize API, so live outer-frame behavior remains an owner validation case.
+
+Chaos compact keeps primary actions, Garage exposes one human DNA summary,
+Race shows total/opponent semantics plus preset/action, and Settings exposes a
+short summary with an explicit open-settings action.
 
 ## Accessibility and input
 

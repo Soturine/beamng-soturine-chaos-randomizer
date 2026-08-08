@@ -11,11 +11,10 @@ only their stated contracts. They do not prove that the published ZIP completed
 gameplay inside BeamNG. `testedGameVersions` therefore remains empty until the
 owner returns complete evidence for the downloaded asset.
 
-`0.39.4 changelog not yet publicly documented at implementation time`
-
-The installed local game reports 0.39.4.0 and was used only to inspect public
-runtime/component contracts and to host the Lua console tests. Official BeamNG
-hotfix notes available on 2026-08-07 documented 0.39.1 through 0.39.3.
+The combined 0.39.3/0.39.4 notes were published after v0.7.3 implementation and
+were reviewed for v0.7.4. The review covered Runtime UI scale/safe-zone/select
+changes, `driveInLane` preservation, empty JBeam description handling,
+non-UTF8 ZIP handling, and the documented Intel D3D12 VRAM/OOM limitation.
 
 ## Version matrix
 
@@ -25,7 +24,7 @@ hotfix notes available on 2026-08-07 documented 0.39.1 through 0.39.3.
 | 0.39.1 | Early 0.39 hotfix baseline | No live claim |
 | 0.39.2 / 0.39.2.1 | Historical owner evidence and prior failures | Historical baseline only |
 | 0.39.3 | HUD scalable metrics, metadata/config fixes, translation fixes, `driveInLane` preservation, known Intel D3D12 VRAM/OOM limitation | Incorporated into design/fixtures; no live claim |
-| 0.39.4 | Primary target | Pending owner validation |
+| 0.39.4 | Primary target; combined official 0.39.3/0.39.4 hotfix review | Pending owner validation |
 
 ## Runtime UI and locales
 
@@ -77,5 +76,5 @@ ownership, operation, and phase. Classification separates
 `engine_renderer_known_issue`, and `unknown`. The cardinality contract applies
 even when a renderer/driver defect is suspected.
 
-See [the v0.7.3 live plan](testing/v0.7.3/LIVE_TEST_PLAN.md) for cases and
-[live results](testing/v0.7.3/LIVE_RESULTS.md) for the current evidence state.
+See [the v0.7.4 live plan](testing/v0.7.4/LIVE_TEST_PLAN.md) for cases and
+[live results](testing/v0.7.4/LIVE_RESULTS.md) for the current evidence state.

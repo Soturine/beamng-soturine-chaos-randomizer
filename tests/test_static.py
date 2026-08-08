@@ -102,7 +102,7 @@ class StaticValidationTests(unittest.TestCase):
         package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
         compatibility = json.loads((ROOT / "COMPATIBILITY.json").read_text(encoding="utf-8"))
         main = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/main.lua").read_text(encoding="utf-8")
-        notes = ROOT / "docs/RELEASE NOTES" / f"RELEASE_NOTES_{version}.md"
+        notes = ROOT / "docs" / "releases" / f"v{version}.md"
         self.assertRegex(version, r"^\d+\.\d+\.\d+$")
         self.assertEqual(app["version"], version)
         self.assertEqual(package["version"], version)

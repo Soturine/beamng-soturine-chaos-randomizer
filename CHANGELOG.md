@@ -2,6 +2,77 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.4] - 2026-08-08
+
+Live-derived stabilization experimental prerelease targeting BeamNG 0.39.4.
+Automated validation is recorded separately; live gameplay remains **Pending
+owner validation** against the downloaded GitHub asset.
+
+### Fixed
+
+- Replaced global world-count inference with transaction-aware expected
+  additions/removals, accepted IDs and ownership evidence for Random Car and
+  same-ID Scramble.
+- Preserved proven commit outcomes through late diagnostics and split Safety
+  into runtime integrity, drivability, chaos acceptance and fluid-evidence
+  states; pending/unknown evidence is non-destructive.
+- Restored player focus immediately after Race background spawn, retained
+  accepted competitors across later slots, contained slot failure and rejected
+  failed or invalid DNA before lineup persistence.
+- Corrected lock classification precedence so specific leaf evidence wins over
+  generic ancestry.
+
+### Changed
+
+- Added read-only generation-staging and final-grid world overlays with
+  footprint, safety margin, heading, slot state and actual/fallback bounds.
+- Made the Vue app responsive to measured AppHost width and simplified Garage,
+  lock management, Race summaries, policy disclosure, compact content and idle
+  status.
+- Added human labels and complete en-US/pt-BR/es-ES catalog entries for new
+  preview, placement, lock and Race presentation.
+
+### Performance
+
+- Bounded reload/readback/repair churn and published purpose-specific counts,
+  durations and longest-step metrics. This is automated evidence, not a live
+  FPS or latency claim.
+
+### Race
+
+- Enforced player/slot focus isolation, accepted-slot physical ownership,
+  slot-local failure, validated ready DNA, policy-aware chaotic acceptance,
+  exclusive staging and physical counters.
+
+### UI
+
+- Covered AppHost widths 320–720 px, 50 compact cycles on all tabs, drawer
+  dismissal, SmartSelect bounds/input, human Garage cards and removal of the
+  persistent idle `Ready` footer.
+
+### Compatibility
+
+- Reviewed the official combined BeamNG 0.39.3/0.39.4 notes, including HUD UI,
+  `BngSmartSelect`, `driveInLane`, JBeam description, ZIP encoding and Intel
+  D3D12 VRAM/OOM notes. BeamNG 0.39.4 remains the primary release target.
+
+### Testing
+
+- Added transaction-interference, Safety decision, reload-budget, Race
+  focus/retention/failure/DNA, preview no-mutation, classifier, app-width and
+  mounted progressive-disclosure regressions.
+
+### Known limitations
+
+- AppHost placement, controller/UINav, safe zones/scaling, renderers,
+  third-party vehicles, gameplay and performance remain live-pending.
+- `main.lua` and `apiAdapter.lua` decomposition remains v0.8.0 debt.
+
+### Live validation status
+
+- 0 executed / 0 passed / 0 failed / 48 pending / 0 blocked.
+- Status: **Pending owner validation**.
+
 ## [0.7.3] - 2026-08-07
 
 Experimental prerelease targeting BeamNG 0.39.4. Automated validation passed;

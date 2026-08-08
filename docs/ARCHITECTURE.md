@@ -36,6 +36,9 @@ temporary, and auxiliary IDs. Cleanup removes only proven operation-owned
 objects. Scramble owns no temporary vehicle; single-target replacement owns at
 most one; Race assigns exclusive ownership to each stable slot. Peak owned
 temporary count and unexpected world deltas remain diagnostic evidence.
+Replacement transactions explicitly record expected removed and added IDs and
+accepted IDs. Unrelated global world changes cannot fail or retarget the
+operation and are never cleanup targets.
 
 ## Generation pipelines
 
@@ -47,11 +50,12 @@ unrelated lock or retry from perturbing other decisions.
 
 ## Safety
 
-Structural validation is ternary: valid, invalid confirmed, or unknown. Unknown
-evidence triggers bounded rereads and can produce a safe partial result; it does
-not authorize destructive recovery. Repair is surgical before rollback.
-Recovery targets the original or last accepted snapshot only with matching
-identity, generation, and ownership evidence.
+Runtime integrity is ternary: valid, invalid confirmed, or unknown. Drivability
+and chaos-policy acceptance are independent decisions. Unknown tree, readback,
+or fluid evidence triggers bounded rereads and can produce a warning/partial
+result; it does not authorize destructive recovery. Repair is surgical before
+rollback. Recovery targets the original or last accepted snapshot only with
+matching identity, generation, and ownership evidence.
 
 ## Scheduler and watchdog
 
@@ -67,6 +71,13 @@ derived seed, retry count, phase, progress, candidate/accepted IDs, owned
 temporary IDs, and terminal reason. Overall outcomes distinguish ready, partial,
 failed, and cancelled lineups. Placement and AI address only ready managed
 entries; player participation is counted separately from generated opponents.
+Background spawn focus is restored to the player immediately; subsequent writes
+address only the explicit slot-owned target. Accepted IDs leave temporary
+ownership, and failed/cancelled/skipped slots cannot persist DNA.
+
+Generation-staging and final-grid previews are overlay projections over pure
+placement plans. They expose transforms, headings, footprints, margins and
+visual state without concrete vehicle IDs and cannot mutate world state.
 
 ## Garage and Vehicle DNA
 

@@ -38,6 +38,13 @@ terminal slot states without hiding configured, opponent, ready, failed, or
 cancelled counts. Vue translates the phase and formats the percentage; raw
 technical codes remain available only in diagnostics.
 
+Terminal Chaos outcomes use `SUCCESS`, `SUCCESS_WITH_WARNING`,
+`FAILED_NO_CHANGE`, `FAILED_ROLLED_BACK`, or `CANCELLED`. Preview projection
+uses `kind` (`staging` or `finalGrid`) and publishes origin, heading, formation,
+spacing, plus per-slot transform, estimated/actual-bounds availability,
+ground/overlap/position and visual status. Preview telemetry contains no
+physical vehicle IDs.
+
 ## Results and status
 
 Backend results publish stable code, success/partial state, scope, operation

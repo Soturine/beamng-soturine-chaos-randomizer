@@ -26,6 +26,11 @@ budget, and each Race slot is bounded independently. The semantic watchdog
 requires meaningful progress and moves stalled work through abort/cleanup to a
 terminal state.
 
+Full Random records parts reload, readback, and repair reload counts separately,
+plus reload duration, phase duration, and maximum single cooperative step. The
+normal target is one mutation reload with at most one repair reload; a hard cap
+terminates further churn while preserving the last coherent result.
+
 Mounted UI regression tests require synthetic local tab and button p95 below
 50 ms. This threshold protects JavaScript/UI regressions only; it is not a live
 game latency statement.
@@ -51,5 +56,5 @@ No live percentile or improvement is published without that evidence.
 Version-specific automated numbers are recorded in
 [`docs/testing/`](testing/) and changelog entries. Live historical outcomes stay
 in their original reports. Current in-game performance is **Pending owner
-validation**; the v0.7.3 automated report contains only measurements produced by
+validation**; the v0.7.4 automated report contains only measurements produced by
 the release gates.

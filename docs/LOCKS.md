@@ -5,7 +5,12 @@ Locks define which dimensions creative operations must preserve. They are settin
 ## Lock types
 
 - **Vehicle** keeps the bound model. **Configuration** keeps the bound model and normalized configuration. Slot and part locks are also model-bound because their hierarchy is model-specific.
-- **Category** uses evidence from slot ID, description, path, and allow/deny types. Known categories include body, engine, transmission, drivetrain, suspension, brakes, steering, wheels, tires, aero, interior, electronics, accessories, props, tuning, and paint. Unclassified evidence stays `other`.
+- **Category** evaluates evidence in order: slot ID/type, description/display
+  label, allow/deny type, current part, path leaf, then path ancestry. A generic
+  ancestor cannot override a specific leaf. Known categories include body,
+  engine, transmission, drivetrain, suspension, brakes, steering, wheels,
+  tires, aero, interior, electronics, accessories, props, tuning, and paint.
+  Unclassified or brand-only evidence stays `other`.
 - **Slot** preserves a stable hierarchical path. **Part** additionally records the current part and parent evidence; a missing or changed path is reported as unresolved, never silently substituted.
 - **Tuning** can preserve all variables or named variables. **Paint** can preserve all paint, a layer, or one of the five supported fields.
 

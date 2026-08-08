@@ -72,7 +72,7 @@ driver issue does not relax the mod's ownership/cardinality limits.
 
 ## Preparing a report
 
-Use the versioned [evidence template](testing/v0.7.3/EVIDENCE_TEMPLATE.md).
+Use the versioned [evidence template](testing/v0.7.4/EVIDENCE_TEMPLATE.md).
 Attach the downloaded artifact identity, minimal reproduction, expected and
 actual terminal state, diagnostic export, and relevant log window. Keep live
 status **Pending owner validation** until the owner completes the case.
