@@ -51,3 +51,14 @@ Automated validation does not prove gameplay, visuals, AppHost placement,
 controller input, renderer behavior, UI scale/safe zones, third-party content,
 FPS, or memory. Live BeamNG 0.39.4 validation remains **Pending owner
 validation**.
+
+## Published asset verification
+
+The annotated tag `v0.7.4` and published manifest both resolve to
+`050aba81786f6d8f69468f382ea7e47a7faf12c5`. GitHub Actions run
+`31280570551` passed its Linux package and release jobs. The three release assets
+were downloaded, and the downloaded ZIP matched its checksum, manifest, local
+deterministic ZIP, and GitHub asset digest at
+`0d153aa421ab68c5ad87bec8882459f51e3271c8da6a14dd20a46997f80cdb9a`.
+`validate_package.py` passed against that downloaded ZIP, including extracted
+module/style graphs and reproducible rebuild.
