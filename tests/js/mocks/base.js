@@ -30,7 +30,7 @@ export const BngSmartSelect = defineComponent({
       h("button", {
         ...attrs,
         type: "button",
-        class: "bng-smart-select-trigger",
+        class: ["bng-smart-select-trigger", attrs.class],
         disabled: props.disabled,
         "aria-haspopup": "listbox",
         "aria-expanded": String(open.value),

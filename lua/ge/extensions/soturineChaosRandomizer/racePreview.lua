@@ -21,19 +21,30 @@ local STATUS_VISUAL = {
 local function dimensions(raw)
   raw = type(raw) == "table" and raw or {}
   local width, length = tonumber(raw.width), tonumber(raw.length)
+  local source = tostring(raw.source or "")
   local actual = util.isFinite(width) and util.isFinite(length)
+    and source ~= "" and not source:find("fallback", 1, true)
+    and not source:find("estimated", 1, true)
   return {
     width = util.clamp(width or 2, 0.5, 8),
     length = util.clamp(length or 4.8, 1, 30),
-    source = actual and (raw.source or "actual") or "estimated_fallback",
+    source = actual and source or "estimated_fallback",
+    actual = actual,
   }
 end
 
 local function slot(index, name, status, placement, margin, rawDimensions)
   placement = type(placement) == "table" and placement or {}
   local bounds = dimensions(rawDimensions or placement.dimensions)
+  local groundKnown = type(placement.normal) == "table"
+    and util.isFinite(tonumber(placement.normal.z))
+  local overlapStatus = placement.overlapStatus == "blocked" and "blocked" or "clear"
+  local positionStatus = not groundKnown and "unknown"
+    or overlapStatus == "blocked" and "blocked"
+    or placement.tight == true and "tight" or "valid"
   return {
     slot = index,
+    slotId = tostring(index),
     name = tostring(name or (index == 0 and "Player" or "Competitor " .. tostring(index))),
     status = tostring(status or "planned"),
     transform = {
@@ -41,10 +52,16 @@ local function slot(index, name, status, placement, margin, rawDimensions)
       forward = util.deepCopy(placement.forward or {x = 0, y = 1, z = 0}),
     },
     bounds = bounds,
+    estimatedBounds = bounds.actual and nil or util.deepCopy(bounds),
+    actualBoundsKnown = bounds.actual,
     clearance = tonumber(margin) or 1.5,
-    ground = {normal = util.deepCopy(placement.normal or {x = 0, y = 0, z = 1}), valid = true},
-    overlap = {detected = false},
+    ground = {normal = util.deepCopy(placement.normal), valid = groundKnown},
+    groundStatus = groundKnown and "valid" or "unknown",
+    overlap = {detected = overlapStatus == "blocked"},
+    overlapStatus = overlapStatus,
+    positionStatus = positionStatus,
     visual = STATUS_VISUAL[status] or "planned",
+    visualStatus = STATUS_VISUAL[status] or "planned",
     label = tostring(index == 0 and "P" or index) .. " - " .. tostring(name or ""),
   }
 end
@@ -54,7 +71,8 @@ local function build(kind, plan, lineup, playerPlacement, enabled)
   local options = type(plan.options) == "table" and plan.options or {}
   local preview = {
     enabled = enabled ~= false,
-    kind = kind == "final_grid" and "final_grid" or "generation_staging",
+    kind = kind == "final_grid" and "finalGrid" or "staging",
+    phase = kind == "final_grid" and "final_grid" or "generation_staging",
     origin = util.deepCopy(playerPlacement and playerPlacement.position
       or plan.placements[1] and plan.placements[1].position or {x = 0, y = 0, z = 0}),
     heading = options.headingMode or "camera",
@@ -91,8 +109,13 @@ local function update(preview, lineup)
         marker.name = competitor.name
         marker.status = competitor.status
         marker.visual = STATUS_VISUAL[competitor.status] or "planned"
+        marker.visualStatus = marker.visual
         marker.label = tostring(marker.slot) .. " - " .. tostring(competitor.name)
-        if competitor.previewDimensions then marker.bounds = dimensions(competitor.previewDimensions) end
+        if competitor.previewDimensions then
+          marker.bounds = dimensions(competitor.previewDimensions)
+          marker.actualBoundsKnown = marker.bounds.actual
+          marker.estimatedBounds = marker.bounds.actual and nil or util.deepCopy(marker.bounds)
+        end
       end
     end
   end
@@ -106,6 +129,8 @@ local function placements(preview)
     result[#result + 1] = {
       index = marker.slot, position = util.deepCopy(marker.transform.position),
       forward = util.deepCopy(marker.transform.forward), dimensions = util.deepCopy(marker.bounds),
+      clearance = marker.clearance, positionStatus = marker.positionStatus,
+      groundStatus = marker.groundStatus, overlapStatus = marker.overlapStatus,
       label = marker.label, visual = marker.visual,
     }
   end

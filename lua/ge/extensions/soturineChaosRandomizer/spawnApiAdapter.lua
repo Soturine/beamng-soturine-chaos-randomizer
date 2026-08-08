@@ -287,6 +287,7 @@ local function drawPreview(placements)
       }
       local rgb = palette[placement.visual] or palette.planned
       local color = ColorF(rgb[1], rgb[2], rgb[3], 0.8)
+      local marginColor = ColorF(rgb[1], rgb[2], rgb[3], 0.35)
       local position = vector(placement.position)
       local forward = placement.forward or {x = 0, y = 1, z = 0}
       local width = tonumber(placement.dimensions and placement.dimensions.width) or 2
@@ -302,12 +303,23 @@ local function drawPreview(placements)
       end
       local a, b = point(length * 0.5, width * 0.5), point(length * 0.5, -width * 0.5)
       local c, d = point(-length * 0.5, -width * 0.5), point(-length * 0.5, width * 0.5)
+      local clearance = math.max(0, tonumber(placement.clearance) or 0)
+      local marginLength, marginWidth = length * 0.5 + clearance, width * 0.5 + clearance
+      local ma, mb = point(marginLength, marginWidth), point(marginLength, -marginWidth)
+      local mc, md = point(-marginLength, -marginWidth), point(-marginLength, marginWidth)
       debugDrawer:drawSphere(position, 0.35, color)
       debugDrawer:drawLine(a, b, color); debugDrawer:drawLine(b, c, color)
       debugDrawer:drawLine(c, d, color); debugDrawer:drawLine(d, a, color)
+      debugDrawer:drawLine(ma, mb, marginColor); debugDrawer:drawLine(mb, mc, marginColor)
+      debugDrawer:drawLine(mc, md, marginColor); debugDrawer:drawLine(md, ma, marginColor)
       debugDrawer:drawLine(position, point(length * 0.65, 0, 0.25), color)
       if type(placement.label) == "string" and type(ColorI) == "function" then
-        debugDrawer:drawTextAdvanced(point(0, 0, 1.2), placement.label, color,
+        local positionSymbols = {valid = "[OK]", tight = "[!]", blocked = "[X]", unknown = "[?]"}
+        local generationSymbols = {player = "[P]", planned = "[.]", generating = "[~]",
+          ready = "[OK]", ready_with_warnings = "[!]", failed = "[X]"}
+        local symbol = positionSymbols[placement.positionStatus]
+          or generationSymbols[placement.visual] or "[.]"
+        debugDrawer:drawTextAdvanced(point(0, 0, 1.2), symbol .. " " .. placement.label, color,
           true, false, ColorI(0, 0, 0, 210), false, true)
       end
     end)

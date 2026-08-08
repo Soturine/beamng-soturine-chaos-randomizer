@@ -22,6 +22,21 @@ const CORE_FIELDS = [
   "transaction", "history", "canUndo", "index", "migration",
 ]
 
+const RACE_DEFAULTS = Object.freeze({
+  count: 4,
+  participationMode: "spectator",
+  episodeSeed: "",
+  preset: "Balanced",
+  previewEnabled: true,
+  previewOrigin: "automatic",
+  headingMode: "camera",
+  formation: "Automatic Best Fit",
+  spacingMode: "automatic",
+  longitudinalSpacing: 8,
+  lateralSpacing: 5,
+  safetyMargin: 1.5,
+})
+
 const pick = (source, fields) => Object.fromEntries(fields.filter(key => key in source).map(key => [key, source[key]]))
 
 export function createStores(command) {
@@ -36,7 +51,7 @@ export function createStores(command) {
       lineup: initial.lineup,
       spawnDirector: initial.spawnDirector,
       aiDirector: initial.aiDirector,
-      options: {},
+      options: { ...RACE_DEFAULTS },
       placementOptions: {
         mode: "Automatic Best Fit", count: 4, spacingMode: "automatic", spacing: 7,
         longitudinalSpacing: 8, lateralSpacing: 5, safetyMargin: 1.5, availableWidth: null,
@@ -108,7 +123,7 @@ export function createStores(command) {
     })
     stores.race.replace({
       lineup: state.lineup || {}, spawnDirector: state.spawnDirector || {}, aiDirector: state.aiDirector || {},
-      options: racePreferences, placementOptions, aiOptions,
+      options: { ...RACE_DEFAULTS, ...racePreferences }, placementOptions, aiOptions,
     })
     stores.settings.replace(state.settings || {})
     stores.compatibility.replace(state.compatibility || {})

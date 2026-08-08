@@ -1,7 +1,7 @@
 <template>
-  <div v-if="!core.busy" class="scr-global-status" role="status" aria-live="polite" :class="`is-${status?.severity || 'info'}`">
-    <strong>{{ status ? t(`result.${status.code}`, status.values) : t('app.ready') }}</strong>
-    <button v-if="status" type="button" @click="$emit('details')">{{ t('common.details') }}</button>
+  <div v-if="!core.busy && status" class="scr-global-status" role="status" aria-live="polite" :class="`is-${status.severity || 'info'}`">
+    <strong>{{ t(`result.${status.code}`, status.values) }}</strong>
+    <button type="button" @click="$emit('details')">{{ t('common.details') }}</button>
   </div>
 </template>
 <script setup>

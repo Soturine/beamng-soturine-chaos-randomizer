@@ -6,7 +6,7 @@
       <NumericInput v-model="options.longitudinalSpacing" :label="t('race.longitudinal')" :min="2" :max="50" :step="0.5" @update:model-value="value => persist('longitudinalSpacing', value)" />
       <NumericInput v-model="options.lateralSpacing" :label="t('race.lateral')" :min="1" :max="25" :step="0.5" @update:model-value="value => persist('lateralSpacing', value)" />
       <NumericInput v-model="options.safetyMargin" :label="t('race.safetyMargin')" :min="0" :max="10" :step="0.25" @update:model-value="value => persist('safetyMargin', value)" />
-      <ScrSelect v-model="options.headingMode" :label="t('race.headingMode')" :items="headingItems" />
+      <ScrSelect v-model="options.headingMode" :label="t('race.headingMode')" :items="headingItems" @change="persist('headingMode', options.headingMode)" />
       <NumericInput v-if="options.mode === 'Custom point'" v-model="options.customPointX" :label="t('race.customPointX')" />
       <NumericInput v-if="options.mode === 'Custom point'" v-model="options.customPointY" :label="t('race.customPointY')" />
       <NumericInput v-if="options.mode === 'Custom point'" v-model="options.customPointZ" :label="t('race.customPointZ')" />
@@ -38,7 +38,9 @@ const spacingItems = computed(() => [
 ])
 const headingItems = computed(() => [
   { value: "camera", label: t("race.headingCamera") },
+  { value: "player", label: t("race.headingPlayer") },
   { value: "road", label: t("race.headingRoad") },
+  { value: "destination", label: t("race.headingDestination") },
   { value: "custom", label: t("race.headingCustom") },
 ])
 function persist(field, value) { stores.command.send("updateUIPreferences", [{ race: { [field]: value } }]) }

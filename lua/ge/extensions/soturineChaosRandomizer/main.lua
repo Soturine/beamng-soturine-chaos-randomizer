@@ -566,6 +566,7 @@ local function publicState()
     },
     spawnDirector = {
       placement = production.placementAvailability(),
+      racePreview = util.deepCopy(runtime.racePreview),
       preview = runtime.spawnDirector.preview and {
         count = #(runtime.spawnDirector.preview.placements or {}),
         mode = runtime.spawnDirector.preview.options and runtime.spawnDirector.preview.options.mode,
@@ -6886,6 +6887,118 @@ function production.persistCurrentLineup()
   return true
 end
 
+production.generationPreviewContext = function(options, lineup, playerOk, playerVehicleId)
+  options = type(options) == "table" and options or {}
+  local frameOk, frame = productionModules.spawnAdapter.cameraFrame()
+  if not frameOk then return nil, "lineup_staging_frame_unavailable" end
+  local origin = options.previewOrigin or "automatic"
+  local playerPositionOk, playerPosition = false, nil
+  local playerForwardOk, playerForward = false, nil
+  if playerOk and type(playerVehicleId) == "number" then
+    playerPositionOk, playerPosition = productionModules.spawnAdapter.objectPosition(playerVehicleId)
+    playerForwardOk, playerForward = productionModules.spawnAdapter.playerForward()
+  end
+  if origin == "player_front" or origin == "player_behind" then
+    if not playerPositionOk or not playerForwardOk then return nil, "preview_player_origin_unavailable" end
+    local direction = origin == "player_behind" and -1 or 1
+    frame.position = util.deepCopy(playerPosition)
+    frame.forward = {
+      x = (tonumber(playerForward.x) or 0) * direction,
+      y = (tonumber(playerForward.y) or 1) * direction,
+      z = 0,
+    }
+    frame.right = {x = frame.forward.y, y = -frame.forward.x, z = 0}
+  elseif origin == "custom" then
+    local custom = options.customPoint
+    if type(custom) ~= "table" then
+      custom = {x = options.customPointX, y = options.customPointY, z = options.customPointZ}
+    end
+    if not util.isFinite(tonumber(custom.x)) or not util.isFinite(tonumber(custom.y))
+      or not util.isFinite(tonumber(custom.z))
+    then return nil, "preview_custom_origin_invalid" end
+    frame.position = {x = tonumber(custom.x), y = tonumber(custom.y), z = tonumber(custom.z)}
+  end
+  if playerForwardOk then frame.playerForward = util.deepCopy(playerForward) end
+  if options.headingMode == "road" then
+    local roadOk, roadForward = productionModules.spawnAdapter.roadForward(frame.position)
+    if roadOk then frame.roadForward = roadForward end
+  end
+  local plan, planReason = productionModules.spawnDirector.plan(frame, {
+    mode = lineup.settings.formation or "Automatic Best Fit",
+    count = #lineup.competitors,
+    spacingMode = lineup.settings.spacingMode,
+    longitudinalSpacing = lineup.settings.longitudinalSpacing,
+    lateralSpacing = lineup.settings.lateralSpacing,
+    safetyMargin = lineup.settings.safetyMargin,
+    columns = math.max(1, math.ceil(math.sqrt(#lineup.competitors))),
+    headingMode = options.headingMode or "camera",
+    destination = runtime.destination.active and runtime.destination.confirmed
+      and util.deepCopy(runtime.destination.point) or nil,
+    minimumObjectDistance = 3,
+    interval = 0.25,
+  }, productionModules.spawnAdapter.raycastGround, production.occupiedManagedPositions())
+  if not plan then return nil, planReason end
+  local playerPlacement
+  if lineup.playerParticipates and playerPositionOk then
+    local playerDimensions = productionModules.spawnAdapter.vehicleDimensions(playerVehicleId, 0)
+    if type(playerDimensions) == "table" then playerDimensions.source = "actual_vehicle_bounds" end
+    playerPlacement = {
+      position = playerPosition,
+      forward = playerForwardOk and playerForward or frame.forward,
+      normal = {x = 0, y = 0, z = 1},
+      dimensions = playerDimensions,
+    }
+  end
+  return {plan = plan, frame = frame, playerPlacement = playerPlacement}
+end
+
+function production.previewRaceGeneration(options)
+  initialize()
+  options = type(options) == "table" and util.deepCopy(options) or {}
+  if options.previewEnabled == false then
+    runtime.racePreview = nil
+    setResult(true, "race_preview_disabled", "Race generation preview disabled")
+    publishState()
+    return true
+  end
+  if runtime.state.busy then
+    setResult(false, "operation_busy", "Race generation preview cannot change during an active operation")
+    publishState()
+    return false
+  end
+  local lineup, reason = productionModules.raceManager.create(options)
+  if not lineup then
+    setResult(false, reason, "Race preview options are invalid")
+    publishState()
+    return false
+  end
+  local playerOk, playerVehicleId = adapter.getCurrentVehicleId()
+  if lineup.playerParticipates and (not playerOk or type(playerVehicleId) ~= "number") then
+    setResult(false, "lineup_player_vehicle_required",
+      "Player participates requires an active player vehicle")
+    publishState()
+    return false
+  end
+  local context, previewReason = production.generationPreviewContext(
+    options, lineup, playerOk, playerVehicleId
+  )
+  if not context then
+    setResult(false, previewReason, "Race generation preview is unavailable")
+    publishState()
+    return false
+  end
+  runtime.racePreview = productionModules.racePreview.build(
+    "generation_staging", context.plan, lineup, context.playerPlacement, true
+  )
+  setResult(true, "race_generation_preview_ready", "Race generation preview is ready", {
+    totalVehicles = lineup.totalVehicles,
+    aiOpponents = lineup.aiOpponentCount,
+    kind = runtime.racePreview.kind,
+  })
+  publishState()
+  return true
+end
+
 function production.createChaosLineup(options)
   initialize()
   if runtime.state.busy then
@@ -6919,23 +7032,10 @@ function production.createChaosLineup(options)
     return false
   end
   lineup.generationState = "lineup_processing"
-  local frameOk, frame = productionModules.spawnAdapter.cameraFrame()
-  if not frameOk then
-    setResult(false, "lineup_staging_frame_unavailable", "Safe Race staging positions are unavailable", {reason = frame})
-    publishState()
-    return false
-  end
-  local staging, stagingReason = productionModules.spawnDirector.plan(frame, {
-    mode = lineup.settings.formation or "Automatic Best Fit",
-    count = #lineup.competitors,
-    spacingMode = lineup.settings.spacingMode,
-    longitudinalSpacing = lineup.settings.longitudinalSpacing,
-    lateralSpacing = lineup.settings.lateralSpacing,
-    safetyMargin = lineup.settings.safetyMargin,
-    columns = math.max(1, math.ceil(math.sqrt(#lineup.competitors))),
-    headingMode = "camera", minimumObjectDistance = 3, interval = 0.25,
-  }, productionModules.spawnAdapter.raycastGround, production.occupiedManagedPositions())
-  if not staging then
+  local previewContext, stagingReason = production.generationPreviewContext(
+    options, lineup, playerOk, playerVehicleId
+  )
+  if not previewContext then
     lineup.generationState = "lineup_failed"
     lineup.processingState = "lineup_processing_finished"
     setResult(false, "lineup_staging_unsafe", "Race cars were not generated because safe staging failed", {
@@ -6947,6 +7047,7 @@ function production.createChaosLineup(options)
   lineup.playerVehicleId = playerOk and playerVehicleId or nil
   lineup.playerParticipantVehicleId = lineup.playerParticipates and playerVehicleId or nil
   lineup.preservedExternalVehicleId = playerOk and playerVehicleId or nil
+  local staging = previewContext.plan
   lineup.stagingPlan = util.deepCopy(staging.placements)
   lineup.stagingPreview = {
     status = "validated",
@@ -6960,20 +7061,8 @@ function production.createChaosLineup(options)
   for index, competitor in ipairs(lineup.competitors) do
     competitor.stagingPlacement = util.deepCopy(staging.placements[index])
   end
-  local playerPlacement
-  if playerOk and type(playerVehicleId) == "number" then
-    local positionOk, position = productionModules.spawnAdapter.objectPosition(playerVehicleId)
-    local forwardOk, forward = productionModules.spawnAdapter.playerForward()
-    local playerDimensions = productionModules.spawnAdapter.vehicleDimensions(playerVehicleId, 0)
-    if positionOk then
-      playerPlacement = {
-        position = position, forward = forwardOk and forward or frame.forward,
-        normal = {x = 0, y = 0, z = 1}, dimensions = playerDimensions,
-      }
-    end
-  end
   runtime.racePreview = productionModules.racePreview.build(
-    "generation_staging", staging, lineup, playerPlacement,
+    "generation_staging", staging, lineup, previewContext.playerPlacement,
     lineup.settings.previewEnabled ~= false
   )
   runtime.lineup.current = lineup
@@ -7301,7 +7390,12 @@ function production.previewLineupSpawn(options)
   if lineup and type(lineup.playerVehicleId) == "number" then
     local positionOk, position = productionModules.spawnAdapter.objectPosition(lineup.playerVehicleId)
     local forwardOk, forward = productionModules.spawnAdapter.playerForward()
-    if positionOk then playerPlacement = {position = position, forward = forwardOk and forward or frame.forward} end
+    local playerDimensions = productionModules.spawnAdapter.vehicleDimensions(lineup.playerVehicleId, 0)
+    if type(playerDimensions) == "table" then playerDimensions.source = "actual_vehicle_bounds" end
+    if positionOk then
+      playerPlacement = {position = position, forward = forwardOk and forward or frame.forward,
+        normal = {x = 0, y = 0, z = 1}, dimensions = playerDimensions}
+    end
   end
   runtime.racePreview = productionModules.racePreview.build(
     "final_grid", plan, previewLineup, playerPlacement, true
@@ -8596,6 +8690,7 @@ M.cancelDeveloperStress = cancelDeveloperStress
 M.cancelCurrentOperation = cancelCurrentOperation
 M.cancelRaceGeneration = production.cancelRaceGeneration
 M.getDeveloperStressState = getDeveloperStressState
+M.previewRaceGeneration = production.previewRaceGeneration
 M.createChaosLineup = production.createChaosLineup
 M.renameLineupCompetitor = production.renameLineupCompetitor
 M.reorderLineupCompetitor = production.reorderLineupCompetitor
@@ -8662,6 +8757,7 @@ production.uiCommandHandlers = {
   spawnSafeVehicle = spawnSafeVehicle,
   retryQuarantinedConfigurations = retryQuarantinedConfigurations,
   rerollUnlocked = rerollUnlocked,
+  previewRaceGeneration = production.previewRaceGeneration,
   saveVehicleDNA = saveVehicleDNA,
   deleteVehicleDNA = deleteVehicleDNA,
   renameVehicleDNA = renameVehicleDNA,

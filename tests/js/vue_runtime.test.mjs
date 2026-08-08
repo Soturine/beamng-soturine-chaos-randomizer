@@ -247,6 +247,28 @@ truthy(!Object.values(enUS).some(value => /<[^>]+>/.test(value)))
 truthy(!Object.values(ptBR).some(value => /<[^>]+>/.test(value)))
 truthy(!Object.values(esES).some(value => /<[^>]+>/.test(value)))
 
+const humanLabels = await load("ui/modules/apps/soturineChaosRandomizer/services/humanLabels.js")
+const labelI18n = i18nModule.createI18n()
+labelI18n.setPreference("pt-BR")
+check(humanLabels.humanPartLabel({ description: "Body" }, labelI18n.t), "Carroceria")
+check(humanLabels.humanPartLabel({ description: "Navigation Unit" }, labelI18n.t), "Unidade de navegação")
+check(humanLabels.humanPartLabel({ description: "Left Antenna" }, labelI18n.t), "Antena esquerda")
+check(humanLabels.humanPartLabel({ description: "Right Antenna" }, labelI18n.t), "Antena direita")
+check(humanLabels.humanPartLabel({ description: "Backlight" }, labelI18n.t), "Luz traseira")
+check(humanLabels.humanPartLabel({ description: "Front Left Mud Flap" }, labelI18n.t), "Para-barro dianteiro esquerdo")
+check(humanLabels.humanPartLabel({ description: "Left Highbeam Headlight Bulb" }, labelI18n.t), "Lâmpada esquerda do farol alto")
+check(humanLabels.humanPartLabel({ description: "ModBrand Flux Capacitor" }, labelI18n.t), "ModBrand Flux Capacitor")
+check(humanLabels.vehicleDisplayName({ name: "us_semi DNA", final: { modelKey: "us_semi" } }, labelI18n.t), "Gavril T-Series")
+check(humanLabels.vehicleDisplayName({ name: "Minha criação", final: { modelKey: "us_semi" } }, labelI18n.t), "Minha criação")
+
+const responsiveModule = await load(
+  "ui/modules/apps/soturineChaosRandomizer/composables/useResponsiveLayout.js",
+  [[/import \{ onMounted, onUnmounted \} from "vue"/, "const onMounted = () => {}; const onUnmounted = () => {}"]],
+)
+for (const width of [320, 360]) check(responsiveModule.widthClassFor(width), "narrow")
+for (const width of [400, 440, 520, 560]) check(responsiveModule.widthClassFor(width), "medium")
+for (const width of [640, 720]) check(responsiveModule.widthClassFor(width), "wide")
+
 const beamNG0394 = JSON.parse(await source("tests/fixtures/v0.7.3/beamng-0.39.4.json"))
 check(beamNG0394.targetBeamNG, "0.39.4")
 truthy(beamNG0394.registry.model.registryKey !== beamNG0394.registry.model.displayName)

@@ -93,7 +93,7 @@ local function normalize(options)
   for index, raw in ipairs(type(options.vehicleDimensions) == "table" and options.vehicleDimensions or {}) do
     local width = util.clamp(tonumber(raw.width) or 2, 0.5, 8)
     local length = util.clamp(tonumber(raw.length) or 4.8, 1, 30)
-    dimensions[index] = {width = width, length = length}
+    dimensions[index] = {width = width, length = length, source = raw.source}
     maximumWidth, maximumLength = math.max(maximumWidth, width), math.max(maximumLength, length)
   end
   local margin = util.clamp(tonumber(options.safetyMargin) or 1.5, 0.25, 10)

@@ -4,6 +4,7 @@
     <BngSmartSelect
       ref="control"
       v-model="model"
+      class="scr-smart-select"
       :items="normalizedItems"
       type="dropdown"
       :disabled="disabled"

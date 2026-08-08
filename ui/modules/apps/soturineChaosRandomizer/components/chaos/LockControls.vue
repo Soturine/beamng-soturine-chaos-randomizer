@@ -1,24 +1,28 @@
 <template>
   <section class="scr-card">
-    <h3>{{ t('locks.title') }} · {{ t('locks.activeCount', { count: activeCount }) }}</h3>
+    <h3>{{ t('locks.summary', { count: activeCount }) }}</h3>
     <div class="scr-actions">
       <button type="button" :disabled="core.busy" @click="send('lockConfiguration', [true])">{{ t('locks.lockConfigurationCurrent') }}</button>
       <button type="button" @click="showDetails">{{ t('locks.manage') }}</button>
     </div>
-    <div class="scr-chip-grid">
-      <button v-for="category in categories" :key="category" type="button" :aria-pressed="locks.categories?.[category] === true" :class="{ 'is-active': locks.categories?.[category] }" :disabled="core.busy" @click="send('lockCategory', [category, locks.categories?.[category] !== true])">{{ t(`locks.category.${category}`) }}</button>
-    </div>
-    <div class="scr-actions">
-      <button v-for="preset in presets" :key="preset" type="button" :disabled="core.busy" @click="send('applyLockPreset', [preset.toLowerCase()])">{{ t(`locks.${preset}`) }}</button>
-      <button type="button" :disabled="core.busy" @click="send('updateLockProfile', [{ vehicle: false, configuration: false, categories: {}, slots: {}, parts: {}, tuning: {}, paints: {} }])">{{ t('locks.unlockAll') }}</button>
-    </div>
 
-    <DetailsPanel :open="open" :title="t('locks.manage')" @close="open = false">
+    <DetailsPanel :open="open" :title="t('locks.manage')" mode="drawer" @close="open = false">
       <div class="scr-toolbar">
         <label class="scr-field"><span>{{ t('common.search') }}</span><input v-model="query" type="search" /></label>
         <ScrSelect v-model="filter" :label="t('locks.stateFilter')" :items="filterItems" />
       </div>
       <ToggleField v-model="showTechnical" :label="t('locks.showTechnicalIds')" />
+      <section class="scr-lock-manager-controls">
+        <h4>{{ t('locks.categories') }}</h4>
+        <div class="scr-chip-grid">
+          <button v-for="category in categories" :key="category" type="button" :aria-pressed="locks.categories?.[category] === true" :class="{ 'is-active': locks.categories?.[category] }" :disabled="core.busy" @click="send('lockCategory', [category, locks.categories?.[category] !== true])">{{ t(`locks.category.${category}`) }}</button>
+        </div>
+        <h4>{{ t('locks.presets') }}</h4>
+        <div class="scr-actions">
+          <button v-for="preset in presets" :key="preset" type="button" :disabled="core.busy" @click="send('applyLockPreset', [preset.toLowerCase()])">{{ t(`locks.${preset}`) }}</button>
+          <button type="button" :disabled="core.busy" @click="send('updateLockProfile', [{ vehicle: false, configuration: false, categories: {}, slots: {}, parts: {}, tuning: {}, paints: {} }])">{{ t('locks.unlockAll') }}</button>
+        </div>
+      </section>
       <EmptyState v-if="!filteredSlots.length" :message="t('locks.noMatches')" />
       <section v-for="group in groupedSlots" :key="group.category" class="scr-lock-group">
         <h4>{{ t(`locks.category.${group.category}`) }} · {{ group.items.length }}</h4>
@@ -38,6 +42,7 @@ import DetailsPanel from "../common/DetailsPanel.vue"
 import EmptyState from "../common/EmptyState.vue"
 import ScrSelect from "../common/ScrSelect.vue"
 import ToggleField from "../common/ToggleField.vue"
+import { humanPartLabel } from "../../services/humanLabels.js"
 
 const stores = useStores()
 const core = stores.core.state
@@ -65,9 +70,7 @@ const groupedSlots = computed(() => categories.map(category => ({
 
 const send = (command, args = []) => stores.command.send(command, args)
 function humanName(slot) {
-  const value = String(slot.displayName || slot.description || slot.slotId || t("locks.unnamedPart"))
-    .replace(/^\/+|\/+$/g, "").replaceAll("_", " ").replace(/\b\w/g, letter => letter.toLocaleUpperCase())
-  return value || t("locks.unnamedPart")
+  return humanPartLabel(slot, t)
 }
 async function showDetails() { lockData.value = (await send("getVehicleDNALocks"))?.result || null; open.value = true }
 async function setSlot(slot, locked) {

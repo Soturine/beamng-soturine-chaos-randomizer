@@ -1,6 +1,6 @@
 <template>
   <details class="scr-card" :open="open">
-    <summary>{{ t('race.policy') }} · {{ plural('race.policyChanged', changedCount) }}</summary>
+    <summary>{{ t('race.advancedOptions') }}</summary>
     <StatusBanner v-if="conflict" tone="error">{{ t('race.policyConflict') }}</StatusBanner>
     <section v-for="group in groups" :key="group.title" class="scr-policy-group">
       <h4>{{ t(group.title) }}</h4>
@@ -22,15 +22,13 @@ import StatusBanner from "../common/StatusBanner.vue"
 defineProps({ open: Boolean })
 const stores = useStores()
 const options = stores.race.state.options
-const { t, plural } = stores.i18n
-const defaults = { avoidDuplicateModels: true, avoidDuplicateConfigurations: true, avoidDuplicateFamilies: false, maximumSameFamily: 2, diversifyVehicleClasses: true, diversifyPropulsion: false, diversifyDrivetrain: false, diversifySource: true, diversifyWheelStyles: false, diversifyBodyTypes: false, allowOfficialVehicles: true, allowModVehicles: true, allowAutomationVehicles: false, allowTrailers: false, allowProps: false, acceptPartial: false, acceptMetadataUncertain: false, acceptPotentiallyUndrivable: false, maxAttemptsPerCompetitor: 3, maxConsecutiveFailures: 4, retainAcceptedOnCancel: true }
+const { t } = stores.i18n
 const groups = [
   { title: "race.duplicates", fields: ["avoidDuplicateModels", "avoidDuplicateConfigurations", "avoidDuplicateFamilies"] },
   { title: "race.diversity", fields: ["diversifyVehicleClasses", "diversifyPropulsion", "diversifyDrivetrain", "diversifySource", "diversifyWheelStyles", "diversifyBodyTypes"] },
   { title: "race.sources", fields: ["allowOfficialVehicles", "allowModVehicles", "allowAutomationVehicles", "allowTrailers", "allowProps"] },
   { title: "race.failures", fields: ["acceptPartial", "acceptMetadataUncertain", "acceptPotentiallyUndrivable", "retainAcceptedOnCancel"] },
 ]
-const changedCount = computed(() => Object.keys(defaults).filter(key => options[key] !== undefined && options[key] !== defaults[key]).length)
-const conflict = computed(() => !options.allowOfficialVehicles && !options.allowModVehicles)
+const conflict = computed(() => options.allowOfficialVehicles === false && options.allowModVehicles === false)
 function update(field, value) { options[field] = value; options.preset = "Custom"; stores.command.send("updateUIPreferences", [{ race: { [field]: value, preset: "Custom" } }]) }
 </script>

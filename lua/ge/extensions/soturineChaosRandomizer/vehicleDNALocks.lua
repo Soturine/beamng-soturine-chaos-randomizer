@@ -36,8 +36,10 @@ local CATEGORY_TOKENS = {
   tires = {"tire", "tyre"},
   aero = {"aero", "wing", "spoiler", "splitter", "diffuser"},
   interior = {"interior", "seat", "dashboard", "dash", "steering wheel", "cage"},
-  electronics = {"electronic", "ecu", "controller", "abs", "esc", "traction control"},
-  accessories = {"accessory", "accessories", "roof rack", "lightbar", "light bar", "cargo"},
+  electronics = {"electronic", "ecu", "controller", "abs", "esc", "traction control",
+    "navigation", "backlight", "headlight", "bulb", "antenna"},
+  accessories = {"accessory", "accessories", "roof rack", "lightbar", "light bar", "cargo",
+    "mud flap", "mudflap"},
   props = {"prop", "coupler", "hitch", "trailer"},
 }
 
@@ -162,15 +164,48 @@ end
 
 local function classifySlot(slot)
   if type(slot) ~= "table" then return "other", "no_slot_evidence" end
-  local evidence = table.concat({
-    tostring(slot.id or ""), tostring(slot.description or ""), tostring(slot.path or ""),
-    table.concat(slot.allowTypes or {}, " "), table.concat(slot.denyTypes or {}, " "),
-  }, " "):lower():gsub("[_%-%./]+", " ")
-  for _, category in ipairs(CLASSIFICATION_ORDER) do
-    for _, token in ipairs(CATEGORY_TOKENS[category] or {}) do
-      if evidence:find(token, 1, true) then return category, "slot_metadata_token:" .. token end
+  local function normalizeEvidence(values)
+    local normalized = {}
+    for _, value in ipairs(values or {}) do
+      if type(value) == "table" then
+        for _, nested in ipairs(value) do normalized[#normalized + 1] = tostring(nested) end
+      elseif value ~= nil then normalized[#normalized + 1] = tostring(value) end
+    end
+    return table.concat(normalized, " "):lower():gsub("[_%-%./]+", " ")
+  end
+  local function classifyEvidence(source, values)
+    local evidence = normalizeEvidence(values)
+    if evidence == "" then return nil end
+    for _, category in ipairs(CLASSIFICATION_ORDER) do
+      for _, token in ipairs(CATEGORY_TOKENS[category] or {}) do
+        if evidence:find(token, 1, true) then
+          return category, source .. "_token:" .. token
+        end
+      end
     end
   end
+  local category, reason = classifyEvidence("slot_id", {
+    slot.id, slot.slotId, slot.type, slot.slotType,
+  })
+  if category then return category, reason end
+  category, reason = classifyEvidence("slot_description", {
+    slot.description, slot.displayName, slot.name,
+  })
+  if category then return category, reason end
+  category, reason = classifyEvidence("allow_deny_type", {
+    slot.allowTypes, slot.denyTypes,
+  })
+  if category then return category, reason end
+  category, reason = classifyEvidence("part_name", {
+    slot.currentPart, slot.partName,
+  })
+  if category then return category, reason end
+  local path = tostring(slot.path or "")
+  local leaf = path:match("([^/]+)/*$")
+  category, reason = classifyEvidence("path_leaf", {leaf})
+  if category then return category, reason end
+  category, reason = classifyEvidence("path_ancestry", {path})
+  if category then return category, reason end
   return "other", "unclassified_slot_metadata"
 end
 

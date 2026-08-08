@@ -2724,6 +2724,32 @@ tests.lock_categories_use_slot_evidence_and_unknown_fallback = function()
   equal(vehicleDNALocks.classifySlot({id = "mainEngine", description = "Engine"}), "engine")
   equal(vehicleDNALocks.classifySlot({id = "frontWheelTire", path = "/wheels/front/tire/"}), "tires")
   equal(vehicleDNALocks.classifySlot({id = "mystery", description = "Unmapped component"}), "other")
+  local category, reason = vehicleDNALocks.classifySlot({
+    id = "navigation_unit", description = "Generic attachment", path = "/body/navigation_unit",
+  })
+  equal(category, "electronics")
+  truthy(reason:find("slot_id_token", 1, true) ~= nil)
+  equal(vehicleDNALocks.classifySlot({
+    id = "generic_attachment", description = "Left Antenna", path = "/body/antenna_left",
+  }), "electronics")
+  equal(vehicleDNALocks.classifySlot({
+    id = "unknown_mount", allowTypes = {"combustion_engine"}, path = "/body/unknown_mount",
+  }), "engine")
+  equal(vehicleDNALocks.classifySlot({
+    id = "unknown_mount", currentPart = "race_suspension_arm", path = "/body/engine/unknown_mount",
+  }), "suspension")
+  equal(vehicleDNALocks.classifySlot({
+    id = "unknown", path = "/body/navigation_unit",
+  }), "electronics")
+  category, reason = vehicleDNALocks.classifySlot({id = "unknown", path = "/body/mod_brand_widget"})
+  equal(category, "body")
+  truthy(reason:find("path_ancestry_token", 1, true) ~= nil)
+  equal(vehicleDNALocks.classifySlot({
+    id = "wheel_tire", description = "ModBrand Competition Product", path = "/body/engine/suspension/wheel_tire",
+  }), "tires")
+  equal(vehicleDNALocks.classifySlot({
+    id = "modbrand_flux_capacitor", description = "ModBrand Flux Capacitor",
+  }), "other")
 end
 
 tests.lock_summary_reports_bounded_category_slot_and_field_counts = function()
@@ -6273,8 +6299,8 @@ tests.v074_race_previews_are_read_only_structured_and_generation_scoped = functi
       setPhysics = function() worldMutations.physics = worldMutations.physics + 1 end,
     },
     placements = {
-      {position = {x = 10, y = 20, z = 1}, forward = {x = 1, y = 0, z = 0}},
-      {position = {x = 10, y = 27, z = 1}, forward = {x = 1, y = 0, z = 0}},
+      {position = {x = 10, y = 20, z = 1}, forward = {x = 1, y = 0, z = 0}, normal = {x = 0, y = 0, z = 1}},
+      {position = {x = 10, y = 27, z = 1}, forward = {x = 1, y = 0, z = 0}, normal = {x = 0, y = 0, z = 1}},
     },
   }
   local lineup = {competitors = {
@@ -6287,7 +6313,8 @@ tests.v074_race_previews_are_read_only_structured_and_generation_scoped = functi
     dimensions = {width = 2, length = 4.5, source = "actual_vehicle_bounds"}, vehicleId = 7,
   }
   local staging = racePreview.build("generation_staging", plan, lineup, player, true)
-  equal(staging.kind, "generation_staging")
+  equal(staging.kind, "staging")
+  equal(staging.phase, "generation_staging")
   equal(staging.heading, "road")
   equal(staging.formation, "Grid")
   equal(staging.spacing.lateral, 3.25)
@@ -6297,6 +6324,9 @@ tests.v074_race_previews_are_read_only_structured_and_generation_scoped = functi
   equal(staging.slots[1].visual, "player")
   equal(staging.slots[2].bounds.source, "actual_vehicle_bounds")
   equal(staging.slots[3].bounds.source, "estimated_fallback")
+  equal(staging.slots[3].actualBoundsKnown, false)
+  equal(staging.slots[3].groundStatus, "valid")
+  equal(staging.slots[3].overlapStatus, "clear")
   truthy(not util.deepEqual(staging.slots[2].transform, staging.slots[3].transform))
   equal(util.stableValue(staging):find("vehicleId", 1, true), nil)
   equal(worldMutations.spawn + worldMutations.delete + worldMutations.focus + worldMutations.physics, 0)
@@ -6311,8 +6341,9 @@ tests.v074_race_previews_are_read_only_structured_and_generation_scoped = functi
   equal(placements[3].visual, "failed")
 
   local finalGrid = racePreview.build("final_grid", plan, lineup, player, true)
-  equal(finalGrid.kind, "final_grid")
-  equal(staging.kind, "generation_staging")
+  equal(finalGrid.kind, "finalGrid")
+  equal(finalGrid.phase, "final_grid")
+  equal(staging.kind, "staging")
   truthy(racePreview.clear(staging, "race_cancelled") ~= nil)
   equal(staging.enabled, false)
   equal(staging.clearedReason, "race_cancelled")
@@ -7449,6 +7480,9 @@ local v074Required = {
   {"race_preview_omits_vehicle_ids", tests.v074_race_previews_are_read_only_structured_and_generation_scoped},
   {"race_preview_uses_fallback_then_actual_bounds", tests.v074_race_previews_are_read_only_structured_and_generation_scoped},
   {"race_preview_cleanup_is_generation_scoped", tests.v074_race_previews_are_read_only_structured_and_generation_scoped},
+  {"lock_classifier_prefers_specific_child_evidence", tests.lock_categories_use_slot_evidence_and_unknown_fallback},
+  {"lock_classifier_uses_ancestry_only_as_fallback", tests.lock_categories_use_slot_evidence_and_unknown_fallback},
+  {"lock_classifier_preserves_unknown_mod_names", tests.lock_categories_use_slot_evidence_and_unknown_fallback},
 }
 
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")

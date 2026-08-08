@@ -1,5 +1,7 @@
 import { onMounted, onUnmounted } from "vue"
 
+export const widthClassFor = width => Number(width) < 400 ? "narrow" : Number(width) < 640 ? "medium" : "wide"
+
 export function useResponsiveLayout(target, layout, profiler = null) {
   profiler = profiler || layout.profiler || null
   const state = layout.state || layout

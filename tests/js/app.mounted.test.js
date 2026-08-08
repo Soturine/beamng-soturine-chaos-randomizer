@@ -63,9 +63,8 @@ describe("mounted Runtime UI", () => {
 
     await tabs()[2].trigger("click")
     expect(wrapper.find("#scr-race-title").exists()).toBe(true)
-    const policy = wrapper.find("details.scr-card")
-    expect(policy.exists()).toBe(true)
-    expect(policy.find("summary").text()).toContain("Race Policy")
+    const policy = wrapper.findAll("details.scr-card").find(item => item.find("summary").text().includes("Advanced options"))
+    expect(policy).toBeTruthy()
     await policy.find("summary").trigger("click")
     expect(policy.element.open).toBe(true)
 
@@ -160,6 +159,93 @@ describe("mounted Runtime UI", () => {
     await wrapper.setProps({ disabled: true, modelValue: "b" })
     expect(wrapper.find(".bng-smart-select-trigger").attributes("disabled")).toBeDefined()
     expect(wrapper.find(".bng-smart-select-trigger").text()).toBe("Bravo")
+    wrapper.unmount()
+  })
+
+  it("uses AppHost width classes at every required width and keeps Race selects usable", async () => {
+    const { wrapper, stores } = mountShell()
+    await settle()
+    const observer = resizeHarness.instances.at(-1)
+    const expected = new Map([
+      [320, "narrow"], [360, "narrow"], [400, "medium"], [440, "medium"],
+      [520, "medium"], [560, "medium"], [640, "wide"], [720, "wide"],
+    ])
+    for (const [width, widthClass] of expected) {
+      observer.emit(width, 640)
+      await settle()
+      expect(stores.uiLayout.state.width).toBe(width)
+      expect(wrapper.find(".scr-app").classes()).toContain(`scr-width-${widthClass}`)
+    }
+
+    await wrapper.findAll('.scr-nav [role="tab"]')[2].trigger("click")
+    await settle()
+    const raceSelects = wrapper.findAll(".scr-select")
+    expect(raceSelects.length).toBeGreaterThanOrEqual(2)
+    await raceSelects[0].find(".bng-smart-select-trigger").trigger("click")
+    expect(raceSelects[0].find('[role="listbox"]').exists()).toBe(true)
+    expect(raceSelects[0].find(".scr-smart-select").exists()).toBe(true)
+    await raceSelects[0].find(".bng-smart-select-trigger").trigger("keydown", { key: "Escape" })
+    expect(raceSelects[0].find('[role="listbox"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it("keeps full lock administration inside a dismissible drawer", async () => {
+    const { wrapper } = mountShell()
+    await settle()
+    expect(wrapper.find(".scr-lock-manager-controls").exists()).toBe(false)
+    const manage = wrapper.findAll(".scr-card button").find(button => button.text() === "Manage locks")
+    expect(manage).toBeTruthy()
+    await manage.trigger("click")
+    await settle()
+    expect(wrapper.find(".scr-details.is-drawer").exists()).toBe(true)
+    expect(wrapper.find(".scr-lock-manager-controls").exists()).toBe(true)
+    await wrapper.find(".scr-details.is-drawer").trigger("keydown", { key: "Escape" })
+    await settle()
+    expect(wrapper.find(".scr-details.is-drawer").exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it("cycles every compact tab 50 times with tab-specific content and no idle footer", async () => {
+    const { wrapper, stores } = mountShell()
+    stores.garage.state.entries = [{ id: "dna-1", name: "us_semi DNA", final: { modelKey: "us_semi" } }]
+    stores.race.state.options.count = 4
+    stores.race.state.options.participationMode = "player"
+    await settle()
+    const expectedText = {
+      chaos: "Random car",
+      garage: "Gavril T-Series",
+      race: "player + 3 opponents",
+      settings: "Open settings",
+    }
+    const tabs = ["chaos", "garage", "race", "settings"]
+    for (let tabIndex = 0; tabIndex < tabs.length; tabIndex += 1) {
+      const tab = tabs[tabIndex]
+      await wrapper.findAll('.scr-nav [role="tab"]')[tabIndex].trigger("click")
+      for (let cycle = 0; cycle < 50; cycle += 1) {
+        await wrapper.find('button[aria-label="Compact mode"]').trigger("click")
+        await settle()
+        expect(stores.uiLayout.state.activeTab).toBe(tab)
+        expect(wrapper.find(".scr-compact").text()).toContain(expectedText[tab])
+        expect(wrapper.find(".scr-global-status").exists()).toBe(false)
+        expect(wrapper.find(".scr-body").exists()).toBe(false)
+        await wrapper.find('button[aria-label="Expanded mode"]').trigger("click")
+        await settle()
+        expect(stores.uiLayout.state.activeTab).toBe(tab)
+        expect(wrapper.find(".scr-body").exists()).toBe(true)
+      }
+    }
+    wrapper.unmount()
+  }, 60_000)
+
+  it("translates placement unavailability instead of rendering backend English or policy codes", async () => {
+    const { wrapper, stores } = mountShell()
+    stores.race.state.spawnDirector.placement = { available: false, reason: "Create or import a Race first." }
+    stores.uiLayout.setTab("race")
+    stores.uiLayout.state.raceStep = "placement"
+    await settle()
+    expect(wrapper.text()).not.toContain("Create or import a Race first.")
+    expect(wrapper.text()).toContain("Generate or import a lineup first.")
+    expect(wrapper.text()).not.toMatch(/waiting_[a-z_]+|tracking_[a-z_]+/)
     wrapper.unmount()
   })
 

@@ -14,12 +14,12 @@
 
     <section v-if="layout.compact" class="scr-compact" :aria-label="t(`nav.${layout.activeTab}`)">
       <header><strong>{{ t(`nav.${layout.activeTab}`) }}</strong><span v-if="core.busy">{{ percent }}%</span></header>
-      <div v-if="layout.activeTab === 'chaos'">
+      <div v-if="layout.activeTab === 'chaos'" class="scr-compact-chaos">
         <ChaosActions />
         <button v-if="core.busy" type="button" @click="cancel">{{ t('status.cancelSafe') }}</button>
       </div>
       <div v-else-if="layout.activeTab === 'garage'" class="scr-compact-summary">
-        <strong>{{ currentDNA?.name || t('garage.empty') }}</strong>
+        <strong>{{ currentDNAName }}</strong>
         <span>{{ t('garage.savedCount', { count: stores.i18n.formatNumber(entries.length) }) }}</span>
         <div class="scr-actions">
           <button type="button" :disabled="!currentDNA" @click="garageStep(-1)">{{ t('common.previous') }}</button>
@@ -29,20 +29,16 @@
         </div>
       </div>
       <div v-else-if="layout.activeTab === 'race'" class="scr-compact-summary">
-        <strong>{{ raceSummary }}</strong>
-        <span>{{ t(`race.presetValue.${race.options?.preset || 'Balanced'}`) }} · {{ raceStateLabel }}</span>
+        <strong>{{ compactRaceSummary }}</strong>
+        <span>{{ t(`race.presetValue.${race.options?.preset || 'Balanced'}`) }}</span>
         <div class="scr-actions">
           <button v-if="!race.lineup?.current?.active && !core.busy" type="button" @click="stores.command.send('createChaosLineup', [{ ...race.options }])">{{ t('race.generate') }}</button>
           <button v-else type="button" @click="stores.command.send('cancelRaceGeneration')">{{ t('race.cancelGeneration') }}</button>
-          <button type="button" :disabled="!raceReady" @click="stores.command.send('startManagedAI', [{ ...race.aiOptions }])">{{ t('common.start') }}</button>
-          <button type="button" :disabled="!raceReady" @click="stores.command.send('pauseManagedAI')">{{ t('common.pause') }}</button>
-          <button type="button" :disabled="!raceReady" @click="stores.command.send('stopManagedAI')">{{ t('common.stop') }}</button>
         </div>
       </div>
       <div v-else class="scr-compact-summary">
         <span>{{ t('settings.seedSummary', { mode: t(`settings.seedMode.${settings.seedMode || 'random'}`), content: t(`settings.content.${settings.contentFilter || 'everything'}`) }) }}</span>
-        <span>{{ t('status.locks', { count: lockCount }) }} · {{ settings.protectCriticalParts ? t('common.enabled') : t('common.disabled') }}</span>
-        <span>{{ settings.performanceProfiling ? t('settings.profiling') : t('common.disabled') }}</span>
+        <button type="button" @click="toggleCompact">{{ t('app.settings') }}</button>
       </div>
     </section>
 
@@ -64,7 +60,7 @@
 import { computed, nextTick, ref } from "vue"
 import { vBngOnUiNav, vBngScopedNav } from "@/common/directives"
 import { useStores } from "../../stores/index.js"
-import { useResponsiveLayout } from "../../composables/useResponsiveLayout.js"
+import { useResponsiveLayout, widthClassFor } from "../../composables/useResponsiveLayout.js"
 import { confirmDialog } from "../../services/dialogs.js"
 import AppHeader from "./AppHeader.vue"
 import AppNavigation from "./AppNavigation.vue"
@@ -78,29 +74,33 @@ import ChaosPanel from "../chaos/ChaosPanel.vue"
 import GaragePanel from "../garage/GaragePanel.vue"
 import RacePanel from "../race/RacePanel.vue"
 import SettingsPanel from "../settings/SettingsPanel.vue"
+import { vehicleDisplayName } from "../../services/humanLabels.js"
 
 const stores = useStores()
 const core = stores.core.state
 const race = stores.race.state
 const settings = stores.settings.state
 const layout = stores.uiLayout.state
-const { t, plural } = stores.i18n
+const { t } = stores.i18n
 const root = ref(null)
 const garageIndex = ref(0)
 useResponsiveLayout(root, stores.uiLayout)
 
 const percent = computed(() => Math.round(Number(core.progress?.overallProgress ?? core.progress?.value ?? 0) * 100))
-const widthClass = computed(() => layout.width < 320 ? "narrow" : layout.width < 480 ? "medium" : "wide")
+const widthClass = computed(() => widthClassFor(layout.width))
 const entries = computed(() => stores.garage.state.entries || [])
 const currentDNA = computed(() => {
   if (!entries.value.length) return null
   garageIndex.value = Math.min(garageIndex.value, entries.value.length - 1)
   return entries.value[garageIndex.value]
 })
-const raceSummary = computed(() => plural("race.opponents", Number(race.lineup?.current?.summary?.plannedOpponents || 0)))
-const raceStateLabel = computed(() => t(`race.state.${race.lineup?.current?.generationState || 'lineup_empty'}`))
-const raceReady = computed(() => ["lineup_ready", "lineup_partial"].includes(race.lineup?.current?.generationState))
-const lockCount = computed(() => Number(stores.chaos.state.locks?.summary?.locked || 0))
+const currentDNAName = computed(() => currentDNA.value ? vehicleDisplayName(currentDNA.value, t) : t("garage.empty"))
+const raceTotal = computed(() => Math.max(2, Number(race.options?.count || 4)))
+const raceOpponents = computed(() => Math.max(1, raceTotal.value - (race.options?.participationMode === "player" ? 1 : 0)))
+const compactRaceSummary = computed(() => t(
+  race.options?.participationMode === "player" ? "race.configSummaryPlayer" : "race.configSummarySpectator",
+  { total: raceTotal.value, opponents: raceOpponents.value },
+))
 const preferredSize = computed(() => stores.uiLayout.preferredSize(layout.activeTab))
 const geometryStyle = computed(() => ({
   "--scr-target-width": `${preferredSize.value.width}px`,
