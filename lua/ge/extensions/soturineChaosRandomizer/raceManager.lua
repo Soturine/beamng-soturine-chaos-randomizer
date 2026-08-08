@@ -2,6 +2,7 @@ local util = require("ge/extensions/soturineChaosRandomizer/util")
 local rng = require("ge/extensions/soturineChaosRandomizer/rng")
 local schema = require("ge/extensions/soturineChaosRandomizer/lineupSchema")
 local managedRegistry = require("ge/extensions/soturineChaosRandomizer/managedVehicleRegistry")
+local dnaSchema = require("ge/extensions/soturineChaosRandomizer/vehicleDNASchema")
 
 local M = {}
 
@@ -437,15 +438,19 @@ local function record(lineup, index, result, dna, targetGeneration)
   competitor.pendingCallbacks = tonumber(lifecycle.pendingCallbacks) or 0
   local verified = type(details.verifiedTraits) == "table" and util.deepCopy(details.verifiedTraits) or {}
   local uncertain = details.metadataUncertain == true or metadataUncertain(verified)
+  local safety = type(details.safety) == "table" and details.safety or {}
   local potentiallyUndrivable = details.potentiallyUndrivable == true
+    or safety.drivability == "UNDRIVABLE" or safety.drivability == "PARTIAL"
   local acceptanceBlocked = (uncertain and not lineup.acceptMetadataUncertain)
     or (potentiallyUndrivable and not lineup.acceptPotentiallyUndrivable)
   local acceptedWarning = (uncertain and lineup.acceptMetadataUncertain)
     or (potentiallyUndrivable and lineup.acceptPotentiallyUndrivable)
+    or safety.chaosAcceptance == "ACCEPT_WITH_WARNING"
+  local dnaValid = dna ~= nil and dnaSchema.validateEntry(dna) == true
   local ready = result.success == true and details.partial ~= true and not acceptanceBlocked
     and lifecycle.finalValidationPassed == true and lifecycle.busy == false
     and competitor.pendingWrites == 0 and competitor.pendingTimers == 0 and competitor.pendingCallbacks == 0
-    and dna ~= nil
+    and dnaValid
   competitor.status = result.success == true and (
     details.partial and "partial"
     or ready and ((hasWarnings or acceptedWarning) and "ready_with_warnings" or "ready")
@@ -457,10 +462,19 @@ local function record(lineup, index, result, dna, targetGeneration)
   competitor.failureCode = result.success == true and nil or result.code
   competitor.generationStatus = competitor.status
   competitor.warning = result.success == true and details.partial and result.message or (result.success and nil or result.message)
-  competitor.dna = dna and util.deepCopy(dna) or nil
-  competitor.dnaId = dna and dna.id or nil
+  local persistDNA = competitor.status == "ready" or competitor.status == "ready_with_warnings"
+  if result.success == true and dna ~= nil and not dnaValid then
+    competitor.status = "failed"
+    competitor.phase = "failed"
+    competitor.terminalState = "failed"
+    competitor.failureCode = "lineup_dna_invalid"
+    competitor.warning = "Generated Vehicle DNA failed schema validation"
+    persistDNA = false
+  end
+  competitor.dna = persistDNA and util.deepCopy(dna) or nil
+  competitor.dnaId = persistDNA and dna.id or nil
   competitor.vehicleDNAId = competitor.dnaId
-  competitor.thumbnail = dna and util.deepCopy(dna.thumbnail) or nil
+  competitor.thumbnail = persistDNA and util.deepCopy(dna.thumbnail) or nil
   competitor.modelKey = dna and dna.final and dna.final.modelKey or details.model
   competitor.configuration = details.configuration or dna and dna.base and (dna.base.configKey or dna.base.configPath)
   competitor.source = details.baseConfiguration and {kind = details.baseConfiguration.sourceKind, label = details.baseConfiguration.sourceLabel} or nil
@@ -475,6 +489,11 @@ local function record(lineup, index, result, dna, targetGeneration)
   competitor.generationClosed = true
   competitor.validationState = result.success == true and "validated" or "failed"
   competitor.randomizationState = result.success == true and "complete" or "failed"
+  if result.success == true and dna ~= nil and not dnaValid then
+    competitor.generationStatus = "failed"
+    competitor.validationState = "dna_schema_failed"
+    competitor.randomizationState = "failed"
+  end
   if result.success ~= true then
     competitor.spawnState = "failed"
     competitor.placementState = "failed"
@@ -519,7 +538,7 @@ local function reorder(lineup, index, newPosition)
 end
 
 local function placementAvailability(lineup, managedVehicles, operationBusy, placementBusy)
-  if not lineup then return {available = false, count = 0, reason = "Create or import a Race first."} end
+  if not lineup then return {available = false, count = 0, reason = "race_required"} end
   local count = 0
   for _, competitor in ipairs(lineup.competitors or {}) do
     local entry = competitor.managedHandle and managedVehicles
@@ -527,14 +546,14 @@ local function placementAvailability(lineup, managedVehicles, operationBusy, pla
     if entry and competitor.currentVehicleId == entry.vehicleId then count = count + 1 end
   end
   if operationBusy == true then
-    return {available = false, count = count, reason = "Wait for the current vehicle operation to finish."}
+    return {available = false, count = count, reason = "operation_busy"}
   end
   if placementBusy == true then
-    return {available = false, count = count, reason = "Wait for the current Placement operation to finish or stop it."}
+    return {available = false, count = count, reason = "placement_busy"}
   end
   if count == 0 then
     return {available = false, count = 0,
-      reason = "No retained managed competitors are ready. Finish Generate Cars or review failed entries."}
+      reason = "no_ready_competitors"}
   end
   return {available = true, count = count}
 end
@@ -549,6 +568,9 @@ local function resolveFailure(lineup, index, action)
     competitor.phaseProgress, competitor.terminalState, competitor.failureCode = 0, nil, nil
     competitor.warning = "Retry requested with a new target generation and independent retry substream"
     competitor.spawnState, competitor.validationState, competitor.placementState = "planned", "pending", "planned"
+    competitor.dna, competitor.dnaId, competitor.vehicleDNAId = nil, nil, nil
+    competitor.currentVehicleId, competitor.acceptedVehicleId, competitor.candidateVehicleId = nil, nil, nil
+    competitor.ownedTemporaryIds = {}
     lineup.nextIndex, lineup.active = index, true
   elseif action == "fallback" then
     competitor.status, competitor.phase, competitor.generationStatus, competitor.generationClosed = "planned", "planned", "planned", false
@@ -556,12 +578,18 @@ local function resolveFailure(lineup, index, action)
     competitor.forceOfficialFallback = true
     competitor.warning = "Verified official fallback requested"
     competitor.spawnState, competitor.validationState, competitor.placementState = "planned", "pending", "planned"
+    competitor.dna, competitor.dnaId, competitor.vehicleDNAId = nil, nil, nil
+    competitor.currentVehicleId, competitor.acceptedVehicleId, competitor.candidateVehicleId = nil, nil, nil
+    competitor.ownedTemporaryIds = {}
     lineup.nextIndex, lineup.active = index, true
   elseif action == "skip" then
     competitor.status, competitor.phase, competitor.generationStatus, competitor.generationClosed = "skipped", "skipped", "skipped", true
     competitor.phaseProgress, competitor.terminalState = 1, "skipped"
     competitor.warning = "Slot skipped by user"
     competitor.spawnState, competitor.validationState, competitor.placementState = "skipped", "skipped", "skipped"
+    competitor.dna, competitor.dnaId, competitor.vehicleDNAId = nil, nil, nil
+    competitor.currentVehicleId, competitor.acceptedVehicleId, competitor.candidateVehicleId = nil, nil, nil
+    competitor.ownedTemporaryIds = {}
     lineup.nextIndex, lineup.active = math.max(lineup.nextIndex or 1, index + 1), true
   elseif action == "stop" then
     cancel(lineup, "Generation stopped by user")

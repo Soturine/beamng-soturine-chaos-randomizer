@@ -51,6 +51,7 @@ local paintCoverageLedger = require("ge/extensions/soturineChaosRandomizer/paint
 local lineupSchema = require("ge/extensions/soturineChaosRandomizer/lineupSchema")
 local lineupManager = require("ge/extensions/soturineChaosRandomizer/lineupManager")
 local raceManager = require("ge/extensions/soturineChaosRandomizer/raceManager")
+local raceFocusGuard = require("ge/extensions/soturineChaosRandomizer/raceFocusGuard")
 local lineupStorage = require("ge/extensions/soturineChaosRandomizer/lineupStorage")
 local managedVehicleRegistry = require("ge/extensions/soturineChaosRandomizer/managedVehicleRegistry")
 local spawnDirector = require("ge/extensions/soturineChaosRandomizer/spawnDirector")
@@ -5474,7 +5475,7 @@ tests.v066_race_contexts_ids_partial_cancel_and_placement_are_isolated = functio
   local available = raceManager.placementAvailability(lineup, registry, false, false)
   truthy(available.available); equal(available.count, 4)
   local busy = raceManager.placementAvailability(lineup, registry, true, false)
-  equal(busy.available, false); truthy(busy.reason:find("vehicle operation", 1, true) ~= nil)
+  equal(busy.available, false); equal(busy.reason, "operation_busy")
   truthy(raceManager.reorder(lineup, 4, 1)); equal(lineup.competitors[4].position, 1)
   equal(lineup.competitors[1].position, 2)
   lineup.competitors[4].currentVehicleId = lineup.competitors[1].currentVehicleId
@@ -6175,6 +6176,87 @@ tests.v074_reload_and_readback_metrics_are_bounded_and_structured = function()
   equal(metrics.reloadBudget.hardLimit, 4)
   truthy(metrics.partsReloadCount <= metrics.reloadBudget.hardLimit)
   truthy(metrics.repairReloadCount <= metrics.reloadBudget.hardLimit)
+end
+
+tests.v074_race_focus_slots_and_dna_are_isolated = function()
+  local currentVehicleId, entered = 42, {}
+  local isolated, focus = raceFocusGuard.restore({
+    playerVehicleId = 7, candidateVehicleId = 42,
+    getCurrentVehicleId = function() return true, currentVehicleId end,
+    enterVehicle = function(vehicleId) entered[#entered + 1] = vehicleId; currentVehicleId = vehicleId; return true end,
+  })
+  truthy(isolated)
+  truthy(focus.restored)
+  equal(focus.stolenFocusVehicleId, 42)
+  equal(currentVehicleId, 7)
+  equal(entered[1], 7)
+  local reused, reusedReason = raceFocusGuard.restore({
+    playerVehicleId = 7, candidateVehicleId = 7,
+    getCurrentVehicleId = function() return true, 7 end,
+    enterVehicle = function() error("player must not be used as candidate") end,
+  })
+  equal(reused, false); equal(reusedReason, "race_candidate_is_player")
+
+  local lineup = assert(raceManager.create({count = 3, episodeSeed = "v074-race", preset = "Maximum Chaos"}))
+  local function acceptedResult(model)
+    return {success = true, details = {
+      model = model, configuration = "base", verifiedTraits = {
+        modelKey = model, configuration = "base", sourceKind = "official", vehicleClass = "Car",
+      },
+      safety = {runtimeIntegrity = "HEALTHY", drivability = "PARTIAL", chaosAcceptance = "ACCEPT_WITH_WARNING"},
+      lifecycleAcceptance = {
+        finalValidationPassed = true, busy = false,
+        pendingWrites = 0, pendingTimers = 0, pendingCallbacks = 0,
+      },
+    }}
+  end
+  local first = assert(raceManager.nextCompetitor(lineup))
+  truthy(raceManager.record(lineup, 1, acceptedResult("a"), sampleDNA({id = "v074-a"}), first.targetGeneration))
+  equal(first.status, "ready_with_warnings")
+  truthy(first.dna ~= nil)
+  local second = assert(raceManager.nextCompetitor(lineup))
+  truthy(raceManager.record(lineup, 2, {success = false, code = "fixture_failure", message = "failed"},
+    sampleDNA({id = "must-not-persist"}), second.targetGeneration))
+  equal(second.status, "failed")
+  equal(second.dna, nil)
+  local third = assert(raceManager.nextCompetitor(lineup))
+  truthy(raceManager.record(lineup, 3, acceptedResult("c"), sampleDNA({id = "v074-c"}), third.targetGeneration))
+  equal(third.status, "ready_with_warnings")
+  equal(raceManager.nextCompetitor(lineup), nil)
+  local summary = raceManager.summary(lineup)
+  equal(summary.ready, 2)
+  equal(summary.failed, 1)
+  equal(lineup.generationState, "lineup_partial")
+  truthy(first.dna ~= nil)
+
+  local invalidLineup = assert(raceManager.create({count = 2, episodeSeed = "invalid-dna", preset = "Maximum Chaos"}))
+  local invalid = assert(raceManager.nextCompetitor(invalidLineup))
+  truthy(raceManager.record(invalidLineup, 1, acceptedResult("invalid"), {id = "not-a-dna"}, invalid.targetGeneration))
+  equal(invalid.status, "failed")
+  equal(invalid.failureCode, "lineup_dna_invalid")
+  equal(invalid.dna, nil)
+  truthy(raceManager.nextCompetitor(invalidLineup) ~= nil)
+
+  local domains, removed = domainOperations.create(), {}
+  local slotA = assert(domainOperations.begin(domains, {
+    domain = "race", operationId = "slot-a", action = "fullRandom", expectedSlot = 1,
+  }))
+  local tokenA = domainOperations.callbackToken(slotA, "spawn", {expectedSlot = 1, expectedVehicleId = 101})
+  truthy(domainOperations.registerCandidate(domains, tokenA, 101, {created = true}))
+  truthy(domainOperations.acceptVehicle(domains, slotA, 101, "race_competitor", 7))
+  truthy(domainOperations.terminal(domains, slotA, "completed"))
+  local slotB = assert(domainOperations.begin(domains, {
+    domain = "race", operationId = "slot-b", action = "fullRandom", expectedSlot = 2,
+  }))
+  local tokenB = domainOperations.callbackToken(slotB, "spawn", {expectedSlot = 2, expectedVehicleId = 102})
+  truthy(domainOperations.registerCandidate(domains, tokenB, 102, {created = true}))
+  truthy(domainOperations.terminal(domains, slotB, "failed"))
+  domainOperations.reap(domains, function(vehicleId) removed[#removed + 1] = vehicleId; return true end,
+    {domain = "race", operationId = "slot-b", budgetMs = 10, maxItems = 8, clock = function() return 0 end})
+  equal(removed[1], 102)
+  equal(#removed, 1)
+  equal(domainOperations.ownership(domains, 101).accepted, true)
+  equal(domainOperations.ownership(domains, 101).removed, nil)
 end
 
 tests.v073_race_slots_cannot_reuse_accepted_physical_vehicles = function()
@@ -7292,6 +7374,13 @@ local v074Required = {
   {"phase_duration_is_instrumented", tests.v074_reload_and_readback_metrics_are_bounded_and_structured},
   {"max_single_step_is_instrumented", tests.v074_reload_and_readback_metrics_are_bounded_and_structured},
   {"parts_reload_hard_limit_is_low", tests.v074_reload_and_readback_metrics_are_bounded_and_structured},
+  {"race_focus_steal_restores_player", tests.v074_race_focus_slots_and_dna_are_isolated},
+  {"race_player_is_never_candidate", tests.v074_race_focus_slots_and_dna_are_isolated},
+  {"race_failed_slot_dna_is_nil", tests.v074_race_focus_slots_and_dna_are_isolated},
+  {"race_invalid_dna_is_slot_local_failure", tests.v074_race_focus_slots_and_dna_are_isolated},
+  {"race_failure_does_not_block_later_slot", tests.v074_race_focus_slots_and_dna_are_isolated},
+  {"race_accepted_slot_survives_other_cleanup", tests.v074_race_focus_slots_and_dna_are_isolated},
+  {"race_counts_reflect_ready_physical_slots", tests.v074_race_focus_slots_and_dna_are_isolated},
 }
 
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")

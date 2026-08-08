@@ -51,6 +51,7 @@ local productionModules = {
   registryReadiness = require("ge/extensions/soturineChaosRandomizer/registryReadiness"),
   userDataMigration = require("ge/extensions/soturineChaosRandomizer/userDataMigration"),
   raceManager = require("ge/extensions/soturineChaosRandomizer/raceManager"),
+  raceFocusGuard = require("ge/extensions/soturineChaosRandomizer/raceFocusGuard"),
   lineupSchema = require("ge/extensions/soturineChaosRandomizer/lineupSchema"),
   lineupStorage = require("ge/extensions/soturineChaosRandomizer/lineupStorage"),
   managedRegistry = require("ge/extensions/soturineChaosRandomizer/managedVehicleRegistry"),
@@ -1196,8 +1197,8 @@ local function finishOperation(success, code, message, details, terminalState)
       runtime.lineup.current, active.lineupIndex, runtime.lastResult, dna, active.lineupTargetGeneration
     )
     if competitor and okSnapshot then competitor.spawnConfig = util.deepCopy(spawnSnapshot.config) end
-    if dna and runtime.capabilities.dnaWrite then
-      local updated = vehicleDNAStorage.add(runtime.dna.library, dna)
+    if competitor and competitor.dna and runtime.capabilities.dnaWrite then
+      local updated = vehicleDNAStorage.add(runtime.dna.library, competitor.dna)
       if updated then
         local saved = adapter.saveDNALibrary(updated, runtime.dna.library)
         if saved then runtime.dna.library = updated; runtime.dna.pending = nil end
@@ -1265,14 +1266,17 @@ local function finishOperation(success, code, message, details, terminalState)
     if active.lineupOwnedTarget and not accepted and type(active.vehicleId) == "number"
       and active.vehicleId ~= active.lineupPlayerVehicleId
     then
-      productionModules.spawnAdapter.deleteVehicle(active.vehicleId)
+      local owner = productionModules.domainOperations.ownership(runtime.domainOperations, active.vehicleId)
+      if owner and owner.domain == "race" and owner.operationId == active.domainContext.operationId
+        and owner.generation == active.domainContext.generation and owner.accepted ~= true
+      then productionModules.spawnAdapter.deleteVehicle(active.vehicleId) end
       if competitor then
         competitor.currentVehicleId = nil
         competitor.spawnState = "failed_target_removed"
         competitor.placementState = "unavailable"
       end
     end
-    if not active.backgroundTarget and type(active.lineupPlayerVehicleId) == "number" then
+    if active.backgroundTarget and type(active.lineupPlayerVehicleId) == "number" then
       local focused, focusReason = adapter.enterVehicle(active.lineupPlayerVehicleId)
       if not focused then
         lineup.warnings[#lineup.warnings + 1] =
@@ -2137,6 +2141,24 @@ local function recordReplacementCandidate(active, result, phase)
   end
   if type(result.vehicleId) == "number" then
     productionModules.domainOperations.expectAddition(active.domainContext, result.vehicleId)
+    if active.backgroundTarget and type(active.lineupPlayerVehicleId) == "number" then
+      local isolated, isolation = productionModules.raceFocusGuard.restore({
+        playerVehicleId = active.lineupPlayerVehicleId,
+        candidateVehicleId = result.vehicleId,
+        getCurrentVehicleId = adapter.getCurrentVehicleId,
+        enterVehicle = adapter.enterVehicle,
+      })
+      active.playerFocusIsolation = util.deepCopy(type(isolation) == "table" and isolation or {
+        reason = isolation,
+      })
+      if not isolated then
+        return false, adapter.errorValue(isolation,
+          "Race generation could not restore the preserved player focus", {
+            playerVehicleId = active.lineupPlayerVehicleId,
+            candidateVehicleId = result.vehicleId,
+          })
+      end
+    end
     if active.backgroundTarget then
       for _, token in pairs(active.phaseCallbackTokens or {}) do token.expectedVehicleId = result.vehicleId end
     end
