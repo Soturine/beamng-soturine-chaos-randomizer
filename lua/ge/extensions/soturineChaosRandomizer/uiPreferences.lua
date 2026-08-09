@@ -32,7 +32,10 @@ local DEFAULT_RACE = {
   maxAttemptsPerCompetitor = 3,
   maxConsecutiveFailures = 4,
   retainAcceptedOnCancel = true,
-  formation = "Automatic Best Fit",
+  formation = "AUTO_BEST_FIT",
+  previewEnabled = true,
+  previewOrigin = "automatic",
+  headingMode = "camera",
   spacingMode = "automatic",
   longitudinalSpacing = 8,
   lateralSpacing = 5,
@@ -45,7 +48,7 @@ local BOOLEAN_RACE_FIELDS = {
   "diversifyVehicleClasses", "diversifyPropulsion", "diversifyDrivetrain",
   "diversifySource", "diversifyWheelStyles", "diversifyBodyTypes",
   "allowOfficialVehicles", "allowModVehicles", "allowAutomationVehicles",
-  "allowTrailers", "allowProps", "retainAcceptedOnCancel",
+  "allowTrailers", "allowProps", "retainAcceptedOnCancel", "previewEnabled",
 }
 
 local function defaults()
@@ -98,13 +101,16 @@ local function normalize(raw)
   end
   local presets = {Balanced = true, ["Maximum Chaos"] = true, ["Mods Showcase"] = true, Custom = true}
   if presets[source.preset] then race.preset = source.preset end
-  local formations = {
-    ["Automatic Best Fit"] = true, ["Split Left and Right"] = true,
-    ["Single File Behind"] = true, ["Single File Ahead"] = true,
-    ["Staggered Grid"] = true, ["Side-by-side Grid"] = true,
-    ["Circular / Radial"] = true,
-  }
-  if formations[source.formation] then race.formation = source.formation end
+  local formation = require("ge/extensions/soturineChaosRandomizer/formationEnum")
+  race.formation = formation.normalize(source.formation or race.formation)
+  local origins = {automatic = true, player_front = true, player_behind = true,
+    camera = true, custom = true}
+  local headings = {camera = true, player = true, road = true, destination = true}
+  if origins[source.previewOrigin] then race.previewOrigin = source.previewOrigin end
+  if headings[source.headingMode] then race.headingMode = source.headingMode end
+  for _, field in ipairs({"customPointX", "customPointY", "customPointZ"}) do
+    if tonumber(source[field]) then race[field] = tonumber(source[field]) end
+  end
   if source.spacingMode == "automatic" or source.spacingMode == "manual" then race.spacingMode = source.spacingMode end
   if type(source.episodeSeed) == "string" then race.episodeSeed = source.episodeSeed:sub(1, 128) end
   return result

@@ -6,7 +6,8 @@ local TERMINAL = {confirmed = true, unavailable = true, mismatch = true, timeout
 
 local function normalize(mode)
   mode = tostring(mode or ""):lower()
-  local aliases = {destination = "traffic", route = "traffic", chase = "chase", follow = "follow", traffic = "traffic"}
+  local aliases = {destination = "traffic", route = "traffic", chase = "chase",
+    follow = "follow", flee = "flee", traffic = "traffic", roam = "random", random = "random"}
   return aliases[mode] or mode
 end
 

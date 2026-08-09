@@ -278,9 +278,22 @@ local function verifySpawnTarget(vehicleId, expectedModelKey, expectedConfig)
 end
 
 local function drawPreview(placements)
-  if debugDrawer == nil or type(ColorF) ~= "function" then return false end
+  placements = type(placements) == "table" and placements or {}
+  local report = {
+    rendererAvailable = debugDrawer ~= nil and type(ColorF) == "function"
+      and type(vector) == "function",
+    requestedMarkerCount = #placements,
+    renderedMarkerCount = 0,
+    errorCode = nil,
+    errorMessage = nil,
+  }
+  if not report.rendererAvailable then
+    report.errorCode = "preview_renderer_unavailable"
+    report.errorMessage = "The world debug renderer is unavailable"
+    return false, report
+  end
   for _, placement in ipairs(placements or {}) do
-    pcall(function()
+    local worked, failure = pcall(function()
       local palette = {
         player = {0.2, 0.7, 1}, planned = {0.7, 0.7, 0.7}, generating = {1, 0.72, 0.12},
         ready = {0.2, 0.9, 0.35}, ready_with_warnings = {0.95, 0.65, 0.15}, failed = {1, 0.2, 0.2},
@@ -323,8 +336,19 @@ local function drawPreview(placements)
           true, false, ColorI(0, 0, 0, 210), false, true)
       end
     end)
+    if worked then
+      report.renderedMarkerCount = report.renderedMarkerCount + 1
+    else
+      report.errorCode = "preview_marker_render_failed"
+      report.errorMessage = tostring(failure)
+    end
   end
-  return true
+  if report.renderedMarkerCount == 0 and report.requestedMarkerCount > 0 then
+    report.errorCode = report.errorCode or "preview_render_empty"
+    report.errorMessage = report.errorMessage or "No preview marker was drawn"
+    return false, report
+  end
+  return report.renderedMarkerCount > 0, report
 end
 
 M.xyz = xyz

@@ -2,7 +2,10 @@ local util = require("ge/extensions/soturineChaosRandomizer/util")
 
 local M = {}
 
-local MODES = {Destination = true, Route = true, Chase = true, Follow = true, Traffic = true}
+local MODES = {
+  Destination = true, Route = true, Chase = true, Follow = true,
+  Flee = true, Traffic = true, Roam = true,
+}
 local SPEED_MODES = {set = true, limit = true}
 
 local function quote(value) return string.format("%q", tostring(value or "")) end
@@ -65,12 +68,13 @@ local function start(vehicleId, mode, options)
     local pathArgument = options.nodesArePath == false and "wpTargetList=" or "path="
     return queue(vehicleId, "ai.driveUsingPath{" .. pathArgument .. list .. ",driveInLane=" .. quote(options.driveInLane == false and "off" or "on") .. ",avoidCars=" .. quote(options.avoidCars == false and "off" or "on") .. ",routeSpeed=" .. tostring(util.clamp(tonumber(options.speed) or 15, 0, 120)) .. ",routeSpeedMode=" .. quote(SPEED_MODES[options.speedMode] and options.speedMode or "limit") .. ",aggression=" .. tostring(util.clamp(tonumber(options.aggression) or 0.5, 0.3, 1)) .. ",noOfLaps=" .. tostring(laps) .. "}")
   end
-  if mode == "Chase" or mode == "Follow" then
+  if mode == "Chase" or mode == "Follow" or mode == "Flee" then
     local targetId = math.floor(tonumber(options.targetVehicleId) or -1)
     if targetId < 0 or targetId == vehicleId then return false, "ai_target_invalid" end
     return queue(vehicleId, "ai.setTargetObjectID(" .. tostring(targetId) .. ");ai.setMode(" .. quote(mode:lower()) .. ")")
   end
   if mode == "Traffic" then return queue(vehicleId, "ai.setMode('traffic')") end
+  if mode == "Roam" then return queue(vehicleId, "ai.setMode('random')") end
   return false, "ai_mode_unsupported"
 end
 
@@ -134,7 +138,8 @@ local function capabilities()
   end
   return {
     Destination = nav and vehicleQueue, Route = nav and vehicleQueue,
-    Chase = vehicleQueue, Follow = vehicleQueue, Traffic = vehicleQueue,
+    Chase = vehicleQueue, Follow = vehicleQueue, Flee = vehicleQueue,
+    Traffic = vehicleQueue, Roam = vehicleQueue,
     Recording = vehicleQueue, Recorded = false, Scripted = false,
     driveInLane = vehicleQueue,
     ModeReadback = modeReadback,
@@ -144,6 +149,12 @@ local function capabilities()
     navgraphReason = nav and nil or "No reachable NavGraph API is available in this map/build.",
     scriptedReason = "Scripted path unavailable in this build: no bounded portable path-transfer contract is enabled by the mod.",
     recordedReason = "Recorded playback is unavailable until a validated path can be transferred back to GE Lua.",
+    supportedModes = vehicleQueue and {
+      "Destination", "Route", "Follow", "Chase", "Flee", "Traffic", "Roam",
+    } or {},
+    quickPresets = vehicleQueue and {
+      "Follow", "Convoy", "Chase", "Flee", "Traffic", "Roam", "Swarm",
+    } or {},
   }
 end
 

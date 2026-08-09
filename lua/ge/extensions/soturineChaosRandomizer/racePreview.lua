@@ -1,6 +1,16 @@
 local util = require("ge/extensions/soturineChaosRandomizer/util")
+local formationEnum = require("ge/extensions/soturineChaosRandomizer/formationEnum")
 
 local M = {}
+
+local STATES = {
+  PREVIEW_DISABLED = true,
+  PREVIEW_DATA_READY = true,
+  PREVIEW_RENDERER_UNAVAILABLE = true,
+  PREVIEW_RENDER_ERROR = true,
+  PREVIEW_VISIBLE = true,
+  PREVIEW_STALE = true,
+}
 
 local STATUS_VISUAL = {
   player = "player",
@@ -71,12 +81,14 @@ local function build(kind, plan, lineup, playerPlacement, enabled)
   local options = type(plan.options) == "table" and plan.options or {}
   local preview = {
     enabled = enabled ~= false,
+    state = enabled == false and "PREVIEW_DISABLED" or "PREVIEW_DATA_READY",
     kind = kind == "final_grid" and "finalGrid" or "staging",
     phase = kind == "final_grid" and "final_grid" or "generation_staging",
     origin = util.deepCopy(playerPlacement and playerPlacement.position
       or plan.placements[1] and plan.placements[1].position or {x = 0, y = 0, z = 0}),
     heading = options.headingMode or "camera",
-    formation = options.mode or options.requestedMode or "Grid",
+    formation = formationEnum.normalize(lineup and lineup.settings and lineup.settings.formation
+      or options.requestedMode or options.mode),
     spacing = {
       mode = options.spacingMode or "automatic",
       lateral = tonumber(options.resolvedLateralSpacing or options.lateralSpacing) or 0,
@@ -85,6 +97,16 @@ local function build(kind, plan, lineup, playerPlacement, enabled)
     },
     slots = {},
     clearedReason = nil,
+    renderer = {
+      available = nil,
+      attemptedFrames = 0,
+      successfulFrames = 0,
+      renderedMarkerCount = 0,
+      requestedMarkerCount = 0,
+      lastFrameAt = nil,
+      lastErrorCode = nil,
+      lastErrorMessage = nil,
+    },
   }
   if playerPlacement then
     preview.slots[#preview.slots + 1] = slot(0, "Player", "player", playerPlacement,
@@ -98,6 +120,39 @@ local function build(kind, plan, lineup, playerPlacement, enabled)
       preview.spacing.safetyMargin, competitor and competitor.previewDimensions or placement.dimensions)
   end
   return preview
+end
+
+local function recordRender(preview, report, now)
+  if type(preview) ~= "table" or preview.enabled ~= true then return false end
+  report = type(report) == "table" and report or {}
+  local previous = preview.state
+  local renderer = preview.renderer or {}
+  preview.renderer = renderer
+  renderer.attemptedFrames = (tonumber(renderer.attemptedFrames) or 0) + 1
+  renderer.available = report.rendererAvailable == true
+  renderer.requestedMarkerCount = math.max(0, math.floor(tonumber(report.requestedMarkerCount) or 0))
+  renderer.renderedMarkerCount = math.max(0, math.floor(tonumber(report.renderedMarkerCount) or 0))
+  renderer.lastErrorCode = report.errorCode
+  renderer.lastErrorMessage = report.errorMessage
+  if renderer.available ~= true then
+    preview.state = "PREVIEW_RENDERER_UNAVAILABLE"
+  elseif renderer.renderedMarkerCount > 0 then
+    renderer.successfulFrames = (tonumber(renderer.successfulFrames) or 0) + 1
+    renderer.lastFrameAt = tonumber(now) or 0
+    preview.state = "PREVIEW_VISIBLE"
+  elseif report.errorCode ~= nil then
+    preview.state = "PREVIEW_RENDER_ERROR"
+  else
+    preview.state = "PREVIEW_DATA_READY"
+  end
+  return previous ~= preview.state
+end
+
+local function stale(preview, reason)
+  if type(preview) ~= "table" or preview.enabled ~= true then return false end
+  preview.state = "PREVIEW_STALE"
+  preview.staleReason = tostring(reason or "preview_data_stale")
+  return true
 end
 
 local function update(preview, lineup)
@@ -140,15 +195,19 @@ end
 local function clear(preview, reason)
   if type(preview) ~= "table" then return nil end
   preview.enabled = false
+  preview.state = "PREVIEW_DISABLED"
   preview.clearedReason = tostring(reason or "preview_cleared")
   preview.slots = {}
   return preview
 end
 
 M.STATUS_VISUAL = STATUS_VISUAL
+M.STATES = STATES
 M.build = build
 M.update = update
 M.placements = placements
+M.recordRender = recordRender
+M.stale = stale
 M.clear = clear
 
 return M

@@ -1,7 +1,10 @@
 local util = require("ge/extensions/soturineChaosRandomizer/util")
 
 local M = {}
-local MODES = {Destination = true, Route = true, Chase = true, Follow = true, Traffic = true}
+local MODES = {
+  Destination = true, Route = true, Chase = true, Follow = true,
+  Flee = true, Traffic = true, Roam = true,
+}
 local FINISH_ACTIONS = {stop = true, brake = true, keep = true, loop = true, disable = true}
 local STUCK_ACTIONS = {none = true, replan = true, reset = true, respawn = true, dnf = true}
 
@@ -51,7 +54,8 @@ local function observe(state, handle, observation, now)
   observation = type(observation) == "table" and observation or {}
   now = tonumber(now) or entry.assignedAt
   if observation.vehicleMissing then return "stopped", "vehicle_missing" end
-  if observation.targetMissing and (entry.mode == "Chase" or entry.mode == "Follow") then return "stopped", "ai_target_removed" end
+  if observation.targetMissing and (entry.mode == "Chase" or entry.mode == "Follow"
+    or entry.mode == "Flee") then return "stopped", "ai_target_removed" end
   local distance = tonumber(observation.distance)
   local speed = tonumber(observation.speed)
   if util.isFinite(distance) then

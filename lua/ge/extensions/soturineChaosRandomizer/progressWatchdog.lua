@@ -6,6 +6,27 @@ local DEFAULTS = {
   pauseDependencyWindow = 1,
 }
 
+local PHASE_PROFILES = {
+  capturing_original = {soft = 8, stalled = 25, kind = "local_work"},
+  selecting = {soft = 8, stalled = 25, kind = "local_work"},
+  issuing_spawn = {soft = 12, stalled = 45, kind = "engine_event"},
+  tracking_target_identity = {soft = 12, stalled = 45, kind = "engine_event"},
+  stabilizing_tree = {soft = 15, stalled = 60, kind = "engine_active"},
+  planning_parts = {soft = 10, stalled = 35, kind = "local_work"},
+  applying_parts = {soft = 15, stalled = 60, kind = "engine_active"},
+  waiting_parts_reload = {soft = 20, stalled = 75, kind = "engine_event"},
+  verifying_parts = {soft = 12, stalled = 45, kind = "engine_active"},
+  planning_tuning = {soft = 10, stalled = 35, kind = "local_work"},
+  applying_tuning = {soft = 15, stalled = 60, kind = "engine_active"},
+  waiting_tuning_reload = {soft = 20, stalled = 75, kind = "engine_event"},
+  verifying_tuning = {soft = 12, stalled = 45, kind = "engine_active"},
+  applying_paint = {soft = 10, stalled = 35, kind = "engine_active"},
+  verifying_paint = {soft = 10, stalled = 35, kind = "engine_active"},
+  final_validation = {soft = 15, stalled = 60, kind = "engine_active"},
+  rolling_back_operation = {soft = 15, stalled = 60, kind = "engine_event"},
+  cleaning = {soft = 10, stalled = 30, kind = "local_work"},
+}
+
 local SEMANTIC_KINDS = {
   phase = true, binding = true, write = true, batch = true, reload = true,
   readback = true, safety = true, candidate_promoted = true, slot_terminal = true,
@@ -58,6 +79,11 @@ local function create(now, options)
     callbackCount = 0,
     frameBudgetOverruns = 0,
     status = "healthy",
+    phase = options.phase or "capturing_original",
+    phaseKind = "local_work",
+    softDeadlineAt = nil,
+    livenessState = "PROGRESSING",
+    terminalLivenessState = nil,
   }
 end
 
@@ -106,6 +132,21 @@ local function setDeadlines(state, phaseDeadline, operationDeadline)
   return true
 end
 
+local function setPhase(state, phase, now)
+  if state.status == "terminal" then return false, "watchdog_terminal" end
+  now = tonumber(now) or state.lastActivityAt or 0
+  local profile = PHASE_PROFILES[phase] or {
+    soft = state.warningAfter, stalled = state.stalledAfter, kind = "local_work",
+  }
+  state.phase = tostring(phase or "unknown")
+  state.phaseKind = profile.kind
+  state.warningAfter = profile.soft
+  state.stalledAfter = profile.stalled
+  state.softDeadlineAt = now + profile.soft
+  state.phaseStartedAt = now
+  return true
+end
+
 local function observePause(state, paused, now)
   if type(paused) ~= "boolean" then return false end
   now = tonumber(now) or state.lastProgressAt or 0
@@ -118,19 +159,31 @@ local function observePause(state, paused, now)
   return false
 end
 
-local function evaluate(state, now, waitingForSimulation)
+local function evaluate(state, now, context)
   now = tonumber(now) or state.lastProgressAt or 0
-  state.waitingForSimulation = waitingForSimulation == true
+  if state.status == "terminal" then return state.terminalLivenessState or "TERMINAL" end
+  if type(context) ~= "table" then context = {waitingForSimulation = context == true} end
+  state.waitingForSimulation = context.waitingForSimulation == true
   local age = math.max(0, now - (state.lastSemanticProgressAt or now))
-  local deadlineState = state.operationDeadline and now >= state.operationDeadline and "operation_deadline"
-    or state.phaseDeadline and now >= state.phaseDeadline and "phase_deadline" or nil
+  local deadlineState = state.operationDeadline and now >= state.operationDeadline and "OPERATION_DEADLINE"
+    or state.phaseDeadline and now >= state.phaseDeadline and "PHASE_DEADLINE" or nil
+  local waitingForEngineEvent = context.waitingForEngineEvent == true
+    or state.phaseKind == "engine_event"
+  local engineActive = context.engineActive == true
+    or state.phaseKind == "engine_active"
   state.warned = not state.waitingForSimulation and age >= state.warningAfter
-  state.stalled = not state.waitingForSimulation and age >= state.stalledAfter
+  state.stalled = not state.waitingForSimulation and not waitingForEngineEvent
+    and not engineActive and age >= state.stalledAfter
   if state.status ~= "aborting" and state.status ~= "cleaning" and state.status ~= "terminal" then
     state.status = state.stalled and "stalled" or state.warned and "slow" or "healthy"
   end
-  return deadlineState or state.stalled and "stalled" or state.warned and "warning"
-    or state.waitingForSimulation and "waiting_for_simulation_resume" or "progressing"
+  state.livenessState = deadlineState
+    or state.waitingForSimulation and "WAITING_FOR_SIMULATION_RESUME"
+    or state.warned and waitingForEngineEvent and "WAITING_FOR_CONFIRMED_ENGINE_EVENT"
+    or state.warned and engineActive and "LONG_RUNNING_BUT_ENGINE_ACTIVE"
+    or state.stalled and "NO_PROGRESS"
+    or state.warned and "SLOW_PROGRESS" or "PROGRESSING"
+  return state.livenessState
 end
 
 local function observeMetrics(state, values)
@@ -148,6 +201,7 @@ local function setStatus(state, status)
     cleaning = true, terminal = true}
   if not allowed[status] then return false end
   state.status = status
+  if status == "terminal" then state.terminalLivenessState = state.livenessState or "TERMINAL" end
   return true
 end
 
@@ -185,13 +239,20 @@ local function snapshot(state, now)
     callbackCount = state.callbackCount,
     frameBudgetOverruns = state.frameBudgetOverruns,
     status = state.status,
+    phase = state.phase,
+    phaseKind = state.phaseKind,
+    softDeadlineAt = state.softDeadlineAt,
+    livenessState = state.livenessState,
+    terminalLivenessState = state.terminalLivenessState,
   }
 end
 
 M.DEFAULTS = DEFAULTS
+M.PHASE_PROFILES = PHASE_PROFILES
 M.create = create
 M.note = note
 M.setDeadlines = setDeadlines
+M.setPhase = setPhase
 M.observePause = observePause
 M.evaluate = evaluate
 M.observeMetrics = observeMetrics

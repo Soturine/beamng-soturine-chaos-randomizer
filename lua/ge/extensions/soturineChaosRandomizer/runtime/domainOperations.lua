@@ -1,4 +1,5 @@
 local util = require("ge/extensions/soturineChaosRandomizer/util")
+local vehicleIdentity = require("ge/extensions/soturineChaosRandomizer/vehicleIdentity")
 
 local M = {}
 
@@ -250,9 +251,14 @@ local function ownVehicle(state, vehicleId, metadata)
   local role = tostring(metadata.role or "external")
   if not ROLES[role] then return false, "vehicle_ownership_role_invalid" end
   local current = state.vehicleOwnership[key]
+  local identity = vehicleIdentity.normalize(metadata.identity or current and current.identity, numeric)
+  if metadata.managed == true and not vehicleIdentity.canMutate(identity) then
+    return false, "vehicle_authority_not_mutable"
+  end
   local replacing = current and (current.domain ~= metadata.domain
     or current.operationId ~= metadata.operationId
-    or current.generation ~= metadata.generation)
+    or current.generation ~= metadata.generation
+    or current.identity and not vehicleIdentity.same(current.identity, identity))
   if replacing and current.role == "race_competitor" and current.accepted == true
     and metadata.transfer ~= true
   then return false, "vehicle_owned_by_other_slot" end
@@ -272,6 +278,7 @@ local function ownVehicle(state, vehicleId, metadata)
     state.ownershipOrder[#state.ownershipOrder + 1] = key
   end
   current.domain = metadata.domain or current.domain
+  current.identity = util.deepCopy(identity)
   current.operationId = metadata.operationId or current.operationId
   current.generation = metadata.generation or current.generation
   current.role = role
@@ -345,6 +352,7 @@ local function registerCandidate(state, token, vehicleId, metadata)
     domain = context.domain, operationId = context.operationId, generation = context.generation,
     role = metadata.role or role, slot = token.expectedSlot, managed = created,
     created = created, accepted = false, updatedAt = metadata.observedAt,
+    identity = metadata.identity,
   })
   if not owned then return false, result end
   context.candidateConcreteId = numeric
@@ -506,6 +514,9 @@ end
 local function canMutate(state, context, vehicleId)
   local entry = ownership(state, vehicleId)
   if not entry then return true, "external_unregistered" end
+  if entry.identity and not vehicleIdentity.canMutate(entry.identity) then
+    return false, "vehicle_authority_not_mutable"
+  end
   if entry.domain == context.domain and entry.operationId == context.operationId
     and entry.generation == context.generation
   then return true, "owned_by_operation" end
@@ -519,6 +530,9 @@ local function markOrphan(state, vehicleId, reason)
   local entry = ownership(state, vehicleId)
   if not entry or entry.managed ~= true or entry.accepted == true then
     return false, "orphan_cleanup_not_owned"
+  end
+  if entry.identity and not vehicleIdentity.canCleanup(entry.identity) then
+    return false, "orphan_cleanup_authority_denied"
   end
   entry.role = "orphan"
   entry.orphanReason = reason or "operation_ended_without_acceptance"
@@ -582,6 +596,7 @@ local function reap(state, deleteVehicle, options)
     scanned = scanned + 1
     local entry = state.vehicleOwnership[key]
     local matches = entry and entry.role == "orphan" and entry.managed == true and entry.accepted ~= true
+      and (not entry.identity or vehicleIdentity.canCleanup(entry.identity))
       and (options.domain == nil or entry.domain == options.domain)
       and (options.operationId == nil or entry.operationId == options.operationId)
     local retryReady = not entry or not entry.cleanupRetryAt or (tonumber(options.now) or 0) >= entry.cleanupRetryAt

@@ -84,7 +84,7 @@ end
 
 local function layer(validation, policy, evidence)
   validation = util.deepCopy(type(validation) == "table" and validation or {})
-  local originalDecision, originalValid = validation.decision, validation.valid
+  local originalValid = validation.valid
   local runtimeIntegrity, integrityReason = integrity(evidence, validation)
   local vehicleDrivability, drivabilityReason = drivability(validation)
   local chaosAcceptance, acceptanceReason = acceptance(runtimeIntegrity, vehicleDrivability, policy)
@@ -108,16 +108,16 @@ local function layer(validation, policy, evidence)
     validation.decision, validation.valid = "INVALID_CONFIRMED", false
   elseif runtimeIntegrity == M.RUNTIME_INTEGRITY.UNKNOWN_OR_PENDING then
     validation.decision, validation.valid = "UNKNOWN_OR_PENDING", nil
-  elseif chaosAcceptance == M.CHAOS_ACCEPTANCE.ACCEPT
-    or chaosAcceptance == M.CHAOS_ACCEPTANCE.ACCEPT_WITH_WARNING
-  then
+  elseif runtimeIntegrity == M.RUNTIME_INTEGRITY.HEALTHY then
+    -- Functional/metadata validation is not runtime integrity. A stable odd
+    -- vehicle can be accepted by chaos policy, while a strict policy can
+    -- reject it without authorizing destructive rollback.
     validation.decision, validation.valid = "VALID", true
     if chaosAcceptance == M.CHAOS_ACCEPTANCE.ACCEPT_WITH_WARNING then
       validation.status = "accepted_with_warning"
+    elseif chaosAcceptance == M.CHAOS_ACCEPTANCE.REJECT_BY_POLICY then
+      validation.status = "rejected_by_policy"
     end
-  else
-    validation.decision, validation.valid = originalDecision or "VALID", originalValid
-    validation.status = "rejected_by_policy"
   end
   return validation
 end

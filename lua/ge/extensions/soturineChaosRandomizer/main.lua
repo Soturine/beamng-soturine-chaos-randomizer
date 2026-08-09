@@ -83,6 +83,10 @@ local productionModules = {
   stabilityLimits = require("ge/extensions/soturineChaosRandomizer/runtime/stabilityLimits"),
   safetyGate = require("ge/extensions/soturineChaosRandomizer/safetyGate"),
   safetyModel = require("ge/extensions/soturineChaosRandomizer/runtime/safetyModel"),
+  operationOutcome = require("ge/extensions/soturineChaosRandomizer/operationOutcome"),
+  formationEnum = require("ge/extensions/soturineChaosRandomizer/formationEnum"),
+  contactDetector = require("ge/extensions/soturineChaosRandomizer/contactDetector"),
+  playgroundMode = require("ge/extensions/soturineChaosRandomizer/playgroundMode"),
 }
 
 local M = {}
@@ -90,7 +94,7 @@ local production = {}
 
 M.dependencies = {"core_modmanager", "core_vehicle_manager", "core_vehicle_partmgmt", "core_vehicles"}
 
-local EXTENSION_VERSION = "0.7.4"
+local EXTENSION_VERSION = "0.7.5"
 local WAIT_TIMEOUT = 25
 local PAINT_CONFIRM_TIMEOUT = 2
 local RECENT_LIMIT = 4
@@ -380,6 +384,10 @@ local function publicState()
       stagingPreview = util.deepCopy(runtime.lineup.current.stagingPreview),
       placementPreview = util.deepCopy(runtime.lineup.current.placementPreview),
       worldPreview = util.deepCopy(runtime.racePreview),
+      warnings = util.deepCopy(runtime.lineup.current.warnings),
+      persistence = util.deepCopy(runtime.lineup.current.persistence),
+      schedulerState = runtime.lineup.current.schedulerState,
+      schedulerLastProgressAt = runtime.lineup.current.schedulerLastProgressAt,
       summary = productionModules.raceManager.summary(runtime.lineup.current), competitors = {},
     }
     for _, competitor in ipairs(runtime.lineup.current.competitors or {}) do
@@ -751,6 +759,7 @@ local function setLifecyclePhase(active, phase, timeout, reason)
         productionModules.domainOperations.setPhase(active.domainContext, phase, "active")
       end
       if active.progressWatchdog then
+        progressWatchdog.setPhase(active.progressWatchdog, phase, runtime.time.realMonotonicTime)
         progressWatchdog.setDeadlines(
           active.progressWatchdog,
           runtime.state.deadline,
@@ -1060,15 +1069,13 @@ local function finishOperation(success, code, message, details, terminalState)
     details.repairAttempts = util.deepCopy(active.criticalRepairAttempts or {})
     details.rollbackReason = active.rollbackFailure and active.rollbackFailure.code or nil
   end
-  details.legacyTerminalOutcome = details.criticalRepairSucceeded == true and "success_with_critical_repair"
-    or terminalState == "completed" and "success" or terminalState == "partial" and "partial_success"
-    or terminalState == "cancelled" and "cancelled" or details.preservedCurrentResult == true and "preserved_previous_result"
-    or details.rollback == "completed" and "full_rollback" or "failed"
-  details.terminalOutcome = terminalState == "cancelled" and "CANCELLED"
-    or details.rollback == "completed" and "FAILED_ROLLED_BACK"
-    or success == true and (terminalState == "partial" or active and active.nonFatalPartial == true
-      or details.cardinalityWarning ~= nil or details.criticalRepairSucceeded == true) and "SUCCESS_WITH_WARNING"
-    or success == true and "SUCCESS" or "FAILED_NO_CHANGE"
+  details.nonFatalPartial = active and active.nonFatalPartial == true or nil
+  details.energyGuardUncertain = active and active.energyGuardUncertain == true or nil
+  details.engineFluidUncertain = active and active.engineFluidUncertain == true or nil
+  details.terminalOutcome, details.outcomeConfidence = productionModules.operationOutcome.classify(
+    success, code, details, terminalState
+  )
+  details.legacyTerminalOutcome = productionModules.operationOutcome.legacy(details.terminalOutcome)
   if active then
     details.targetGeneration = active.targetGeneration
     details.lifecycleAcceptance = {
@@ -1096,12 +1103,16 @@ local function finishOperation(success, code, message, details, terminalState)
     )
     if readable then
       vehicleRecovery.rememberReadable(runtime.recovery, finalSnapshot)
-      local accepted = success == true and (terminalState == "completed" or terminalState == "partial")
+      local accepted = success == true and (
+          details.terminalOutcome == "COMPLETED"
+          or details.terminalOutcome == "COMPLETED_WITH_SKIPS"
+          or details.terminalOutcome == "COMPLETED_WITH_WARNING"
+          or details.terminalOutcome == "PARTIAL_APPLIED"
+        )
         and details.lifecycleAcceptance.busy == false
         and details.lifecycleAcceptance.pendingWrites == 0
         and details.lifecycleAcceptance.pendingTimers == 0
         and details.lifecycleAcceptance.pendingCallbacks == 0
-        and details.lifecycleAcceptance.coverageLedgersClosed == true
         and details.lifecycleAcceptance.targetOwnershipConfirmed == true
         and active.recoveryOnly ~= true
       if accepted then
@@ -1112,7 +1123,7 @@ local function finishOperation(success, code, message, details, terminalState)
           completedAt = adapter.clock(),
         })
         details.snapshotPromoted = true
-        details.snapshotSource = terminalState == "partial"
+        details.snapshotSource = details.terminalOutcome == "PARTIAL_APPLIED"
           and "accepted_partial_operation" or "completed_operation"
       end
     end
@@ -1129,12 +1140,17 @@ local function finishOperation(success, code, message, details, terminalState)
     active.phaseDuration = phaseDuration
     details.runtimeMetrics = {
       partsReloadCount = active.partsReloadCount or 0,
+      tuningReloadCount = active.tuningReloadCount or 0,
       readbackCount = active.readbackCount or 0,
       repairReloadCount = active.repairReloadCount or 0,
       reloadDuration = active.reloadDuration or 0,
       phaseDuration = active.phaseDuration or 0,
       maxSingleStep = active.maxSingleStep or 0,
       reloadBudget = util.deepCopy(active.reloadBudget),
+      semanticProgressSequence = active.progressWatchdog
+        and active.progressWatchdog.semanticProgressSequence or 0,
+      duplicateCallbackCount = active.progressWatchdog
+        and active.progressWatchdog.duplicateSemanticCount or 0,
     }
   end
   setResult(success, code, message, details)
@@ -1158,12 +1174,17 @@ local function finishOperation(success, code, message, details, terminalState)
       duration = math.max(0, adapter.clock() - active.startedAt),
       reloadCount = active.reloadCount or 0,
       partsReloadCount = active.partsReloadCount or 0,
+      tuningReloadCount = active.tuningReloadCount or 0,
       readbackCount = active.readbackCount or 0,
       repairReloadCount = active.repairReloadCount or 0,
       reloadDuration = active.reloadDuration or 0,
       phaseDuration = active.phaseDuration or 0,
       maxSingleStep = active.maxSingleStep or 0,
       reloadBudget = util.deepCopy(active.reloadBudget),
+      semanticProgressSequence = active.progressWatchdog
+        and active.progressWatchdog.semanticProgressSequence or 0,
+      duplicateCallbackCount = active.progressWatchdog
+        and active.progressWatchdog.duplicateSemanticCount or 0,
       slotScanDuration = active.slotScanDuration or 0,
       mutationPlanningDuration = active.mutationPlanningDuration or 0,
       slotCount = active.lastScanMetrics and active.lastScanMetrics.slotCount or 0,
@@ -1319,6 +1340,8 @@ local function finishOperation(success, code, message, details, terminalState)
     end
     if type(production.persistCurrentLineup) == "function" then production.persistCurrentLineup() end
     runtime.lineup.pendingNext = lineup.active == true
+    lineup.schedulerState = lineup.active and "scheduled" or "finished"
+    lineup.schedulerLastProgressAt = runtime.time.realMonotonicTime
     if active.lineupPreviousSettings then runtime.settings = settingsModule.validate(active.lineupPreviousSettings) end
   end
   if active and active.progressWatchdog then progressWatchdog.setStatus(active.progressWatchdog, "terminal") end
@@ -1340,9 +1363,6 @@ local function finishOperation(success, code, message, details, terminalState)
   end
 
   publishState()
-  if not active or not active.stressIteration or not runtime.stress or not runtime.stress.active then
-    adapter.notify(message, success and "check" or "warning", success and 5 or 8)
-  end
 end
 
 production.currentCatalogFingerprint = function()
@@ -1715,8 +1735,10 @@ local function beginOperation(kind, context)
     unboundSpawnCallbacks = {},
     ignoredBackgroundCallbacks = 0,
     lineupStagingPlacement = util.deepCopy(context.lineupStagingPlacement),
+    racePermissiveDrivability = context.racePermissiveDrivability == true,
     reloadCount = 0,
     partsReloadCount = 0,
+    tuningReloadCount = 0,
     readbackCount = 0,
     repairReloadCount = 0,
     reloadDuration = 0,
@@ -2250,6 +2272,23 @@ local function issueReplacement(active, modelKey, config, phase)
   if not ok then return false, result end
   local recorded, recordError = recordReplacementCandidate(active, result, phase)
   if not recorded then return false, recordError end
+  if active.backgroundTarget and phase == "spawn" and type(result.vehicleId) == "number"
+    and type(active.lineupStagingPlacement) == "table"
+  then
+    local placed, placementReason = productionModules.spawnAdapter.placeVehicle(
+      result.vehicleId, active.lineupStagingPlacement
+    )
+    if not placed then
+      return false, adapter.errorValue("lineup_staging_apply_failed",
+        "The Race candidate could not be moved to its owned staging slot", {
+          vehicleId = result.vehicleId, expectedSlot = active.expectedSlot,
+          reason = placementReason,
+        })
+    end
+    active.stagingPlacementApplied = true
+    active.stagingPlacementVehicleId = result.vehicleId
+    noteProgress(active, "binding", "candidate_staging_placement_requested")
+  end
   return true, result
 end
 
@@ -2795,7 +2834,8 @@ end
 
 production.layerSafety = function(active, result, snapshot)
   local policy = util.shallowMerge(active.policy or {}, {
-    allowPartialResult = active.settings and active.settings.allowPartialResult == true,
+    allowPartialResult = active.settings and active.settings.allowPartialResult == true
+      or active.racePermissiveDrivability == true,
   })
   return productionModules.safetyModel.layer(
     result, policy, production.safetyEvidence(active, snapshot)
@@ -3352,10 +3392,13 @@ production.completeRandomConfig = function(active, verificationDetails)
   ))
   if dnaReady then pushRecent(runtime.recentCompletedDNA, dnaOrError.id) end
   details.engineFluids = util.deepCopy(active.engineFluidReport)
-  details.partial = active.energyGuardUncertain == true or active.engineFluidUncertain == true
-    or active.nonFatalPartial == true
-  finishOperation(true, details.partial and "random_config_partial" or "random_config_loaded",
-    message, details, details.partial and "partial" or "completed")
+  details.uncertain = active.energyGuardUncertain == true or active.engineFluidUncertain == true
+  if active.nonFatalPartial == true then
+    details.warnings[#details.warnings + 1] = "Additional verification was unavailable for this vehicle."
+  end
+  finishOperation(true, (details.uncertain or active.nonFatalPartial == true)
+      and "random_config_loaded_with_warning" or "random_config_loaded",
+    message, details, "completed")
 end
 
 local function completeChaos(active)
@@ -3451,32 +3494,30 @@ local function completeChaos(active)
     or details.stageReasons.paint == "paint_capability_unavailable"
   local nonFatalPartial = active.energyGuardUncertain == true or active.engineFluidUncertain == true
     or active.nonFatalPartial == true
-  local partial = coveragePartial or nonFatalPartial
+  local warningOnly = coveragePartial or nonFatalPartial
   local dnaReady, dnaOrError = capturePendingDNA(active, details)
   details.dnaReady = dnaReady
   if dnaReady then
     details.dnaId = dnaOrError.id
   else
-    partial = true
+    warningOnly = true
     details.warnings[#details.warnings + 1] = "Vehicle DNA capture was unavailable: " .. tostring(dnaOrError.message or dnaOrError.code)
     diagnosticsModule.write(runtime.diagnostics, "W", "dna_capture_failed", dnaOrError, true)
   end
-  details.partial = partial
-  details.status = partial and "Partial" or "Completed"
-  if coveragePartial and active.preserveCurrentResult ~= true
-    and not (active.settings and active.settings.allowPartialResult == true) then
-    runtime.dna.pending = nil
-    failActive(adapter.errorValue("partial_result_not_allowed", "Coverage was partial and Keep Partial Result is off", {
-      coverage = util.deepCopy(details.coverage), warnings = util.deepCopy(details.warnings),
-    }), true, "partial_result")
-    return
-  end
+  details.uncertain = nonFatalPartial or not okReadBack
+  details.skippedCount = (tuningSummary and tuningSummary.tuningRejected or 0)
+    + (paintSummary and paintSummary.paintRejected or 0)
+    + (details.stageReasons.tuning == "tuning_capability_unavailable" and 1 or 0)
+    + (details.stageReasons.paint == "paint_capability_unavailable" and 1 or 0)
+  details.status = warningOnly and "CompletedWithWarning" or "Completed"
   local completionCode = active.creativeOperation == "reroll_unlocked" and "reroll_unlocked_completed"
     or active.creativeOperation == "mutation" and "dna_mutation_completed" or "completed"
   if active.kind == "fullRandom" then
-    completionCode = partial and "full_random_partial" or "full_random_completed"
+    completionCode = details.skippedCount > 0 and "full_random_completed_with_skips"
+      or warningOnly and "full_random_completed_with_warning" or "full_random_completed"
   elseif active.kind == "scramble" and not active.creativeOperation then
-    completionCode = partial and "scramble_partial"
+    completionCode = details.skippedCount > 0 and "scramble_completed_with_skips"
+      or warningOnly and "scramble_completed_with_warning"
       or totalChanges == 0 and "scramble_no_mutable_content" or "completed"
   end
   local creativeMessage = active.creativeOperation == "reroll_unlocked" and "Reroll Unlocked complete"
@@ -3487,12 +3528,12 @@ local function completeChaos(active)
       active.selectedConfig.path or active.selectedConfig.key
     ))
   end
-  if dnaReady and not partial then pushRecent(runtime.recentCompletedDNA, dnaOrError.id) end
+  if dnaReady then pushRecent(runtime.recentCompletedDNA, dnaOrError.id) end
   finishOperation(true, completionCode, creativeMessage or completionMessage or string.format(
     "%s: %d parts, %d tuning values, %d paints",
-    partial and "Chaos partial result" or "Chaos complete",
+    warningOnly and "Chaos complete with warnings" or "Chaos complete",
     #active.changes, #active.tuningChanges, active.paintChanges
-  ), details, partial and "partial" or "completed")
+  ), details, "completed")
 end
 
 startPaint = function(active)
@@ -6098,6 +6139,9 @@ local function completeStableTarget(vehicleId, verificationState, verificationDe
     or completedPhase == "part_batch_rollback" or completedPhase == "part_isolation_test"
     or completedPhase == "critical_repair"
   then active.partsReloadCount = (active.partsReloadCount or 0) + 1 end
+  if completedPhase == "tuning" or completedPhase == "dna_tuning"
+    or completedPhase == "fuel_guard"
+  then active.tuningReloadCount = (active.tuningReloadCount or 0) + 1 end
   if completedPhase == "critical_repair" or completedPhase == "part_batch_rollback"
     or completedPhase == "part_isolation_test"
   then active.repairReloadCount = (active.repairReloadCount or 0) + 1 end
@@ -6296,6 +6340,28 @@ local function nominateSpawnDirectorCandidate(vehicleId, source, oldId)
   return true
 end
 
+production.restoreRacePlayerFocus = function(active, candidateVehicleId, source)
+  if not active or active.backgroundTarget ~= true
+    or type(active.lineupPlayerVehicleId) ~= "number"
+  then return true end
+  local restored, report = productionModules.raceFocusGuard.restore({
+    playerVehicleId = active.lineupPlayerVehicleId,
+    candidateVehicleId = candidateVehicleId,
+    getCurrentVehicleId = adapter.getCurrentVehicleId,
+    enterVehicle = adapter.enterVehicle,
+  })
+  active.playerFocusIsolation = util.deepCopy(type(report) == "table" and report or {
+    reason = report, source = source,
+  })
+  diagnosticsModule.write(runtime.diagnostics, restored and "D" or "E",
+    restored and "race_player_focus_verified" or "race_player_focus_restore_failed", {
+      source = source, candidateVehicleId = candidateVehicleId,
+      playerVehicleId = active.lineupPlayerVehicleId,
+      report = util.deepCopy(report),
+    }, not restored)
+  return restored, report
+end
+
 local function onVehicleSpawned(vehicleId)
   nominateSpawnDirectorCandidate(vehicleId, "spawn")
   if not runtime.state.busy or not runtime.active or not runtime.active.targetTracker then return end
@@ -6348,6 +6414,7 @@ local function onVehicleSpawned(vehicleId)
   local callbackCorrelated = expectedCallbackVehicleId == nil
     or tonumber(expectedCallbackVehicleId) == tonumber(vehicleId)
   if callbackCorrelated then
+    production.restoreRacePlayerFocus(active, vehicleId, "onVehicleSpawned")
     local domainToken = active.phaseCallbackTokens and active.phaseCallbackTokens.onVehicleSpawned
       or production.domainCallbackToken(active, "onVehicleSpawned", {
         expectedVehicleId = vehicleId, expectedSlot = active.expectedSlot,
@@ -6598,10 +6665,16 @@ local function onVehicleSwitched(oldId, newId, player)
   if not runtime.state.busy or not runtime.active then return end
   local active = runtime.active
   if active.backgroundTarget and (player == nil or player == 0) then
+    local restored, restoreReason = production.restoreRacePlayerFocus(
+      active, newId, "onVehicleSwitched"
+    )
     active.ignoredBackgroundCallbacks = active.ignoredBackgroundCallbacks + 1
-    diagnosticsModule.write(runtime.diagnostics, "D", "background_operation_player_switch_ignored", {
-      oldId = oldId, newId = newId, player = player, expectedSlot = active.expectedSlot,
-    })
+    diagnosticsModule.write(runtime.diagnostics, restored and "D" or "E",
+      "background_operation_player_switch_restored", {
+        oldId = oldId, newId = newId, player = player,
+        expectedSlot = active.expectedSlot, restored = restored,
+        reason = restoreReason,
+      }, not restored)
     return
   end
   if player == nil or player == 0 then
@@ -6877,13 +6950,37 @@ function production.persistCurrentLineup()
   local current = runtime.lineup.current
   if not current then return false, "lineup_missing" end
   local valid, reason = productionModules.lineupSchema.validate(current, {allowOne = true})
-  if not valid then return false, reason end
-  local added, stored = productionModules.lineupStorage.add(runtime.lineup.library, current)
+  if not valid then
+    current.persistence = current.persistence or {}
+    current.persistence.status = "warning"
+    current.persistence.lastError = reason
+    return false, reason
+  end
+  local candidateLibrary = util.deepCopy(runtime.lineup.library)
+  local added, stored = productionModules.lineupStorage.add(candidateLibrary, current)
   if not added then return false, stored end
   if runtime.capabilities.lineupWrite and type(adapter.saveLineupLibrary) == "function" then
-    local ok, writeError = adapter.saveLineupLibrary(runtime.lineup.library)
-    if not ok then return false, writeError.code end
+    local ok, writeError = adapter.saveLineupLibrary(candidateLibrary)
+    if not ok then
+      current.persistence = current.persistence or {}
+      current.persistence.status = "warning"
+      current.persistence.retryCount = (current.persistence.retryCount or 0) + 1
+      current.persistence.lastError = writeError.code
+      current.persistence.nextRetryAt = runtime.time.realMonotonicTime + math.min(30,
+        math.max(2, current.persistence.retryCount * 2))
+      if not util.arrayContains(current.warnings, "Race progress is active but its latest checkpoint is not saved.") then
+        current.warnings[#current.warnings + 1] =
+          "Race progress is active but its latest checkpoint is not saved."
+      end
+      return false, writeError.code
+    end
   end
+  runtime.lineup.library = candidateLibrary
+  current.persistence = current.persistence or {}
+  current.persistence.status = "saved"
+  current.persistence.lastError = nil
+  current.persistence.nextRetryAt = nil
+  current.persistence.lastSavedAt = runtime.time.realMonotonicTime
   return true
 end
 
@@ -6924,7 +7021,7 @@ production.generationPreviewContext = function(options, lineup, playerOk, player
     if roadOk then frame.roadForward = roadForward end
   end
   local plan, planReason = productionModules.spawnDirector.plan(frame, {
-    mode = lineup.settings.formation or "Automatic Best Fit",
+    mode = productionModules.formationEnum.runtimeName(lineup.settings.formation),
     count = #lineup.competitors,
     spacingMode = lineup.settings.spacingMode,
     longitudinalSpacing = lineup.settings.longitudinalSpacing,
@@ -6956,7 +7053,12 @@ function production.previewRaceGeneration(options)
   initialize()
   options = type(options) == "table" and util.deepCopy(options) or {}
   if options.previewEnabled == false then
-    runtime.racePreview = nil
+    if runtime.racePreview then
+      productionModules.racePreview.clear(runtime.racePreview, "preference_disabled")
+    else
+      runtime.racePreview = {enabled = false, state = "PREVIEW_DISABLED", slots = {},
+        clearedReason = "preference_disabled"}
+    end
     setResult(true, "race_preview_disabled", "Race generation preview disabled")
     publishState()
     return true
@@ -6990,10 +7092,10 @@ function production.previewRaceGeneration(options)
   runtime.racePreview = productionModules.racePreview.build(
     "generation_staging", context.plan, lineup, context.playerPlacement, true
   )
-  setResult(true, "race_generation_preview_ready", "Race generation preview is ready", {
+  setResult(true, "race_generation_preview_data_ready", "Race generation preview data is ready", {
     totalVehicles = lineup.totalVehicles,
     aiOpponents = lineup.aiOpponentCount,
-    kind = runtime.racePreview.kind,
+    kind = runtime.racePreview.kind, previewState = runtime.racePreview.state,
   })
   publishState()
   return true
@@ -7053,6 +7155,7 @@ function production.createChaosLineup(options)
     status = "validated",
     requestedMode = staging.options.requestedMode,
     effectiveMode = staging.options.mode,
+    formation = lineup.settings.formation,
     fallbackReason = staging.options.fallbackReason,
     count = #staging.placements,
     resolvedLateralSpacing = staging.options.resolvedLateralSpacing,
@@ -7067,20 +7170,18 @@ function production.createChaosLineup(options)
   )
   runtime.lineup.current = lineup
   lineup.generationState = "lineup_processing"
+  lineup.schedulerState = "scheduled"
+  lineup.schedulerLastProgressAt = runtime.time.realMonotonicTime
   runtime.lineup.pendingNext = true
   local persisted, persistReason = production.persistCurrentLineup()
-  if not persisted then
-    lineup.active = false
-    runtime.lineup.pendingNext = false
-  end
-  setResult(persisted, persisted and "lineup_started" or "lineup_storage_failed",
+  setResult(true, persisted and "lineup_started" or "lineup_started_with_storage_warning",
     persisted and "Race grid generation started" or "The Race grid was created but its initial checkpoint could not be saved",
     {episodeSeed = lineup.episodeSeed, count = #lineup.competitors,
       totalVehicles = lineup.totalVehicles, aiOpponents = lineup.aiOpponentCount,
       playerParticipates = lineup.playerParticipates, cleanup = cleanup,
       stagingPreview = util.deepCopy(lineup.stagingPreview), storageReason = persistReason})
   publishState()
-  return persisted
+  return true
 end
 
 function production.startNextLineupCompetitor()
@@ -7092,31 +7193,25 @@ function production.startNextLineupCompetitor()
     local saved, reason = production.persistCurrentLineup()
     local outcome = runtime.lineup.current.generationState
     local accepted = outcome == "lineup_ready" or outcome == "lineup_partial"
-    setResult(saved and accepted, saved and outcome or "lineup_storage_failed",
+    setResult(accepted, saved and outcome or accepted and "lineup_ready_with_storage_warning"
+        or "lineup_finished_with_storage_warning",
       saved and (outcome == "lineup_ready" and "Race grid ready"
         or outcome == "lineup_partial" and "Race grid generation completed partially"
         or "Race grid generation finished without a usable opponent")
-        or "Race grid finished but storage verification failed", {
+        or accepted and "Race grid is ready, but its latest checkpoint is not saved"
+        or "Race grid finished without a usable opponent and storage verification failed", {
       summary = summary, processingState = "lineup_processing_finished", reason = reason,
+      persistenceWarning = saved and nil or reason,
     })
     publishState()
     return false
   end
   local checkpointed, checkpointReason = production.persistCurrentLineup()
   if not checkpointed then
-    competitor.status = "failed"
-    competitor.phase = "failed"
-    competitor.terminalState = "failed"
-    competitor.failureCode = "lineup_storage_failed"
-    competitor.generationStatus = "failed"
-    competitor.warning = "Generation checkpoint failed; retry after storage is available"
-    runtime.lineup.current.active = false
-    runtime.lineup.pendingNext = false
-    setResult(false, "lineup_storage_failed", "The competitor was not started because its generation checkpoint could not be saved", {
+    competitor.warning = "Generation continues; this checkpoint is not saved yet"
+    diagnosticsModule.write(runtime.diagnostics, "W", "lineup_checkpoint_deferred", {
       index = competitor.index, reason = checkpointReason,
-    })
-    publishState()
-    return false
+    }, true)
   end
   local previousSettings = util.deepCopy(runtime.settings)
   local settings = util.deepCopy(runtime.settings)
@@ -7163,6 +7258,7 @@ function production.startNextLineupCompetitor()
     lineupOwnedTarget = true,
     backgroundTarget = true,
     lineupStagingPlacement = util.deepCopy(competitor.stagingPlacement),
+    racePermissiveDrivability = runtime.lineup.current.acceptPotentiallyUndrivable == true,
     operationTimeout = runtime.lineup.current.settings.maxWallClockSecondsPerCompetitor or 180,
   })
   if started and runtime.active then
@@ -7177,6 +7273,8 @@ function production.startNextLineupCompetitor()
     competitor.deadlineAtMonotonic = runtime.time.realMonotonicTime
       + (runtime.lineup.current.settings.maxWallClockSecondsPerCompetitor or 180)
     competitor.spawnState = "spawning_independent_vehicle"
+    runtime.lineup.current.schedulerState = "operation_active"
+    runtime.lineup.current.schedulerLastProgressAt = runtime.time.realMonotonicTime
     competitor.randomizationState = "running"
     competitor.forceOfficialFallback = nil
     productionModules.raceManager.setPhase(
@@ -7193,6 +7291,47 @@ function production.startNextLineupCompetitor()
   end
   publishState()
   return started
+end
+
+production.auditRaceScheduler = function()
+  local lineup = runtime.lineup.current
+  if not lineup then return false end
+  local persistence = lineup.persistence
+  if persistence and persistence.status == "warning"
+    and tonumber(persistence.nextRetryAt)
+    and runtime.time.realMonotonicTime >= persistence.nextRetryAt
+    and not runtime.state.busy
+  then
+    production.persistCurrentLineup()
+  end
+  if lineup.active ~= true or runtime.state.busy or runtime.active then return false end
+  if runtime.lineup.pendingNext then
+    lineup.schedulerState = "scheduled"
+    return false
+  end
+  local open
+  for _, competitor in ipairs(lineup.competitors or {}) do
+    if competitor.generationClosed ~= true then open = competitor; break end
+  end
+  if open and open.status ~= "planned" then
+    open.status = "failed"
+    open.phase = "failed"
+    open.terminalState = "failed"
+    open.failureCode = "lineup_scheduler_lost_operation"
+    open.generationStatus = "failed"
+    open.generationClosed = true
+    open.dna, open.dnaId, open.vehicleDNAId = nil, nil, nil
+    open.warning = "The abandoned slot was closed so later competitors can continue"
+    lineup.nextIndex = open.index + 1
+  end
+  runtime.lineup.pendingNext = true
+  lineup.schedulerState = "self_healed"
+  lineup.schedulerLastProgressAt = runtime.time.realMonotonicTime
+  diagnosticsModule.write(runtime.diagnostics, "W", "lineup_scheduler_self_healed", {
+    lineupId = lineup.id, slot = open and open.index,
+    previousStatus = open and open.status or "all_terminal",
+  }, true)
+  return true
 end
 
 function production.resolveLineupFailure(index, action)
@@ -7861,6 +8000,8 @@ end
 
 function production.startManagedAI(options)
   options = type(options) == "table" and util.deepCopy(options) or {}
+  options.speed = tonumber(options.speed) or (tonumber(options.speedKph)
+    and tonumber(options.speedKph) / 3.6) or nil
   local lineup = runtime.lineup.current
   if lineup and (lineup.active == true or (lineup.generationState ~= "lineup_ready"
     and not (lineup.generationState == "lineup_partial" and lineup.acceptPartial == true)))
@@ -7911,8 +8052,14 @@ function production.startManagedAI(options)
         if route then
           currentOptions.nodes, currentOptions.destination, currentOptions.nodesArePath = route.nodes, route.destination, true
         else failures[#failures + 1] = {handle = handle, reason = reason or "route_points_missing"} end
-      elseif mode == "Chase" or mode == "Follow" then
+      elseif mode == "Chase" or mode == "Follow" or mode == "Flee" then
         local targetId = math.floor(tonumber(options.targetVehicleId) or -1)
+        if options.preset == "Convoy" then
+          local previousHandle = selected[order - 1]
+          local previousManaged = previousHandle and runtime.managedVehicles.entries[previousHandle]
+          targetId = previousManaged and previousManaged.vehicleId
+            or math.floor(tonumber(options.targetVehicleId) or -1)
+        end
         local targetOk, targetReason = productionModules.aiAdapter.targetExists(targetId)
         if not targetOk or targetId == managed.vehicleId then
           failures[#failures + 1] = {handle = handle, reason = targetReason or "ai_target_invalid"}
@@ -7920,7 +8067,8 @@ function production.startManagedAI(options)
         else currentOptions.targetVehicleId = targetId end
       end
       local routeReady = (mode ~= "Destination" and mode ~= "Route") or currentOptions.nodes
-      local targetReady = (mode ~= "Chase" and mode ~= "Follow") or currentOptions.targetVehicleId
+      local targetReady = (mode ~= "Chase" and mode ~= "Follow" and mode ~= "Flee")
+        or currentOptions.targetVehicleId
       if routeReady and targetReady then
         local entry, reason = productionModules.aiDirector.assign(runtime.aiDirector, handle, managed.vehicleId, mode, currentOptions, adapter.clock())
         if entry then
@@ -7940,6 +8088,37 @@ function production.startManagedAI(options)
     {started = started, failures = failures})
   publishState()
   return started > 0
+end
+
+function production.startAIQuickPreset(name)
+  local presets = {
+    Follow = {mode = "Follow", speed = 14, aggression = 0.45, avoidCars = true},
+    Convoy = {mode = "Follow", preset = "Convoy", speed = 13, aggression = 0.4,
+      avoidCars = true, stagger = 0.25},
+    Chase = {mode = "Chase", speed = 22, aggression = 0.75, avoidCars = true},
+    Flee = {mode = "Flee", speed = 22, aggression = 0.65, avoidCars = true},
+    Traffic = {mode = "Traffic", speed = 15, aggression = 0.45, avoidCars = true},
+    Roam = {mode = "Roam", speed = 16, aggression = 0.5, avoidCars = true},
+    Swarm = {mode = "Chase", preset = "Swarm", speed = 18, aggression = 0.55,
+      avoidCars = true, stagger = 0.15},
+  }
+  local options = presets[name]
+  if not options then
+    setResult(false, "ai_quick_preset_invalid", "The selected AI preset is unavailable")
+    publishState()
+    return false
+  end
+  if options.mode == "Follow" or options.mode == "Chase" or options.mode == "Flee" then
+    local playerOk, playerVehicleId = adapter.getCurrentVehicleId()
+    if not playerOk or type(playerVehicleId) ~= "number" then
+      setResult(false, "ai_quick_preset_target_missing",
+        "This AI preset needs an active local player vehicle")
+      publishState()
+      return false
+    end
+    options.targetVehicleId = playerVehicleId
+  end
+  return production.startManagedAI(options)
 end
 
 function production.controlManagedAI(action)
@@ -8457,7 +8636,21 @@ local function onUpdate(dtReal, dtSim, dtRaw)
 
   local previewStarted = adapter.clock()
   if runtime.racePreview and runtime.racePreview.enabled then
-    productionModules.spawnAdapter.drawPreview(productionModules.racePreview.placements(runtime.racePreview))
+    local _, renderReport = productionModules.spawnAdapter.drawPreview(
+      productionModules.racePreview.placements(runtime.racePreview)
+    )
+    local previewStateChanged = productionModules.racePreview.recordRender(
+      runtime.racePreview, renderReport, runtime.time.realMonotonicTime
+    )
+    if previewStateChanged then
+      diagnosticsModule.write(runtime.diagnostics,
+        runtime.racePreview.state == "PREVIEW_VISIBLE" and "I" or "W",
+        "race_preview_state_changed", {
+          state = runtime.racePreview.state,
+          renderer = util.deepCopy(runtime.racePreview.renderer),
+        }, runtime.racePreview.state ~= "PREVIEW_VISIBLE")
+      publishState()
+    end
   elseif runtime.spawnDirector.preview then
     productionModules.spawnAdapter.drawPreview(runtime.spawnDirector.preview.placements)
   end
@@ -8556,20 +8749,33 @@ local function onUpdate(dtReal, dtSim, dtRaw)
         + (runtime.active.targetTracker and #(runtime.active.targetTracker.events or {}) or 0),
       frameBudgetOverruns = runtime.frameBudgets.totalExceeded or 0,
     })
-    watchdogState = progressWatchdog.evaluate(
-      runtime.active.progressWatchdog, runtime.time.realMonotonicTime, waitingForSimulation
-    )
+    local phaseCode = runtime.state.phase
+    local waitingForEngineEvent = phaseCode == "issuing_spawn"
+      or phaseCode == "tracking_target_identity"
+      or phaseCode == "waiting_parts_reload"
+      or phaseCode == "waiting_tuning_reload"
+      or phaseCode == "rolling_back_operation"
+    local engineActive = phaseCode == "stabilizing_tree" or phaseCode == "applying_parts"
+      or phaseCode == "verifying_parts" or phaseCode == "applying_tuning"
+      or phaseCode == "verifying_tuning" or phaseCode == "applying_paint"
+      or phaseCode == "verifying_paint" or phaseCode == "final_validation"
+    watchdogState = progressWatchdog.evaluate(runtime.active.progressWatchdog,
+      runtime.time.realMonotonicTime, {
+        waitingForSimulation = waitingForSimulation,
+        waitingForEngineEvent = waitingForEngineEvent,
+        engineActive = engineActive,
+      })
     if watchdogState ~= runtime.active.lastWatchdogState then
       runtime.active.lastWatchdogState = watchdogState
       diagnosticsModule.write(runtime.diagnostics,
-        watchdogState == "stalled" and "W" or "D", "operation_watchdog", {
+        watchdogState == "NO_PROGRESS" and "W" or "D", "operation_watchdog", {
           state = watchdogState,
           lifecyclePhase = runtime.state.phase,
           clocks = timeSource.snapshot(runtime.time),
           watchdog = progressWatchdog.snapshot(
             runtime.active.progressWatchdog, runtime.time.realMonotonicTime
           ),
-        }, watchdogState == "stalled")
+        }, watchdogState == "NO_PROGRESS")
     end
     if runtime.active.progressWatchdog.pauseDependentProgressDetected
       and not runtime.active.pauseDependencyReported
@@ -8580,7 +8786,7 @@ local function onUpdate(dtReal, dtSim, dtRaw)
         clocks = timeSource.snapshot(runtime.time),
       }, true)
     end
-    if watchdogState == "stalled" and runtime.state.busy and runtime.active
+    if watchdogState == "NO_PROGRESS" and runtime.state.busy and runtime.active
       and runtime.active.watchdogAbortStarted ~= true
     then
       runtime.active.watchdogAbortStarted = true
@@ -8617,6 +8823,7 @@ local function onUpdate(dtReal, dtSim, dtRaw)
 
   startStressIteration()
   local raceStarted = adapter.clock()
+  production.auditRaceScheduler()
   if runtime.lineup.pendingNext and runtime.lineup.current then
     productionModules.cooperativeScheduler.enqueue(
       runtime.cooperativeScheduler, "race_slot",
@@ -8709,6 +8916,7 @@ M.clearAIDestination = production.clearAIDestination
 M.addAIRoutePoint = production.addAIRoutePoint
 M.editAIRoute = production.editAIRoute
 M.startManagedAI = production.startManagedAI
+M.startAIQuickPreset = production.startAIQuickPreset
 M.pauseManagedAI = function() return production.controlManagedAI("pause") end
 M.resumeManagedAI = function() return production.controlManagedAI("resume") end
 M.stopManagedAI = function() return production.controlManagedAI("stop") end
@@ -8813,6 +9021,7 @@ production.uiCommandHandlers = {
   addAIRoutePoint = production.addAIRoutePoint,
   editAIRoute = production.editAIRoute,
   startManagedAI = production.startManagedAI,
+  startAIQuickPreset = production.startAIQuickPreset,
   pauseManagedAI = function() return production.controlManagedAI("pause") end,
   resumeManagedAI = function() return production.controlManagedAI("resume") end,
   stopManagedAI = function() return production.controlManagedAI("stop") end,

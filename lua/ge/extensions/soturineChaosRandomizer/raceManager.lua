@@ -3,6 +3,7 @@ local rng = require("ge/extensions/soturineChaosRandomizer/rng")
 local schema = require("ge/extensions/soturineChaosRandomizer/lineupSchema")
 local managedRegistry = require("ge/extensions/soturineChaosRandomizer/managedVehicleRegistry")
 local dnaSchema = require("ge/extensions/soturineChaosRandomizer/vehicleDNASchema")
+local formationEnum = require("ge/extensions/soturineChaosRandomizer/formationEnum")
 
 local M = {}
 
@@ -74,7 +75,9 @@ local function presetOptions(name, options)
     result.tuningIntensity = "medium"
     result.acceptPartial = options.acceptPartial == true
     result.acceptMetadataUncertain = true
-    result.acceptPotentiallyUndrivable = options.acceptPotentiallyUndrivable == true
+    -- Mods Showcase accepts stable unusual mod vehicles. Runtime integrity and
+    -- slot ownership remain mandatory; metadata/drivability are advisory.
+    result.acceptPotentiallyUndrivable = options.acceptPotentiallyUndrivable ~= false
   else
     result.chaos = 65
     result.contentFilter = "everything"
@@ -280,7 +283,7 @@ local function create(options)
       maxWallClockSecondsPerCompetitor = math.max(30, math.min(300,
         math.floor(tonumber(options.maxWallClockSecondsPerCompetitor) or 180))),
       retainAcceptedOnCancel = options.retainAcceptedOnCancel ~= false,
-      formation = options.formation or "Automatic Best Fit",
+      formation = formationEnum.normalize(options.formation),
       spacingMode = options.spacingMode == "manual" and "manual" or "automatic",
       longitudinalSpacing = tonumber(options.longitudinalSpacing) or 8,
       lateralSpacing = tonumber(options.lateralSpacing) or 5,
@@ -425,6 +428,7 @@ end
 local function record(lineup, index, result, dna, targetGeneration)
   local competitor = lineup and lineup.competitors and lineup.competitors[index]
   if not competitor then return false, "lineup_competitor_missing" end
+  if competitor.generationClosed == true then return false, "lineup_competitor_closed" end
   if targetGeneration ~= nil and competitor.targetGeneration ~= targetGeneration then
     return false, "stale_callback_ignored"
   end
@@ -448,13 +452,21 @@ local function record(lineup, index, result, dna, targetGeneration)
     or (potentiallyUndrivable and lineup.acceptPotentiallyUndrivable)
     or safety.chaosAcceptance == "ACCEPT_WITH_WARNING"
   local dnaValid = dna ~= nil and dnaSchema.validateEntry(dna) == true
-  local ready = result.success == true and details.partial ~= true and not acceptanceBlocked
+  local dnaMalformed = dna ~= nil and not dnaValid
+  local outcome = details.terminalOutcome
+  local applied = outcome == "COMPLETED" or outcome == "COMPLETED_WITH_SKIPS"
+    or outcome == "COMPLETED_WITH_WARNING"
+    or outcome == "PARTIAL_APPLIED" and lineup.acceptPartial == true
+  if outcome == nil then applied = result.success == true and details.partial ~= true end
+  local ready = result.success == true and applied and not acceptanceBlocked
     and lifecycle.finalValidationPassed == true and lifecycle.busy == false
     and competitor.pendingWrites == 0 and competitor.pendingTimers == 0 and competitor.pendingCallbacks == 0
-    and dnaValid
+    and not dnaMalformed
   competitor.status = result.success == true and (
-    details.partial and "partial"
-    or ready and ((hasWarnings or acceptedWarning) and "ready_with_warnings" or "ready")
+    outcome == "PARTIAL_APPLIED" and not lineup.acceptPartial and "partial"
+    or ready and ((hasWarnings or acceptedWarning or outcome == "COMPLETED_WITH_SKIPS"
+      or outcome == "COMPLETED_WITH_WARNING" or dna == nil)
+      and "ready_with_warnings" or "ready")
     or "partial"
   ) or "failed"
   competitor.phase = competitor.status
@@ -462,9 +474,11 @@ local function record(lineup, index, result, dna, targetGeneration)
   competitor.terminalState = competitor.status
   competitor.failureCode = result.success == true and nil or result.code
   competitor.generationStatus = competitor.status
-  competitor.warning = result.success == true and details.partial and result.message or (result.success and nil or result.message)
-  local persistDNA = competitor.status == "ready" or competitor.status == "ready_with_warnings"
-  if result.success == true and dna ~= nil and not dnaValid then
+  competitor.warning = result.success == true and outcome == "PARTIAL_APPLIED"
+    and result.message or (result.success and nil or result.message)
+  local persistDNA = (competitor.status == "ready" or competitor.status == "ready_with_warnings")
+    and dnaValid
+  if result.success == true and dnaMalformed then
     competitor.status = "failed"
     competitor.phase = "failed"
     competitor.terminalState = "failed"
@@ -473,7 +487,7 @@ local function record(lineup, index, result, dna, targetGeneration)
     persistDNA = false
   end
   competitor.dna = persistDNA and util.deepCopy(dna) or nil
-  competitor.dnaId = persistDNA and dna.id or nil
+  competitor.dnaId = persistDNA and dna and dna.id or nil
   competitor.vehicleDNAId = competitor.dnaId
   competitor.thumbnail = persistDNA and util.deepCopy(dna.thumbnail) or nil
   competitor.modelKey = dna and dna.final and dna.final.modelKey or details.model
@@ -490,7 +504,7 @@ local function record(lineup, index, result, dna, targetGeneration)
   competitor.generationClosed = true
   competitor.validationState = result.success == true and "validated" or "failed"
   competitor.randomizationState = result.success == true and "complete" or "failed"
-  if result.success == true and dna ~= nil and not dnaValid then
+  if result.success == true and dnaMalformed then
     competitor.generationStatus = "failed"
     competitor.validationState = "dna_schema_failed"
     competitor.randomizationState = "failed"
@@ -510,6 +524,8 @@ local function record(lineup, index, result, dna, targetGeneration)
   elseif acceptedWarning and not competitor.warning then
     competitor.warning = uncertain and "Metadata uncertainty was explicitly accepted"
       or "Potentially undrivable status was explicitly accepted"
+  elseif competitor.status == "ready_with_warnings" and dna == nil and not competitor.warning then
+    competitor.warning = "Vehicle retained; DNA persistence was unavailable"
   end
   lineup.nextIndex = index + 1
   lineup.updatedAt = os.time()
