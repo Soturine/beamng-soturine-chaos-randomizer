@@ -49,3 +49,5 @@ GitHub Actions run
 <https://github.com/Soturine/beamng-soturine-chaos-randomizer/actions/runs/31334200283>
 completed successfully for the package/tag commit. This is publication and
 automated evidence only; it does not change the live case counts above.
+The complete checklist is in
+[POST_RELEASE_VERIFICATION.md](POST_RELEASE_VERIFICATION.md).
