@@ -2,7 +2,7 @@
 
 Soturine's Chaos Randomizer is an experimental BeamNG.drive HUD App for
 deterministic vehicle randomization. It combines bounded Chaos operations,
-Vehicle DNA capture and restore, and multi-vehicle Race orchestration in one
+  Vehicle DNA capture and restore, and multi-vehicle Events/AI orchestration in one
 native Runtime UI Vue app.
 
 ## Features
@@ -13,15 +13,17 @@ native Runtime UI Vue app.
   one owned transaction.
 - **Garage** stores, compares, imports, exports, mutates, and restores Vehicle
   DNA with explicit compatibility checks.
-- **Race** previews generation and final-grid footprints without world mutation,
+- **Events** previews Race generation and final-grid footprints without world mutation,
   generates isolated competitor slots, places owned vehicles, and controls only
   their managed AI.
+- Verified AI presets include Follow, Convoy, Chase, Flee, Traffic, Roam and
+  mixed-role Swarm. Tag/contact orchestration is foundation-only in v0.7.5.
 - Reproducible seeds, locks, progress, diagnostics, cancellation, and Undo are
   available throughout the app.
 
 ## Current UI
 
-The app has four destinations: Chaos, Garage, Race, and Settings. It uses
+The app has four destinations: Chaos, Garage, Events, and Settings. It uses
 BeamNG Runtime UI components, controller/UINav navigation, an actual compact
 presentation, localized status messages, and technical identifiers only in
 explicit diagnostic views. Layout responds to measured app width while BeamNG
@@ -47,15 +49,19 @@ steps.
 Open **Chaos**, choose a seed mode, and run Random Car, Scramble, or Full
 Random. Keep **Details** open when collecting evidence. Use **Cancel safely**
 instead of deleting an in-flight vehicle. For Race, configure Cars first, wait
-for every slot to reach a terminal state, then continue to Placement and Drive.
+for every slot to reach a terminal state, then follow Setup, Formation,
+Behavior and Start. Simple behavior presets are visible first; route and
+recovery controls are advanced.
 
 ## Modes
 
 - Chaos is single-target and enforces explicit physical ownership.
 - Garage operations are data-first; destructive restore occurs only after
   preflight and confirmed target evidence.
-- Race counts the player separately from generated opponents and gives each
+- Events/Race counts the player separately from generated opponents and gives each
   competitor a stable slot identity, generation, seed, and owned vehicle set.
+- The ownership layer carries environment, local/network/owner identity and
+  authority. It is future-ready architecture, not a BeamMP support claim.
 - Settings controls content policies, locks, safety, persistence, language, and
   diagnostic detail.
 
@@ -94,6 +100,9 @@ Read [Security](SECURITY.md), [Safety model](docs/SAFETY_MODEL.md), and
 - [User guide](docs/USER_GUIDE.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [UI protocol](docs/UI_PROTOCOL.md)
+- [AI and Playground](docs/PLAYGROUND.md)
+- [Multiplayer readiness](docs/MULTIPLAYER_READINESS.md)
+- [Localization terminology](docs/I18N_TERMINOLOGY.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Testing evidence](docs/testing/)
 - [Changelog](CHANGELOG.md) and [GitHub Releases](https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases)

@@ -1,5 +1,18 @@
 # UI protocol v2
 
+## v0.7.5 stable result and Preview codes
+
+Terminal outcomes are `COMPLETED`, `COMPLETED_WITH_SKIPS`,
+`COMPLETED_WITH_WARNING`, `PARTIAL_APPLIED`, `FAILED_TIMEOUT`,
+`FAILED_STALLED`, `FAILED_RUNTIME_INTEGRITY`, `FAILED_NO_CHANGE`,
+`FAILED_ROLLED_BACK` and `CANCELLED`. Confidence is independently
+`CONFIRMED`, `UNCERTAIN`, `NOT_APPLICABLE` or `UNSUPPORTED_TELEMETRY`.
+
+Preview states are `PREVIEW_DISABLED`, `PREVIEW_DATA_READY`,
+`PREVIEW_RENDERER_UNAVAILABLE`, `PREVIEW_RENDER_ERROR`, `PREVIEW_VISIBLE` and
+`PREVIEW_STALE`. Phase, outcome, formation and Preview codes are translated by
+the frontend and appear raw only in explicit technical disclosure.
+
 The native Vue UI and GE Lua backend communicate through a centralized,
 versioned protocol. Public compatibility methods remain backend-only; Vue calls
 `dispatchUICommand` through one serialized bridge.

@@ -13,6 +13,8 @@ belong in [CHANGELOG.md](CHANGELOG.md) and [versioned testing](docs/testing/).
 - Separate `runtimeUpdateLoop`, `eventRouter`, and `statePublisher`.
 - Decompose `apiAdapter` by registry, vehicle identity, mutation, persistence,
   and host integration capability.
+- Add a separately validated BeamMP adapter for discovery, server authority and
+  replication; v0.7.5 only provides the fail-closed identity envelope.
 - Replace remaining compatibility facades after migration and live evidence.
 
 ## Later
@@ -22,5 +24,8 @@ belong in [CHANGELOG.md](CHANGELOG.md) and [versioned testing](docs/testing/).
 - Evaluate additional Runtime UI host capabilities through public BeamNG APIs.
 - Improve Garage and Race authoring workflows while preserving data schemas and
   deterministic replay.
+- Promote Pega-Pega/Tag beyond its contact/state-machine foundation only after
+  Race P0, gentle-contact behavior and exact-package live gates pass. Group Tag,
+  Infection, Hot Potato and team modes remain later work.
 
 These items are not implemented or promised for a particular date.

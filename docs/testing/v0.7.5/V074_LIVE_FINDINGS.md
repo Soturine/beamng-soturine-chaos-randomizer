@@ -4,6 +4,12 @@ Status: **Executed live by the repository owner against the published v0.7.4 ZIP
 
 These findings are the ground truth for v0.7.5 work. They do not retroactively change the frozen v0.7.4 reports, and they do not prove any v0.7.5 correction live. Exact logs, seeds, vehicle names, counts, and renderer details not supplied by the owner are not invented.
 
+Each ID's evidence, confirmed cause/hypothesis, affected files, invariant,
+automated regression, live case, status and resolving commit are completed in
+the identically keyed row of [IMPLEMENTATION_MATRIX.md](IMPLEMENTATION_MATRIX.md).
+The two tables form one finding record; this table preserves the owner-observed
+statement without rewriting it after implementation.
+
 | ID | Severity | Owner-observed behavior | Initial cause status | v0.7.5 invariant |
 | --- | --- | --- | --- | --- |
 | OUTCOME-074-01 | P0 | Successful Random Car, Scramble, or Full Random can be presented as partial/failed because later telemetry or verification is inconclusive | Hypothesis pending code confirmation | Applied outcome and confidence are separate; late non-fatal evidence cannot reverse a commit |

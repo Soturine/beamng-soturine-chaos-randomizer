@@ -1,5 +1,11 @@
 # AI Director
 
+v0.7.5 keeps one capability-derived mode list across adapter, director and UI:
+Destination, Route, Follow, Chase, Flee, Traffic and Roam. Quick presets are
+Follow, Convoy, Chase, Flee, Traffic, Roam and mixed-role Swarm. Speed entered
+as km/h is converted once to the adapter's m/s value; aggression is bounded to
+0.3–1.0. See [Playground](PLAYGROUND.md) for the Tag foundation boundary.
+
 AI Director is the internal engine for **Race → Drive** and controls only Spawn Director managed vehicles through audited
 in-game BeamNG APIs. It has no BeamNGpy dependency, external process, Python
 server, network service, or imported executable script.

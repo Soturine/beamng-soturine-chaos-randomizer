@@ -1,5 +1,19 @@
 # Architecture
 
+## v0.7.5 outcome, Event and authority boundaries
+
+`operationOutcome` owns terminal outcome and confidence classification;
+`progressWatchdog` owns phase-aware liveness. Race composition uses
+`racePreview`, `raceFocusGuard`, `raceScheduler` and `lineupPersistence` so
+renderer, focus, scheduler and disk failure cannot silently share one success
+flag. `formationEnum` is the stable protocol boundary.
+
+`vehicleIdentity` adds owner/network/environment/authority evidence to local
+vehicle IDs. `domainOperations` still owns mutation/cleanup authorization and
+rejects remote or unknown-authority cleanup. `contactDetector` and
+`playgroundMode` are packaged foundations, not a user-facing Tag implementation.
+Broad `main.lua` composition remains v0.8.0 decomposition debt.
+
 The GE Lua backend owns game state and safety. The native Runtime UI Vue app is
 a projection and command surface; it never becomes authoritative for vehicle
 identity, ownership, generation, or persistence.

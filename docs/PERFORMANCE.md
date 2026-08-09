@@ -1,5 +1,14 @@
 # Performance
 
+## v0.7.5 Full Random instrumentation
+
+Full Random records total and per-phase duration, parts/tuning/repair reloads,
+readbacks, longest cooperative step, semantic progress and duplicate activity.
+The mutation path applies the largest coherent part batch available per pass,
+uses a hard four-parts-reload cap and permits at most one bounded repair before
+final readback. Reaching a cap after real mutation is `PARTIAL_APPLIED`, not a
+telemetry warning. These are automated limits, not live FPS or latency proof.
+
 The performance goal is bounded, observable work. Automated timings are useful
 regression signals but are not claims about BeamNG FPS, 1% low, CEF memory, or
 driver behavior.

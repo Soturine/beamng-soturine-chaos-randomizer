@@ -1,5 +1,12 @@
 # Safety Model
 
+v0.7.5 keeps terminal outcome separate from Safety confidence. Runtime
+integrity alone authorizes destructive rollback. Drivability and chaos-policy
+acceptance may reject a stable vehicle without granting cleanup authority, or
+accept it with a warning under a permissive preset such as Mods Showcase.
+Unknown or unsupported fluid telemetry is confidence evidence, never an
+automatic partial mutation.
+
 `Protect Critical Parts` is a conservative metadata safeguard. It does not certify drivability, physics stability, control availability, or compatibility with every third-party script.
 
 ## Evidence graph

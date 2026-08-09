@@ -2,6 +2,83 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.5] - 2026-08-09
+
+Post-v0.7.4 live-findings experimental prerelease targeting BeamNG 0.39.4.
+
+### Fixed
+
+- Separated terminal outcome from verification confidence and made committed
+  success immutable to late warnings.
+- Made watchdog liveness phase-aware and semantic; callback noise cannot renew
+  progress and engine waits are distinct from confirmed stalls.
+- Restored Race player focus on spawn/switch, applied initial owned staging,
+  contained slot cleanup, storage failures and Planned scheduler recovery.
+
+### Changed
+
+- Stable unusual vehicles can be accepted by Mods Showcase while runtime
+  integrity and ownership remain strict.
+- Formation values use stable codes and Preview visibility now requires a
+  successfully rendered marker frame.
+
+### Performance
+
+- Full Random exposes reload/readback/repair/tuning counts, phase durations,
+  semantic progress and duplicate activity, with four parts reloads and one
+  repair as hard bounds. No live performance improvement is claimed.
+
+### Race
+
+- Persistence checkpoints are transactional and retryable; failed DNA is
+  dropped, accepted slots are immutable, spectator totals exclude the player,
+  and an idle active lineup schedules or explicitly closes its next slot.
+
+### Preview
+
+- Added disabled, data-ready, renderer-unavailable, render-error, visible and
+  stale states plus preference on/off/on round-trip coverage.
+
+### AI/Playground
+
+- Aligned adapter/UI support for Destination, Route, Follow, Chase, Flee,
+  Traffic and Roam; added Follow, Convoy, Chase, Flee, Traffic, Roam and Swarm
+  presets. Contact and Tag state-machine foundations ship without a Tag button.
+
+### UI/UX
+
+- Renamed the normal Race destination to Events, introduced Setup, Formation,
+  Behavior and Start, moved technical AI controls into advanced disclosure,
+  used intrinsic content height and removed viewport-relative popup sizing.
+
+### Localization
+
+- Added localized outcome/Preview/formation/AI states and a terminology policy
+  preserving Seed, DNA, Preview, Grid, Preset and Mod in pt-BR contexts.
+
+### Multiplayer readiness
+
+- Added owner/network/environment identity and fail-closed authority checks.
+  BeamMP integration is not included or claimed supported.
+
+### Testing
+
+- Added live-derived outcome, watchdog, budget, renderer, focus, staging,
+  retention, persistence, scheduler, AI, contact, authority, i18n and layout
+  regressions. Automated evidence remains separate from live evidence.
+
+### Known limitations
+
+- Tag is foundation-only. BeamMP adapters and broad coordinator decomposition
+  remain future work.
+- Renderer, controller, UI-scale/safe-zone, gameplay, third-party vehicles and
+  performance require the exact published ZIP in BeamNG.
+
+### Live validation status
+
+- 0 executed / 0 passed / 0 failed / 47 pending / 0 blocked.
+- Status: **Pending owner validation**.
+
 ## [0.7.4] - 2026-08-08
 
 Live-derived stabilization experimental prerelease targeting BeamNG 0.39.4.

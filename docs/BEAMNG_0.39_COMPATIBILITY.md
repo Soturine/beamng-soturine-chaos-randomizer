@@ -1,5 +1,11 @@
 # BeamNG.drive 0.39 compatibility
 
+v0.7.5 retains BeamNG 0.39.4 as its release target and 0.39.3 as the minimum
+documented Runtime UI baseline. v0.7.4 owner findings are historical live
+failure evidence; every v0.7.5 renderer, AppHost, controller, vehicle and
+gameplay correction remains Pending owner validation against the exact
+published ZIP.
+
 Declared primary target: **0.39.4**. Minimum declared family: **0.39**. Release
 stage: **experimental prerelease**. Live status: **Pending owner validation**.
 `COMPATIBILITY.json` is the machine-readable source of these declarations.
@@ -11,10 +17,16 @@ only their stated contracts. They do not prove that the published ZIP completed
 gameplay inside BeamNG. `testedGameVersions` therefore remains empty until the
 owner returns complete evidence for the downloaded asset.
 
-The combined 0.39.3/0.39.4 notes were published after v0.7.3 implementation and
-were reviewed for v0.7.4. The review covered Runtime UI scale/safe-zone/select
-changes, `driveInLane` preservation, empty JBeam description handling,
-non-UTF8 ZIP handling, and the documented Intel D3D12 VRAM/OOM limitation.
+The official combined 0.39.3/0.39.4 notes, published on 2026-08-07, were
+reviewed again for v0.7.5:
+
+- <https://www.beamng.com/game/news/patch/beamng-drive-v0-39-3/>
+- <https://www.beamng.com/game/news/announce/beamng-drive-v0-39-hotfixes/>
+
+The review covered Runtime UI scale/safe-zone/select and UINav changes,
+`driveInLane` preservation, empty JBeam description handling, non-UTF8 ZIP
+handling, and the documented Intel D3D12 VRAM/OOM limitation. No additional
+0.39.4 note invalidated the runtime or package contracts implemented here.
 
 ## Version matrix
 

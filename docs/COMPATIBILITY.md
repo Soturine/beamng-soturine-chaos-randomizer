@@ -10,6 +10,11 @@ Vehicle DNA schema 1, settings schema 9, and UI preferences schema 2. These
 schema/generator numbers are independent from the release version and were not
 incremented without a data-format reason.
 
+v0.7.5 also carries an authority-aware `VehicleIdentity` envelope. This is a
+multiplayer-compatible ownership boundary, not BeamMP integration. Only local
+or explicitly server-granted authority can mutate or clean an owned vehicle;
+remote and unknown authority fail closed.
+
 ## Content discovery
 
 The mod uses the mounted BeamNG registry and loaded vehicle data; it ships no

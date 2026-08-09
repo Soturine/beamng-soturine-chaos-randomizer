@@ -1,17 +1,25 @@
 # Testing
 
+v0.7.5 live-derived regressions are mapped in
+[`testing/v0.7.5/IMPLEMENTATION_MATRIX.md`](testing/v0.7.5/IMPLEMENTATION_MATRIX.md).
+The exact-package live plan and aggregate results remain separate. Automated
+Lua/UI/package evidence never upgrades renderer, AppHost, controller, gameplay
+or performance rows to live-passed.
+
 Testing is reported by evidence category. Counts from different categories are not added together as if they were equivalent independent tests.
 
 ## Commands
 
 ```powershell
-python -m unittest discover -s tests -v
-npm ci
+npm ci --ignore-scripts
 npm run validate:sfc
+npm run validate:graph
+npm run validate:styles
 npm run test:ui
+python -m unittest discover -s tests -v
 python tools/package_mod.py
 python tools/validate_package.py
-python tools/benchmark_v069.py
+python tools/validate_release_gate.py --channel prerelease
 ```
 
 The Python Lua wrapper uses a local Lua 5.1-compatible interpreter when available, otherwise the installed BeamNG console. The Lua suite prints unique function count, requirement mappings, executed cases, and assertion count separately.
@@ -30,7 +38,9 @@ The Python Lua wrapper uses a local Lua 5.1-compatible interpreter when availabl
 | Requirement mappings | traceability to executed tests | additional executions |
 | Live BeamNG tests | actual packaged gameplay/UI/mod evidence | untested builds or content |
 
-Current exact automated results are recorded in [the 0.7.0 report](testing/v0.7.0/AUTOMATED_TEST_REPORT.md). The mandatory live plan and report remain separate.
+Current exact automated results are recorded in
+[the v0.7.5 report](testing/v0.7.5/AUTOMATED_RESULTS.md). The mandatory live
+plan and report remain separate.
 
 v0.7.0 preserves the v0.6.9 profiling/budgets, iterators/buffers, OOBB
 dimensions, catalog cache, incremental indexing, UI diffs, diagnostics

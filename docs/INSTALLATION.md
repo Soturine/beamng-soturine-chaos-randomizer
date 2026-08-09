@@ -1,5 +1,10 @@
 # Installation
 
+For v0.7.5 install only `soturine_chaos_randomizer_0.7.5.zip` from the GitHub
+prerelease assets, not a GitHub source archive. Verify it with the adjacent
+`.zip.sha256`, remove or disable older Randomizer copies, and keep the ZIP
+intact in the active BeamNG user folder's `mods` directory.
+
 1. Download the named mod ZIP, `.sha256`, and manifest from the project release.
    Do not use GitHub's automatic source archive.
 2. Compute SHA-256 for the ZIP and compare it with the checksum and manifest.

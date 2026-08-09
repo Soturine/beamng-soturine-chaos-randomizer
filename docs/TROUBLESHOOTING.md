@@ -1,5 +1,17 @@
 # Troubleshooting
 
+## v0.7.5 diagnostic distinctions
+
+- A completed operation with unsupported telemetry is a warning, not a partial
+  mutation. Compare `terminalOutcome` with `outcomeConfidence` in Details.
+- For Preview, inspect renderer availability, requested/rendered marker counts
+  and the last error; `PREVIEW_DATA_READY` does not mean visible.
+- For a Race stuck at Planned, capture scheduler, pending-next, active operation,
+  slot generation and persistence state. The self-heal must schedule a planned
+  slot or explicitly close an abandoned slot.
+- Authority errors are protective: remote or unknown-authority vehicles are not
+  mutable or removable by this mod.
+
 ## App missing or blank
 
 Confirm the named release mod ZIP—not a source archive—is enabled and no older

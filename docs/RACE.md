@@ -1,5 +1,17 @@
 # Race workflow
 
+## v0.7.5 containment
+
+The UI presents Race authoring under Events. Player-participation count N means
+N-1 generated opponents; spectator count N means N generated NPCs. Each slot
+owns one candidate and staging transform. Background callbacks restore player
+focus while writes continue against the candidate's explicit ID.
+
+Preview data is not visibility evidence. Persistence checkpoints are copied and
+committed transactionally; a transient write warning schedules a retry without
+stopping a coherent in-memory lineup. The scheduler closes an abandoned open
+slot locally and continues later slots. Accepted slots are terminally immutable.
+
 Race is the public three-stage workflow: **Cars → Placement → Drive**. Each
 generated competitor is an independent slot transaction. Older saved data may
 use “lineup” as a storage term; it is not a separate top-level UI destination.
