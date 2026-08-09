@@ -7,10 +7,10 @@
       :scope="`race:${layout.raceStep}`"
       :area-key="`race.step.${layout.raceStep}`"
       back-key="errors.backToCars"
-      @back="layout.raceStep = 'cars'"
+      @back="layout.raceStep = 'setup'"
     >
-      <RaceCarsStep v-if="layout.raceStep === 'cars'" />
-      <RacePlacementStep v-else-if="layout.raceStep === 'placement'" />
+      <RaceCarsStep v-if="layout.raceStep === 'setup'" />
+      <RacePlacementStep v-else-if="layout.raceStep === 'formation'" />
       <RaceDriveStep v-else />
     </ErrorBoundary>
   </section>

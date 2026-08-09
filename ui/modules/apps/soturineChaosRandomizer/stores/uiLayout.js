@@ -2,8 +2,8 @@ import { reactive } from "vue"
 
 export const createUILayoutStore = (profiler = null) => {
   const expandedSizeByTab = {
-    chaos: { width: 440, height: 560 }, garage: { width: 560, height: 640 },
-    race: { width: 620, height: 680 }, settings: { width: 520, height: 680 },
+    chaos: { width: 440, height: 470 }, garage: { width: 560, height: 560 },
+    race: { width: 620, height: 600 }, settings: { width: 520, height: 560 },
   }
   const compactSizeByTab = {
     chaos: { width: 340, height: 250 }, garage: { width: 340, height: 270 },
@@ -14,7 +14,7 @@ export const createUILayoutStore = (profiler = null) => {
     Object.entries(expandedSizeByTab).map(([tab, size]) => [tab, { ...size }]),
   )
   const state = reactive({
-    activeTab: "chaos", raceStep: "cars", garageSection: "saved", compact: false,
+    activeTab: "chaos", raceStep: "setup", garageSection: "saved", compact: false,
     details: detailsOpenByTab, detailsOpenByTab,
     garageView: "grid", width: 340, height: 520, reducedMotion: false,
     expandedSizeByTab, compactSizeByTab, lastExpandedSizeByTab,

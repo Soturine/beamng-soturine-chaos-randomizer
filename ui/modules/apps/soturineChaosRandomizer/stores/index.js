@@ -30,7 +30,7 @@ const RACE_DEFAULTS = Object.freeze({
   previewEnabled: true,
   previewOrigin: "automatic",
   headingMode: "camera",
-  formation: "Automatic Best Fit",
+  formation: "AUTO_BEST_FIT",
   spacingMode: "automatic",
   longitudinalSpacing: 8,
   lateralSpacing: 5,
@@ -96,7 +96,7 @@ export function createStores(command) {
     if (signature === lastResultStatusSignature) return
     lastResultStatusSignature = signature
     stores.status.push({
-      code: result.code,
+      code: result.details?.terminalOutcome || result.code,
       scope: "tab",
       tab: stores.uiLayout.state.activeTab,
       severity: result.success === false ? "error" : "success",

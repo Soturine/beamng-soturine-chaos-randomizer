@@ -37,7 +37,7 @@
       <div class="scr-actions">
         <button type="button" :disabled="!options.previewEnabled || core.busy" @click="previewGeneration">{{ t('race.previewGeneration') }}</button>
       </div>
-      <small v-if="worldPreview">{{ t(`race.previewKind.${worldPreview.kind}`) }} · {{ t('race.previewSlots', { count: worldPreview.slots?.length || 0 }) }}</small>
+      <small v-if="worldPreview">{{ t(`race.previewState.${worldPreview.state || 'PREVIEW_DATA_READY'}`) }} · {{ t('race.previewSlots', { count: worldPreview.slots?.length || 0 }) }}</small>
     </details>
 
     <RacePolicyPanel :open="false" />
@@ -90,7 +90,7 @@ const originItems = computed(() => ["automatic", "player_front", "player_behind"
   .map(value => ({ value, label: t(`race.previewOriginValue.${value}`) })))
 const headingItems = computed(() => ["camera", "player", "road", "destination"]
   .map(value => ({ value, label: t(`race.headingValue.${value}`) })))
-const formations = ["Automatic Best Fit", "Grid", "Line", "Side-by-side Grid"]
+const formations = ["AUTO_BEST_FIT", "GRID", "LINE", "SIDE_BY_SIDE_GRID", "STAGGERED_GRID", "SPLIT_LEFT_RIGHT", "SINGLE_FILE_BEHIND", "SINGLE_FILE_AHEAD", "RADIAL"]
 const formationItems = computed(() => formations.map(value => ({ value, label: t(`race.formationValue.${value}`) })))
 const spacingItems = computed(() => [
   { value: "automatic", label: t("race.automatic") },

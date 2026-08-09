@@ -11,14 +11,15 @@ import StatusBanner from "../common/StatusBanner.vue"
 const stores = useStores()
 const { t, has } = stores.i18n
 const placement = computed(() => stores.race.state.spawnDirector?.placement || {})
-const preview = computed(() => stores.race.state.spawnDirector?.preview)
-const available = computed(() => placement.value.available === true || Number(preview.value?.count || 0) > 0)
+const preview = computed(() => stores.race.state.spawnDirector?.racePreview || stores.race.state.lineup?.current?.worldPreview)
+const available = computed(() => preview.value?.state === "PREVIEW_VISIBLE")
 const unavailableLabel = computed(() => {
+  if (preview.value?.state) return t(`race.previewState.${preview.value.state}`)
   const reason = String(placement.value?.reason || "")
   const key = `race.placementReason.${reason}`
   if (reason && has(key)) return t(key)
   if (/create|import|lineup_missing/i.test(reason)) return t("race.noLineup")
   return t("race.previewUnavailable")
 })
-const formationLabel = computed(() => t(`race.formationValue.${preview.value?.mode || 'Automatic Best Fit'}`))
+const formationLabel = computed(() => t(`race.formationValue.${preview.value?.formation || 'AUTO_BEST_FIT'}`))
 </script>
