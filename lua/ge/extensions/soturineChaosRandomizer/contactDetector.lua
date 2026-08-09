@@ -8,7 +8,7 @@ local function create(options)
     distanceThreshold = util.clamp(tonumber(options.distanceThreshold) or 3.5, 0.5, 20),
     relativeSpeedThreshold = util.clamp(tonumber(options.relativeSpeedThreshold) or 1.5, 0, 50),
     cooldown = util.clamp(tonumber(options.cooldown) or 1, 0.1, 30),
-    lastContacts = {}, sequence = 0,
+    lastContacts = {}, activeContacts = {}, sequence = 0,
   }
 end
 
@@ -30,16 +30,57 @@ local function observe(state, evidence, now)
   local closeEnough = util.isFinite(distance) and distance <= state.distanceThreshold
   local speedEnough = util.isFinite(relativeSpeed)
     and math.abs(relativeSpeed) >= state.relativeSpeedThreshold
-  if not collisionSignal and not (closeEnough and speedEnough) then
+  local confirmed = collisionSignal or closeEnough and speedEnough
+  local active = state.activeContacts[key]
+  if evidence.ended == true or evidence.contactActive == false or not confirmed then
+    if active then
+      state.activeContacts[key] = nil
+      state.lastContacts[key] = now
+      return {
+        sequence = active.sequence, state = "ended",
+        leftVehicleId = left, rightVehicleId = right,
+        at = now, startedAt = active.startedAt,
+        duration = math.max(0, now - active.startedAt),
+        samples = active.samples,
+        distance = distance, relativeSpeed = relativeSpeed,
+        evidence = evidence.ended == true and "explicit_end" or "contact_evidence_cleared",
+      }
+    end
     return nil, "contact_unconfirmed"
   end
-  local lastAt = state.lastContacts[key]
-  if lastAt and now - lastAt < state.cooldown then return nil, "contact_cooldown" end
-  state.lastContacts[key] = now
+  if active then
+    active.lastAt = now
+    active.samples = active.samples + 1
+    active.distance = distance
+    active.relativeSpeed = relativeSpeed
+    active.severity = tonumber(evidence.severity)
+    active.impulse = tonumber(evidence.impulse)
+    return {
+      sequence = active.sequence, state = "persisted",
+      leftVehicleId = left, rightVehicleId = right,
+      at = now, startedAt = active.startedAt,
+      duration = math.max(0, now - active.startedAt),
+      samples = active.samples,
+      distance = distance, relativeSpeed = relativeSpeed,
+      severity = active.severity, impulse = active.impulse,
+      evidence = collisionSignal and "collision_signal" or "proximity_and_relative_speed",
+    }
+  end
+  local lastEndedAt = state.lastContacts[key]
+  if lastEndedAt and now - lastEndedAt < state.cooldown then return nil, "contact_cooldown" end
   state.sequence = state.sequence + 1
+  active = {
+    sequence = state.sequence, startedAt = now, lastAt = now, samples = 1,
+    distance = distance, relativeSpeed = relativeSpeed,
+    severity = tonumber(evidence.severity), impulse = tonumber(evidence.impulse),
+  }
+  state.activeContacts[key] = active
   return {
-    sequence = state.sequence, leftVehicleId = left, rightVehicleId = right,
-    at = now, distance = distance, relativeSpeed = relativeSpeed,
+    sequence = state.sequence, state = "started",
+    leftVehicleId = left, rightVehicleId = right,
+    at = now, startedAt = now, duration = 0, samples = 1,
+    distance = distance, relativeSpeed = relativeSpeed,
+    severity = active.severity, impulse = active.impulse,
     evidence = collisionSignal and "collision_signal" or "proximity_and_relative_speed",
   }
 end

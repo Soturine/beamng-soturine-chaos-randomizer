@@ -9,12 +9,15 @@ local AUTHORITIES = {
 local function normalize(value, fallbackLocalId)
   value = type(value) == "table" and value or {}
   local localId = tonumber(value.localVehicleId or fallbackLocalId)
+  local environment = tostring(value.environment or "single_player")
+  local defaultAuthority = (environment == "single_player" or environment == "singleplayer")
+    and "LOCAL" or "UNKNOWN"
   return {
-    environment = tostring(value.environment or "single_player"),
+    environment = environment,
     localVehicleId = localId,
     ownerPlayerId = value.ownerPlayerId ~= nil and tostring(value.ownerPlayerId) or nil,
     networkVehicleId = value.networkVehicleId ~= nil and tostring(value.networkVehicleId) or nil,
-    authority = AUTHORITIES[value.authority] and value.authority or "LOCAL",
+    authority = AUTHORITIES[value.authority] and value.authority or defaultAuthority,
     origin = tostring(value.origin or "local_runtime"),
   }
 end

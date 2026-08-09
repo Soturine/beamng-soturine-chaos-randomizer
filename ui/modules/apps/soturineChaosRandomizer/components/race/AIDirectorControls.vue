@@ -1,5 +1,10 @@
 <template>
   <section>
+    <div class="scr-actions">
+      <button v-for="preset in quickPresets" :key="preset" type="button" @click="send('startAIQuickPreset', [preset])">{{ t(`race.aiPreset.${preset}`) }}</button>
+    </div>
+    <details class="scr-card scr-progressive">
+      <summary>{{ t('race.advancedOptions') }}</summary>
     <div class="scr-card">
       <h3>{{ t('race.destination') }}</h3>
       <StatusBanner>{{ t(`race.destinationState.${director.destination?.status || 'empty'}`) }}</StatusBanner>
@@ -30,9 +35,7 @@
       <ToggleField v-model="options.recoveryWhenStuck" :label="t('race.recovery')" />
       <ScrSelect v-model="options.stuckAction" :label="t('race.stuckAction')" :items="stuckItems" />
     </div>
-    <div class="scr-actions">
-      <button v-for="preset in quickPresets" :key="preset" type="button" @click="send('startAIQuickPreset', [preset])">{{ t(`race.aiPreset.${preset}`) }}</button>
-    </div>
+    </details>
     <div class="scr-actions">
       <button type="button" class="is-hot" @click="send('startManagedAI', [{ ...options }])">{{ t('race.startAll') }}</button>
       <button type="button" @click="send('pauseManagedAI')">{{ t('race.pauseAll') }}</button>

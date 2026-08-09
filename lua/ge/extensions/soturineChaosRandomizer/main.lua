@@ -55,6 +55,7 @@ local productionModules = {
   racePreview = require("ge/extensions/soturineChaosRandomizer/racePreview"),
   lineupSchema = require("ge/extensions/soturineChaosRandomizer/lineupSchema"),
   lineupStorage = require("ge/extensions/soturineChaosRandomizer/lineupStorage"),
+  lineupPersistence = require("ge/extensions/soturineChaosRandomizer/lineupPersistence"),
   managedRegistry = require("ge/extensions/soturineChaosRandomizer/managedVehicleRegistry"),
   spawnAdapter = require("ge/extensions/soturineChaosRandomizer/spawnApiAdapter"),
   spawnDirector = require("ge/extensions/soturineChaosRandomizer/spawnDirector"),
@@ -87,6 +88,7 @@ local productionModules = {
   formationEnum = require("ge/extensions/soturineChaosRandomizer/formationEnum"),
   contactDetector = require("ge/extensions/soturineChaosRandomizer/contactDetector"),
   playgroundMode = require("ge/extensions/soturineChaosRandomizer/playgroundMode"),
+  raceScheduler = require("ge/extensions/soturineChaosRandomizer/raceScheduler"),
 }
 
 local M = {}
@@ -3505,6 +3507,10 @@ local function completeChaos(active)
     diagnosticsModule.write(runtime.diagnostics, "W", "dna_capture_failed", dnaOrError, true)
   end
   details.uncertain = nonFatalPartial or not okReadBack
+  local partsLimitReason = tostring(details.stageReasons.parts or "")
+  details.partialApplied = active.kind == "fullRandom" and #active.changes > 0
+    and partsLimitReason:find("coverage_limit_", 1, true) == 1
+  details.appliedIncomplete = details.partialApplied or nil
   details.skippedCount = (tuningSummary and tuningSummary.tuningRejected or 0)
     + (paintSummary and paintSummary.paintRejected or 0)
     + (details.stageReasons.tuning == "tuning_capability_unavailable" and 1 or 0)
@@ -3513,7 +3519,8 @@ local function completeChaos(active)
   local completionCode = active.creativeOperation == "reroll_unlocked" and "reroll_unlocked_completed"
     or active.creativeOperation == "mutation" and "dna_mutation_completed" or "completed"
   if active.kind == "fullRandom" then
-    completionCode = details.skippedCount > 0 and "full_random_completed_with_skips"
+    completionCode = details.partialApplied and "full_random_partial_applied"
+      or details.skippedCount > 0 and "full_random_completed_with_skips"
       or warningOnly and "full_random_completed_with_warning" or "full_random_completed"
   elseif active.kind == "scramble" and not active.creativeOperation then
     completionCode = details.skippedCount > 0 and "scramble_completed_with_skips"
@@ -3533,7 +3540,7 @@ local function completeChaos(active)
     "%s: %d parts, %d tuning values, %d paints",
     warningOnly and "Chaos complete with warnings" or "Chaos complete",
     #active.changes, #active.tuningChanges, active.paintChanges
-  ), details, "completed")
+  ), details, details.partialApplied and "partial" or "completed")
 end
 
 startPaint = function(active)
@@ -6956,8 +6963,9 @@ function production.persistCurrentLineup()
     current.persistence.lastError = reason
     return false, reason
   end
-  local candidateLibrary = util.deepCopy(runtime.lineup.library)
-  local added, stored = productionModules.lineupStorage.add(candidateLibrary, current)
+  local added, stored, candidateLibrary = productionModules.lineupPersistence.checkpoint(
+    runtime.lineup.library, current, productionModules.lineupStorage
+  )
   if not added then return false, stored end
   if runtime.capabilities.lineupWrite and type(adapter.saveLineupLibrary) == "function" then
     local ok, writeError = adapter.saveLineupLibrary(candidateLibrary)
@@ -7304,33 +7312,20 @@ production.auditRaceScheduler = function()
   then
     production.persistCurrentLineup()
   end
-  if lineup.active ~= true or runtime.state.busy or runtime.active then return false end
-  if runtime.lineup.pendingNext then
-    lineup.schedulerState = "scheduled"
-    return false
-  end
-  local open
-  for _, competitor in ipairs(lineup.competitors or {}) do
-    if competitor.generationClosed ~= true then open = competitor; break end
-  end
-  if open and open.status ~= "planned" then
-    open.status = "failed"
-    open.phase = "failed"
-    open.terminalState = "failed"
-    open.failureCode = "lineup_scheduler_lost_operation"
-    open.generationStatus = "failed"
-    open.generationClosed = true
-    open.dna, open.dnaId, open.vehicleDNAId = nil, nil, nil
-    open.warning = "The abandoned slot was closed so later competitors can continue"
-    lineup.nextIndex = open.index + 1
-  end
+  local audit = productionModules.raceScheduler.audit(lineup, {
+    busy = runtime.state.busy, activeOperation = runtime.active ~= nil,
+    pendingNext = runtime.lineup.pendingNext,
+  })
+  lineup.schedulerState = audit.state
+  if audit.schedule ~= true then return false end
   runtime.lineup.pendingNext = true
-  lineup.schedulerState = "self_healed"
   lineup.schedulerLastProgressAt = runtime.time.realMonotonicTime
-  diagnosticsModule.write(runtime.diagnostics, "W", "lineup_scheduler_self_healed", {
-    lineupId = lineup.id, slot = open and open.index,
-    previousStatus = open and open.status or "all_terminal",
-  }, true)
+  if audit.healed then
+    diagnosticsModule.write(runtime.diagnostics, "W", "lineup_scheduler_self_healed", {
+      lineupId = lineup.id, slot = audit.slot,
+      previousStatus = audit.previousStatus,
+    }, true)
+  end
   return true
 end
 
@@ -8031,16 +8026,21 @@ function production.startManagedAI(options)
     local managed, managedReason = productionModules.managedRegistry.readyEntry(runtime.managedVehicles, handle)
     if managed then
       local currentOptions = util.deepCopy(options)
+      local currentMode = mode
+      if options.preset == "Swarm" then
+        local swarmModes = {"Follow", "Chase", "Flee", "Roam", "Traffic"}
+        currentMode = swarmModes[(order - 1) % #swarmModes + 1]
+      end
       currentOptions.targetGeneration = managed.targetGeneration
       currentOptions.delay = (tonumber(options.delay) or 0) + (order - 1) * (tonumber(options.stagger) or 0)
-      if mode == "Destination" then
+      if currentMode == "Destination" then
         local okPos, origin = productionModules.spawnAdapter.objectPosition(managed.vehicleId)
         if okPos and runtime.destination.active and runtime.destination.confirmed then
           local route, reason = productionModules.routePlanner.destinationRoute(productionModules.aiAdapter, origin, runtime.destination.point, coverageLimits.DEFAULTS.maxAIRouteNodes)
           if route then currentOptions.nodes, currentOptions.destination, currentOptions.nodesArePath = route.nodes, util.deepCopy(runtime.destination.point), true
           else failures[#failures + 1] = {handle = handle, reason = reason} end
         else failures[#failures + 1] = {handle = handle, reason = "ai_destination_missing"} end
-      elseif mode == "Route" then
+      elseif currentMode == "Route" then
         local okPos, origin = productionModules.spawnAdapter.objectPosition(managed.vehicleId)
         local route, reason
         if okPos then
@@ -8052,7 +8052,7 @@ function production.startManagedAI(options)
         if route then
           currentOptions.nodes, currentOptions.destination, currentOptions.nodesArePath = route.nodes, route.destination, true
         else failures[#failures + 1] = {handle = handle, reason = reason or "route_points_missing"} end
-      elseif mode == "Chase" or mode == "Follow" or mode == "Flee" then
+      elseif currentMode == "Chase" or currentMode == "Follow" or currentMode == "Flee" then
         local targetId = math.floor(tonumber(options.targetVehicleId) or -1)
         if options.preset == "Convoy" then
           local previousHandle = selected[order - 1]
@@ -8066,13 +8066,15 @@ function production.startManagedAI(options)
           currentOptions.targetVehicleId = nil
         else currentOptions.targetVehicleId = targetId end
       end
-      local routeReady = (mode ~= "Destination" and mode ~= "Route") or currentOptions.nodes
-      local targetReady = (mode ~= "Chase" and mode ~= "Follow" and mode ~= "Flee")
+      local routeReady = (currentMode ~= "Destination" and currentMode ~= "Route") or currentOptions.nodes
+      local targetReady = (currentMode ~= "Chase" and currentMode ~= "Follow" and currentMode ~= "Flee")
         or currentOptions.targetVehicleId
       if routeReady and targetReady then
-        local entry, reason = productionModules.aiDirector.assign(runtime.aiDirector, handle, managed.vehicleId, mode, currentOptions, adapter.clock())
+        local entry, reason = productionModules.aiDirector.assign(runtime.aiDirector, handle,
+          managed.vehicleId, currentMode, currentOptions, adapter.clock())
         if entry then
-          productionModules.managedRegistry.setAIState(runtime.managedVehicles, handle, managed.targetGeneration, {status = "scheduled", mode = mode})
+          productionModules.managedRegistry.setAIState(runtime.managedVehicles, handle,
+            managed.targetGeneration, {status = "scheduled", mode = currentMode})
           runtime.aiDirector.polling = runtime.aiDirector.polling or productionModules.adaptivePolling.create({
             fastInterval = 0.1, slowInterval = 1.0, stableThreshold = 3,
           }, adapter.clock())
