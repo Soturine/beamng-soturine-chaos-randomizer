@@ -1,8 +1,8 @@
 # Current validation
 
-Current release candidate: **0.7.5 experimental prerelease**, targeting BeamNG
-0.39.4. Publication requires deterministic ZIP/checksum/manifest validation and
-post-publication download verification.
+Current published release: **0.7.5 experimental prerelease**, targeting BeamNG
+0.39.4. The deterministic ZIP/checksum/manifest and post-publication download
+verification passed for package commit `e63467a`.
 
 Automated status is recorded in the
 [v0.7.5 implementation matrix](../testing/v0.7.5/IMPLEMENTATION_MATRIX.md).

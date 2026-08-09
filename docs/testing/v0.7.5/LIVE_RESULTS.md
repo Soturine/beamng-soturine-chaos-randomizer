@@ -10,7 +10,10 @@ Authoritative status: **Pending owner validation; not executed**.
 | Required artifact | downloaded GitHub prerelease ZIP |
 | Release URL | `https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases/tag/v0.7.5` |
 | ZIP | `soturine_chaos_randomizer_0.7.5.zip` |
-| Bytes / SHA-256 / commit | Pending publication |
+| Bytes | 492976 |
+| Entries | 208 |
+| SHA-256 | `7b30caf18033b881739e3b4ee204cb6a9a1f25bbeb479399ea75b3e4682cebdc` |
+| Package/tag commit | `e63467a00914df982fd178aea0d1b3389a3630de` |
 
 | Result | Count |
 | --- | ---: |
@@ -33,3 +36,16 @@ Authoritative status: **Pending owner validation; not executed**.
 
 No v0.7.5 gameplay, renderer, controller, UI-scale, safe-zone, performance,
 third-party vehicle, Preview, AI or multiplayer case has passed live.
+
+## Published-asset verification
+
+On 2026-08-09, the GitHub prerelease assets were downloaded into a fresh
+temporary directory. The downloaded ZIP passed `tools/validate_package.py`;
+its computed SHA-256 matched both the checksum file and manifest, and its size,
+entry count, version, tag and commit matched the published manifest. The
+release contains exactly the ZIP, `.zip.sha256` and manifest assets.
+
+GitHub Actions run
+<https://github.com/Soturine/beamng-soturine-chaos-randomizer/actions/runs/31334200283>
+completed successfully for the package/tag commit. This is publication and
+automated evidence only; it does not change the live case counts above.
