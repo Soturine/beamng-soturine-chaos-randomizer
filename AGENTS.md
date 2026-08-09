@@ -23,10 +23,14 @@
 - The player vehicle is never a Race AI staging target or fallback. Each Race slot has exclusive physical ownership.
 - Safety uses `VALID`, `INVALID_CONFIRMED`, and `UNKNOWN_OR_PENDING`; only confirmed invalid evidence may start destructive rollback.
 - Runtime integrity is distinct from drivability and chaos acceptance. Unknown telemetry is not invalid, and destructive rollback requires confirmed runtime-integrity failure; a stable non-drivable result may be accepted by an explicit chaos policy.
+- Applied outcome and verification confidence are independent axes. A warning, unsupported probe, or inconclusive readback cannot convert an already proven commit into failure; `PARTIAL_APPLIED` is reserved for an actually incomplete applied mutation.
 - Replacement cardinality records the expected source removal and candidate addition explicitly. Unrelated world additions or removals are diagnostics and never authorize cleanup of an unowned vehicle.
 - Visible protocol state uses stable codes and normalized structures. Translation belongs to the frontend, and one component failure must not unmount the HUD shell.
 - Race background generation must never leave the player vehicle or camera as the staging focus. An accepted slot is immutable to cleanup owned by another slot; failed or skipped slots never persist partial DNA as valid, and one slot failure must not prevent later slots from running.
+- An active Race lineup with planned competitors cannot remain idle: bounded scheduler progress must start the next slot or publish an explicit terminal reason. Persistence failure is contained from valid in-memory lineup state.
 - Race previews are read-only world-space overlays. Preview code must never spawn, replace, remove, enter, focus, mutate, or take ownership of a vehicle.
+- Preview data readiness is not renderer visibility. User-facing visible state requires a successful drawn frame and marker count; draw errors and unavailable renderers remain explicit. Disabling preview removes the overlay in the same logical cycle.
+- Vehicle cleanup and mutation require both operation ownership and local authority. Matching a local numeric vehicle ID alone is never sufficient for multiplayer-facing code.
 
 ## Runtime UI
 
@@ -35,6 +39,7 @@
 - Technical IDs and internal policy keys stay in explicit diagnostics/developer disclosure, not the normal flow.
 - Responsive content decisions use the AppHost/container width, never the global game viewport. Normal UI presents translated human labels; stable codes remain inside explicit technical disclosure.
 - Compact mode changes content and internal geometry for every tab. The 0.39.4 AppHost owns persisted outer placement; do not call private resizing APIs.
+- Compact views use dedicated tab content, not merely scaled normal views. Closed drawers/details return to minimum intrinsic app height, and raw phase codes never appear in normal UI.
 - Transient statuses expire and remain scoped. Overall progress is structured, translated, and monotonic.
 
 ## Version, legal, and documentation
