@@ -27,6 +27,10 @@ ARCHIVE_PREFIX = "soturine_chaos_randomizer_"
 FIXED_TIMESTAMP = (2026, 1, 1, 0, 0, 0)
 TEXT_SUFFIXES = {".css", ".html", ".js", ".json", ".lua", ".md", ".mjs", ".scss", ".svg", ".txt", ".vue", ".xml"}
 TEXT_FILENAMES = {"LICENSE", "NOTICE", "VERSION"}
+ENVIRONMENT_DIRECTORIES = {
+    ".git", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox",
+    ".venv", "venv", "dist", "node_modules", "__pycache__", "coverage",
+}
 GENERATOR_VERSION = 8
 DNA_SCHEMA_VERSION = 1
 DNA_GENERATOR_VERSION = 6
@@ -239,10 +243,7 @@ def test_counts(root: Path = REPOSITORY_ROOT) -> dict[str, int]:
         "vueModuleGraphCaseMismatches": int(graph_report["caseMismatches"]),
         "vueModuleGraphCycles": int(graph_report["cycles"]),
         "vueModuleGraphNamedExportErrors": int(graph_report["namedExportErrors"]),
-        "jsonFiles": len([
-            path for path in root.rglob("*.json")
-            if not any(part in {".git", "dist", "__pycache__"} for part in path.relative_to(root).parts)
-        ]),
+        "jsonFiles": len(project_json_files(root)),
         "yamlFiles": len(list((root / ".github" / "workflows").glob("*.yml"))),
         "packageTestMethods": len(re.findall(
             r"^\s+def test_[A-Za-z0-9_]+\(",
@@ -257,6 +258,14 @@ def test_counts(root: Path = REPOSITORY_ROOT) -> dict[str, int]:
         "interactiveNotApplicable": interactive["Not applicable"],
     }
     return result
+
+
+def project_json_files(root: Path = REPOSITORY_ROOT) -> list[Path]:
+    """Return repository JSON inputs without machine-installed dependencies."""
+    return sorted(
+        path for path in root.rglob("*.json")
+        if not any(part in ENVIRONMENT_DIRECTORIES for part in path.relative_to(root).parts)
+    )
 
 
 def write_release_manifest(archive: Path, output: Path | None = None, root: Path = REPOSITORY_ROOT) -> Path:

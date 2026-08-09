@@ -34,6 +34,11 @@ local domainOperations = require("ge/extensions/soturineChaosRandomizer/runtime/
 local cooperativeScheduler = require("ge/extensions/soturineChaosRandomizer/runtime/cooperativeScheduler")
 local stabilityLimits = require("ge/extensions/soturineChaosRandomizer/runtime/stabilityLimits")
 local progressWatchdog = require("ge/extensions/soturineChaosRandomizer/progressWatchdog")
+local operationOutcome = require("ge/extensions/soturineChaosRandomizer/operationOutcome")
+local formationEnum = require("ge/extensions/soturineChaosRandomizer/formationEnum")
+local vehicleIdentity = require("ge/extensions/soturineChaosRandomizer/vehicleIdentity")
+local contactDetector = require("ge/extensions/soturineChaosRandomizer/contactDetector")
+local playgroundMode = require("ge/extensions/soturineChaosRandomizer/playgroundMode")
 local paintRandomizer = require("ge/extensions/soturineChaosRandomizer/paintRandomizer")
 local paintVerification = require("ge/extensions/soturineChaosRandomizer/paintVerification")
 local partBatchRecovery = require("ge/extensions/soturineChaosRandomizer/partBatchRecovery")
@@ -53,7 +58,9 @@ local lineupManager = require("ge/extensions/soturineChaosRandomizer/lineupManag
 local raceManager = require("ge/extensions/soturineChaosRandomizer/raceManager")
 local raceFocusGuard = require("ge/extensions/soturineChaosRandomizer/raceFocusGuard")
 local racePreview = require("ge/extensions/soturineChaosRandomizer/racePreview")
+local raceScheduler = require("ge/extensions/soturineChaosRandomizer/raceScheduler")
 local lineupStorage = require("ge/extensions/soturineChaosRandomizer/lineupStorage")
+local lineupPersistence = require("ge/extensions/soturineChaosRandomizer/lineupPersistence")
 local managedVehicleRegistry = require("ge/extensions/soturineChaosRandomizer/managedVehicleRegistry")
 local spawnDirector = require("ge/extensions/soturineChaosRandomizer/spawnDirector")
 local spawnApiAdapter = require("ge/extensions/soturineChaosRandomizer/spawnApiAdapter")
@@ -1839,23 +1846,24 @@ tests.full_random_skips_unavailable_optional_stage_with_warning = function()
   truthy(pipelineHarness.driveSuccess(harness, "fullRandom", {allowPartialResult = true}))
   local details = harness.main.requestState().lastResult.details
   truthy(#details.warnings >= 2)
-  equal(details.status, "Partial")
+  equal(details.status, "CompletedWithWarning")
+  equal(details.terminalOutcome, "COMPLETED_WITH_SKIPS")
 end
 
 tests.v060_partial_result_setting_controls_rollback = function()
   local rollback = pipelineHarness.new({tuningUnavailable = true, paintUnavailable = true})
   truthy(pipelineHarness.driveSuccess(rollback, "fullRandom", {allowPartialResult = false}))
-  truthy(rollback.pendingReplacement and rollback.pendingReplacement.restoring)
-  pipelineHarness.confirmReplacement(rollback)
   local rejected = rollback.main.requestState().lastResult
-  equal(rejected.code, "partial_result_not_allowed")
-  equal(rejected.details.rollback, "completed")
+  equal(rejected.success, true)
+  equal(rejected.details.terminalOutcome, "COMPLETED_WITH_SKIPS")
+  truthy(not (rollback.pendingReplacement and rollback.pendingReplacement.restoring))
 
   local kept = pipelineHarness.new({tuningUnavailable = true, paintUnavailable = true})
   truthy(pipelineHarness.driveSuccess(kept, "fullRandom", {allowPartialResult = true}))
   local accepted = kept.main.requestState().lastResult
   equal(accepted.success, true)
-  equal(accepted.details.status, "Partial")
+  equal(accepted.details.status, "CompletedWithWarning")
+  equal(accepted.details.terminalOutcome, "COMPLETED_WITH_SKIPS")
 end
 
 tests.full_random_has_one_history_entry = tests.full_random_is_one_operation
@@ -3768,8 +3776,8 @@ tests.v063_tuning_pipeline_reaches_fixed_point_after_multiple_waves = function()
   pipelineHarness.driveActive(harness, 256)
   local state = harness.main.requestState()
   truthy(not state.busy, "tuning waves remained Busy at " .. tostring(state.lifecyclePhase))
-  equal(state.lastResult.code, "scramble_partial")
-  equal(state.lastResult.details.terminalOutcome, "SUCCESS_WITH_WARNING")
+  equal(state.lastResult.code, "scramble_completed_with_warning")
+  equal(state.lastResult.details.terminalOutcome, "COMPLETED_WITH_WARNING")
   local tuningWrites = 0
   for _, write in ipairs(harness.writes) do if write.kind == "tuning" then tuningWrites = tuningWrites + 1 end end
   equal(tuningWrites, 3)
@@ -3945,8 +3953,8 @@ tests.v064_uncertain_fuel_metadata_preserves_randomized_result = function()
   local state = harness.main.requestState()
   truthy(not state.busy)
   equal(state.lastResult.success, true)
-  equal(state.lastResult.code, 'random_config_partial')
-  equal(state.lastResult.details.terminalOutcome, 'SUCCESS_WITH_WARNING')
+  equal(state.lastResult.code, 'random_config_loaded_with_warning')
+  equal(state.lastResult.details.terminalOutcome, 'COMPLETED_WITH_WARNING')
   equal(state.lastResult.details.energyStorages.status, 'uncertain_warning')
   truthy(#state.lastResult.details.warnings > 0)
   equal(harness.modelKey, 'fixture_new')
@@ -3960,7 +3968,8 @@ tests.v064_unavailable_fuel_readback_is_warning_not_rollback = function()
   local state = harness.main.requestState()
   truthy(not state.busy)
   equal(state.lastResult.success, true)
-  equal(state.lastResult.code, 'random_config_partial')
+  equal(state.lastResult.code, 'random_config_loaded_with_warning')
+  equal(state.lastResult.details.terminalOutcome, 'COMPLETED_WITH_WARNING')
   equal(state.lastResult.details.energyStorages.status, 'unavailable_warning')
   equal(harness.modelKey, 'fixture_new')
 end
@@ -4010,8 +4019,7 @@ tests.v060_lineup_seeds_progress_schema_and_storage = function()
   local second = assert(lineupManager.nextCompetitor(lineup))
   local secondGeneration = second.targetGeneration
   truthy(lineupManager.record(lineup, 2, {success = false, message = "fixture"}, nil, secondGeneration))
-  second.status = "planned"
-  lineup.nextIndex = 2
+  truthy(lineupManager.resolveFailure(lineup, 2, "retry"))
   local retry = assert(lineupManager.nextCompetitor(lineup))
   equal(retry.targetGeneration, secondGeneration + 1)
   truthy(lineupManager.record(lineup, 2, {success = false, message = "fixture retry"}, nil, retry.targetGeneration))
@@ -4480,17 +4488,17 @@ end
 
 tests.v060_progress_watchdog_contract = function()
   local watchdog = progressWatchdog.create(0, {warningAfter = 2, stalledAfter = 4, pauseDependencyWindow = 1})
-  equal(progressWatchdog.evaluate(watchdog, 2.1, false), "warning")
-  equal(progressWatchdog.evaluate(watchdog, 4.1, false), "stalled")
+  equal(progressWatchdog.evaluate(watchdog, 2.1, false), "SLOW_PROGRESS")
+  equal(progressWatchdog.evaluate(watchdog, 4.1, false), "NO_PROGRESS")
   progressWatchdog.observePause(watchdog, true, 4.2)
   local callbackAdvanced, callbackClass = progressWatchdog.note(
     watchdog, "target", "vehicle_spawn_callback", 4.25
   )
   equal(callbackAdvanced, false); equal(callbackClass, "callback_noise")
-  equal(progressWatchdog.evaluate(watchdog, 4.3, false), "stalled")
+  equal(progressWatchdog.evaluate(watchdog, 4.3, false), "NO_PROGRESS")
   progressWatchdog.note(watchdog, "binding", "target_evidence_confirmed", 4.3)
   truthy(watchdog.pauseDependentProgressDetected)
-  equal(progressWatchdog.evaluate(watchdog, 20, true), "waiting_for_simulation_resume")
+  equal(progressWatchdog.evaluate(watchdog, 20, true), "WAITING_FOR_SIMULATION_RESUME")
   truthy(not watchdog.stalled)
   local report = progressWatchdog.snapshot(watchdog, 20)
   equal(report.lastSemanticProgressAt, 4.3)
@@ -4942,7 +4950,7 @@ tests.v061_compact_ui_contract = function()
     truthy(navigation:find('"' .. key .. '"', 1, true), key)
   end
   for _, key in ipairs({"saved", "compare", "share"}) do truthy(garage:find('"' .. key .. '"', 1, true), key) end
-  for _, key in ipairs({"cars", "placement", "drive"}) do truthy(race:find('"' .. key .. '"', 1, true), key) end
+  for _, key in ipairs({"setup", "formation", "behavior", "start"}) do truthy(race:find('"' .. key .. '"', 1, true), key) end
   truthy(app:find("<AppShell />", 1, true))
   truthy(shell:find("layout.compact", 1, true))
   truthy(css:find(".scr%-compact") ~= nil)
@@ -6068,9 +6076,9 @@ tests.v072_scheduler_limits_and_watchdog_are_bounded = function()
     ownedVehicleCount = 2, temporaryVehicleCount = 1, callbackCount = 7,
     frameBudgetOverruns = 3,
   })
-  equal(progressWatchdog.evaluate(watchdog, 2.1, false), "warning")
+  equal(progressWatchdog.evaluate(watchdog, 2.1, false), "SLOW_PROGRESS")
   equal(progressWatchdog.snapshot(watchdog, 2.1).status, "slow")
-  equal(progressWatchdog.evaluate(watchdog, 4.1, false), "stalled")
+  equal(progressWatchdog.evaluate(watchdog, 4.1, false), "NO_PROGRESS")
   truthy(progressWatchdog.setStatus(watchdog, "aborting"))
   equal(progressWatchdog.snapshot(watchdog, 4.1).status, "aborting")
   truthy(progressWatchdog.setStatus(watchdog, "cleaning"))
@@ -6316,7 +6324,7 @@ tests.v074_race_previews_are_read_only_structured_and_generation_scoped = functi
   equal(staging.kind, "staging")
   equal(staging.phase, "generation_staging")
   equal(staging.heading, "road")
-  equal(staging.formation, "Grid")
+  equal(staging.formation, "GRID")
   equal(staging.spacing.lateral, 3.25)
   equal(staging.spacing.longitudinal, 6.5)
   equal(#staging.slots, 3)
@@ -6537,10 +6545,10 @@ tests.v074_safety_v2_separates_integrity_drivability_policy_and_fluids = functio
   equal(strict.runtimeIntegrity, "HEALTHY")
   equal(strict.drivability, "UNDRIVABLE")
   equal(strict.chaosAcceptance, "REJECT_BY_POLICY")
-  equal(strict.decision, "INVALID_CONFIRMED")
+  equal(strict.decision, "VALID")
   equal(strict.destructiveRollbackAuthorized, false)
   local gate = safetyGate.create()
-  equal(safetyGate.observe(gate, strict, 0, false), "invalid_confirmed")
+  equal(safetyGate.observe(gate, strict, 0, false), "policy_rejected")
 
   local missingObject = safetyModel.layer(functionalFailure, {chaos = 100}, {
     objectExists = false, ownershipCurrent = true, bindConverged = true, treeConverged = true,
@@ -6587,13 +6595,300 @@ tests.v067_race_policy_inventory_and_roundtrip = function()
   truthy(lineup.varietyRules.avoidDuplicateFamilies)
   equal(lineup.varietyRules.maximumSameFamily, 1)
   truthy(lineup.varietyRules.diversifyPropulsion)
-  equal(lineup.settings.formation, "Split Left and Right")
+  equal(lineup.settings.formation, "SPLIT_LEFT_RIGHT")
   equal(lineup.settings.longitudinalSpacing, 11)
   local imported = assert(lineupSchema.sanitizedImport(lineup))
   equal(imported.settings.participationMode, "player")
   equal(imported.settings.countSemantics, "total_vehicles")
-  equal(imported.settings.formation, "Split Left and Right")
+  equal(imported.settings.formation, "SPLIT_LEFT_RIGHT")
   truthy(imported.varietyRules.avoidDuplicateFamilies)
+end
+
+tests.v075_outcome_taxonomy_is_explicit_and_terminally_immutable = function()
+  local cases = {
+    {true, "ok", {}, "completed", "COMPLETED", "CONFIRMED"},
+    {true, "ok", {skippedCount = 2}, "completed", "COMPLETED_WITH_SKIPS", "CONFIRMED"},
+    {true, "ok", {warnings = {"fixture"}}, "completed", "COMPLETED_WITH_WARNING", "CONFIRMED"},
+    {true, "ok", {partialApplied = true}, "partial", "PARTIAL_APPLIED", "CONFIRMED"},
+    {false, "phase_timeout", {}, "failed", "FAILED_TIMEOUT", "CONFIRMED"},
+    {false, "watchdog_no_progress", {}, "failed", "FAILED_STALLED", "CONFIRMED"},
+    {false, "runtime_integrity_failed", {}, "failed", "FAILED_RUNTIME_INTEGRITY", "CONFIRMED"},
+    {false, "unchanged", {}, "failed", "FAILED_NO_CHANGE", "CONFIRMED"},
+    {false, "failed", {rollback = "completed"}, "failed", "FAILED_ROLLED_BACK", "CONFIRMED"},
+    {false, "cancelled", {}, "cancelled", "CANCELLED", "CONFIRMED"},
+    {true, "fluid_unknown", {telemetrySupported = false}, "completed",
+      "COMPLETED_WITH_WARNING", "UNSUPPORTED_TELEMETRY"},
+  }
+  for _, fixture in ipairs(cases) do
+    local outcome, confidence = operationOutcome.classify(fixture[1], fixture[2], fixture[3], fixture[4])
+    equal(outcome, fixture[5])
+    equal(confidence, fixture[6])
+  end
+  local terminal = {}
+  truthy(operationOutcome.freeze(terminal, "COMPLETED_WITH_WARNING", "UNCERTAIN"))
+  local changed, reason = operationOutcome.freeze(terminal, "FAILED_NO_CHANGE", "CONFIRMED")
+  equal(changed, false)
+  equal(reason, "terminal_outcome_immutable")
+  equal(terminal.outcome, "COMPLETED_WITH_WARNING")
+  equal(operationOutcome.legacy(terminal.outcome), "success_with_warning")
+
+  local scramble = pipelineHarness.new({paintUnavailable = true})
+  truthy(pipelineHarness.driveSuccess(scramble, "scramble", {manualSeed = "v075-paint-skip"}))
+  equal(scramble.main.requestState().lastResult.details.terminalOutcome, "COMPLETED_WITH_SKIPS")
+
+  local randomCar = pipelineHarness.new({energyReadFailure = true})
+  truthy(randomCar.main.randomConfig({manualSeed = "v075-fluid-unknown"}))
+  pipelineHarness.confirmReplacement(randomCar)
+  pipelineHarness.driveActive(randomCar, 128)
+  equal(randomCar.main.requestState().lastResult.details.terminalOutcome, "COMPLETED_WITH_WARNING")
+
+  local treeSequence = {}
+  for pass = 1, 8 do
+    local tree = {chosenPartName = "fixture_root", children = {}}
+    for slot = 1, pass do
+      tree.children["slot" .. tostring(slot)] = {
+        id = "slot" .. tostring(slot), path = "/slot" .. tostring(slot) .. "/",
+        chosenPartName = "part_a", suitablePartNames = {"part_a", "part_b"}, children = {},
+      }
+    end
+    treeSequence[#treeSequence + 1] = tree
+  end
+  local bounded = pipelineHarness.new({treeSequence = treeSequence})
+  truthy(pipelineHarness.driveSuccess(bounded, "fullRandom", {
+    manualSeed = "v075-bounded-partial", chaos = 100,
+  }))
+  local boundedResult = bounded.main.requestState().lastResult
+  truthy(boundedResult.details.runtimeMetrics.reloadBudget.hardLimitReached)
+  equal(boundedResult.details.terminalOutcome, "PARTIAL_APPLIED")
+end
+
+tests.v075_phase_watchdog_tracks_semantic_progress_and_engine_waits = function()
+  local state = progressWatchdog.create(0, {warningAfter = 1, stalledAfter = 2})
+  truthy(progressWatchdog.setPhase(state, "waiting_parts_reload", 0))
+  equal(progressWatchdog.evaluate(state, 21, {waitingForEngineEvent = true}),
+    "WAITING_FOR_CONFIRMED_ENGINE_EVENT")
+  local progressAt = state.lastSemanticProgressAt
+  local accepted, class = progressWatchdog.note(state, "callback", "callback_received", 22)
+  equal(accepted, false)
+  equal(class, "callback_noise")
+  equal(state.lastSemanticProgressAt, progressAt)
+
+  truthy(progressWatchdog.setPhase(state, "applying_parts", 22))
+  equal(progressWatchdog.evaluate(state, 38, {engineActive = true}),
+    "LONG_RUNNING_BUT_ENGINE_ACTIVE")
+  truthy(progressWatchdog.setPhase(state, "planning_parts", 38))
+  equal(progressWatchdog.evaluate(state, 74, {}), "NO_PROGRESS")
+  progressWatchdog.setDeadlines(state, 75, 90)
+  equal(progressWatchdog.evaluate(state, 75, {}), "PHASE_DEADLINE")
+  truthy(progressWatchdog.setStatus(state, "terminal"))
+  equal(progressWatchdog.evaluate(state, 1000, {}), "PHASE_DEADLINE")
+
+  local global = progressWatchdog.create(0, {operationDeadline = 5})
+  equal(progressWatchdog.evaluate(global, 5, {}), "OPERATION_DEADLINE")
+  local progressing = progressWatchdog.create(0, {warningAfter = 2, stalledAfter = 4})
+  truthy(progressWatchdog.note(progressing, "reload", "generation_1", 3))
+  equal(progressWatchdog.evaluate(progressing, 5, {}), "SLOW_PROGRESS")
+  truthy(progressWatchdog.note(progressing, "reload", "generation_2", 5))
+  equal(progressWatchdog.evaluate(progressing, 7, {}), "SLOW_PROGRESS")
+end
+
+tests.v075_preview_state_requires_a_rendered_frame = function()
+  local plan = {
+    options = {requestedMode = "Grid", safetyMargin = 1.5},
+    placements = {{position = {x = 1, y = 2, z = 3}, normal = {x = 0, y = 0, z = 1}}},
+  }
+  local lineup = {settings = {formation = "Grid"}, competitors = {{status = "planned", name = "One"}}}
+  local preview = racePreview.build("generation", plan, lineup, nil, true)
+  equal(preview.state, "PREVIEW_DATA_READY")
+  equal(preview.formation, "GRID")
+  racePreview.recordRender(preview, {rendererAvailable = false, requestedMarkerCount = 1}, 1)
+  equal(preview.state, "PREVIEW_RENDERER_UNAVAILABLE")
+  racePreview.recordRender(preview, {
+    rendererAvailable = true, requestedMarkerCount = 1, renderedMarkerCount = 0,
+    errorCode = "fixture_renderer_error",
+  }, 2)
+  equal(preview.state, "PREVIEW_RENDER_ERROR")
+  racePreview.recordRender(preview, {
+    rendererAvailable = true, requestedMarkerCount = 1, renderedMarkerCount = 1,
+  }, 3)
+  equal(preview.state, "PREVIEW_VISIBLE")
+  equal(preview.renderer.successfulFrames, 1)
+  equal(preview.renderer.lastFrameAt, 3)
+  truthy(racePreview.stale(preview, "generation_changed"))
+  equal(preview.state, "PREVIEW_STALE")
+  racePreview.clear(preview, "toggle_off")
+  equal(preview.state, "PREVIEW_DISABLED")
+  equal(#preview.slots, 0)
+  local preferences = p2.preferences.patch(p2.preferences.defaults(), {
+    race = {previewEnabled = false, formation = "Grid"},
+  })
+  equal(preferences.race.previewEnabled, false)
+  equal(preferences.race.formation, "GRID")
+  preferences = p2.preferences.patch(preferences, {race = {previewEnabled = true}})
+  equal(preferences.race.previewEnabled, true)
+end
+
+tests.v075_race_acceptance_is_slot_local_and_terminally_immutable = function()
+  local showcase = raceManager.presetOptions("Mods Showcase", {})
+  truthy(showcase.acceptMetadataUncertain)
+  truthy(showcase.acceptPotentiallyUndrivable)
+  local lineup = assert(raceManager.create({
+    count = 2, episodeSeed = "v075-terminal", preset = "Mods Showcase",
+  }))
+  local competitor = assert(raceManager.nextCompetitor(lineup))
+  local result = {success = true, details = {
+    terminalOutcome = "COMPLETED_WITH_WARNING",
+    metadataUncertain = true,
+    potentiallyUndrivable = true,
+    verifiedTraits = {},
+    safety = {runtimeIntegrity = "HEALTHY", drivability = "PARTIAL"},
+    lifecycleAcceptance = {
+      finalValidationPassed = true, busy = false,
+      pendingWrites = 0, pendingTimers = 0, pendingCallbacks = 0,
+    },
+  }}
+  truthy(raceManager.record(lineup, competitor.index, result, nil, competitor.targetGeneration))
+  equal(competitor.status, "ready_with_warnings")
+  equal(competitor.dna, nil)
+  local changed, reason = raceManager.record(lineup, competitor.index,
+    {success = false, code = "late_failure"}, nil, competitor.targetGeneration)
+  equal(changed, false)
+  equal(reason, "lineup_competitor_closed")
+  equal(competitor.status, "ready_with_warnings")
+end
+
+tests.v075_lineup_persistence_and_scheduler_failures_are_contained = function()
+  local lineup = assert(raceManager.create({
+    count = 3, episodeSeed = "v075-scheduler", preset = "Mods Showcase",
+  }))
+  local library = lineupStorage.create(4)
+  local before = util.deepCopy(library)
+  local failed, failureReason, unchanged = lineupPersistence.checkpoint(library, lineup, {
+    add = function(candidate)
+      candidate.entries = {{id = "must-not-leak"}}
+      return false, "fixture_transient_write_failure"
+    end,
+  })
+  equal(failed, false)
+  equal(failureReason, "fixture_transient_write_failure")
+  truthy(util.deepEqual(library, before))
+  truthy(unchanged == library)
+  truthy(lineupSchema.validate(lineup))
+
+  local saved, stored, committed = lineupPersistence.checkpoint(library, lineup, lineupStorage)
+  truthy(saved)
+  truthy(stored ~= nil)
+  truthy(committed ~= library)
+  equal(#committed.entries, 1)
+  equal(#library.entries, 0)
+
+  local audit = raceScheduler.audit(lineup, {
+    busy = false, activeOperation = false, pendingNext = false,
+  })
+  truthy(audit.schedule)
+  equal(audit.slot, 1)
+  local first = assert(raceManager.nextCompetitor(lineup))
+  truthy(first.status ~= "planned")
+  first.status = "randomizing"
+  first.phase = "randomizing"
+  local healed = raceScheduler.audit(lineup, {
+    busy = false, activeOperation = false, pendingNext = false,
+  })
+  truthy(healed.healed)
+  equal(first.status, "failed")
+  equal(first.dna, nil)
+  local nextSlot = assert(raceManager.nextCompetitor(lineup))
+  equal(nextSlot.index, 2)
+end
+
+tests.v075_ai_capabilities_match_runtime_and_quick_presets = function()
+  for mode in pairs(aiAdapter.MODES) do truthy(aiDirector.MODES[mode], "director missing " .. mode) end
+  for mode in pairs(aiDirector.MODES) do truthy(aiAdapter.MODES[mode], "adapter missing " .. mode) end
+  local oldLookup = rawget(_G, "getObjectByID")
+  local commands = {}
+  _G.getObjectByID = function()
+    return {queueLuaCommand = function(_, command) commands[#commands + 1] = command end}
+  end
+  local caps = aiAdapter.capabilities()
+  local expectedModes = {"Destination", "Route", "Follow", "Chase", "Flee", "Traffic", "Roam"}
+  local expectedPresets = {"Follow", "Convoy", "Chase", "Flee", "Traffic", "Roam", "Swarm"}
+  equal(table.concat(caps.supportedModes, ","), table.concat(expectedModes, ","))
+  equal(table.concat(caps.quickPresets, ","), table.concat(expectedPresets, ","))
+  truthy(aiAdapter.start(10, "Flee", {targetVehicleId = 11, aggression = 0.8}))
+  truthy(commands[#commands]:find("ai.setMode%(\"flee\"%)") ~= nil)
+  truthy(aiAdapter.start(10, "Roam", {aggression = 0.8}))
+  truthy(commands[#commands]:find("ai.setMode%('random'%)") ~= nil)
+  _G.getObjectByID = oldLookup
+end
+
+tests.v075_identity_contact_and_playground_foundations_are_bounded = function()
+  local localIdentity = vehicleIdentity.normalize({
+    environment = "multiplayer_compatible", localVehicleId = 7,
+    ownerPlayerId = "local", networkVehicleId = "net-7", authority = "LOCAL",
+  })
+  local remoteIdentity = vehicleIdentity.normalize({
+    environment = "multiplayer_compatible", localVehicleId = 7,
+    ownerPlayerId = "remote", networkVehicleId = "net-7", authority = "REMOTE",
+  })
+  truthy(not vehicleIdentity.same(localIdentity, remoteIdentity))
+  truthy(vehicleIdentity.canMutate(localIdentity))
+  truthy(not vehicleIdentity.canMutate(remoteIdentity))
+
+  local detector = contactDetector.create({distanceThreshold = 4, relativeSpeedThreshold = 2, cooldown = 1})
+  local contact = assert(contactDetector.observe(detector, {
+    leftVehicleId = 9, rightVehicleId = 4, distance = 2, relativeSpeed = 3,
+  }, 10))
+  equal(contact.leftVehicleId, 4)
+  equal(contact.rightVehicleId, 9)
+  equal(contact.state, "started")
+  local persisted = assert(contactDetector.observe(detector, {
+    leftVehicleId = 4, rightVehicleId = 9, collisionSignal = true,
+  }, 10.5))
+  equal(persisted.state, "persisted")
+  equal(persisted.samples, 2)
+  local ended = assert(contactDetector.observe(detector, {
+    leftVehicleId = 4, rightVehicleId = 9, ended = true,
+  }, 10.75))
+  equal(ended.state, "ended")
+  local duplicate, duplicateReason = contactDetector.observe(detector, {
+    leftVehicleId = 4, rightVehicleId = 9, collisionSignal = true,
+  }, 11)
+  equal(duplicate, nil)
+  equal(duplicateReason, "contact_cooldown")
+
+  truthy(vehicleIdentity.canMutate(vehicleIdentity.normalize({
+    environment = "beammp", localVehicleId = 8, authority = "SERVER_GRANTED",
+  })))
+  truthy(not vehicleIdentity.canCleanup(vehicleIdentity.normalize({
+    environment = "beammp", localVehicleId = 9, authority = "UNKNOWN",
+  })))
+  local ownershipState = domainOperations.create()
+  local denied, deniedReason = domainOperations.ownVehicle(ownershipState, 7, {
+    domain = "race", operationId = "remote-fixture", generation = 1,
+    role = "race_candidate", managed = true, identity = remoteIdentity,
+  })
+  equal(denied, false)
+  equal(deniedReason, "vehicle_authority_not_mutable")
+
+  local playground = playgroundMode.create("tag", localIdentity)
+  truthy(playgroundMode.transition(playground, "SETUP", "fixture"))
+  truthy(playgroundMode.addParticipant(playground, localIdentity))
+  truthy(playgroundMode.transition(playground, "RUNNING", "fixture"))
+  truthy(playgroundMode.transition(playground, "COMPLETED", "fixture"))
+  local reopened, reopenedReason = playgroundMode.transition(playground, "RUNNING", "late")
+  equal(reopened, false)
+  equal(reopenedReason, "playground_terminal_immutable")
+end
+
+tests.v075_formation_codes_roundtrip_at_the_runtime_boundary = function()
+  local fixtures = {
+    {"Automatic Best Fit", "AUTO_BEST_FIT"}, {"Grid", "GRID"},
+    {"Circular / Radial", "RADIAL"}, {"Split Left and Right", "SPLIT_LEFT_RIGHT"},
+  }
+  for _, fixture in ipairs(fixtures) do
+    equal(formationEnum.normalize(fixture[1]), fixture[2])
+    equal(formationEnum.normalize(formationEnum.runtimeName(fixture[2])), fixture[2])
+  end
 end
 
 tests.v073_beamng_0394_fixture_covers_identity_failures_and_managed_ai = function()
@@ -6637,10 +6932,13 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/history.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/historyTransaction.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/frameBudget.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/formationEnum.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/incrementalIndexer.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/lifecycle.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/lineupManager.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/lineupPersistence.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/raceManager.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/raceScheduler.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/lineupSchema.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/lineupStorage.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/main.lua",
@@ -6648,9 +6946,12 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/mutationPolicy.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/managedVehicleRegistry.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/operationState.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/operationOutcome.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/runtime/domainOperations.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/runtime/operationContext.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/progressWatchdog.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/contactDetector.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/playgroundMode.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/paintRandomizer.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/paintCoverageLedger.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/paintVerification.lua",
@@ -6693,6 +6994,7 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/vehicleTargetTracker.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/vehicleBufferPool.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/vehicleIterator.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/vehicleIdentity.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/aiAdapter.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/aiDirector.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/destinationMarker.lua",
@@ -7485,6 +7787,41 @@ local v074Required = {
   {"lock_classifier_preserves_unknown_mod_names", tests.lock_categories_use_slot_evidence_and_unknown_fallback},
 }
 
+local v075Required = {
+  {"outcome_taxonomy_is_explicit", tests.v075_outcome_taxonomy_is_explicit_and_terminally_immutable},
+  {"outcome_confidence_is_separate", tests.v075_outcome_taxonomy_is_explicit_and_terminally_immutable},
+  {"unsupported_fluid_telemetry_is_not_partial", tests.v075_outcome_taxonomy_is_explicit_and_terminally_immutable},
+  {"terminal_success_is_immutable", tests.v075_outcome_taxonomy_is_explicit_and_terminally_immutable},
+  {"watchdog_uses_phase_profiles", tests.v075_phase_watchdog_tracks_semantic_progress_and_engine_waits},
+  {"watchdog_uses_semantic_progress", tests.v075_phase_watchdog_tracks_semantic_progress_and_engine_waits},
+  {"watchdog_callback_noise_does_not_renew", tests.v075_phase_watchdog_tracks_semantic_progress_and_engine_waits},
+  {"watchdog_engine_wait_is_not_stall", tests.v075_phase_watchdog_tracks_semantic_progress_and_engine_waits},
+  {"watchdog_hard_deadline_is_terminal", tests.v075_phase_watchdog_tracks_semantic_progress_and_engine_waits},
+  {"preview_data_ready_is_not_visible", tests.v075_preview_state_requires_a_rendered_frame},
+  {"preview_renderer_unavailable_is_explicit", tests.v075_preview_state_requires_a_rendered_frame},
+  {"preview_render_error_is_explicit", tests.v075_preview_state_requires_a_rendered_frame},
+  {"preview_visible_requires_rendered_marker", tests.v075_preview_state_requires_a_rendered_frame},
+  {"preview_toggle_off_clears_markers", tests.v075_preview_state_requires_a_rendered_frame},
+  {"mods_showcase_metadata_is_permissive", tests.v075_race_acceptance_is_slot_local_and_terminally_immutable},
+  {"mods_showcase_drivability_is_permissive", tests.v075_race_acceptance_is_slot_local_and_terminally_immutable},
+  {"accepted_race_slot_is_immutable", tests.v075_race_acceptance_is_slot_local_and_terminally_immutable},
+  {"failed_or_missing_dna_is_not_persisted", tests.v075_race_acceptance_is_slot_local_and_terminally_immutable},
+  {"lineup_persistence_failure_is_transactional", tests.v075_lineup_persistence_and_scheduler_failures_are_contained},
+  {"lineup_persistence_retry_can_commit", tests.v075_lineup_persistence_and_scheduler_failures_are_contained},
+  {"planned_lineup_schedules_next_slot", tests.v075_lineup_persistence_and_scheduler_failures_are_contained},
+  {"abandoned_slot_is_closed_without_deadlock", tests.v075_lineup_persistence_and_scheduler_failures_are_contained},
+  {"ai_backend_modes_match_director", tests.v075_ai_capabilities_match_runtime_and_quick_presets},
+  {"ai_capabilities_are_frontend_consumable", tests.v075_ai_capabilities_match_runtime_and_quick_presets},
+  {"ai_quick_presets_are_real_modes", tests.v075_ai_capabilities_match_runtime_and_quick_presets},
+  {"ai_flee_and_roam_are_supported", tests.v075_ai_capabilities_match_runtime_and_quick_presets},
+  {"vehicle_identity_includes_owner", tests.v075_identity_contact_and_playground_foundations_are_bounded},
+  {"remote_vehicle_mutation_is_denied", tests.v075_identity_contact_and_playground_foundations_are_bounded},
+  {"contact_detection_has_cooldown", tests.v075_identity_contact_and_playground_foundations_are_bounded},
+  {"playground_terminal_state_is_immutable", tests.v075_identity_contact_and_playground_foundations_are_bounded},
+  {"formation_uses_stable_codes", tests.v075_formation_codes_roundtrip_at_the_runtime_boundary},
+  {"formation_runtime_boundary_roundtrip", tests.v075_formation_codes_roundtrip_at_the_runtime_boundary},
+}
+
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")
 equal(#v060Required, 104, "0.6.0 required scenario registry")
 equal(#v060PauseLifecycleRequired, 52, "0.6.0 pause lifecycle scenario registry")
@@ -7528,6 +7865,9 @@ for _, scenario in ipairs(v073Required) do
 end
 for _, scenario in ipairs(v074Required) do
   requirementMappings[#requirementMappings + 1] = {"0.7.4:" .. scenario[1], scenario[2]}
+end
+for _, scenario in ipairs(v075Required) do
+  requirementMappings[#requirementMappings + 1] = {"0.7.5:" .. scenario[1], scenario[2]}
 end
 
 local canonicalByFunction = {}

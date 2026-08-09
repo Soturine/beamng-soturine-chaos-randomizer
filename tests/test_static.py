@@ -247,6 +247,42 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("localeMode", service)
         self.assertEqual(es["nav.settings"], "Ajustes")
 
+    def test_v075_ai_i18n_layout_and_terminology_contracts(self) -> None:
+        catalogs = {
+            locale: json.loads((APP / f"i18n/{locale}.json").read_text(encoding="utf-8"))
+            for locale in ("en-US", "pt-BR", "es-ES")
+        }
+        modes = ("Destination", "Route", "Follow", "Chase", "Flee", "Traffic", "Roam")
+        presets = ("Follow", "Convoy", "Chase", "Flee", "Traffic", "Roam", "Swarm")
+        outcomes = (
+            "COMPLETED", "COMPLETED_WITH_SKIPS", "COMPLETED_WITH_WARNING", "PARTIAL_APPLIED",
+            "FAILED_TIMEOUT", "FAILED_STALLED", "FAILED_RUNTIME_INTEGRITY", "FAILED_NO_CHANGE",
+            "FAILED_ROLLED_BACK", "CANCELLED",
+        )
+        for locale, catalog in catalogs.items():
+            with self.subTest(locale=locale):
+                for mode in modes:
+                    self.assertIn(f"race.aiModeValue.{mode}", catalog)
+                for preset in presets:
+                    self.assertIn(f"race.aiPreset.{preset}", catalog)
+                for outcome in outcomes:
+                    self.assertIn(f"result.{outcome}", catalog)
+        pt_values = "\n".join(catalogs["pt-BR"].values())
+        for term in ("Seed", "DNA", "Preview", "Grid", "Mod", "Preset"):
+            self.assertIn(term, pt_values)
+        self.assertNotRegex(pt_values, r"(?i)\bsemente\b|\bprévia\b")
+
+        css = (APP / "styles/app.css").read_text(encoding="utf-8")
+        self.assertNotIn("100vw", css)
+        self.assertNotIn("100vh", css)
+        self.assertIn("height: auto", css)
+        stepper = (APP / "components/race/RaceStepper.vue").read_text(encoding="utf-8")
+        for step in ("setup", "formation", "behavior", "start"):
+            self.assertIn(step, stepper)
+        controls = (APP / "components/race/AIDirectorControls.vue").read_text(encoding="utf-8")
+        self.assertIn("<details", controls)
+        self.assertIn("race.advancedOptions", controls)
+
     def test_accessibility_and_controller_navigation_contracts(self) -> None:
         source = frontend_source()
         css = (APP / "styles/app.css").read_text(encoding="utf-8")
@@ -339,7 +375,8 @@ class StaticValidationTests(unittest.TestCase):
     def test_p0_and_p1_contract_modules_remain_packaged(self) -> None:
         p0 = (
             "registryReadiness.lua", "pathIdentity.lua", "spawnOutcome.lua", "transactionalJSON.lua",
-            "coherentStateGate.lua", "runtime/domainOperations.lua",
+            "coherentStateGate.lua", "runtime/domainOperations.lua", "operationOutcome.lua",
+            "racePreview.lua", "raceScheduler.lua", "lineupPersistence.lua", "vehicleIdentity.lua",
         )
         p1 = (
             "performanceMetrics.lua", "frameBudget.lua", "vehicleIterator.lua", "vehicleBufferPool.lua",
@@ -377,6 +414,10 @@ class StaticValidationTests(unittest.TestCase):
             "docs/testing/v0.7.2/RACE_SLOT_REPORT.md", "docs/testing/v0.7.2/I18N_REPORT.md",
             "docs/testing/v0.7.2/PERFORMANCE_REPORT.md", "docs/testing/v0.7.2/REQUIREMENTS_MATRIX.md",
             "docs/testing/v0.7.2/RELEASE_CHECKLIST.md", "docs/RELEASE NOTES/RELEASE_NOTES_0.7.2.md",
+            "docs/testing/v0.7.5/V074_LIVE_FINDINGS.md", "docs/testing/v0.7.5/IMPLEMENTATION_MATRIX.md",
+            "docs/testing/v0.7.5/LIVE_TEST_PLAN.md", "docs/testing/v0.7.5/LIVE_RESULTS.md",
+            "docs/testing/v0.7.5/EVIDENCE_TEMPLATE.md", "docs/I18N_TERMINOLOGY.md",
+            "docs/PLAYGROUND.md", "docs/MULTIPLAYER_READINESS.md", "docs/releases/v0.7.5.md",
         )
         for relative in required:
             with self.subTest(path=relative):

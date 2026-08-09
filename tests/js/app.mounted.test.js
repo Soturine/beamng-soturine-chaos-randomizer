@@ -241,7 +241,7 @@ describe("mounted Runtime UI", () => {
     const { wrapper, stores } = mountShell()
     stores.race.state.spawnDirector.placement = { available: false, reason: "Create or import a Race first." }
     stores.uiLayout.setTab("race")
-    stores.uiLayout.state.raceStep = "placement"
+    stores.uiLayout.state.raceStep = "formation"
     await settle()
     expect(wrapper.text()).not.toContain("Create or import a Race first.")
     expect(wrapper.text()).toContain("Generate or import a lineup first.")
@@ -257,7 +257,7 @@ describe("mounted Runtime UI", () => {
     }
     stores.applyDiff("race", { spawnDirector: { managed: source } })
     stores.uiLayout.setTab("race")
-    stores.uiLayout.state.raceStep = "placement"
+    stores.uiLayout.state.raceStep = "formation"
     await settle()
 
     expect(stores.race.state.spawnDirector.managed.map(item => item.handle)).toEqual(["physical-alpha", "beta"])
@@ -268,6 +268,34 @@ describe("mounted Runtime UI", () => {
     })
     expect(wrapper.find(".scr-panel").text()).toContain("Alpha")
     expect(wrapper.findAll("select")).toHaveLength(0)
+    wrapper.unmount()
+  })
+
+  it("keeps Events behavior presets simple and advanced AI controls disclosed", async () => {
+    const { wrapper, stores } = mountShell()
+    stores.race.state.aiDirector.capabilities = {
+      supportedModes: ["Destination", "Route", "Follow", "Chase", "Flee", "Traffic", "Roam"],
+      quickPresets: ["Follow", "Convoy", "Chase", "Flee", "Traffic", "Roam", "Swarm"],
+    }
+    stores.race.state.lineup = { current: { generationState: "lineup_ready" } }
+    stores.race.state.spawnDirector.managed = [{ handle: "npc-1", name: "Alpha", status: "ready" }]
+    stores.uiLayout.setTab("race")
+    stores.uiLayout.state.raceStep = "behavior"
+    await settle()
+
+    const panel = wrapper.find(".scr-panel")
+    for (const label of ["Follow me", "Convoy", "Chase", "Flee", "Chaotic traffic", "Roam", "Swarm"]) {
+      expect(panel.text()).toContain(label)
+    }
+    const advanced = panel.findAll("details").find(item => item.find("summary").text().includes("Advanced options"))
+    expect(advanced).toBeTruthy()
+    expect(advanced.element.open).toBe(false)
+    await advanced.find("summary").trigger("click")
+    expect(advanced.element.open).toBe(true)
+    expect(advanced.text()).toContain("AI mode")
+    expect(wrapper.findAll("select")).toHaveLength(0)
+    await advanced.find("summary").trigger("click")
+    expect(advanced.element.open).toBe(false)
     wrapper.unmount()
   })
 

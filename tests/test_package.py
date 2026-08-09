@@ -15,6 +15,20 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PackageTests(unittest.TestCase):
+    def test_json_manifest_count_ignores_environment_dependencies(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "ui").mkdir()
+            (root / "ui" / "app.json").write_text("{}", encoding="utf-8")
+            (root / "node_modules" / "pkg").mkdir(parents=True)
+            (root / "node_modules" / "pkg" / "package.json").write_text("{}", encoding="utf-8")
+            (root / ".pytest_cache").mkdir()
+            (root / ".pytest_cache" / "state.json").write_text("{}", encoding="utf-8")
+            self.assertEqual(
+                [path.relative_to(root).as_posix() for path in package_mod.project_json_files(root)],
+                ["ui/app.json"],
+            )
+
     def test_release_branch_falls_back_to_main_for_detached_tag_checkout(self) -> None:
         detached = mock.Mock(returncode=0, stdout="")
         with mock.patch.object(package_mod.subprocess, "run", return_value=detached):
