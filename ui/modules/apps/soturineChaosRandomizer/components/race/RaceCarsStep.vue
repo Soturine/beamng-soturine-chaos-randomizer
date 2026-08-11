@@ -18,6 +18,11 @@
         <span v-if="failedCount > 0">{{ t('race.failedSummary', { count: failedCount }) }}</span>
       </template>
     </div>
+    <div v-if="persistence?.status === 'warning'" class="scr-banner is-warning" role="status">
+      <strong>{{ t(`result.${persistence.errorCode || 'lineup_storage_storage'}`) }}</strong>
+      <span>{{ t('race.storageMemorySafe') }}</span>
+      <button v-if="persistence.recoverable" type="button" :disabled="core.busy" @click="retryStorage">{{ t('race.retryStorage') }}</button>
+    </div>
 
     <details class="scr-card scr-progressive">
       <summary>{{ t('race.generationPreview') }}</summary>
@@ -74,6 +79,7 @@ const plannedOpponents = computed(() => Math.max(1, Number(summary.value.planned
 const generatedCount = computed(() => Number(summary.value.generated || 0))
 const readyCount = computed(() => Number(summary.value.ready || 0))
 const failedCount = computed(() => Number(summary.value.failed || 0))
+const persistence = computed(() => current.value?.persistence)
 const processing = computed(() => current.value?.generationState === "lineup_processing")
 const configurationSummary = computed(() => t(
   playerParticipates.value ? "race.configSummaryPlayer" : "race.configSummarySpectator",
@@ -121,4 +127,5 @@ async function setPreviewEnabled(value) {
 }
 function previewGeneration() { return stores.command.send("previewRaceGeneration", [{ ...options }]) }
 function generate() { return stores.command.send("createChaosLineup", [{ ...options }]) }
+function retryStorage() { return stores.command.send("retryLineupPersistence") }
 </script>

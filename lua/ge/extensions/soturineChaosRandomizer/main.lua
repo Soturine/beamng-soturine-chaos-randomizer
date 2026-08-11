@@ -6664,17 +6664,16 @@ local function cancelDeveloperStressInternal(reason)
 end
 
 local function onVehicleSwitched(oldId, newId, player)
-  if player == nil or player == 0 then nominateSpawnDirectorCandidate(newId, "switch", oldId) end
-  if runtime.stress and runtime.stress.active and not runtime.state.busy
-    and (player == nil or player == 0)
-    and newId ~= runtime.stress.vehicleId
-  then
-    cancelDeveloperStressInternal("vehicle_changed")
-    return
-  end
-  if not runtime.state.busy or not runtime.active then return end
-  local active = runtime.active
-  if active.backgroundTarget and (player == nil or player == 0) then
+  local playerSwitch = player == nil or player == 0
+  if runtime.state.busy and runtime.active and runtime.active.backgroundTarget and playerSwitch then
+    local active = runtime.active
+    if tonumber(newId) == tonumber(active.lineupPlayerVehicleId) then
+      active.ignoredBackgroundCallbacks = active.ignoredBackgroundCallbacks + 1
+      diagnosticsModule.write(runtime.diagnostics, "D", "background_operation_player_focus_already_restored", {
+        oldId = oldId, newId = newId, player = player, expectedSlot = active.expectedSlot,
+      })
+      return
+    end
     local restored, restoreReason = production.restoreRacePlayerFocus(
       active, newId, "onVehicleSwitched"
     )
@@ -6687,6 +6686,16 @@ local function onVehicleSwitched(oldId, newId, player)
       }, not restored)
     return
   end
+  if playerSwitch then nominateSpawnDirectorCandidate(newId, "switch", oldId) end
+  if runtime.stress and runtime.stress.active and not runtime.state.busy
+    and (player == nil or player == 0)
+    and newId ~= runtime.stress.vehicleId
+  then
+    cancelDeveloperStressInternal("vehicle_changed")
+    return
+  end
+  if not runtime.state.busy or not runtime.active then return end
+  local active = runtime.active
   if player == nil or player == 0 then
     local owner = productionModules.domainOperations.ownership(runtime.domainOperations, newId)
     if owner and (owner.domain ~= active.domain or owner.operationId ~= active.domainContext.operationId
@@ -6961,38 +6970,59 @@ function production.persistCurrentLineup()
   if not current then return false, "lineup_missing" end
   local valid, reason = productionModules.lineupSchema.validate(current, {allowOne = true})
   if not valid then
-    current.persistence = current.persistence or {}
-    current.persistence.status = "warning"
-    current.persistence.lastError = reason
-    return false, reason
+    local failure = productionModules.lineupPersistence.recordFailure(
+      current, reason, "schema", runtime.time.realMonotonicTime
+    )
+    return false, failure.code
   end
   local added, stored, candidateLibrary = productionModules.lineupPersistence.checkpoint(
     runtime.lineup.library, current, productionModules.lineupStorage
   )
-  if not added then return false, stored end
+  if not added then
+    local failure = productionModules.lineupPersistence.recordFailure(
+      current, stored, "serialization", runtime.time.realMonotonicTime
+    )
+    return false, failure.code
+  end
   if runtime.capabilities.lineupWrite and type(adapter.saveLineupLibrary) == "function" then
     local ok, writeError = adapter.saveLineupLibrary(candidateLibrary)
     if not ok then
-      current.persistence = current.persistence or {}
-      current.persistence.status = "warning"
-      current.persistence.retryCount = (current.persistence.retryCount or 0) + 1
-      current.persistence.lastError = writeError.code
-      current.persistence.nextRetryAt = runtime.time.realMonotonicTime + math.min(30,
-        math.max(2, current.persistence.retryCount * 2))
+      local failure = productionModules.lineupPersistence.recordFailure(
+        current, writeError, "write", runtime.time.realMonotonicTime
+      )
       if not util.arrayContains(current.warnings, "Race progress is active but its latest checkpoint is not saved.") then
         current.warnings[#current.warnings + 1] =
           "Race progress is active but its latest checkpoint is not saved."
       end
-      return false, writeError.code
+      return false, failure.code
     end
   end
   runtime.lineup.library = candidateLibrary
-  current.persistence = current.persistence or {}
-  current.persistence.status = "saved"
-  current.persistence.lastError = nil
-  current.persistence.nextRetryAt = nil
-  current.persistence.lastSavedAt = runtime.time.realMonotonicTime
+  productionModules.lineupPersistence.recordSuccess(current, runtime.time.realMonotonicTime)
   return true
+end
+
+function production.retryLineupPersistence()
+  initialize()
+  if runtime.state.busy then
+    setResult(false, "operation_busy", "Finish the active vehicle operation before retrying storage")
+    publishState()
+    return false
+  end
+  if not runtime.lineup.current then
+    setResult(false, "lineup_missing", "There is no Race lineup to save")
+    publishState()
+    return false
+  end
+  local saved, reason = production.persistCurrentLineup()
+  local persistence = util.deepCopy(runtime.lineup.current.persistence)
+  setResult(saved, saved and "lineup_storage_recovered" or reason,
+    saved and "The Race lineup checkpoint is saved" or "The Race lineup checkpoint is still not saved", {
+      persistence = persistence, recoverable = not saved and persistence.recoverable == true,
+      retryAction = not saved and persistence.retryAction or nil,
+    })
+  publishState()
+  return saved
 end
 
 production.generationPreviewContext = function(options, lineup, playerOk, playerVehicleId)
@@ -7366,6 +7396,19 @@ production.auditRaceScheduler = function()
     pendingNext = runtime.lineup.pendingNext,
   })
   lineup.schedulerState = audit.state
+  if audit.terminal then
+    runtime.lineup.pendingNext = false
+    lineup.active = false
+    lineup.generationState = "lineup_failed"
+    lineup.processingState = "lineup_processing_finished"
+    lineup.schedulerTerminalReason = audit.reason
+    setResult(false, audit.reason, "Race generation stopped because scheduler progress could not be guaranteed", {
+      scheduler = util.deepCopy(lineup.scheduler),
+    })
+    production.persistCurrentLineup()
+    publishState()
+    return false
+  end
   if audit.schedule ~= true then return false end
   runtime.lineup.pendingNext = true
   lineup.schedulerLastProgressAt = runtime.time.realMonotonicTime
@@ -8885,19 +8928,37 @@ local function onUpdate(dtReal, dtSim, dtRaw)
   local raceStarted = adapter.clock()
   production.auditRaceScheduler()
   if runtime.lineup.pendingNext and runtime.lineup.current then
-    productionModules.cooperativeScheduler.enqueue(
+    local enqueued, enqueueReason = productionModules.cooperativeScheduler.enqueue(
       runtime.cooperativeScheduler, "race_slot",
       "race_slot:" .. tostring(runtime.lineup.current.id) .. ":"
         .. tostring(runtime.lineup.current.nextIndex or 1),
       {lineupId = runtime.lineup.current.id}
     )
+    local enqueueState = productionModules.raceScheduler.noteEnqueue(
+      runtime.lineup.current, enqueued, enqueueReason
+    )
+    if enqueueState.terminal then
+      runtime.lineup.pendingNext = false
+      runtime.lineup.current.active = false
+      runtime.lineup.current.generationState = "lineup_failed"
+      runtime.lineup.current.processingState = "lineup_processing_finished"
+      runtime.lineup.current.schedulerState = "terminal"
+      runtime.lineup.current.schedulerTerminalReason = enqueueState.reason
+      setResult(false, enqueueState.reason,
+        "Race generation stopped because its scheduler queue remained unavailable")
+      production.persistCurrentLineup()
+      publishState()
+    end
   end
   productionModules.cooperativeScheduler.tick(
     runtime.cooperativeScheduler,
     function(kind, payload)
       if kind == "race_slot" and runtime.lineup.current
         and payload.lineupId == runtime.lineup.current.id
-      then production.startNextLineupCompetitor() end
+      then
+        productionModules.raceScheduler.noteDispatch(runtime.lineup.current)
+        production.startNextLineupCompetitor()
+      end
     end,
     {maxSteps = runtime.stabilityLimits.maxSpawnAttemptsPerFrame,
       budgetMs = 0.5, clock = adapter.clock}
@@ -8959,6 +9020,7 @@ M.cancelRaceGeneration = production.cancelRaceGeneration
 M.getDeveloperStressState = getDeveloperStressState
 M.previewRaceGeneration = production.previewRaceGeneration
 M.createChaosLineup = production.createChaosLineup
+M.retryLineupPersistence = production.retryLineupPersistence
 M.renameLineupCompetitor = production.renameLineupCompetitor
 M.reorderLineupCompetitor = production.reorderLineupCompetitor
 M.resolveLineupFailure = production.resolveLineupFailure
@@ -9064,6 +9126,7 @@ production.uiCommandHandlers = {
   applyLockPreset = applyLockPreset,
   updateLockProfile = updateLockProfile,
   createChaosLineup = production.createChaosLineup,
+  retryLineupPersistence = production.retryLineupPersistence,
   renameLineupCompetitor = production.renameLineupCompetitor,
   reorderLineupCompetitor = production.reorderLineupCompetitor,
   resolveLineupFailure = production.resolveLineupFailure,

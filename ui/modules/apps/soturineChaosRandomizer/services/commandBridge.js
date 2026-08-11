@@ -20,6 +20,7 @@ export const COMMAND_SCHEMAS = Object.freeze({
   unlockSlot: [1, 1], lockPart: [1, 2], lockCurrentParts: [0, 0], lockTuning: [2, 3],
   lockPaint: [3, 3], applyLockPreset: [1, 1], updateLockProfile: [1, 1],
   previewRaceGeneration: [1, 1], createChaosLineup: [1, 1], renameLineupCompetitor: [2, 2], reorderLineupCompetitor: [2, 2],
+  retryLineupPersistence: [0, 0],
   resolveLineupFailure: [2, 2], exportChaosLineup: [0, 0], importChaosLineup: [0, 0],
   previewLineupSpawn: [1, 1], startLineupSpawn: [1, 1], cancelLineupSpawn: [0, 0],
   removeManagedVehicle: [1, 1], respawnManagedVehicle: [1, 1], focusManagedVehicle: [1, 1],

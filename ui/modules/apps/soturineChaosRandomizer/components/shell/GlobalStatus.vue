@@ -16,6 +16,10 @@ const { t } = stores.i18n
 const status = computed(() => stores.status.current(stores.uiLayout.state.activeTab, core.progress?.operationId))
 function retry() {
   const command = status.value?.action?.command
+  if (command === "retryLineupPersistence") {
+    stores.command.send(command)
+    return
+  }
   if (command !== "previewRaceGeneration" && command !== "createChaosLineup") return
   stores.command.send(command, [{ ...stores.race.state.options }])
 }

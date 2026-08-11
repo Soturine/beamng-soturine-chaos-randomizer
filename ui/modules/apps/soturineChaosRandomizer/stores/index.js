@@ -42,12 +42,14 @@ const pick = (source, fields) => Object.fromEntries(fields.filter(key => key in 
 const RECOVERABLE_RACE_ACTIONS = Object.freeze({
   previewRaceGeneration: "previewRaceGeneration",
   createChaosLineup: "createChaosLineup",
+  retryLineupPersistence: "retryLineupPersistence",
 })
 const SUCCESSFUL_RACE_ATTEMPT = Object.freeze({
   race_generation_preview_data_ready: "previewRaceGeneration",
   race_preview_disabled: "previewRaceGeneration",
   lineup_started: "createChaosLineup",
   lineup_started_with_storage_warning: "createChaosLineup",
+  lineup_storage_recovered: "retryLineupPersistence",
 })
 
 export function createStores(command) {

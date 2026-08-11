@@ -6873,6 +6873,41 @@ tests.v075_lineup_persistence_and_scheduler_failures_are_contained = function()
   equal(nextSlot.index, 2)
 end
 
+tests.v076_lineup_persistence_is_typed_and_scheduler_progress_is_bounded = function()
+  local lineup = assert(raceManager.create({count = 3, episodeSeed = "v076-bounded"}))
+  local schemaFailure = lineupPersistence.classify("lineup_schema_invalid", "schema")
+  equal(schemaFailure.code, "lineup_storage_schema_validation")
+  equal(schemaFailure.recoverable, false)
+  local writeFailure = lineupPersistence.recordFailure(lineup,
+    {code = "atomic_replace_failed"}, "write", 10)
+  equal(writeFailure.code, "lineup_storage_atomic_commit")
+  equal(lineup.persistence.lastCause, "atomic_replace_failed")
+  equal(lineup.persistence.retryAction, "retryLineupPersistence")
+  truthy(lineup.persistence.nextRetryAt > 10)
+  lineupPersistence.recordSuccess(lineup, 20)
+  equal(lineup.persistence.status, "saved")
+  equal(lineup.persistence.lastCause, nil)
+
+  local scheduled = raceScheduler.audit(lineup, {
+    busy = false, activeOperation = false, pendingNext = false,
+  })
+  truthy(scheduled.schedule); equal(scheduled.slot, 1)
+  local terminal
+  for _ = 1, 20 do
+    local audit = raceScheduler.audit(lineup, {
+      busy = false, activeOperation = false, pendingNext = true,
+    })
+    if audit.terminal then terminal = audit; break end
+  end
+  truthy(terminal ~= nil, "planned idle scheduler must terminate explicitly within a bound")
+  equal(terminal.reason, "lineup_scheduler_progress_exhausted")
+  truthy(raceScheduler.noteDispatch(lineup))
+  local afterDispatch = raceScheduler.audit(lineup, {
+    busy = false, activeOperation = false, pendingNext = true,
+  })
+  equal(afterDispatch.terminal, nil)
+end
+
 tests.v075_ai_capabilities_match_runtime_and_quick_presets = function()
   for mode in pairs(aiAdapter.MODES) do truthy(aiDirector.MODES[mode], "director missing " .. mode) end
   for mode in pairs(aiDirector.MODES) do truthy(aiAdapter.MODES[mode], "adapter missing " .. mode) end
@@ -7904,6 +7939,9 @@ local v076Required = {
   {"preview_renderer_false_is_failure", tests.v076_preview_renderer_failure_toggle_and_false_return_are_explicit},
   {"preview_rendering_state_is_explicit", tests.v076_preview_renderer_failure_toggle_and_false_return_are_explicit},
   {"preview_toggle_fifty_cycles", tests.v076_preview_renderer_failure_toggle_and_false_return_are_explicit},
+  {"lineup_storage_failures_are_typed", tests.v076_lineup_persistence_is_typed_and_scheduler_progress_is_bounded},
+  {"lineup_storage_recovery_clears_warning", tests.v076_lineup_persistence_is_typed_and_scheduler_progress_is_bounded},
+  {"planned_idle_scheduler_is_bounded", tests.v076_lineup_persistence_is_typed_and_scheduler_progress_is_bounded},
 }
 
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")

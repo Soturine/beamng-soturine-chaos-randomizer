@@ -506,6 +506,32 @@ describe("mounted Runtime UI", () => {
     wrapper.unmount()
   })
 
+  it("keeps a valid in-memory lineup usable while typed storage retry is available", async () => {
+    const { wrapper, stores, command } = mountShell()
+    stores.uiLayout.setTab("race")
+    stores.race.state.lineup = {
+      current: {
+        active: true,
+        generationState: "lineup_processing",
+        competitors: [],
+        persistence: {
+          status: "warning",
+          errorCode: "lineup_storage_atomic_commit",
+          lastCause: "atomic_replace_failed",
+          recoverable: true,
+          retryAction: "retryLineupPersistence",
+        },
+      },
+    }
+    await settle()
+    expect(wrapper.text()).toContain("valid in-memory lineup remains available")
+    const retry = wrapper.findAll("button").find(button => button.text() === "Retry saving")
+    expect(retry).toBeTruthy()
+    await retry.trigger("click")
+    expect(command.calls.at(-1)).toEqual(["retryLineupPersistence", []])
+    wrapper.unmount()
+  })
+
   it("keeps synthetic mounted tab and local-button p95 below 50 ms", async () => {
     const { wrapper, stores } = mountShell()
     await settle()
