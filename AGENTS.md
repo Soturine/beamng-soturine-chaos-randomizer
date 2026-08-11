@@ -31,6 +31,8 @@
 - Race previews are read-only world-space overlays. Preview code must never spawn, replace, remove, enter, focus, mutate, or take ownership of a vehicle.
 - Preview data readiness is not renderer visibility. User-facing visible state requires a successful drawn frame and marker count; draw errors and unavailable renderers remain explicit. Disabling preview removes the overlay in the same logical cycle.
 - Vehicle cleanup and mutation require both operation ownership and local authority. Matching a local numeric vehicle ID alone is never sufficient for multiplayer-facing code.
+- A recoverable Race failure releases its transient lock, preserves the requested setup, and leaves a persistent retry action. Every retry creates a new operation ID and generation; callbacks from the failed attempt stay inert.
+- Race persistence failures use stable typed causes and never invalidate an otherwise valid in-memory lineup.
 
 ## Runtime UI
 
@@ -41,6 +43,10 @@
 - Compact mode changes content and internal geometry for every tab. The 0.39.4 AppHost owns persisted outer placement; do not call private resizing APIs.
 - Compact views use dedicated tab content, not merely scaled normal views. Closed drawers/details return to minimum intrinsic app height, and raw phase codes never appear in normal UI.
 - Transient statuses expire and remain scoped. Overall progress is structured, translated, and monotonic.
+- Normal and compact are explicit modes. Normal mode has safe per-tab minima and must never enter compact geometry because content measured small.
+- Internal content measurements must not overwrite a user-sized normal AppHost preference or feed an application-caused resize back into another shrink.
+- Recoverable errors remain visible until dismissal, a successful new attempt, or an explicit clear; their normal-flow action is translated and usable without opening diagnostics.
+- The primary fox mark is a validated transparent PNG produced from an image-generation workflow, not a procedural low-effort SVG substitute.
 
 ## Version, legal, and documentation
 
