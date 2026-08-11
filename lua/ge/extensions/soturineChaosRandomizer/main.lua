@@ -1039,7 +1039,8 @@ local function finishOperation(success, code, message, details, terminalState)
       details.vehicleCardinality = cardinality
       if not cardinalityOk then
         details.cardinalityWarning = "expected_vehicle_transaction_incomplete"
-        active.nonFatalPartial = true
+        details.partialApplied = true
+        details.appliedIncomplete = true
       elseif cardinality.hasExternalWorldChanges then
         details.cardinalityWarning = "unrelated_world_change_observed"
         active.nonFatalPartial = true
@@ -1077,9 +1078,14 @@ local function finishOperation(success, code, message, details, terminalState)
   details.nonFatalPartial = active and active.nonFatalPartial == true or nil
   details.energyGuardUncertain = active and active.energyGuardUncertain == true or nil
   details.engineFluidUncertain = active and active.engineFluidUncertain == true or nil
-  details.terminalOutcome, details.outcomeConfidence = productionModules.operationOutcome.classify(
+  local outcomeAxes = productionModules.operationOutcome.axes(
     success, code, details, terminalState
   )
+  details.terminalOutcome = outcomeAxes.terminalOutcome
+  details.appliedState = outcomeAxes.appliedState
+  details.verificationConfidence = outcomeAxes.verificationConfidence
+  details.outcomeConfidence = outcomeAxes.verificationConfidence
+  details.failureKind = outcomeAxes.failureKind
   details.legacyTerminalOutcome = productionModules.operationOutcome.legacy(details.terminalOutcome)
   if active then
     details.targetGeneration = active.targetGeneration
@@ -1667,6 +1673,9 @@ local function beginOperation(kind, context)
     operationTimeout, runtime.stabilityLimits.maxOperationWallClockMs / 1000
   )
   local phaseTimeout = context.phaseTimeout or WAIT_TIMEOUT
+  local initialLoadTimeout = context.initialLoadTimeout
+    or ((kind == "randomConfig" or kind == "fullRandom" or domain == "race") and 45)
+    or phaseTimeout
   local ok, token = operationState.begin(runtime.state, kind, vehicleId, operationTimeout)
   if not ok then return false, adapter.errorValue("busy", "Another operation is already running") end
   local previousDetails = runtime.lastResult and runtime.lastResult.details or nil
@@ -1723,6 +1732,7 @@ local function beginOperation(kind, context)
     phase = kind == "scramble" and "parts" or "selection",
     stressIteration = context.stressIteration,
     waitTimeout = phaseTimeout,
+    initialLoadTimeout = initialLoadTimeout,
     operationTimeout = operationTimeout,
     lineupExcludedModels = util.deepCopy(context.lineupExcludedModels),
     lineupExcludedConfigurations = util.deepCopy(context.lineupExcludedConfigurations),
@@ -2015,7 +2025,11 @@ local function enterWaiting(active, phase, afterReload, expected, label, value)
   active.afterReload = afterReload
   local target = (phase == "spawn" or phase == "rollback" or phase == "undo" or phase == "dna_base_spawn")
     and "waitingForVehicle" or "waitingForReload"
-  local ok, transitionError = operationState.transition(runtime.state, target, active.waitTimeout or WAIT_TIMEOUT)
+  local waitTimeout = (phase == "spawn" or phase == "dna_base_spawn")
+      and (active.initialLoadTimeout or active.waitTimeout)
+    or active.waitTimeout or WAIT_TIMEOUT
+  active.currentWaitTimeout = waitTimeout
+  local ok, transitionError = operationState.transition(runtime.state, target, waitTimeout)
   if not ok then return false, adapter.errorValue("state_error", transitionError) end
   local lifecyclePhase = (
       phase == "parts" or phase == "part_isolation_test"
@@ -2028,7 +2042,7 @@ local function enterWaiting(active, phase, afterReload, expected, label, value)
       or "recovering_fallback"
     )
     or "tracking_target_identity"
-  setLifecyclePhase(active, lifecyclePhase, active.waitTimeout or WAIT_TIMEOUT, "wait:" .. tostring(phase))
+  setLifecyclePhase(active, lifecyclePhase, waitTimeout, "wait:" .. tostring(phase))
   active.phaseCallbackTokens = {
     onVehicleSpawned = production.domainCallbackToken(active, "onVehicleSpawned", {
       expectedSlot = active.expectedSlot,
@@ -6514,7 +6528,8 @@ local function processTargetTracking()
   active.lastTargetMetrics = vehicleTargetTracker.summary(active.targetTracker, now)
   if active.lastTargetMetrics.identityConfirmed and active.lastTargetMetrics.treeStatus ~= "not_required"
     and runtime.state.phase ~= "stabilizing_tree" then
-    setLifecyclePhase(active, "stabilizing_tree", active.waitTimeout or WAIT_TIMEOUT, "target_identity_confirmed")
+    setLifecyclePhase(active, "stabilizing_tree",
+      active.currentWaitTimeout or active.waitTimeout or WAIT_TIMEOUT, "target_identity_confirmed")
     active.targetTracker.phaseGeneration = runtime.state.phaseGeneration
     active.waitContext.phaseGeneration = runtime.state.phaseGeneration
     noteProgress(active, "binding", "target_identity_confirmed")

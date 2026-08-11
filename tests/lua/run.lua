@@ -6693,6 +6693,69 @@ tests.v075_phase_watchdog_tracks_semantic_progress_and_engine_waits = function()
   equal(progressWatchdog.evaluate(progressing, 7, {}), "SLOW_PROGRESS")
 end
 
+tests.v076_outcome_axes_separate_application_verification_and_failure = function()
+  local cases = {
+    {true, "fluid_unknown", {telemetrySupported = false}, "completed",
+      "COMPLETED_WITH_WARNING", "APPLIED", "UNSUPPORTED_TELEMETRY", nil},
+    {true, "ok", {skippedCount = 2}, "completed",
+      "COMPLETED_WITH_SKIPS", "APPLIED", "CONFIRMED", nil},
+    {true, "batch_incomplete", {partialApplied = true, appliedIncomplete = true}, "partial",
+      "PARTIAL_APPLIED", "PARTIALLY_APPLIED", "CONFIRMED", nil},
+    {false, "phase_deadline", {}, "failed",
+      "FAILED_TIMEOUT", "NOT_APPLIED", "CONFIRMED", "TIMEOUT"},
+    {false, "watchdog_no_progress", {}, "failed",
+      "FAILED_STALLED", "NOT_APPLIED", "CONFIRMED", "STALLED"},
+    {false, "runtime_integrity_failed", {}, "failed",
+      "FAILED_RUNTIME_INTEGRITY", "NOT_APPLIED", "CONFIRMED", "RUNTIME_INTEGRITY"},
+    {false, "rollback_failed_candidate", {rollback = "completed"}, "failed",
+      "FAILED_ROLLED_BACK", "ROLLED_BACK", "CONFIRMED", "ROLLED_BACK"},
+  }
+  for _, fixture in ipairs(cases) do
+    local axes = operationOutcome.axes(fixture[1], fixture[2], fixture[3], fixture[4])
+    equal(axes.terminalOutcome, fixture[5])
+    equal(axes.appliedState, fixture[6])
+    equal(axes.verificationConfidence, fixture[7])
+    equal(axes.failureKind, fixture[8])
+  end
+end
+
+tests.v076_phase_watchdog_accepts_unique_evidence_but_not_callback_churn = function()
+  local firstLoad = progressWatchdog.create(0, {
+    warningAfter = 1, stalledAfter = 2, phaseDeadline = 45, operationDeadline = 90,
+  })
+  truthy(progressWatchdog.setPhase(firstLoad, "issuing_spawn", 0))
+  equal(progressWatchdog.evaluate(firstLoad, 44, {waitingForEngineEvent = true}),
+    "WAITING_FOR_CONFIRMED_ENGINE_EVENT")
+  equal(progressWatchdog.evaluate(firstLoad, 45, {waitingForEngineEvent = true}),
+    "PHASE_DEADLINE")
+
+  local readback = progressWatchdog.create(0, {warningAfter = 1, stalledAfter = 4})
+  truthy(progressWatchdog.note(readback, "target", "vehicle:101", 3))
+  equal(readback.lastTargetEvidenceAt, 3)
+  truthy(progressWatchdog.note(readback, "tree", "revision:7", 6))
+  equal(readback.lastTreeChangeAt, 6)
+  truthy(progressWatchdog.note(readback, "readback", "generation:1", 9))
+  local progressAt = readback.lastSemanticProgressAt
+  local duplicate, duplicateClass = progressWatchdog.note(readback, "readback", "generation:1", 10)
+  equal(duplicate, false)
+  equal(duplicateClass, "incidental_activity")
+  for index = 1, 20 do
+    local accepted = progressWatchdog.note(readback, "callback", "stale_callback_" .. tostring(index), 10 + index)
+    equal(accepted, false)
+  end
+  equal(readback.lastSemanticProgressAt, progressAt)
+  truthy(progressWatchdog.setPhase(readback, "planning_parts", 30))
+  equal(progressWatchdog.evaluate(readback, 66, {}), "NO_PROGRESS")
+
+  for _, phase in ipairs({
+    "isolating_failed_candidate", "rolling_back_batch", "retrying_candidate",
+    "rescanning_tree", "validating_engine_fluids", "recovering_previous",
+    "recovering_last_completed_good", "recovering_fallback", "cancelling",
+  }) do
+    truthy(progressWatchdog.PHASE_PROFILES[phase], "missing watchdog profile " .. phase)
+  end
+end
+
 tests.v075_preview_state_requires_a_rendered_frame = function()
   local plan = {
     options = {requestedMode = "Grid", safetyMargin = 1.5},

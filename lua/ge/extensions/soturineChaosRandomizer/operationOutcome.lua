@@ -88,6 +88,36 @@ local function classify(success, code, details, terminalState)
   return outcome, confidence(details)
 end
 
+local function failureKind(outcome)
+  if outcome == "FAILED_TIMEOUT" then return "TIMEOUT" end
+  if outcome == "FAILED_STALLED" then return "STALLED" end
+  if outcome == "FAILED_RUNTIME_INTEGRITY" then return "RUNTIME_INTEGRITY" end
+  if outcome == "FAILED_ROLLED_BACK" then return "ROLLED_BACK" end
+  if outcome == "FAILED_NO_CHANGE" then return "NO_CHANGE" end
+  if outcome == "CANCELLED" then return "CANCELLED" end
+  return nil
+end
+
+local function axes(success, code, details, terminalState)
+  details = type(details) == "table" and details or {}
+  local outcome, confidenceValue = classify(success, code, details, terminalState)
+  local appliedState = "NOT_APPLIED"
+  if details.rollback == "completed" or outcome == "FAILED_ROLLED_BACK" then
+    appliedState = "ROLLED_BACK"
+  elseif outcome == "PARTIAL_APPLIED" then
+    appliedState = "PARTIALLY_APPLIED"
+  elseif success == true then
+    appliedState = "APPLIED"
+  end
+  return {
+    terminalOutcome = outcome,
+    appliedState = appliedState,
+    verificationConfidence = confidenceValue,
+    failureKind = failureKind(outcome),
+    skippedCount = math.max(0, tonumber(details.skippedCount) or 0),
+  }
+end
+
 local function freeze(state, outcome, confidenceValue)
   if type(state) ~= "table" then return false, "outcome_state_missing" end
   if state.terminal == true then
@@ -116,6 +146,7 @@ end
 M.OUTCOMES = OUTCOMES
 M.CONFIDENCE = CONFIDENCE
 M.classify = classify
+M.axes = axes
 M.freeze = freeze
 M.legacy = legacy
 

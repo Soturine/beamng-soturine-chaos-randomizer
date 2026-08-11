@@ -39,6 +39,23 @@ const RACE_DEFAULTS = Object.freeze({
 })
 
 const pick = (source, fields) => Object.fromEntries(fields.filter(key => key in source).map(key => [key, source[key]]))
+
+export function preserveMonotonicProgress(current, payload) {
+  const previous = current?.progress
+  const incoming = payload?.progress
+  if (!previous || !incoming) return payload
+  const sameOperation = Boolean(previous.operationId && incoming.operationId
+    && previous.operationId === incoming.operationId)
+  const sameRace = Boolean(previous.raceId && incoming.raceId && previous.raceId === incoming.raceId)
+  if (!sameOperation && !sameRace) return payload
+  const previousOverall = Number(previous.overallProgress ?? previous.value ?? 0)
+  const incomingOverall = Number(incoming.overallProgress ?? incoming.value ?? 0)
+  const overall = Math.max(previousOverall, incomingOverall)
+  return {
+    ...payload,
+    progress: { ...incoming, overallProgress: overall, value: overall },
+  }
+}
 const RECOVERABLE_RACE_ACTIONS = Object.freeze({
   previewRaceGeneration: "previewRaceGeneration",
   createChaosLineup: "createChaosLineup",
@@ -170,6 +187,7 @@ export function createStores(command) {
     const started = globalThis.performance?.now?.() ?? Date.now()
     const issues = []
     payload = normalizeDomainPayload(domain, payload, issue => issues.push(issue))
+    if (domain === "core") payload = preserveMonotonicProgress(stores.core.state, payload)
     if (domain === "core") stores.core.patch(payload)
     else if (domain === "chaos") stores.chaos.patch(payload)
     else if (domain === "garage") stores.garage.patch(payload)

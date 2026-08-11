@@ -15,10 +15,13 @@ import { useStores } from "../../stores/index.js"
 defineEmits(["cancel"])
 const stores = useStores()
 const core = stores.core.state
-const { t } = stores.i18n
+const { t, has } = stores.i18n
 const progress = computed(() => core.progress || {})
 const percent = computed(() => Math.round(Number(progress.value.overallProgress ?? progress.value.value ?? 0) * 100))
-const phaseLabel = computed(() => t(`progress.phase.${progress.value.phase || core.lifecyclePhase || 'working'}`))
+const phaseLabel = computed(() => {
+  const key = `progress.phase.${progress.value.phase || core.lifecyclePhase || 'working'}`
+  return t(has(key) ? key : "progress.phase.working")
+})
 const attempt = computed(() => Number(progress.value.attempt || 1))
 const attemptTotal = computed(() => Number(progress.value.attemptTotal || attempt.value))
 </script>

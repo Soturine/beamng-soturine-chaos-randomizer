@@ -22,14 +22,24 @@ local PHASE_PROFILES = {
   verifying_tuning = {soft = 12, stalled = 45, kind = "engine_active"},
   applying_paint = {soft = 10, stalled = 35, kind = "engine_active"},
   verifying_paint = {soft = 10, stalled = 35, kind = "engine_active"},
+  isolating_failed_candidate = {soft = 12, stalled = 40, kind = "local_work"},
+  rolling_back_batch = {soft = 15, stalled = 60, kind = "engine_event"},
+  retrying_candidate = {soft = 12, stalled = 45, kind = "engine_event"},
+  rescanning_tree = {soft = 15, stalled = 60, kind = "engine_active"},
+  validating_engine_fluids = {soft = 12, stalled = 45, kind = "engine_active"},
   final_validation = {soft = 15, stalled = 60, kind = "engine_active"},
   rolling_back_operation = {soft = 15, stalled = 60, kind = "engine_event"},
+  recovering_previous = {soft = 15, stalled = 60, kind = "engine_event"},
+  recovering_last_completed_good = {soft = 15, stalled = 60, kind = "engine_event"},
+  recovering_fallback = {soft = 15, stalled = 60, kind = "engine_event"},
+  cancelling = {soft = 10, stalled = 35, kind = "local_work"},
   cleaning = {soft = 10, stalled = 30, kind = "local_work"},
 }
 
 local SEMANTIC_KINDS = {
   phase = true, binding = true, write = true, batch = true, reload = true,
-  readback = true, safety = true, candidate_promoted = true, slot_terminal = true,
+  readback = true, safety = true, target = true, tree = true,
+  engine_heartbeat = true, candidate_promoted = true, slot_terminal = true,
 }
 
 local function classification(kind, reason, explicit)

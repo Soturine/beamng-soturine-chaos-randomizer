@@ -448,6 +448,33 @@ describe("mounted Runtime UI", () => {
     expect(resizeHarness.active()).toBe(0)
   })
 
+  it("keeps overall progress monotonic and localizes unknown runtime phases", async () => {
+    const { wrapper, stores } = mountShell()
+    stores.applyDiff("core", {
+      busy: true,
+      lifecyclePhase: "future_internal_phase",
+      progress: {
+        operationId: "chaos:fixture:1", phase: "future_internal_phase",
+        phaseProgress: 0.8, overallProgress: 0.8, value: 0.8,
+      },
+    })
+    await settle()
+    expect(wrapper.find(".scr-progress strong").text()).toBe("Working")
+    expect(wrapper.text()).not.toContain("future_internal_phase")
+
+    stores.applyDiff("core", {
+      progress: {
+        operationId: "chaos:fixture:1", phase: "verifying_parts",
+        phaseProgress: 0.2, overallProgress: 0.2, value: 0.2,
+      },
+    })
+    await settle()
+    expect(stores.core.state.progress.overallProgress).toBe(0.8)
+    expect(stores.core.state.progress.value).toBe(0.8)
+    expect(wrapper.find(".scr-progress strong").text()).toBe("Verifying parts")
+    wrapper.unmount()
+  })
+
   it("keeps recoverable Race errors actionable until dismiss or a successful retry", async () => {
     const { wrapper, stores, command } = mountShell()
     stores.uiLayout.setTab("race")
