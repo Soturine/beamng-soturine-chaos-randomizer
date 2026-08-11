@@ -1,6 +1,6 @@
 # Multiplayer-compatible ownership model
 
-v0.7.5 does not depend on BeamMP and does not claim BeamMP support. It adds a
+v0.7.6 does not depend on BeamMP and does not claim BeamMP support. It carries a
 future-compatible identity envelope:
 
 ```text

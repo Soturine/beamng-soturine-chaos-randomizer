@@ -31,6 +31,29 @@ TEXT_PATTERNS = {
     ),
 }
 
+# These are current, unversioned documentation surfaces. Historical release
+# directories and changelog entries are intentionally absent: their original
+# version text is evidence and must never be bulk-rewritten.
+CURRENT_DOCUMENT_PATTERNS = {
+    "docs/AI_DIRECTOR.md": r"(?m)^v{version} keeps one capability-derived mode list",
+    "docs/ARCHITECTURE.md": r"(?m)^## v{version} operation, Event and authority boundaries$",
+    "docs/BEAMNG_0.39_COMPATIBILITY.md": r"(?m)^v{version} retains BeamNG 0\.39\.4",
+    "docs/COMPATIBILITY.md": r"(?m)^v{version} also carries an authority-aware",
+    "docs/I18N.md": r"(?m)^The canonical v{version} terminology policy is$",
+    "docs/INSTALLATION.md": r"(?m)^For v{version} install only `soturine_chaos_randomizer_{version}\.zip`",
+    "docs/MULTIPLAYER_READINESS.md": r"(?m)^v{version} does not depend on BeamMP",
+    "docs/PERFORMANCE.md": r"(?m)^## v{version} Full Random batching and instrumentation$",
+    "docs/PLAYGROUND.md": r"(?m)^v{version} packages a reusable `playgroundMode`",
+    "docs/RACE.md": r"(?m)^## v{version} retry and containment$",
+    "docs/SAFETY_MODEL.md": r"(?m)^v{version} keeps terminal outcome and applied state",
+    "docs/TESTING.md": r"(?m)^v{version} live-derived regressions are mapped in$",
+    "docs/TROUBLESHOOTING.md": r"(?m)^## v{version} diagnostic distinctions$",
+    "docs/UI_DESIGN.md": r"(?m)^## v{version} Events and AppHost geometry$",
+    "docs/UI_PROTOCOL.md": r"(?m)^## v{version} stable result and Preview codes$",
+    "docs/status/CURRENT_COMPATIBILITY_MATRIX.md": r"(?m)^Candidate: \*\*{version} experimental prerelease\*\*",
+    "docs/status/CURRENT_VALIDATION.md": r"(?m)^Release candidate: \*\*{version} experimental prerelease\*\*",
+}
+
 
 def canonical_version(root: Path = ROOT) -> str:
     version = (root / "VERSION").read_text(encoding="utf-8").strip()
@@ -75,6 +98,11 @@ def discrepancies(root: Path = ROOT) -> list[str]:
             errors.append(f"{relative}: version field not found")
         elif version not in match.group(0):
             errors.append(f"{relative}: version field does not match {version!r}")
+    for relative, pattern_template in CURRENT_DOCUMENT_PATTERNS.items():
+        source = (root / relative).read_text(encoding="utf-8")
+        pattern = pattern_template.format(version=re.escape(version))
+        if not re.search(pattern, source):
+            errors.append(f"{relative}: current documentation marker does not match {version!r}")
     return errors
 
 

@@ -1,6 +1,6 @@
 # AI Director
 
-v0.7.5 keeps one capability-derived mode list across adapter, director and UI:
+v0.7.6 keeps one capability-derived mode list across adapter, director and UI:
 Destination, Route, Follow, Chase, Flee, Traffic and Roam. Quick presets are
 Follow, Convoy, Chase, Flee, Traffic, Roam and mixed-role Swarm. Speed entered
 as km/h is converted once to the adapter's m/s value; aggression is bounded to

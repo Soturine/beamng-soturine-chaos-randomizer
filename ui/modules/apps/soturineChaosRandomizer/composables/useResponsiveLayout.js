@@ -49,7 +49,7 @@ export function useResponsiveLayout(target, layout, profiler = null) {
     if (typeof ResizeObserver === "function" && target.value) {
       // AppHost owns outer placement and size. Observing the application's
       // auto-sized child created a shrink/reflow/measure feedback loop in
-      // v0.7.5, so responsiveness is driven only by the host container.
+      // v0.7.6, so responsiveness is driven only by the host container.
       const appHost = target.value.parentElement || target.value
       observer = new ResizeObserver(entries => {
         metrics.resizeObserverCallbacks += 1

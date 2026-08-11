@@ -1,6 +1,7 @@
 # Safety Model
 
-v0.7.5 keeps terminal outcome separate from Safety confidence. Runtime
+v0.7.6 keeps terminal outcome and applied state separate from verification
+confidence. Runtime
 integrity alone authorizes destructive rollback. Drivability and chaos-policy
 acceptance may reject a stable vehicle without granting cleanup authority, or
 accept it with a warning under a permissive preset such as Mods Showcase.

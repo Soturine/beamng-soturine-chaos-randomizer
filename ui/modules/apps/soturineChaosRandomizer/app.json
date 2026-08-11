@@ -14,7 +14,7 @@
     "min-height": "160px"
   },
   "author": "Soturine",
-  "version": "0.7.5",
+  "version": "0.7.6",
   "preserveAspectRatio": false,
   "directive": "soturineChaosRandomizer",
   "vue": true,

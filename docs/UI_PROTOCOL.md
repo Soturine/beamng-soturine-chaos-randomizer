@@ -1,11 +1,14 @@
 # UI protocol v2
 
-## v0.7.5 stable result and Preview codes
+## v0.7.6 stable result and Preview codes
 
 Terminal outcomes are `COMPLETED`, `COMPLETED_WITH_SKIPS`,
 `COMPLETED_WITH_WARNING`, `PARTIAL_APPLIED`, `FAILED_TIMEOUT`,
 `FAILED_STALLED`, `FAILED_RUNTIME_INTEGRITY`, `FAILED_NO_CHANGE`,
-`FAILED_ROLLED_BACK` and `CANCELLED`. Confidence is independently
+`FAILED_ROLLED_BACK`, `FAILED_SPAWN`, `FAILED_BIND`, `FAILED_RELOAD`,
+`FAILED_PERSISTENCE` and `CANCELLED`. Applied state is independently
+`APPLIED`, `APPLIED_WITH_SKIPS`, `APPLIED_WITH_WARNING`, `PARTIALLY_APPLIED`,
+`NOT_APPLIED` or `ROLLED_BACK`; verification confidence is independently
 `CONFIRMED`, `UNCERTAIN`, `NOT_APPLICABLE` or `UNSUPPORTED_TELEMETRY`.
 
 Preview states are `PREVIEW_DISABLED`, `PREVIEW_DATA_READY`,

@@ -1,9 +1,10 @@
 # Troubleshooting
 
-## v0.7.5 diagnostic distinctions
+## v0.7.6 diagnostic distinctions
 
 - A completed operation with unsupported telemetry is a warning, not a partial
-  mutation. Compare `terminalOutcome` with `outcomeConfidence` in Details.
+  mutation. Compare `terminalOutcome`, `appliedState` and
+  `verificationConfidence` in Details.
 - For Preview, inspect renderer availability, requested/rendered marker counts
   and the last error; `PREVIEW_DATA_READY` does not mean visible.
 - For a Race stuck at Planned, capture scheduler, pending-next, active operation,

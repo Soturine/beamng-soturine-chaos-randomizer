@@ -443,6 +443,11 @@ class StaticValidationTests(unittest.TestCase):
             "docs/testing/v0.7.5/LIVE_TEST_PLAN.md", "docs/testing/v0.7.5/LIVE_RESULTS.md",
             "docs/testing/v0.7.5/EVIDENCE_TEMPLATE.md", "docs/I18N_TERMINOLOGY.md",
             "docs/PLAYGROUND.md", "docs/MULTIPLAYER_READINESS.md", "docs/releases/v0.7.5.md",
+            "docs/testing/v0.7.6/V075_LIVE_FINDINGS.md", "docs/testing/v0.7.6/IMPLEMENTATION_MATRIX.md",
+            "docs/testing/v0.7.6/LIVE_TEST_PLAN.md", "docs/testing/v0.7.6/LIVE_RESULTS.md",
+            "docs/testing/v0.7.6/EVIDENCE_TEMPLATE.md", "docs/testing/v0.7.6/AUTOMATED_RESULTS.md",
+            "docs/testing/v0.7.6/FOX_ASSET.md", "docs/testing/v0.7.6/POST_RELEASE_VERIFICATION.md",
+            "docs/BRANDING.md", "docs/releases/v0.7.6.md",
         )
         for relative in required:
             with self.subTest(path=relative):
@@ -460,6 +465,10 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("Pending owner validation; not executed", v072_live)
         for row in ("| Executed | 0 |", "| Passed | 0 |", "| Failed | 0 |", "| Pending | 138 |", "| Blocked | 0 |"):
             self.assertIn(row, v072_live)
+        v076_live = (ROOT / "docs/testing/v0.7.6/LIVE_RESULTS.md").read_text(encoding="utf-8")
+        self.assertIn("Pending owner validation; not executed", v076_live)
+        for row in ("| Executed | 0 |", "| Passed | 0 |", "| Failed | 0 |", "| Pending | 54 |", "| Blocked | 0 |"):
+            self.assertIn(row, v076_live)
         visual = (ROOT / "docs/UI_VISUAL_BASELINE_0.6.9.md").read_text(encoding="utf-8")
         self.assertIn("Headless visual screenshot tests: Not implemented", visual)
         self.assertNotRegex(corpus.lower(), r"fully validated|confirmed compatible|performance proven")
