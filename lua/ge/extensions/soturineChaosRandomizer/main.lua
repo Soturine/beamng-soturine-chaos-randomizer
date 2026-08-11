@@ -1759,7 +1759,11 @@ local function beginOperation(kind, context)
     reloadDuration = 0,
     phaseDuration = 0,
     maxSingleStep = 0,
-    reloadBudget = {mutationTarget = 1, repairLimit = 1, hardLimit = 4, hardLimitReached = false},
+    reloadBudget = {
+      mutationTarget = 1, repairLimit = 1, hardLimit = 4, hardLimitReached = false,
+      coherentBatchCount = 0, largestCoherentBatch = 0, plannedPartWrites = 0,
+      perWriteReloadsPrevented = 0,
+    },
     partPassesApplied = 0,
     safetyBaseline = nil,
     safetyResult = nil,
@@ -4160,6 +4164,13 @@ processMutationPass = function(active)
 
   local expectedParts = {}
   for _, decision in ipairs(actual) do expectedParts[decision.slotPath] = decision.selectedPart end
+  active.reloadBudget.coherentBatchCount = (active.reloadBudget.coherentBatchCount or 0) + 1
+  active.reloadBudget.largestCoherentBatch = math.max(
+    active.reloadBudget.largestCoherentBatch or 0, #actual
+  )
+  active.reloadBudget.plannedPartWrites = (active.reloadBudget.plannedPartWrites or 0) + #actual
+  active.reloadBudget.perWriteReloadsPrevented =
+    (active.reloadBudget.perWriteReloadsPrevented or 0) + math.max(0, #actual - 1)
   active.currentBatch = util.deepCopy(actual)
   partBatchRecovery.beginBatch(active.batchRecovery, {
     modelKey = modelKey,

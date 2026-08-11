@@ -6768,6 +6768,42 @@ tests.v076_phase_watchdog_accepts_unique_evidence_but_not_callback_churn = funct
   end
 end
 
+tests.v076_randomizer_paths_preserve_fast_identity_and_coherent_batching = function()
+  local randomCar = pipelineHarness.new({vehicleId = 10, returnedVehicleId = 11})
+  truthy(pipelineHarness.driveSuccess(randomCar, "randomConfig", {manualSeed = "v076-fast-car"}))
+  local randomState = randomCar.main.requestState()
+  truthy(not randomState.busy)
+  equal(randomCar.vehicleId, 11)
+  for _, write in ipairs(randomCar.writes) do
+    truthy(write.kind ~= "parts" and write.kind ~= "tuning" and write.kind ~= "paint",
+      "Random Car entered a Full Random mutation stage")
+  end
+
+  local scramble = pipelineHarness.new({vehicleId = 20})
+  truthy(pipelineHarness.driveSuccess(scramble, "scramble", {manualSeed = "v076-same-object"}))
+  equal(scramble.vehicleId, 20)
+  local replacements = 0
+  for _, call in ipairs(scramble.calls) do if call == "replace" then replacements = replacements + 1 end end
+  equal(replacements, 0)
+
+  local wideTree = {chosenPartName = "fixture_root", children = {}}
+  for index = 1, 3 do
+    wideTree.children["slot" .. tostring(index)] = {
+      id = "slot" .. tostring(index), path = "/slot" .. tostring(index) .. "/",
+      chosenPartName = "part_a", suitablePartNames = {"part_a", "part_b"}, children = {},
+    }
+  end
+  local full = pipelineHarness.new({treeSequence = {wideTree, wideTree, wideTree}})
+  truthy(pipelineHarness.driveSuccess(full, "fullRandom", {manualSeed = "v076-wide-batch"}))
+  local metrics = full.main.requestState().lastResult.details.runtimeMetrics
+  equal(metrics.partsReloadCount, 1)
+  equal(metrics.reloadBudget.coherentBatchCount, 1)
+  equal(metrics.reloadBudget.largestCoherentBatch, 3)
+  equal(metrics.reloadBudget.plannedPartWrites, 3)
+  equal(metrics.reloadBudget.perWriteReloadsPrevented, 2)
+  truthy(metrics.partsReloadCount <= metrics.reloadBudget.hardLimit)
+end
+
 tests.v075_preview_state_requires_a_rendered_frame = function()
   local plan = {
     options = {requestedMode = "Grid", safetyMargin = 1.5},
