@@ -420,6 +420,64 @@ describe("mounted Runtime UI", () => {
     expect(resizeHarness.active()).toBe(0)
   })
 
+  it("keeps recoverable Race errors actionable until dismiss or a successful retry", async () => {
+    const { wrapper, stores, command } = mountShell()
+    stores.uiLayout.setTab("race")
+    stores.applyDiff("core", {
+      busy: false,
+      lastResult: {
+        success: false,
+        code: "position_blocked",
+        details: { operationId: "race:preview_generation:1", generation: 1,
+          recoverable: true, retryAction: "previewRaceGeneration" },
+      },
+    })
+    await settle()
+
+    const banner = wrapper.find(".scr-global-status")
+    expect(banner.text()).toContain("No safe Preview position")
+    expect(stores.status.current("race").persistent).toBe(true)
+    await banner.findAll("button").find(button => button.text() === "Retry").trigger("click")
+    expect(command.calls.at(-1)[0]).toBe("previewRaceGeneration")
+
+    stores.applyDiff("core", {
+      busy: false,
+      lastResult: {
+        success: false,
+        code: "position_blocked",
+        details: { operationId: "race:preview_generation:2", generation: 2,
+          recoverable: true, retryAction: "previewRaceGeneration" },
+      },
+    })
+    await settle()
+    expect(stores.status.items.filter(item => item.recoverable)).toHaveLength(1)
+    await wrapper.find(".scr-global-status").findAll("button").find(button => button.text() === "Dismiss").trigger("click")
+    expect(stores.status.items.filter(item => item.recoverable)).toHaveLength(0)
+
+    stores.applyDiff("core", {
+      busy: false,
+      lastResult: {
+        success: false,
+        code: "lineup_staging_unsafe",
+        details: { operationId: "race:lineup_generation:1", generation: 1,
+          recoverable: true, retryAction: "createChaosLineup" },
+      },
+    })
+    await settle()
+    expect(wrapper.find(".scr-global-status").text()).toContain("Safe staging")
+    stores.applyDiff("core", {
+      busy: false,
+      lastResult: {
+        success: true,
+        code: "lineup_started",
+        details: { operationId: "race:lineup_generation:2", generation: 2 },
+      },
+    })
+    await settle()
+    expect(stores.status.items.some(item => item.recoverable)).toBe(false)
+    wrapper.unmount()
+  })
+
   it("keeps synthetic mounted tab and local-button p95 below 50 ms", async () => {
     const { wrapper, stores } = mountShell()
     await settle()

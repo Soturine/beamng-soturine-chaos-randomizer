@@ -204,6 +204,13 @@ status.replaceOperation({ code: "applying_parts", operationId: "op-1", persisten
 check(status.current("chaos", "op-1").code, "applying_parts")
 status.replaceOperation({ code: "validating", operationId: "op-1", persistent: true })
 check(status.items.filter(item => item.scope === "operation").length, 1)
+status.push({ code: "position_blocked", scope: "tab", tab: "race", persistent: true,
+  recoverable: true, action: { command: "previewRaceGeneration" } })
+statusNow = 100000
+status.prune()
+check(status.current("race").code, "position_blocked", "recoverable status must not expire")
+check(status.clearWhere(item => item.recoverable), 1)
+check(status.items.some(item => item.recoverable), false)
 statusNow = 2000
 status.prune()
 check(status.items.some(item => item.code === "lock_profile_updated"), false)

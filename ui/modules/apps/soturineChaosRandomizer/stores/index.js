@@ -38,6 +38,16 @@ const RACE_DEFAULTS = Object.freeze({
 })
 
 const pick = (source, fields) => Object.fromEntries(fields.filter(key => key in source).map(key => [key, source[key]]))
+const RECOVERABLE_RACE_ACTIONS = Object.freeze({
+  previewRaceGeneration: "previewRaceGeneration",
+  createChaosLineup: "createChaosLineup",
+})
+const SUCCESSFUL_RACE_ATTEMPT = Object.freeze({
+  race_generation_preview_data_ready: "previewRaceGeneration",
+  race_preview_disabled: "previewRaceGeneration",
+  lineup_started: "createChaosLineup",
+  lineup_started_with_storage_warning: "createChaosLineup",
+})
 
 export function createStores(command) {
   const initial = createDefaultState()
@@ -95,12 +105,25 @@ export function createStores(command) {
     const signature = `${result.success}:${result.code}:${result.details?.operationId || ""}`
     if (signature === lastResultStatusSignature) return
     lastResultStatusSignature = signature
+    const successfulAction = result.success === true ? SUCCESSFUL_RACE_ATTEMPT[result.code] : null
+    if (successfulAction) {
+      stores.status.clearWhere(item => item.recoverable && item.action?.command === successfulAction)
+    }
+    const retryCommand = result.success === false
+      ? RECOVERABLE_RACE_ACTIONS[result.details?.retryAction] : null
+    if (retryCommand) {
+      stores.status.clearWhere(item => item.recoverable && item.action?.command === retryCommand)
+    }
     stores.status.push({
       code: result.details?.terminalOutcome || result.code,
       scope: "tab",
-      tab: stores.uiLayout.state.activeTab,
+      tab: retryCommand ? "race" : stores.uiLayout.state.activeTab,
       severity: result.success === false ? "error" : "success",
       ttl: result.success === false ? 12000 : 5000,
+      persistent: Boolean(retryCommand),
+      recoverable: Boolean(retryCommand),
+      operationId: result.details?.operationId || null,
+      action: retryCommand ? { command: retryCommand } : null,
     })
   }
 

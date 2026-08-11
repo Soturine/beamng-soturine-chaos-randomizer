@@ -42,8 +42,8 @@
 
     <RacePolicyPanel :open="false" />
     <div class="scr-actions">
-      <button v-if="!current?.active && !core.busy" type="button" class="is-hot" :disabled="conflict" @click="generate">{{ t('race.generate') }}</button>
-      <button v-else type="button" @click="stores.command.send('cancelRaceGeneration')">{{ t('race.cancelGeneration') }}</button>
+      <button v-if="!core.busy" type="button" class="is-hot" :disabled="conflict" @click="generate">{{ t(current?.active ? 'race.regenerate' : 'race.generate') }}</button>
+      <button v-if="current?.active || core.busy" type="button" @click="stores.command.send('cancelRaceGeneration')">{{ t('race.cancelGeneration') }}</button>
       <button type="button" @click="stores.command.send('exportChaosLineup')">{{ t('common.export') }}</button>
       <button type="button" @click="stores.command.send('importChaosLineup')">{{ t('common.import') }}</button>
     </div>
@@ -116,5 +116,5 @@ async function setPreviewEnabled(value) {
   previewGeneration()
 }
 function previewGeneration() { return stores.command.send("previewRaceGeneration", [{ ...options }]) }
-function generate() { stores.command.send("createChaosLineup", [{ ...options }]) }
+function generate() { return stores.command.send("createChaosLineup", [{ ...options }]) }
 </script>

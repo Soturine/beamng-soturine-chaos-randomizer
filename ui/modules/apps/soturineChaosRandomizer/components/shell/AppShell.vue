@@ -51,8 +51,8 @@
         <ErrorBoundary v-else-if="layout.activeTab === 'race'" scope="tab:race" area-key="nav.race" back-key="errors.backToChaos" @back="selectTab('chaos')"><RacePanel /></ErrorBoundary>
         <ErrorBoundary v-else scope="tab:settings" area-key="nav.settings" back-key="errors.backToChaos" @back="selectTab('chaos')"><SettingsPanel /></ErrorBoundary>
       </main>
-      <GlobalStatus @details="toggleDetails" />
     </section>
+    <GlobalStatus @details="toggleDetails" />
     <ConfirmDialog />
   </section>
 </template>

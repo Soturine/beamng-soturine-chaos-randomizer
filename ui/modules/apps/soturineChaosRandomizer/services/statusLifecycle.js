@@ -42,6 +42,8 @@ export function createStatusLifecycle(options = {}) {
       tab,
       persistent,
       values: value.values || {},
+      recoverable: value.recoverable === true,
+      action: value.action || null,
     }
     items.push(item)
     if (!persistent && schedule) timers.set(item.id, schedule(() => remove(item.id), ttl))
@@ -51,6 +53,13 @@ export function createStatusLifecycle(options = {}) {
   function replaceOperation(value) {
     for (const item of [...items]) if (item.scope === "operation") remove(item.id)
     return value ? push({ ...value, scope: "operation" }) : null
+  }
+
+  function clearWhere(predicate) {
+    if (typeof predicate !== "function") return 0
+    const matches = items.filter(predicate)
+    for (const item of matches) remove(item.id)
+    return matches.length
   }
 
   function current(tab, operationId = null) {
@@ -70,5 +79,5 @@ export function createStatusLifecycle(options = {}) {
     items.splice(0, items.length)
   }
 
-  return { items, push, remove, prune, replaceOperation, current, dispose }
+  return { items, push, remove, prune, replaceOperation, clearWhere, current, dispose }
 }
