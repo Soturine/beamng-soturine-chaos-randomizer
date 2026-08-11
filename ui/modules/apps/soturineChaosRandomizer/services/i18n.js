@@ -2,6 +2,7 @@ import { computed, ref } from "vue"
 import enUS from "../i18n/en-US.json"
 import ptBR from "../i18n/pt-BR.json"
 import esES from "../i18n/es-ES.json"
+import { auditCatalog, terminologyForLocale } from "../i18n/terminology.js"
 
 const messages = { "en-US": enUS, "pt-BR": ptBR, "es-ES": esES }
 const humanizeKey = key => {
@@ -54,6 +55,8 @@ export function createI18n() {
 
   return {
     locale, localeMode, manualLocale, t, plural, formatNumber,
+    terminology: computed(() => terminologyForLocale(locale.value)),
+    catalogIssues: computed(() => auditCatalog(locale.value, messages[locale.value])),
     has: key => messages[locale.value]?.[key] !== undefined || messages["en-US"][key] !== undefined,
     setGameLocale: value => { gameLocale.value = normalizeLocale(value) },
     setPreference,

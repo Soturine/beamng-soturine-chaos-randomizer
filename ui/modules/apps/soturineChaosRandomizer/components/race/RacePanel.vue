@@ -11,7 +11,7 @@
     >
       <RaceCarsStep v-if="layout.raceStep === 'setup'" />
       <RacePlacementStep v-else-if="layout.raceStep === 'formation'" />
-      <RaceDriveStep v-else />
+      <RaceDriveStep v-else :step="layout.raceStep" />
     </ErrorBoundary>
   </section>
 </template>

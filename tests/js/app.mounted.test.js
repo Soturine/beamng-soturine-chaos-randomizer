@@ -366,6 +366,46 @@ describe("mounted Runtime UI", () => {
     wrapper.unmount()
   })
 
+  it("keeps compact Events actionable before and after lineup placement", async () => {
+    const { wrapper, stores, command } = mountShell()
+    stores.uiLayout.setTab("race")
+    stores.race.state.lineup = {
+      current: { generationState: "lineup_partial", summary: { ready: 3, failed: 1 } },
+    }
+    stores.uiLayout.setCompact(true, false)
+    await settle()
+    const compact = wrapper.find(".scr-compact-summary")
+    expect(compact.text()).toContain("3 ready · 1 failed")
+    expect(compact.text()).toContain("Position / Start")
+    await compact.find("button").trigger("click")
+    expect(command.calls.at(-1)[0]).toBe("startLineupSpawn")
+    expect(command.calls.at(-1)[1][0]).toMatchObject({ spawnAll: true, count: 3 })
+
+    stores.race.state.spawnDirector.managed = [{ handle: "npc-1", status: "ready" }]
+    await settle()
+    await compact.find("button").trigger("click")
+    expect(command.calls.at(-1)).toEqual(["startAIQuickPreset", ["Traffic"]])
+    wrapper.unmount()
+  })
+
+  it("explains the blocked Behavior step and never leaks unknown result codes", async () => {
+    const { wrapper, stores } = mountShell()
+    stores.uiLayout.setTab("race")
+    stores.uiLayout.state.raceStep = "behavior"
+    await settle()
+    expect(wrapper.find(".scr-race-blocked").text()).toContain("Missing: at least one ready NPC.")
+    expect(wrapper.find(".scr-race-blocked button").text()).toBe("Generate and position NPCs")
+
+    stores.applyDiff("core", {
+      busy: false,
+      lastResult: { success: false, code: "future_backend_failure_code", details: {} },
+    })
+    await settle()
+    expect(wrapper.find(".scr-global-status").text()).toContain("additional details")
+    expect(wrapper.text()).not.toContain("future_backend_failure_code")
+    wrapper.unmount()
+  })
+
   it("isolates component failures, keeps the surrounding shell, and retries without backend commands", async () => {
     const command = { calls: [], async send(name, args = []) { this.calls.push([name, args]); return { success: true } } }
     const stores = createStores(command)

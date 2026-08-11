@@ -284,6 +284,13 @@ class StaticValidationTests(unittest.TestCase):
         controls = (APP / "components/race/AIDirectorControls.vue").read_text(encoding="utf-8")
         self.assertIn("<details", controls)
         self.assertIn("race.advancedOptions", controls)
+        termbase = (APP / "i18n/terminology.js").read_text(encoding="utf-8")
+        for term in ("Seed", "DNA", "HUD", "Preview", "Grid", "Spawn", "Reload",
+                     "Fallback", "ID", "Debug", "Compact", "Preset", "Mod", "Config",
+                     "Input", "Output", "AI", "BeamNG", "BeamMP"):
+            self.assertIn(f'"{term}"', termbase)
+        self.assertIn("Soturine's Chaos Randomizer", termbase)
+        self.assertIn("terminology.js", (ROOT / "docs/I18N.md").read_text(encoding="utf-8"))
 
     def test_accessibility_and_controller_navigation_contracts(self) -> None:
         source = frontend_source()

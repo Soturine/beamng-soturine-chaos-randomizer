@@ -1,7 +1,7 @@
 <template>
   <header class="scr-header">
     <img src="../../assets/fox-mark.svg" alt="" aria-hidden="true" />
-    <div class="scr-brand"><span>{{ t('app.owner') }}</span><strong>{{ t('app.name') }}</strong></div>
+    <div class="scr-brand"><strong>{{ t('app.brandShort') }}</strong><span>{{ t('app.subtitle') }}</span></div>
     <span class="scr-version">v{{ core.extensionVersion || '0.7.5' }}</span>
     <button type="button" :aria-label="layout.compact ? t('app.expand') : t('app.compact')" @click="$emit('toggle-compact')">{{ layout.compact ? '▾' : '▴' }}</button>
     <button type="button" :aria-label="t('app.settings')" @click="$emit('settings')">⚙</button>

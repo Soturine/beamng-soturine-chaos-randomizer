@@ -237,6 +237,8 @@ const i18nModule = await load(
     [/import enUS from "\.\.\/i18n\/en-US\.json"/, `const enUS = ${JSON.stringify(enUS)}`],
     [/import ptBR from "\.\.\/i18n\/pt-BR\.json"/, `const ptBR = ${JSON.stringify(ptBR)}`],
     [/import esES from "\.\.\/i18n\/es-ES\.json"/, `const esES = ${JSON.stringify(esES)}`],
+    [/import \{ auditCatalog, terminologyForLocale \} from "\.\.\/i18n\/terminology\.js"/,
+      "const terminologyForLocale = locale => ({ locale, brand: {}, preservedTerms: [] }); const auditCatalog = () => []"],
   ],
 )
 const i18n = i18nModule.createI18n()
@@ -272,6 +274,14 @@ truthy(ptBR["garage.restoreConfirm"].length > enUS["garage.restoreConfirm"].leng
 truthy(!Object.values(enUS).some(value => /<[^>]+>/.test(value)))
 truthy(!Object.values(ptBR).some(value => /<[^>]+>/.test(value)))
 truthy(!Object.values(esES).some(value => /<[^>]+>/.test(value)))
+const terminology = await load("ui/modules/apps/soturineChaosRandomizer/i18n/terminology.js")
+check(terminology.PRODUCT_BRAND.official, "Soturine's Chaos Randomizer")
+check(terminology.PRODUCT_BRAND.short, "Soturine's Chaos")
+for (const term of ["Seed", "DNA", "HUD", "Preview", "Grid", "Mod", "Preset", "AI", "BeamMP"]) {
+  truthy(terminology.PRESERVED_TERMS.includes(term))
+}
+check(terminology.auditCatalog("pt-BR", ptBR), [])
+check(terminology.auditCatalog("pt-BR", { bad: "Semente e prévia" }).map(item => item.preferred), ["Seed", "Preview"])
 
 const humanLabels = await load("ui/modules/apps/soturineChaosRandomizer/services/humanLabels.js")
 const labelI18n = i18nModule.createI18n()

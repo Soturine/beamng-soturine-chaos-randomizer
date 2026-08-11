@@ -30,10 +30,17 @@
         </div>
       </div>
       <div v-else-if="layout.activeTab === 'race'" class="scr-compact-summary">
-        <strong>{{ compactRaceSummary }}</strong>
-        <span>{{ t(`race.presetValue.${race.options?.preset || 'Balanced'}`) }}</span>
+        <template v-if="compactRaceReady">
+          <strong>{{ t('race.compactReadyFailed', { ready: compactReadyCount, failed: compactFailedCount }) }}</strong>
+          <span>{{ t(`race.presetValue.${race.options?.preset || 'Balanced'}`) }}</span>
+        </template>
+        <template v-else>
+          <strong>{{ compactRaceSummary }}</strong>
+          <span>{{ t(`race.presetValue.${race.options?.preset || 'Balanced'}`) }}</span>
+        </template>
         <div class="scr-actions">
-          <button v-if="!race.lineup?.current?.active && !core.busy" type="button" @click="stores.command.send('createChaosLineup', [{ ...race.options }])">{{ t('race.generate') }}</button>
+          <button v-if="compactRaceReady" type="button" :disabled="core.busy" @click="compactRaceAdvance">{{ t('race.positionOrStart') }}</button>
+          <button v-else-if="!race.lineup?.current?.active && !core.busy" type="button" @click="stores.command.send('createChaosLineup', [{ ...race.options }])">{{ t('race.generate') }}</button>
           <button v-else type="button" @click="stores.command.send('cancelRaceGeneration')">{{ t('race.cancelGeneration') }}</button>
         </div>
       </div>
@@ -76,6 +83,7 @@ import GaragePanel from "../garage/GaragePanel.vue"
 import RacePanel from "../race/RacePanel.vue"
 import SettingsPanel from "../settings/SettingsPanel.vue"
 import { vehicleDisplayName } from "../../services/humanLabels.js"
+import { formationRuntimeName } from "../../services/raceProtocol.js"
 
 const stores = useStores()
 const core = stores.core.state
@@ -102,6 +110,11 @@ const compactRaceSummary = computed(() => t(
   race.options?.participationMode === "player" ? "race.configSummaryPlayer" : "race.configSummarySpectator",
   { total: raceTotal.value, opponents: raceOpponents.value },
 ))
+const compactLineup = computed(() => race.lineup?.current)
+const compactRaceReady = computed(() => ["lineup_ready", "lineup_partial"].includes(compactLineup.value?.generationState))
+const compactReadyCount = computed(() => Number(compactLineup.value?.summary?.ready || 0))
+const compactFailedCount = computed(() => Number(compactLineup.value?.summary?.failed || 0))
+const compactManagedCount = computed(() => (race.spawnDirector?.managed || []).length)
 const preferredSize = computed(() => stores.uiLayout.preferredSize(layout.activeTab))
 const normalMinimum = computed(() => stores.uiLayout.normalMinimum())
 const geometryStyle = computed(() => ({
@@ -120,6 +133,18 @@ async function restoreCurrentDNA() {
   if (await confirmDialog(layout, t("garage.restoreExact"), t("garage.restoreConfirm", { mode: t("garage.restoreExact"), name: entry.name }))) {
     stores.command.send("restoreVehicleDNA", [entry.id, "exact", false])
   }
+}
+function compactRaceAdvance() {
+  if (compactManagedCount.value > 0) {
+    stores.command.send("startAIQuickPreset", ["Traffic"])
+    return
+  }
+  const options = { ...race.placementOptions }
+  options.mode = formationRuntimeName(options.mode)
+  options.spawnAll = true
+  options.useNextLineupCompetitor = true
+  options.count = Math.max(1, compactReadyCount.value)
+  stores.command.send("startLineupSpawn", [options])
 }
 async function toggleCompact() {
   const next = !layout.compact
