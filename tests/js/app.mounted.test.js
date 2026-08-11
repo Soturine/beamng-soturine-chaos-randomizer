@@ -406,6 +406,30 @@ describe("mounted Runtime UI", () => {
     wrapper.unmount()
   })
 
+  it("summarizes applied Chaos changes separately from skipped options", async () => {
+    const { wrapper, stores } = mountShell()
+    stores.applyDiff("core", {
+      busy: false,
+      lastResult: {
+        success: true,
+        code: "scramble_completed_with_skips",
+        details: {
+          operationId: "chaos:fixture:summary",
+          terminalOutcome: "COMPLETED_WITH_SKIPS",
+          partsChanged: 49,
+          tuningValues: Array.from({ length: 24 }, (_, index) => ({ name: `v${index}` })),
+          paintLayers: 3,
+          skippedCount: 2,
+        },
+      },
+    })
+    await settle()
+    const banner = wrapper.find(".scr-global-status")
+    expect(banner.text()).toContain("49 parts · 24 tuning values · 3 paints")
+    expect(banner.text()).toContain("2 incompatible options were skipped.")
+    wrapper.unmount()
+  })
+
   it("isolates component failures, keeps the surrounding shell, and retries without backend commands", async () => {
     const command = { calls: [], async send(name, args = []) { this.calls.push([name, args]); return { success: true } } }
     const stores = createStores(command)

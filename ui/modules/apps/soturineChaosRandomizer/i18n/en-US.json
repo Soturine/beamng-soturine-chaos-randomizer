@@ -61,6 +61,8 @@
   "result.FAILED_ROLLED_BACK": "Operation failed and the previous vehicle was restored",
   "result.CANCELLED": "Operation cancelled",
   "result.unknown": "The operation finished with additional details",
+  "result.changeSummary": "{parts} parts · {tuning} tuning values · {paints} paints",
+  "result.skippedSummary": "{count} incompatible options were skipped.",
   "result.position_blocked": "No safe Preview position was found. Change the origin or spacing, then retry.",
   "result.lineup_staging_unsafe": "Safe staging could not be prepared. Adjust the formation or location, then retry.",
   "result.race_cleanup_failed": "Previously managed Race vehicles could not be cleaned safely. Retry or remove them individually.",

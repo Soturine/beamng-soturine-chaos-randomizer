@@ -61,6 +61,8 @@
   "result.FAILED_ROLLED_BACK": "A operação falhou e o veículo anterior foi restaurado",
   "result.CANCELLED": "Operação cancelada",
   "result.unknown": "A operação terminou com detalhes adicionais",
+  "result.changeSummary": "{parts} peças · {tuning} ajustes · {paints} pinturas",
+  "result.skippedSummary": "{count} opções incompatíveis foram ignoradas.",
   "result.position_blocked": "Nenhuma posição segura de Preview foi encontrada. Ajuste a origem ou o espaçamento e tente novamente.",
   "result.lineup_staging_unsafe": "Não foi possível preparar um staging seguro. Ajuste a formação ou o local e tente novamente.",
   "result.race_cleanup_failed": "Não foi possível remover com segurança os veículos gerenciados anteriores. Tente novamente ou remova-os individualmente.",

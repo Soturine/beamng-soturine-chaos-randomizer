@@ -136,6 +136,13 @@ export function createStores(command) {
     }
     stores.status.push({
       code: result.details?.terminalOutcome || result.code,
+      values: {
+        parts: Number(result.details?.partsChanged || 0),
+        tuning: Array.isArray(result.details?.tuningValues)
+          ? result.details.tuningValues.length : Number(result.details?.tuningValues || 0),
+        paints: Number(result.details?.paintLayers || 0),
+        skipped: Number(result.details?.skippedCount || 0),
+      },
       scope: "tab",
       tab: retryCommand ? "race" : stores.uiLayout.state.activeTab,
       severity: result.success === false ? "error" : "success",

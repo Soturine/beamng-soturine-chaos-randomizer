@@ -1,6 +1,8 @@
 <template>
   <div v-if="!core.busy && status" class="scr-global-status" role="status" aria-live="polite" :class="`is-${status.severity || 'info'}`">
     <strong>{{ statusLabel }}</strong>
+    <span v-if="changeSummary">{{ changeSummary }}</span>
+    <span v-if="Number(status.values?.skipped) > 0">{{ t('result.skippedSummary', { count: status.values.skipped }) }}</span>
     <button v-if="status.action" type="button" :disabled="core.busy" @click="retry">{{ t('common.retry') }}</button>
     <button v-if="status.recoverable" type="button" @click="dismiss">{{ t('common.dismiss') }}</button>
     <button type="button" @click="$emit('details')">{{ t('common.details') }}</button>
@@ -17,6 +19,11 @@ const status = computed(() => stores.status.current(stores.uiLayout.state.active
 const statusLabel = computed(() => {
   const key = `result.${status.value?.code || "unknown"}`
   return t(has(key) ? key : "result.unknown", status.value?.values)
+})
+const changeSummary = computed(() => {
+  const values = status.value?.values || {}
+  const total = Number(values.parts || 0) + Number(values.tuning || 0) + Number(values.paints || 0)
+  return total > 0 ? t("result.changeSummary", values) : ""
 })
 function retry() {
   const command = status.value?.action?.command
