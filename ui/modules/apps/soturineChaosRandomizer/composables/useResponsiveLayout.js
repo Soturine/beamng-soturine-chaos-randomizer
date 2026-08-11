@@ -29,7 +29,7 @@ export function useResponsiveLayout(target, layout, profiler = null) {
     lastHeight = height
     metrics.resizeUpdates += 1
     profiler?.recordResizeUpdate?.()
-    if (typeof layout.recordHostSize === "function") layout.recordHostSize(width, height)
+    if (typeof layout.recordHostSize === "function") layout.recordHostSize(width, height, { source: "appHost" })
     else { state.width = width; state.height = height }
   }
   const scheduleSize = (width, height) => {
@@ -47,6 +47,10 @@ export function useResponsiveLayout(target, layout, profiler = null) {
   onMounted(() => {
     active = true
     if (typeof ResizeObserver === "function" && target.value) {
+      // AppHost owns outer placement and size. Observing the application's
+      // auto-sized child created a shrink/reflow/measure feedback loop in
+      // v0.7.5, so responsiveness is driven only by the host container.
+      const appHost = target.value.parentElement || target.value
       observer = new ResizeObserver(entries => {
         metrics.resizeObserverCallbacks += 1
         profiler?.recordResizeCallback?.()
@@ -62,7 +66,7 @@ export function useResponsiveLayout(target, layout, profiler = null) {
         }
         scheduleSize(width, height)
       })
-      observer.observe(target.value)
+      observer.observe(appHost)
     }
     media = window.matchMedia?.("(prefers-reduced-motion: reduce)") || null
     media?.addEventListener?.("change", updateMotion)

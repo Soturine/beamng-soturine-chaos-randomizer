@@ -2,8 +2,9 @@
   <section
     ref="root"
     class="scr-app bngApp"
-    :class="[{ 'is-compact': layout.compact, 'is-reduced-motion': layout.reducedMotion }, `scr-width-${widthClass}`]"
+    :class="[{ 'is-normal': layout.mode === 'normal', 'is-compact': layout.mode === 'compact', 'is-reduced-motion': layout.reducedMotion }, `scr-width-${widthClass}`]"
     :style="geometryStyle"
+    :data-layout-mode="layout.mode"
     bng-ui-scope="soturine-chaos-randomizer"
     v-bng-scoped-nav="{ scopeId: 'soturine-chaos-randomizer', type: 'container', preferAutoFocus: true }"
     v-bng-on-ui-nav:back="back"
@@ -12,7 +13,7 @@
     <CompatibilityBadge />
     <OperationProgress @cancel="cancel" />
 
-    <section v-if="layout.compact" class="scr-compact" :aria-label="t(`nav.${layout.activeTab}`)">
+    <section v-if="layout.mode === 'compact'" class="scr-compact scr-compact-layout" :aria-label="t(`nav.${layout.activeTab}`)">
       <header><strong>{{ t(`nav.${layout.activeTab}`) }}</strong><span v-if="core.busy">{{ percent }}%</span></header>
       <div v-if="layout.activeTab === 'chaos'" class="scr-compact-chaos">
         <ChaosActions />
@@ -42,7 +43,7 @@
       </div>
     </section>
 
-    <template v-else>
+    <section v-else class="scr-normal-layout" :aria-label="t(`nav.${layout.activeTab}`)">
       <AppNavigation :active="layout.activeTab" @select="selectTab" />
       <main class="scr-body" bng-nav-scroll>
         <ErrorBoundary v-if="layout.activeTab === 'chaos'" scope="tab:chaos" area-key="nav.chaos"><ChaosPanel /></ErrorBoundary>
@@ -51,7 +52,7 @@
         <ErrorBoundary v-else scope="tab:settings" area-key="nav.settings" back-key="errors.backToChaos" @back="selectTab('chaos')"><SettingsPanel /></ErrorBoundary>
       </main>
       <GlobalStatus @details="toggleDetails" />
-    </template>
+    </section>
     <ConfirmDialog />
   </section>
 </template>
@@ -102,9 +103,12 @@ const compactRaceSummary = computed(() => t(
   { total: raceTotal.value, opponents: raceOpponents.value },
 ))
 const preferredSize = computed(() => stores.uiLayout.preferredSize(layout.activeTab))
+const normalMinimum = computed(() => stores.uiLayout.normalMinimum())
 const geometryStyle = computed(() => ({
   "--scr-target-width": `${preferredSize.value.width}px`,
   "--scr-target-height": `${preferredSize.value.height}px`,
+  "--scr-normal-min-width": `${normalMinimum.value.width}px`,
+  "--scr-normal-min-height": `${normalMinimum.value.height}px`,
 }))
 
 function selectTab(tab) { stores.uiLayout.setTab(tab) }

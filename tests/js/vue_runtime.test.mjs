@@ -137,23 +137,32 @@ for (let cycle = 0; cycle < 100; cycle += 1) {
   const layout = layoutModule.createUILayoutStore()
   const tab = ["chaos", "garage", "race", "settings"][cycle % 4]
   layout.setTab(tab)
-  layout.recordHostSize(300 + cycle, 400 + cycle)
+  layout.recordHostSize(360 + cycle, 400 + cycle)
   layout.setCompact(true)
   layout.toggleDetails(tab)
   layout.recordHostSize(200, 210)
   check(layout.state.activeTab, tab)
   check(layout.state.detailsOpenByTab[tab], true)
-  check(layout.state.userSizeByTab[tab].width, 300 + cycle)
+  check(layout.state.userSizeByTab[tab].width, 360 + cycle)
   check(layout.preferredSize(tab).height, layout.state.compactSizeByTab[tab].height)
   layout.setCompact(false)
   check(layout.preferredSize(tab).height, 400 + cycle)
+  check(layout.state.mode, "normal")
 }
 const invalidLayout = layoutModule.createUILayoutStore()
 invalidLayout.setTab("not-a-tab")
 check(invalidLayout.state.activeTab, "chaos")
+const initialNormal = { ...invalidLayout.state.userPreferredNormalSize }
+invalidLayout.recordHostSize(180, 90, { source: "appHost" })
+check(invalidLayout.preferredSize().width, initialNormal.width, "tiny host feedback must not overwrite the normal preference")
+check(invalidLayout.preferredSize().height, initialNormal.height, "tiny content must not collapse normal geometry")
+invalidLayout.recordHostSize(580, 610, { source: "appHost" })
+invalidLayout.setTab("race")
+check(invalidLayout.preferredSize().width, 580, "manual AppHost size must survive a tab switch")
+check(invalidLayout.preferredSize().height, 610, "manual AppHost height must survive a tab switch")
 for (const tab of ["chaos", "garage", "race", "settings"]) {
   truthy(invalidLayout.state.expandedSizeByTab[tab].height > invalidLayout.state.compactSizeByTab[tab].height)
-  check(invalidLayout.state.resizeModeByTab[tab], "intrinsic")
+  check(invalidLayout.state.resizeModeByTab[tab], "appHost")
 }
 
 const lifecycleModule = await load("ui/modules/apps/soturineChaosRandomizer/services/lifecycle.js")

@@ -276,6 +276,8 @@ class StaticValidationTests(unittest.TestCase):
         self.assertNotIn("100vw", css)
         self.assertNotIn("100vh", css)
         self.assertIn("height: auto", css)
+        self.assertIn(".scr-app.is-normal", css)
+        self.assertIn("height: 100%", css)
         stepper = (APP / "components/race/RaceStepper.vue").read_text(encoding="utf-8")
         for step in ("setup", "formation", "behavior", "start"):
             self.assertIn(step, stepper)
@@ -300,7 +302,7 @@ class StaticValidationTests(unittest.TestCase):
         layout = (APP / "stores/uiLayout.js").read_text(encoding="utf-8")
         responsive = (APP / "composables/useResponsiveLayout.js").read_text(encoding="utf-8")
         garage = (APP / "components/garage/GarageToolbar.vue").read_text(encoding="utf-8")
-        for field in ("activeTab", "compact", "details", "expandedSizeByTab", "compactSizeByTab", "resizeModeByTab", "userSizeByTab"):
+        for field in ("activeTab", "compact", "mode", "details", "normalMinSize", "normalPreferredWidth", "normalPreferredHeightByTab", "userPreferredNormalSize", "expandedSizeByTab", "compactSizeByTab", "resizeModeByTab", "userSizeByTab"):
             self.assertIn(field, layout)
         for cleanup in ("observer?.disconnect()", 'removeEventListener?.("change"'):
             self.assertIn(cleanup, responsive)
@@ -309,6 +311,7 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("requestAnimationFrame", responsive)
         self.assertIn("cancelAnimationFrame", responsive)
         self.assertIn("pendingSize", responsive)
+        self.assertIn("target.value.parentElement", responsive)
 
     def test_frontend_security_has_no_remote_or_executable_content(self) -> None:
         source = frontend_source()

@@ -166,6 +166,7 @@ describe("mounted Runtime UI", () => {
     const { wrapper, stores } = mountShell()
     await settle()
     const observer = resizeHarness.instances.at(-1)
+    expect(observer.element).toBe(wrapper.element.parentElement)
     const expected = new Map([
       [320, "narrow"], [360, "narrow"], [400, "medium"], [440, "medium"],
       [520, "medium"], [560, "medium"], [640, "wide"], [720, "wide"],
@@ -236,6 +237,44 @@ describe("mounted Runtime UI", () => {
     }
     wrapper.unmount()
   }, 60_000)
+
+  it("keeps explicit normal geometry stable across tiny content, tabs, drawers, and compact cycles", async () => {
+    const { wrapper, stores } = mountShell()
+    await settle()
+    const observer = resizeHarness.instances.at(-1)
+    const initial = { ...stores.uiLayout.state.userPreferredNormalSize }
+
+    expect(wrapper.find(".scr-app").attributes("data-layout-mode")).toBe("normal")
+    expect(wrapper.find(".scr-normal-layout").exists()).toBe(true)
+    observer.emit(120, 80)
+    await settle()
+    expect(stores.uiLayout.preferredSize()).toEqual(initial)
+    expect(wrapper.find(".scr-app").classes()).toContain("is-normal")
+
+    observer.emit(560, 610)
+    await settle()
+    const userSize = { width: 560, height: 610 }
+    expect(stores.uiLayout.state.userPreferredNormalSize).toEqual(userSize)
+    const tabs = ["chaos", "garage", "race", "settings"]
+    for (let cycle = 0; cycle < 50; cycle += 1) {
+      stores.uiLayout.setTab(tabs[cycle % tabs.length])
+      stores.uiLayout.toggleDetails()
+      stores.uiLayout.toggleDetails()
+      expect(stores.uiLayout.preferredSize()).toEqual(userSize)
+    }
+    await settle()
+
+    for (let cycle = 0; cycle < 50; cycle += 1) {
+      stores.uiLayout.setCompact(true, false)
+      expect(stores.uiLayout.state.mode).toBe("compact")
+      stores.uiLayout.setCompact(false, false)
+      expect(stores.uiLayout.preferredSize()).toEqual(userSize)
+    }
+    await settle()
+    expect(wrapper.find(".scr-normal-layout").exists()).toBe(true)
+    expect(wrapper.find(".scr-compact-layout").exists()).toBe(false)
+    wrapper.unmount()
+  })
 
   it("translates placement unavailability instead of rendering backend English or policy codes", async () => {
     const { wrapper, stores } = mountShell()
