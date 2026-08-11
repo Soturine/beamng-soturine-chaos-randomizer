@@ -1,6 +1,6 @@
 # Current validation
 
-Release candidate: **0.7.6 experimental prerelease**, targeting BeamNG 0.39.4. The currently published release remains v0.7.5 until the v0.7.6 tag workflow and downloaded-asset verification complete.
+Current published release: **0.7.6 experimental prerelease**, targeting BeamNG 0.39.4. Its deterministic ZIP/checksum/manifest and independent post-publication download verification passed for package commit `9c0e745cedf865e981ca3929200e9be37f2358e4`.
 
 Automated status and the live-derived implementation rows are recorded in the [v0.7.6 implementation matrix](../testing/v0.7.6/IMPLEMENTATION_MATRIX.md). Automated evidence is not a live BeamNG result.
 

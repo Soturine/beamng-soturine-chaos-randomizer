@@ -1,8 +1,7 @@
 # Current compatibility matrix
 
-Candidate: **0.7.6 experimental prerelease**; v0.7.5 remains published until
-the tag workflow completes. Primary target: BeamNG 0.39.4. Minimum family:
-0.39. Live status: **Pending owner validation**.
+Published: **0.7.6 experimental prerelease**. Primary target: BeamNG 0.39.4.
+Minimum family: 0.39. Live status: **Pending owner validation**.
 
 | Surface | Automated/source evidence | Live status |
 | --- | --- | --- |
@@ -17,7 +16,7 @@ the tag workflow completes. Primary target: BeamNG 0.39.4. Minimum family:
 | Registry/content | sanitized 0.39.4 identity/subgroup/failure fixtures | Pending owner validation |
 | Persistence | settings schema 9, UI preferences 2, Vehicle DNA schema 1 | Pending owner validation |
 | Determinism | generator 6 and stable substream vectors | Pending owner validation |
-| Package | deterministic candidate and forbidden-content gates; published download verification is pending | Not applicable (publication evidence) |
+| Package | downloaded ZIP/checksum/manifest verified; forbidden-content and extracted graph gates passed | Not applicable (publication evidence) |
 
 The detailed compatibility rationale is in
 [BeamNG 0.39 compatibility](../BEAMNG_0.39_COMPATIBILITY.md).

@@ -50,8 +50,8 @@ CURRENT_DOCUMENT_PATTERNS = {
     "docs/TROUBLESHOOTING.md": r"(?m)^## v{version} diagnostic distinctions$",
     "docs/UI_DESIGN.md": r"(?m)^## v{version} Events and AppHost geometry$",
     "docs/UI_PROTOCOL.md": r"(?m)^## v{version} stable result and Preview codes$",
-    "docs/status/CURRENT_COMPATIBILITY_MATRIX.md": r"(?m)^Candidate: \*\*{version} experimental prerelease\*\*",
-    "docs/status/CURRENT_VALIDATION.md": r"(?m)^Release candidate: \*\*{version} experimental prerelease\*\*",
+    "docs/status/CURRENT_COMPATIBILITY_MATRIX.md": r"(?m)^Published: \*\*{version} experimental prerelease\*\*",
+    "docs/status/CURRENT_VALIDATION.md": r"(?m)^Current published release: \*\*{version} experimental prerelease\*\*",
 }
 
 
