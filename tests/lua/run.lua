@@ -6413,6 +6413,104 @@ tests.v073_callback_sequence_fault_injection_is_side_effect_free = function()
   end
 end
 
+tests.v076_ownership_properties_hold_across_adversarial_callback_sequences = function()
+  for iteration = 1, 64 do
+    local sourceId = 100 + iteration
+    local candidateId = 1000 + iteration
+    local externalId = 10000 + iteration
+    local newcomerId = 20000 + iteration
+
+    -- Unrelated world additions are diagnostic only and never become owned.
+    local worldState = domainOperations.create()
+    local replacement = assert(domainOperations.begin(worldState, {
+      domain = "chaos", operationId = "property-world-" .. tostring(iteration),
+      action = "randomConfig", sourceVehicleId = sourceId,
+      worldVehicleIdsBefore = {sourceId, externalId},
+    }))
+    truthy(domainOperations.expectRemoval(replacement, sourceId))
+    truthy(domainOperations.expectAddition(replacement, candidateId))
+    local worldToken = domainOperations.callbackToken(replacement, "spawn", {expectedVehicleId = candidateId})
+    truthy(domainOperations.registerCandidate(worldState, worldToken, candidateId, {created = true}))
+    truthy(domainOperations.acceptVehicle(worldState, replacement, candidateId, "player_result", candidateId))
+    local valid, report = domainOperations.classifyWorldDelta(
+      replacement, {candidateId, externalId, newcomerId})
+    truthy(valid)
+    equal(report.unexpectedAddedIds[1], newcomerId)
+    equal(domainOperations.ownership(worldState, newcomerId), nil)
+
+    -- Phase reordering and duplicate delivery cannot create a second effect.
+    local callbackState = domainOperations.create()
+    local callbackContext = assert(domainOperations.begin(callbackState, {
+      domain = "chaos", operationId = "property-callback-" .. tostring(iteration),
+      action = "fullRandom", sourceVehicleId = sourceId,
+    }))
+    local outOfOrder = domainOperations.callbackToken(
+      callbackContext, "spawn", {expectedVehicleId = candidateId})
+    truthy(domainOperations.setPhase(callbackContext, "binding", "active"))
+    local reordered, reorderedReason = domainOperations.registerCandidate(
+      callbackState, outOfOrder, candidateId, {created = true})
+    equal(reordered, false); equal(reorderedReason, "callback_phase_mismatch")
+    equal(domainOperations.ownership(callbackState, candidateId), nil)
+    local current = domainOperations.callbackToken(
+      callbackContext, "spawn", {expectedVehicleId = candidateId})
+    truthy(domainOperations.registerCandidate(callbackState, current, candidateId, {created = true}))
+    local duplicate, duplicateReason = domainOperations.registerCandidate(
+      callbackState, current, candidateId, {created = true})
+    equal(duplicate, false); equal(duplicateReason, "callback_already_consumed")
+    equal(#callbackContext.candidateVehicleIds, 1)
+
+    -- A removed candidate releases temporary ownership and a recycled id starts clean.
+    truthy(domainOperations.recordRemoval(callbackState, candidateId, "fixture_candidate_removed"))
+    equal(#callbackContext.ownedTemporaryIds, 0)
+    equal(domainOperations.ownership(callbackState, candidateId).removed, true)
+    truthy(domainOperations.terminal(callbackState, callbackContext, "failed"))
+    local recycled = assert(domainOperations.begin(callbackState, {
+      domain = "chaos", operationId = "property-recycled-" .. tostring(iteration),
+      action = "randomConfig", sourceVehicleId = sourceId,
+    }))
+    local recycledToken = domainOperations.callbackToken(
+      recycled, "spawn", {expectedVehicleId = candidateId})
+    truthy(domainOperations.registerCandidate(callbackState, recycledToken, candidateId, {created = true}))
+    local recycledOwner = domainOperations.ownership(callbackState, candidateId)
+    equal(recycledOwner.operationId, recycled.operationId)
+    equal(recycledOwner.generation, recycled.generation)
+    equal(recycledOwner.removed, nil)
+
+    -- Cancellation during reload invalidates the callback before any ownership change.
+    local cancelState = domainOperations.create()
+    local cancelled = assert(domainOperations.begin(cancelState, {
+      domain = "chaos", operationId = "property-cancel-" .. tostring(iteration),
+      action = "scramble", sourceVehicleId = sourceId,
+    }))
+    truthy(domainOperations.setPhase(cancelled, "reload", "active"))
+    local reloadToken = domainOperations.callbackToken(
+      cancelled, "reload", {expectedVehicleId = sourceId})
+    truthy(domainOperations.terminal(cancelState, cancelled, "cancelled"))
+    local afterCancel, cancelReason = domainOperations.registerCandidate(
+      cancelState, reloadToken, sourceId, {created = false})
+    equal(afterCancel, false); equal(cancelReason, "ignored_stale_callback")
+    equal(domainOperations.ownership(cancelState, sourceId), nil)
+
+    -- A new operation supersedes the old generation before its callback arrives.
+    local supersedeState = domainOperations.create()
+    local old = assert(domainOperations.begin(supersedeState, {
+      domain = "chaos", operationId = "property-old-" .. tostring(iteration),
+      action = "randomConfig", sourceVehicleId = sourceId,
+    }))
+    local lateToken = domainOperations.callbackToken(old, "spawn", {expectedVehicleId = candidateId})
+    local newest, superseded = domainOperations.begin(supersedeState, {
+      domain = "chaos", operationId = "property-new-" .. tostring(iteration),
+      action = "randomConfig", sourceVehicleId = sourceId,
+    })
+    truthy(newest); equal(superseded.terminalState, "superseded")
+    local late, lateReason = domainOperations.registerCandidate(
+      supersedeState, lateToken, candidateId, {created = true})
+    equal(late, false); equal(lateReason, "ignored_stale_callback")
+    equal(domainOperations.ownership(supersedeState, candidateId), nil)
+    equal(newest.staleCallbackSideEffects, 0)
+  end
+end
+
 tests.v067_dynamic_race_formations_and_spacing = function()
   local frame = {
     position = {x = 0, y = 0, z = 5}, forward = {x = 0, y = 1, z = 0},
@@ -8053,6 +8151,13 @@ local v076Required = {
   {"lineup_storage_failures_are_typed", tests.v076_lineup_persistence_is_typed_and_scheduler_progress_is_bounded},
   {"lineup_storage_recovery_clears_warning", tests.v076_lineup_persistence_is_typed_and_scheduler_progress_is_bounded},
   {"planned_idle_scheduler_is_bounded", tests.v076_lineup_persistence_is_typed_and_scheduler_progress_is_bounded},
+  {"property_external_vehicle_is_diagnostic_only", tests.v076_ownership_properties_hold_across_adversarial_callback_sequences},
+  {"property_candidate_removal_releases_temporary", tests.v076_ownership_properties_hold_across_adversarial_callback_sequences},
+  {"property_recycled_id_starts_clean", tests.v076_ownership_properties_hold_across_adversarial_callback_sequences},
+  {"property_out_of_order_callback_is_inert", tests.v076_ownership_properties_hold_across_adversarial_callback_sequences},
+  {"property_duplicate_callback_is_inert", tests.v076_ownership_properties_hold_across_adversarial_callback_sequences},
+  {"property_cancel_during_reload_is_inert", tests.v076_ownership_properties_hold_across_adversarial_callback_sequences},
+  {"property_new_operation_invalidates_old_callback", tests.v076_ownership_properties_hold_across_adversarial_callback_sequences},
 }
 
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")
