@@ -2,6 +2,66 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.6] - 2026-08-11
+
+Live-findings stabilization experimental prerelease targeting BeamNG 0.39.4.
+
+### Fixed
+
+- Prevented AppHost normal geometry from self-collapsing through intrinsic child measurement feedback.
+- Made preview/staging retries use fresh attempt IDs and generations; stale, duplicate, cancelled and superseded callbacks remain inert.
+- Made recoverable Events failures persist until Retry, Dismiss, success or clear, and classified persistence/spawn/bind/reload causes explicitly.
+- Required a successfully drawn marker frame for Preview visibility and removed the legacy fallback that could silently claim readiness.
+
+### Changed
+
+- Separated terminal outcome, applied state, verification confidence and failure kind; compatible skips and unknown probes no longer imply an incomplete mutation.
+- Centralized Race preview enums and the executable localization/product termbase.
+
+### Performance
+
+- Batched coherent Full Random part writes and exposed batch/write/prevented-reload metrics. No live performance improvement is claimed.
+
+### UI/UX
+
+- Added explicit normal and compact layouts per tab, safe normal minima, container-based sizing and clearer Events/Behavior next actions.
+- Kept lock management secondary and presented applied parts, tuning and paint separately from skipped optional choices.
+
+### Events
+
+- Added durable Position blocked/staging-unsafe recovery, bounded planned scheduler progress, typed persistence retry and immediate player-focus restoration before background nomination.
+- Preserved accepted slot ownership, read-only previews and Stop AI/owned-NPC cleanup boundaries.
+
+### Runtime
+
+- Extended phase-aware semantic watchdog coverage for first load, bind, reload and engine waits.
+- Added stable spawn, bind, reload and persistence terminal codes plus adversarial ownership/callback property tests.
+
+### Localization
+
+- Preserved Soturine's Chaos Randomizer, Chaos Randomizer, Seed, DNA, HUD and AppHost as canonical terms.
+- Kept raw phase codes/backend English prose out of normal translated status presentation.
+
+### Branding
+
+- Replaced the prior geometric fox with generated transparent 1024/256/64 PNG variants and a derived selector image.
+- Added automated PNG signature, RGBA, alpha, dimension, import and package checks.
+
+### Testing
+
+- Added AppHost 50-cycle, Events retry, renderer false/throw/toggle, scheduler/persistence, outcome, watchdog, i18n, branding, batching and 64-sequence ownership regressions.
+- Live plan contains 54 owner cases bound to the exact downloaded published ZIP.
+
+### Known limitations
+
+- Live BeamNG 0.39.4 gameplay, rendering, controller, safe-zone/scale, language, third-party content and performance validation is pending owner execution.
+- Pega-Pega/Tag is foundation-only; Infection, party modes, BeamMP and broad coordinator decomposition remain future work.
+
+### Live validation status
+
+- 0 executed / 0 passed / 0 failed / 54 pending / 0 blocked.
+- Status: **Pending owner validation**.
+
 ## [0.7.5] - 2026-08-09
 
 Post-v0.7.4 live-findings experimental prerelease targeting BeamNG 0.39.4.

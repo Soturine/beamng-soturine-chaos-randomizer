@@ -23,6 +23,9 @@ was:
 
 The generated source was chroma-keyed with the image-generation skill's
 `remove_chroma_key.py`, then resized deterministically with Lanczos filtering.
+The resulting mascot is a project-owned generated brand asset released under
+the repository's Apache-2.0 licensing terms. It has no third-party logo, text,
+watermark or remote runtime dependency.
 The static runtime outputs are:
 
 - `assets/branding/fox-1024.png`
@@ -34,3 +37,10 @@ The package gate verifies PNG signatures, exact dimensions, non-interlaced
 8-bit RGBA encoding, both transparent and opaque pixels, imports, packaged
 presence, and absence of the superseded vector/marker assets. Builds package
 these committed binaries and do not regenerate them.
+
+## Usage
+
+`fox-64.png` is the Runtime UI header mark, `fox-256.png` is the normal-density
+brand source, `fox-1024.png` is the retained high-resolution runtime variant,
+and `app.png` is the BeamNG app-selector crop. UI code should prefer these PNGs;
+the superseded geometric fox SVG/marker assets are intentionally absent.

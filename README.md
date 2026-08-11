@@ -17,7 +17,8 @@ native Runtime UI Vue app.
   generates isolated competitor slots, places owned vehicles, and controls only
   their managed AI.
 - Verified AI presets include Follow, Convoy, Chase, Flee, Traffic, Roam and
-  mixed-role Swarm. Tag/contact orchestration is foundation-only in v0.7.5.
+  mixed-role Swarm. Tag/contact orchestration is foundation-only and is not a
+  user-facing game mode.
 - Reproducible seeds, locks, progress, diagnostics, cancellation, and Undo are
   available throughout the app.
 
@@ -103,6 +104,7 @@ Read [Security](SECURITY.md), [Safety model](docs/SAFETY_MODEL.md), and
 - [AI and Playground](docs/PLAYGROUND.md)
 - [Multiplayer readiness](docs/MULTIPLAYER_READINESS.md)
 - [Localization terminology](docs/I18N_TERMINOLOGY.md)
+- [Brand assets](docs/BRANDING.md)
 - [Troubleshooting](docs/TROUBLESHOOTING.md)
 - [Testing evidence](docs/testing/)
 - [Changelog](CHANGELOG.md) and [GitHub Releases](https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases)

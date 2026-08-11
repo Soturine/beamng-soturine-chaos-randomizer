@@ -14,7 +14,7 @@ belong in [CHANGELOG.md](CHANGELOG.md) and [versioned testing](docs/testing/).
 - Decompose `apiAdapter` by registry, vehicle identity, mutation, persistence,
   and host integration capability.
 - Add a separately validated BeamMP adapter for discovery, server authority and
-  replication; v0.7.5 only provides the fail-closed identity envelope.
+  replication; the current release only provides the fail-closed identity envelope.
 - Replace remaining compatibility facades after migration and live evidence.
 
 ## Later

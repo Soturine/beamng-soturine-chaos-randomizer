@@ -1,12 +1,12 @@
 # Architecture
 
-## v0.7.5 outcome, Event and authority boundaries
+## v0.7.6 operation, Event and authority boundaries
 
-`operationOutcome` owns terminal outcome and confidence classification;
+`operationOutcome` owns independent terminal, applied-state and confidence classification;
 `progressWatchdog` owns phase-aware liveness. Race composition uses
 `racePreview`, `raceFocusGuard`, `raceScheduler` and `lineupPersistence` so
 renderer, focus, scheduler and disk failure cannot silently share one success
-flag. `formationEnum` is the stable protocol boundary.
+flag. `formationEnum` and the UI Race protocol are stable protocol boundaries.
 
 `vehicleIdentity` adds owner/network/environment/authority evidence to local
 vehicle IDs. `domainOperations` still owns mutation/cleanup authorization and
