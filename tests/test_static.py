@@ -7,7 +7,6 @@ import shutil
 import subprocess
 import sys
 import unittest
-import xml.etree.ElementTree as ET
 
 from tools import validate_package
 
@@ -345,15 +344,17 @@ class StaticValidationTests(unittest.TestCase):
         width, height, size = validate_package.validate_icon(APP / "app.png")
         self.assertEqual((width, height), (250, 120))
         self.assertLess(size, 100_000)
-        fox = (APP / "assets/fox-mark.svg").read_text(encoding="utf-8")
-        ET.fromstring(fox)
-        self.assertLess(len(fox.encode()), 2048)
-        self.assertNotRegex(fox.lower(), r"<script|<image|<filter|base64|https?://(?!www\.w3\.org/2000/svg)")
-        expected = {"fox-mark-24.png": (24, 24), "fox-mark-32.png": (32, 32), "fox-mark-48.png": (48, 48)}
+        expected = {"fox-1024.png": (1024, 1024), "fox-256.png": (256, 256), "fox-64.png": (64, 64)}
         for name, dimensions in expected.items():
-            data = (APP / "assets" / name).read_bytes()
+            data = (APP / "assets/branding" / name).read_bytes()
             self.assertEqual(validate_package.png_dimensions(data), dimensions)
             self.assertEqual(data[25], 6)
+            self.assertEqual(validate_package.png_alpha_bounds(data), (0, 255))
+        header = (APP / "components/shell/AppHeader.vue").read_text(encoding="utf-8")
+        self.assertIn("assets/branding/fox-64.png", header)
+        for legacy in ("app-icon.svg", "app-icon-250x120.png", "fox-mark.svg",
+                       "fox-mark-24.png", "fox-mark-32.png", "fox-mark-48.png"):
+            self.assertFalse((APP / "assets" / legacy).exists())
 
     def test_packaging_source_enforces_native_vue_topology(self) -> None:
         package_source = (ROOT / "tools/package_mod.py").read_text(encoding="utf-8")

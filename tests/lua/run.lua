@@ -4946,7 +4946,7 @@ tests.v061_compact_ui_contract = function()
   local garage = read("/ui/modules/apps/soturineChaosRandomizer/components/garage/GaragePanel.vue")
   local race = read("/ui/modules/apps/soturineChaosRandomizer/components/race/RaceStepper.vue")
   local css = read("/ui/modules/apps/soturineChaosRandomizer/styles/app.css")
-  local fox = read("/ui/modules/apps/soturineChaosRandomizer/assets/fox-mark.svg")
+  local fox = read("/ui/modules/apps/soturineChaosRandomizer/assets/branding/fox-64.png")
   for _, key in ipairs({"chaos", "garage", "race", "settings"}) do
     truthy(navigation:find('"' .. key .. '"', 1, true), key)
   end
@@ -4956,7 +4956,11 @@ tests.v061_compact_ui_contract = function()
   truthy(shell:find("layout.compact", 1, true))
   truthy(css:find(".scr%-compact") ~= nil)
   truthy(css:find("prefers%-reduced%-motion") ~= nil)
-  truthy(#fox < 2048 and not fox:lower():find("script", 1, true) and not fox:lower():find("base64", 1, true))
+  local foxReport = pngValidator.validate(fox, {
+    maxBytes = 32768, maxWidth = 64, maxHeight = 64, maxChunks = 128,
+    maxChunkBytes = 32768, maxIDATBytes = 32768,
+  })
+  truthy(foxReport and foxReport.width == 64 and foxReport.height == 64)
 end
 
 tests.v069_profiler_disabled_reset_overflow_and_capabilities = function()

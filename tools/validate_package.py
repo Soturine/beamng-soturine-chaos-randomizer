@@ -14,6 +14,7 @@ import struct
 import subprocess
 import tempfile
 import zipfile
+import zlib
 
 try:
     from package_mod import ARCHIVE_PREFIX, REPOSITORY_ROOT, TEXT_FILENAMES, TEXT_SUFFIXES, build_archive, read_version, release_identity
@@ -62,13 +63,11 @@ REQUIRED_PATHS = {
     "ui/modules/apps/soturineChaosRandomizer/i18n/en-US.json",
     "ui/modules/apps/soturineChaosRandomizer/i18n/pt-BR.json",
     "ui/modules/apps/soturineChaosRandomizer/i18n/es-ES.json",
+    "ui/modules/apps/soturineChaosRandomizer/i18n/terminology.js",
     "ui/modules/apps/soturineChaosRandomizer/app.png",
-    "ui/modules/apps/soturineChaosRandomizer/assets/app-icon.svg",
-    "ui/modules/apps/soturineChaosRandomizer/assets/app-icon-250x120.png",
-    "ui/modules/apps/soturineChaosRandomizer/assets/fox-mark.svg",
-    "ui/modules/apps/soturineChaosRandomizer/assets/fox-mark-24.png",
-    "ui/modules/apps/soturineChaosRandomizer/assets/fox-mark-32.png",
-    "ui/modules/apps/soturineChaosRandomizer/assets/fox-mark-48.png",
+    "ui/modules/apps/soturineChaosRandomizer/assets/branding/fox-1024.png",
+    "ui/modules/apps/soturineChaosRandomizer/assets/branding/fox-256.png",
+    "ui/modules/apps/soturineChaosRandomizer/assets/branding/fox-64.png",
     "settings/soturineChaosRandomizer/defaults.json",
     "locales/translations/en-US/main.translation.json",
     "locales/translations/pt-BR/main.translation.json",
@@ -99,6 +98,19 @@ MAX_ICON_WIDTH = 500
 MAX_ICON_HEIGHT = 240
 MAX_ICON_BYTES = 100_000
 VUE_APP_PATH = PurePosixPath("ui/modules/apps/soturineChaosRandomizer")
+BRAND_ASSETS = {
+    "ui/modules/apps/soturineChaosRandomizer/assets/branding/fox-1024.png": (1024, 1024),
+    "ui/modules/apps/soturineChaosRandomizer/assets/branding/fox-256.png": (256, 256),
+    "ui/modules/apps/soturineChaosRandomizer/assets/branding/fox-64.png": (64, 64),
+}
+LEGACY_BRAND_ASSETS = {
+    "ui/modules/apps/soturineChaosRandomizer/assets/app-icon.svg",
+    "ui/modules/apps/soturineChaosRandomizer/assets/app-icon-250x120.png",
+    "ui/modules/apps/soturineChaosRandomizer/assets/fox-mark.svg",
+    "ui/modules/apps/soturineChaosRandomizer/assets/fox-mark-24.png",
+    "ui/modules/apps/soturineChaosRandomizer/assets/fox-mark-32.png",
+    "ui/modules/apps/soturineChaosRandomizer/assets/fox-mark-48.png",
+}
 
 
 class PackageValidationError(ValueError):
@@ -147,6 +159,9 @@ def validate_archive(archive_path: Path, expected_version: str | None = None) ->
         legacy_paths = FORBIDDEN_RUNTIME_PATHS & set(names)
         if legacy_paths:
             raise PackageValidationError(f"Legacy Angular runtime files are forbidden: {sorted(legacy_paths)}")
+        legacy_brand = LEGACY_BRAND_ASSETS & set(names)
+        if legacy_brand:
+            raise PackageValidationError(f"Superseded brand assets are forbidden: {sorted(legacy_brand)}")
 
         for info in infos:
             mode = info.external_attr >> 16
@@ -195,6 +210,13 @@ def validate_archive(archive_path: Path, expected_version: str | None = None) ->
             raise PackageValidationError(
                 f"Packaged VERSION is {packaged_version!r}, expected {expected_version!r}"
             )
+        for path, expected_dimensions in BRAND_ASSETS.items():
+            data = archive.read(path)
+            if png_dimensions(data) != expected_dimensions:
+                raise PackageValidationError(f"Brand asset dimensions are invalid: {path}")
+            alpha_min, alpha_max = png_alpha_bounds(data)
+            if alpha_min != 0 or alpha_max != 255:
+                raise PackageValidationError(f"Brand asset requires transparent and opaque pixels: {path}")
 
     return names
 
@@ -203,6 +225,63 @@ def png_dimensions(data: bytes) -> tuple[int, int]:
     if len(data) < 24 or data[:8] != b"\x89PNG\r\n\x1a\n" or data[12:16] != b"IHDR":
         raise PackageValidationError("App icon is not a valid PNG")
     return struct.unpack(">II", data[16:24])
+
+
+def png_alpha_bounds(data: bytes) -> tuple[int, int]:
+    width, height = png_dimensions(data)
+    if len(data) < 33 or data[24] != 8 or data[25] != 6 or data[28] != 0:
+        raise PackageValidationError("Transparent brand PNG must be non-interlaced 8-bit RGBA")
+    offset, compressed = 8, bytearray()
+    while offset + 12 <= len(data):
+        length = struct.unpack(">I", data[offset:offset + 4])[0]
+        chunk_type = data[offset + 4:offset + 8]
+        payload_end = offset + 8 + length
+        if payload_end + 4 > len(data):
+            raise PackageValidationError("Brand PNG chunk is truncated")
+        if chunk_type == b"IDAT":
+            compressed.extend(data[offset + 8:payload_end])
+        offset = payload_end + 4
+        if chunk_type == b"IEND":
+            break
+    try:
+        decoded = zlib.decompress(bytes(compressed))
+    except zlib.error as error:
+        raise PackageValidationError("Brand PNG image data is invalid") from error
+    stride, bytes_per_pixel = width * 4, 4
+    if len(decoded) != height * (stride + 1):
+        raise PackageValidationError("Brand PNG scanline size is invalid")
+    previous = bytearray(stride)
+    alpha_min, alpha_max = 255, 0
+    cursor = 0
+    for _ in range(height):
+        filter_type = decoded[cursor]
+        cursor += 1
+        source = decoded[cursor:cursor + stride]
+        cursor += stride
+        row = bytearray(stride)
+        for index, value in enumerate(source):
+            left = row[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+            above = previous[index]
+            upper_left = previous[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+            if filter_type == 0:
+                predictor = 0
+            elif filter_type == 1:
+                predictor = left
+            elif filter_type == 2:
+                predictor = above
+            elif filter_type == 3:
+                predictor = (left + above) // 2
+            elif filter_type == 4:
+                estimate = left + above - upper_left
+                distances = (abs(estimate - left), abs(estimate - above), abs(estimate - upper_left))
+                predictor = (left, above, upper_left)[distances.index(min(distances))]
+            else:
+                raise PackageValidationError("Brand PNG uses an unknown scanline filter")
+            row[index] = (value + predictor) & 0xFF
+        for alpha in row[3::4]:
+            alpha_min, alpha_max = min(alpha_min, alpha), max(alpha_max, alpha)
+        previous = row
+    return alpha_min, alpha_max
 
 
 def validate_icon(path: Path) -> tuple[int, int, int]:
