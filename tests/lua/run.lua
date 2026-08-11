@@ -58,6 +58,7 @@ local lineupManager = require("ge/extensions/soturineChaosRandomizer/lineupManag
 local raceManager = require("ge/extensions/soturineChaosRandomizer/raceManager")
 local raceFocusGuard = require("ge/extensions/soturineChaosRandomizer/raceFocusGuard")
 local racePreview = require("ge/extensions/soturineChaosRandomizer/racePreview")
+local raceAttemptCoordinator = require("ge/extensions/soturineChaosRandomizer/raceAttemptCoordinator")
 local raceScheduler = require("ge/extensions/soturineChaosRandomizer/raceScheduler")
 local lineupStorage = require("ge/extensions/soturineChaosRandomizer/lineupStorage")
 local lineupPersistence = require("ge/extensions/soturineChaosRandomizer/lineupPersistence")
@@ -6728,6 +6729,51 @@ tests.v075_preview_state_requires_a_rendered_frame = function()
   equal(preferences.race.previewEnabled, true)
 end
 
+tests.v076_race_retry_attempts_are_fresh_persistent_and_stale_safe = function()
+  local state = raceAttemptCoordinator.create()
+  local desired = {formation = "GRID", previewOrigin = "camera", count = 4}
+  local first = assert(raceAttemptCoordinator.begin(state, "preview_generation", {
+    now = 1, deadlineSeconds = 10, desired = desired,
+  }))
+  local staleToken = assert(raceAttemptCoordinator.callbackToken(state, first, "plan_ready"))
+  equal(first.generation, 1)
+  truthy(raceAttemptCoordinator.finish(state, first, "failed", {
+    now = 2, errorCode = "position_blocked", recoverable = true,
+    retryAction = "previewRaceGeneration",
+  }))
+  equal(state.recoverable.preview_generation.code, "position_blocked")
+  equal(state.recoverable.preview_generation.desired.formation, "GRID")
+  equal(state.current.preview_generation.active, false, "failed attempt must release its transient lock")
+
+  local second = assert(raceAttemptCoordinator.begin(state, "preview_generation", {
+    now = 3, deadlineSeconds = 10, desired = desired,
+  }))
+  truthy(second.operationId ~= first.operationId)
+  equal(second.generation, first.generation + 1)
+  equal(state.recoverable.preview_generation.code, "position_blocked",
+    "recoverable error stays until success or dismiss")
+  local staleOk, staleReason = raceAttemptCoordinator.validateCallback(state, staleToken, true)
+  equal(staleOk, false); equal(staleReason, "race_attempt_callback_stale")
+  equal(second.staleCallbacksPrevented, 1)
+  truthy(raceAttemptCoordinator.finish(state, second, "succeeded", {now = 4}))
+  equal(state.recoverable.preview_generation, nil)
+
+  local lineupOne = assert(raceAttemptCoordinator.begin(state, "lineup_generation", {
+    now = 5, desired = {preset = "Mods Showcase"},
+  }))
+  truthy(raceAttemptCoordinator.finish(state, lineupOne, "failed", {
+    now = 6, errorCode = "lineup_staging_unsafe", recoverable = true,
+    retryAction = "createChaosLineup",
+  }))
+  local lineupTwo = assert(raceAttemptCoordinator.begin(state, "lineup_generation", {
+    now = 7, desired = {preset = "Mods Showcase"},
+  }))
+  equal(lineupTwo.generation, lineupOne.generation + 1)
+  equal(state.recoverable.lineup_generation.retryAction, "createChaosLineup")
+  truthy(raceAttemptCoordinator.dismiss(state, "lineup_generation"))
+  equal(state.recoverable.lineup_generation, nil)
+end
+
 tests.v075_race_acceptance_is_slot_local_and_terminally_immutable = function()
   local showcase = raceManager.presetOptions("Mods Showcase", {})
   truthy(showcase.acceptMetadataUncertain)
@@ -7822,6 +7868,15 @@ local v075Required = {
   {"formation_runtime_boundary_roundtrip", tests.v075_formation_codes_roundtrip_at_the_runtime_boundary},
 }
 
+local v076Required = {
+  {"preview_retry_releases_transient_lock", tests.v076_race_retry_attempts_are_fresh_persistent_and_stale_safe},
+  {"preview_retry_uses_new_identity", tests.v076_race_retry_attempts_are_fresh_persistent_and_stale_safe},
+  {"recoverable_error_persists_until_success", tests.v076_race_retry_attempts_are_fresh_persistent_and_stale_safe},
+  {"stale_preview_callback_is_inert", tests.v076_race_retry_attempts_are_fresh_persistent_and_stale_safe},
+  {"staging_retry_uses_new_generation", tests.v076_race_retry_attempts_are_fresh_persistent_and_stale_safe},
+  {"recoverable_error_can_be_dismissed", tests.v076_race_retry_attempts_are_fresh_persistent_and_stale_safe},
+}
+
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")
 equal(#v060Required, 104, "0.6.0 required scenario registry")
 equal(#v060PauseLifecycleRequired, 52, "0.6.0 pause lifecycle scenario registry")
@@ -7868,6 +7923,9 @@ for _, scenario in ipairs(v074Required) do
 end
 for _, scenario in ipairs(v075Required) do
   requirementMappings[#requirementMappings + 1] = {"0.7.5:" .. scenario[1], scenario[2]}
+end
+for _, scenario in ipairs(v076Required) do
+  requirementMappings[#requirementMappings + 1] = {"0.7.6:" .. scenario[1], scenario[2]}
 end
 
 local canonicalByFunction = {}

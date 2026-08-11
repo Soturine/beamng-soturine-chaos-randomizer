@@ -53,6 +53,7 @@ local productionModules = {
   raceManager = require("ge/extensions/soturineChaosRandomizer/raceManager"),
   raceFocusGuard = require("ge/extensions/soturineChaosRandomizer/raceFocusGuard"),
   racePreview = require("ge/extensions/soturineChaosRandomizer/racePreview"),
+  raceAttemptCoordinator = require("ge/extensions/soturineChaosRandomizer/raceAttemptCoordinator"),
   lineupSchema = require("ge/extensions/soturineChaosRandomizer/lineupSchema"),
   lineupStorage = require("ge/extensions/soturineChaosRandomizer/lineupStorage"),
   lineupPersistence = require("ge/extensions/soturineChaosRandomizer/lineupPersistence"),
@@ -142,6 +143,7 @@ local runtime = {
   domainOperations = productionModules.domainOperations.create(),
   spawnDirector = {preview = nil, run = nil, lastResult = nil},
   racePreview = nil,
+  raceAttempts = productionModules.raceAttemptCoordinator.create(),
   aiDirector = productionModules.aiDirector.create(32),
   destination = productionModules.destinationMarker.create(),
   aiRoute = productionModules.routePlanner.create(16),
@@ -577,6 +579,7 @@ local function publicState()
     spawnDirector = {
       placement = production.placementAvailability(),
       racePreview = util.deepCopy(runtime.racePreview),
+      attempts = productionModules.raceAttemptCoordinator.snapshot(runtime.raceAttempts),
       preview = runtime.spawnDirector.preview and {
         count = #(runtime.spawnDirector.preview.placements or {}),
         mode = runtime.spawnDirector.preview.options and runtime.spawnDirector.preview.options.mode,
@@ -7076,34 +7079,53 @@ function production.previewRaceGeneration(options)
     publishState()
     return false
   end
+  local attempt = productionModules.raceAttemptCoordinator.begin(runtime.raceAttempts,
+    "preview_generation", {now = runtime.time.realMonotonicTime, deadlineSeconds = 10, desired = options})
+  local function finishAttempt(status, errorCode, recoverable)
+    productionModules.raceAttemptCoordinator.finish(runtime.raceAttempts, attempt, status, {
+      now = runtime.time.realMonotonicTime, errorCode = errorCode, recoverable = recoverable,
+      retryAction = "previewRaceGeneration",
+    })
+  end
   local lineup, reason = productionModules.raceManager.create(options)
   if not lineup then
+    finishAttempt("failed", reason, false)
     setResult(false, reason, "Race preview options are invalid")
     publishState()
     return false
   end
   local playerOk, playerVehicleId = adapter.getCurrentVehicleId()
   if lineup.playerParticipates and (not playerOk or type(playerVehicleId) ~= "number") then
+    finishAttempt("failed", "lineup_player_vehicle_required", true)
     setResult(false, "lineup_player_vehicle_required",
       "Player participates requires an active player vehicle")
     publishState()
     return false
   end
+  productionModules.raceAttemptCoordinator.setPhase(runtime.raceAttempts, attempt, "planning_staging")
   local context, previewReason = production.generationPreviewContext(
     options, lineup, playerOk, playerVehicleId
   )
   if not context then
-    setResult(false, previewReason, "Race generation preview is unavailable")
+    finishAttempt("failed", previewReason, true)
+    setResult(false, previewReason, "Race generation preview is unavailable", {
+      operationId = attempt.operationId, generation = attempt.generation,
+      recoverable = true, retryAction = "previewRaceGeneration",
+    })
     publishState()
     return false
   end
   runtime.racePreview = productionModules.racePreview.build(
     "generation_staging", context.plan, lineup, context.playerPlacement, true
   )
+  runtime.racePreview.operationId = attempt.operationId
+  runtime.racePreview.generation = attempt.generation
+  finishAttempt("succeeded")
   setResult(true, "race_generation_preview_data_ready", "Race generation preview data is ready", {
     totalVehicles = lineup.totalVehicles,
     aiOpponents = lineup.aiOpponentCount,
     kind = runtime.racePreview.kind, previewState = runtime.racePreview.state,
+    operationId = attempt.operationId, generation = attempt.generation,
   })
   publishState()
   return true
@@ -7122,37 +7144,62 @@ function production.createChaosLineup(options)
     publishState()
     return false
   end
-  if runtime.lineup.current and runtime.lineup.current.active then
-    productionModules.raceManager.cancel(runtime.lineup.current, "Superseded by a new Race generation")
-    runtime.lineup.pendingNext = false
-  end
-  local cleanup = production.clearManagedRaceVehicles("new_race_generation")
-  if #cleanup.failed > 0 then
-    setResult(false, "race_cleanup_failed", "Previous managed Race vehicles could not be cleaned safely", cleanup)
-    publishState()
-    return false
+  options = type(options) == "table" and util.deepCopy(options) or {}
+  local attempt = productionModules.raceAttemptCoordinator.begin(runtime.raceAttempts,
+    "lineup_generation", {now = runtime.time.realMonotonicTime, deadlineSeconds = 15, desired = options})
+  local function finishAttempt(status, errorCode, recoverable)
+    productionModules.raceAttemptCoordinator.finish(runtime.raceAttempts, attempt, status, {
+      now = runtime.time.realMonotonicTime, errorCode = errorCode, recoverable = recoverable,
+      retryAction = "createChaosLineup",
+    })
   end
   local lineup, reason = productionModules.raceManager.create(options)
-  if not lineup then setResult(false, reason, "Race grid options are invalid"); publishState(); return false end
+  if not lineup then
+    finishAttempt("failed", reason, false)
+    setResult(false, reason, "Race grid options are invalid", {
+      operationId = attempt.operationId, generation = attempt.generation,
+    }); publishState(); return false
+  end
   local playerOk, playerVehicleId = adapter.getCurrentVehicleId()
   if lineup.playerParticipates and (not playerOk or type(playerVehicleId) ~= "number") then
+    finishAttempt("failed", "lineup_player_vehicle_required", true)
     setResult(false, "lineup_player_vehicle_required",
       "Player participates requires an active player vehicle. Choose Spectator / camera only to generate without one.")
     publishState()
     return false
   end
   lineup.generationState = "lineup_processing"
+  productionModules.raceAttemptCoordinator.setPhase(runtime.raceAttempts, attempt, "planning_staging")
   local previewContext, stagingReason = production.generationPreviewContext(
     options, lineup, playerOk, playerVehicleId
   )
   if not previewContext then
     lineup.generationState = "lineup_failed"
     lineup.processingState = "lineup_processing_finished"
+    finishAttempt("failed", "lineup_staging_unsafe", true)
     setResult(false, "lineup_staging_unsafe", "Race cars were not generated because safe staging failed", {
-      reason = stagingReason,
+      reason = stagingReason, operationId = attempt.operationId, generation = attempt.generation,
+      recoverable = true, retryAction = "createChaosLineup",
     })
     publishState()
     return false
+  end
+  productionModules.raceAttemptCoordinator.setPhase(runtime.raceAttempts, attempt, "replacing_previous_lineup")
+  local previousLineup = runtime.lineup.current
+  local cleanup = production.clearManagedRaceVehicles("new_race_generation")
+  if #cleanup.failed > 0 then
+    finishAttempt("failed", "race_cleanup_failed", true)
+    setResult(false, "race_cleanup_failed", "Previous managed Race vehicles could not be cleaned safely", {
+      removed = cleanup.removed, failed = cleanup.failed, skipped = cleanup.skipped,
+      operationId = attempt.operationId, generation = attempt.generation,
+      recoverable = true, retryAction = "createChaosLineup",
+    })
+    publishState()
+    return false
+  end
+  if previousLineup and previousLineup.active then
+    productionModules.raceManager.cancel(previousLineup, "Superseded by a new Race generation")
+    runtime.lineup.pendingNext = false
   end
   lineup.playerVehicleId = playerOk and playerVehicleId or nil
   lineup.playerParticipantVehicleId = lineup.playerParticipates and playerVehicleId or nil
@@ -7177,11 +7224,13 @@ function production.createChaosLineup(options)
     lineup.settings.previewEnabled ~= false
   )
   runtime.lineup.current = lineup
+  lineup.setupAttempt = {operationId = attempt.operationId, generation = attempt.generation}
   lineup.generationState = "lineup_processing"
   lineup.schedulerState = "scheduled"
   lineup.schedulerLastProgressAt = runtime.time.realMonotonicTime
   runtime.lineup.pendingNext = true
   local persisted, persistReason = production.persistCurrentLineup()
+  finishAttempt("succeeded")
   setResult(true, persisted and "lineup_started" or "lineup_started_with_storage_warning",
     persisted and "Race grid generation started" or "The Race grid was created but its initial checkpoint could not be saved",
     {episodeSeed = lineup.episodeSeed, count = #lineup.competitors,
