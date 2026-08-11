@@ -8,6 +8,10 @@ local OUTCOMES = {
   FAILED_TIMEOUT = true,
   FAILED_STALLED = true,
   FAILED_RUNTIME_INTEGRITY = true,
+  FAILED_SPAWN = true,
+  FAILED_BIND = true,
+  FAILED_RELOAD = true,
+  FAILED_PERSISTENCE = true,
   FAILED_NO_CHANGE = true,
   FAILED_ROLLED_BACK = true,
   CANCELLED = true,
@@ -68,6 +72,18 @@ local function classify(success, code, details, terminalState)
     or contains(codeText, "runtime_integrity") or contains(codeText, "cardinality_violation")
   then
     outcome = "FAILED_RUNTIME_INTEGRITY"
+  elseif success ~= true and (contains(codeText, "persistence")
+    or contains(codeText, "storage") or contains(codeText, "persist"))
+  then
+    outcome = "FAILED_PERSISTENCE"
+  elseif success ~= true and (contains(codeText, "spawn") or contains(codeText, "replace")) then
+    outcome = "FAILED_SPAWN"
+  elseif success ~= true and (contains(codeText, "bind")
+    or contains(codeText, "target_identity") or contains(codeText, "target_unbound"))
+  then
+    outcome = "FAILED_BIND"
+  elseif success ~= true and (contains(codeText, "reload") or contains(codeText, "readback")) then
+    outcome = "FAILED_RELOAD"
   elseif success == true then
     if details.partialApplied == true or terminalState == "partial" and details.appliedIncomplete == true then
       outcome = "PARTIAL_APPLIED"
@@ -92,6 +108,10 @@ local function failureKind(outcome)
   if outcome == "FAILED_TIMEOUT" then return "TIMEOUT" end
   if outcome == "FAILED_STALLED" then return "STALLED" end
   if outcome == "FAILED_RUNTIME_INTEGRITY" then return "RUNTIME_INTEGRITY" end
+  if outcome == "FAILED_SPAWN" then return "SPAWN" end
+  if outcome == "FAILED_BIND" then return "BIND" end
+  if outcome == "FAILED_RELOAD" then return "RELOAD" end
+  if outcome == "FAILED_PERSISTENCE" then return "PERSISTENCE" end
   if outcome == "FAILED_ROLLED_BACK" then return "ROLLED_BACK" end
   if outcome == "FAILED_NO_CHANGE" then return "NO_CHANGE" end
   if outcome == "CANCELLED" then return "CANCELLED" end

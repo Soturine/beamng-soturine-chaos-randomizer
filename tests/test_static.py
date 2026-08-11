@@ -256,6 +256,7 @@ class StaticValidationTests(unittest.TestCase):
         outcomes = (
             "COMPLETED", "COMPLETED_WITH_SKIPS", "COMPLETED_WITH_WARNING", "PARTIAL_APPLIED",
             "FAILED_TIMEOUT", "FAILED_STALLED", "FAILED_RUNTIME_INTEGRITY", "FAILED_NO_CHANGE",
+            "FAILED_SPAWN", "FAILED_BIND", "FAILED_RELOAD", "FAILED_PERSISTENCE",
             "FAILED_ROLLED_BACK", "CANCELLED",
         )
         for locale, catalog in catalogs.items():
