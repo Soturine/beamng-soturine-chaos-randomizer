@@ -13,6 +13,7 @@ import { createUILayoutStore } from "./uiLayout.js"
 import { createUIPerformanceProfiler } from "../services/uiPerformance.js"
 import { normalizeDomainPayload, normalizeFullState } from "../services/stateNormalizer.js"
 import { createStatusLifecycle } from "../services/statusLifecycle.js"
+import { RACE_FORMATION_CODES } from "../services/raceProtocol.js"
 
 export const STORES_KEY = Symbol("soturine-chaos-stores")
 
@@ -30,7 +31,7 @@ const RACE_DEFAULTS = Object.freeze({
   previewEnabled: true,
   previewOrigin: "automatic",
   headingMode: "camera",
-  formation: "AUTO_BEST_FIT",
+  formation: RACE_FORMATION_CODES[0],
   spacingMode: "automatic",
   longitudinalSpacing: 8,
   lateralSpacing: 5,

@@ -313,6 +313,19 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("pendingSize", responsive)
         self.assertIn("target.value.parentElement", responsive)
 
+    def test_race_preview_uses_one_frontend_protocol_and_no_legacy_draw_fallback(self) -> None:
+        protocol = (APP / "services/raceProtocol.js").read_text(encoding="utf-8")
+        cars = (APP / "components/race/RaceCarsStep.vue").read_text(encoding="utf-8")
+        formation = (APP / "components/race/FormationControls.vue").read_text(encoding="utf-8")
+        runtime = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/main.lua").read_text(encoding="utf-8")
+        for code in ("AUTO_BEST_FIT", "GRID", "LINE", "RADIAL"):
+            self.assertIn(code, protocol)
+        self.assertIn("RACE_FORMATION_CODES", cars)
+        self.assertIn("RACE_FORMATION_CODES", formation)
+        self.assertIn("formationRuntimeName", formation)
+        self.assertNotIn('elseif runtime.spawnDirector.preview then', runtime)
+        self.assertIn('errorCode = "preview_renderer_threw"', runtime)
+
     def test_frontend_security_has_no_remote_or_executable_content(self) -> None:
         source = frontend_source()
         for pattern in (r"\bv-html\b", r"\beval\s*\(", r"new\s+Function\s*\(", r"https?://", r"//cdn\."):

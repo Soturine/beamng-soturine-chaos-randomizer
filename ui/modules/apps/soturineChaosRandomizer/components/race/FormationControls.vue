@@ -26,25 +26,20 @@ import { computed } from "vue"
 import { useStores } from "../../stores/index.js"
 import NumericInput from "../common/NumericInput.vue"
 import ScrSelect from "../common/ScrSelect.vue"
+import { formationRuntimeName, PLACEMENT_HEADING_MODE_CODES, RACE_FORMATION_CODES, SPACING_MODE_CODES } from "../../services/raceProtocol.js"
 
 const stores = useStores()
 const options = stores.race.state.placementOptions
 const { t } = stores.i18n
-const formations = ["Automatic Best Fit", "Split Left and Right", "Single File Behind", "Single File Ahead", "Staggered Grid", "Side-by-side Grid", "Circular / Radial", "Front Left", "Behind Right", "Custom point", "Collision"]
-const formationItems = computed(() => formations.map(value => ({ value, label: t(`race.formationValue.${value}`) })))
-const spacingItems = computed(() => [
-  { value: "automatic", label: t("race.automatic") },
-  { value: "manual", label: t("race.manual") },
-])
-const headingItems = computed(() => [
-  { value: "camera", label: t("race.headingCamera") },
-  { value: "player", label: t("race.headingPlayer") },
-  { value: "road", label: t("race.headingRoad") },
-  { value: "destination", label: t("race.headingDestination") },
-  { value: "custom", label: t("race.headingCustom") },
-])
+const formationItems = computed(() => RACE_FORMATION_CODES.map(value => ({ value, label: t(`race.formationValue.${value}`) })))
+const spacingItems = computed(() => SPACING_MODE_CODES.map(value => ({
+  value, label: t(value === "automatic" ? "race.automatic" : "race.manual"),
+})))
+const headingItems = computed(() => PLACEMENT_HEADING_MODE_CODES.map(value => ({
+  value, label: t(`race.heading${value[0].toUpperCase()}${value.slice(1)}`),
+})))
 function persist(field, value) { stores.command.send("updateUIPreferences", [{ race: { [field]: value } }]) }
-function merged() { return { ...options } }
+function merged() { return { ...options, mode: formationRuntimeName(options.mode) } }
 const preview = () => stores.command.send("previewLineupSpawn", [merged()])
 function spawn(variant) { const value = merged(); value.spawnAll = variant === "all"; value.useNextLineupCompetitor = variant !== "one"; value.count = variant === "all" ? Number(stores.race.state.options.count || 4) : 1; stores.command.send("startLineupSpawn", [value]) }
 </script>

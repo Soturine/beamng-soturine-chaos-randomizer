@@ -8687,23 +8687,32 @@ local function onUpdate(dtReal, dtSim, dtRaw)
 
   local previewStarted = adapter.clock()
   if runtime.racePreview and runtime.racePreview.enabled then
-    local _, renderReport = productionModules.spawnAdapter.drawPreview(
-      productionModules.racePreview.placements(runtime.racePreview)
-    )
+    local drawWorked, renderResult, renderReport = pcall(function()
+      if type(productionModules.spawnAdapter.drawPreview) ~= "function" then
+        return false, {rendererAvailable = false, errorCode = "preview_renderer_unavailable"}
+      end
+      return productionModules.spawnAdapter.drawPreview(
+        productionModules.racePreview.placements(runtime.racePreview)
+      )
+    end)
+    if not drawWorked then
+      local drawFailure = renderResult
+      renderResult = false
+      renderReport = {rendererAvailable = true, requestedMarkerCount = #(runtime.racePreview.slots or {}),
+        renderedMarkerCount = 0, errorCode = "preview_renderer_threw", errorMessage = tostring(drawFailure)}
+    end
     local previewStateChanged = productionModules.racePreview.recordRender(
-      runtime.racePreview, renderReport, runtime.time.realMonotonicTime
+      runtime.racePreview, renderReport, runtime.time.realMonotonicTime, renderResult
     )
     if previewStateChanged then
       diagnosticsModule.write(runtime.diagnostics,
-        runtime.racePreview.state == "PREVIEW_VISIBLE" and "I" or "W",
+        runtime.racePreview.state == "PREVIEW_RENDERED" and "I" or "W",
         "race_preview_state_changed", {
           state = runtime.racePreview.state,
           renderer = util.deepCopy(runtime.racePreview.renderer),
-        }, runtime.racePreview.state ~= "PREVIEW_VISIBLE")
+        }, runtime.racePreview.state ~= "PREVIEW_RENDERED")
       publishState()
     end
-  elseif runtime.spawnDirector.preview then
-    productionModules.spawnAdapter.drawPreview(runtime.spawnDirector.preview.placements)
   end
   productionModules.destinationMarker.draw(runtime.destination)
   productionModules.performanceMetrics.record(runtime.performanceTelemetry, "preview", math.max(0, (adapter.clock() - previewStarted) * 1000))

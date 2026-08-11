@@ -8,13 +8,14 @@
 import { computed } from "vue"
 import { useStores } from "../../stores/index.js"
 import StatusBanner from "../common/StatusBanner.vue"
+import { previewStatusKey } from "../../services/raceProtocol.js"
 const stores = useStores()
 const { t, has } = stores.i18n
 const placement = computed(() => stores.race.state.spawnDirector?.placement || {})
 const preview = computed(() => stores.race.state.spawnDirector?.racePreview || stores.race.state.lineup?.current?.worldPreview)
-const available = computed(() => preview.value?.state === "PREVIEW_VISIBLE")
+const available = computed(() => preview.value?.state === "PREVIEW_RENDERED")
 const unavailableLabel = computed(() => {
-  if (preview.value?.state) return t(`race.previewState.${preview.value.state}`)
+  if (preview.value?.state) return t(previewStatusKey(preview.value))
   const reason = String(placement.value?.reason || "")
   const key = `race.placementReason.${reason}`
   if (reason && has(key)) return t(key)

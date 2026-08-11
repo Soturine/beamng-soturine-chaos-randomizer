@@ -6,9 +6,10 @@ local M = {}
 local STATES = {
   PREVIEW_DISABLED = true,
   PREVIEW_DATA_READY = true,
-  PREVIEW_RENDERER_UNAVAILABLE = true,
-  PREVIEW_RENDER_ERROR = true,
-  PREVIEW_VISIBLE = true,
+  PREVIEW_RENDER_AVAILABLE = true,
+  PREVIEW_RENDERING = true,
+  PREVIEW_RENDERED = true,
+  PREVIEW_FAILED = true,
   PREVIEW_STALE = true,
 }
 
@@ -99,6 +100,8 @@ local function build(kind, plan, lineup, playerPlacement, enabled)
     clearedReason = nil,
     renderer = {
       available = nil,
+      availabilityState = "UNKNOWN",
+      renderState = enabled == false and "DISABLED" or "NOT_ATTEMPTED",
       attemptedFrames = 0,
       successfulFrames = 0,
       renderedMarkerCount = 0,
@@ -122,28 +125,42 @@ local function build(kind, plan, lineup, playerPlacement, enabled)
   return preview
 end
 
-local function recordRender(preview, report, now)
+local function recordRender(preview, report, now, renderResult)
   if type(preview) ~= "table" or preview.enabled ~= true then return false end
-  report = type(report) == "table" and report or {}
+  report = type(report) == "table" and report or {
+    rendererAvailable = renderResult ~= nil,
+    requestedMarkerCount = #(preview.slots or {}), renderedMarkerCount = 0,
+    errorCode = renderResult == false and "preview_renderer_returned_false" or "preview_renderer_unavailable",
+  }
   local previous = preview.state
   local renderer = preview.renderer or {}
   preview.renderer = renderer
   renderer.attemptedFrames = (tonumber(renderer.attemptedFrames) or 0) + 1
   renderer.available = report.rendererAvailable == true
+  renderer.availabilityState = renderer.available and "RENDER_AVAILABLE" or "RENDER_UNAVAILABLE"
   renderer.requestedMarkerCount = math.max(0, math.floor(tonumber(report.requestedMarkerCount) or 0))
   renderer.renderedMarkerCount = math.max(0, math.floor(tonumber(report.renderedMarkerCount) or 0))
   renderer.lastErrorCode = report.errorCode
   renderer.lastErrorMessage = report.errorMessage
   if renderer.available ~= true then
-    preview.state = "PREVIEW_RENDERER_UNAVAILABLE"
+    renderer.renderState = "FAILED"
+    renderer.lastErrorCode = renderer.lastErrorCode or "preview_renderer_unavailable"
+    preview.state = "PREVIEW_FAILED"
+  elseif renderResult == false then
+    renderer.renderState = "FAILED"
+    renderer.lastErrorCode = renderer.lastErrorCode or "preview_renderer_returned_false"
+    preview.state = "PREVIEW_FAILED"
   elseif renderer.renderedMarkerCount > 0 then
     renderer.successfulFrames = (tonumber(renderer.successfulFrames) or 0) + 1
     renderer.lastFrameAt = tonumber(now) or 0
-    preview.state = "PREVIEW_VISIBLE"
+    renderer.renderState = "RENDERED"
+    preview.state = "PREVIEW_RENDERED"
   elseif report.errorCode ~= nil then
-    preview.state = "PREVIEW_RENDER_ERROR"
+    renderer.renderState = "FAILED"
+    preview.state = "PREVIEW_FAILED"
   else
-    preview.state = "PREVIEW_DATA_READY"
+    renderer.renderState = "RENDERING"
+    preview.state = "PREVIEW_RENDERING"
   end
   return previous ~= preview.state
 end
@@ -196,6 +213,8 @@ local function clear(preview, reason)
   if type(preview) ~= "table" then return nil end
   preview.enabled = false
   preview.state = "PREVIEW_DISABLED"
+  preview.renderer = preview.renderer or {}
+  preview.renderer.renderState = "DISABLED"
   preview.clearedReason = tostring(reason or "preview_cleared")
   preview.slots = {}
   return preview

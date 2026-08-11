@@ -310,6 +310,34 @@ describe("mounted Runtime UI", () => {
     wrapper.unmount()
   })
 
+  it("reports renderer failure without blocking generation and survives 50 Preview toggle cycles", async () => {
+    const { wrapper, stores, command } = mountShell()
+    stores.uiLayout.setTab("race")
+    stores.race.state.spawnDirector.racePreview = {
+      enabled: true,
+      state: "PREVIEW_FAILED",
+      slots: [{ slot: 1 }],
+      renderer: { available: true, renderState: "FAILED", lastErrorCode: "preview_renderer_returned_false" },
+    }
+    await settle()
+    expect(wrapper.text()).toContain("renderer did not draw a frame")
+    const generate = wrapper.findAll("button").find(button => button.text() === "Generate cars")
+    expect(generate).toBeTruthy()
+    expect(generate.attributes("disabled")).toBeUndefined()
+
+    const previewToggle = wrapper.findAll("label.scr-toggle").find(label => label.text().includes("world preview"))
+    expect(previewToggle).toBeTruthy()
+    const input = previewToggle.find('input[type="checkbox"]')
+    for (let cycle = 0; cycle < 50; cycle += 1) {
+      await input.setValue(cycle % 2 !== 0)
+      await settle()
+    }
+    expect(command.calls.filter(([name]) => name === "previewRaceGeneration")).toHaveLength(50)
+    expect(command.calls.filter(([name]) => name === "updateUIPreferences")).toHaveLength(50)
+    expect(stores.race.state.options.previewEnabled).toBe(true)
+    wrapper.unmount()
+  })
+
   it("keeps Events behavior presets simple and advanced AI controls disclosed", async () => {
     const { wrapper, stores } = mountShell()
     stores.race.state.aiDirector.capabilities = {

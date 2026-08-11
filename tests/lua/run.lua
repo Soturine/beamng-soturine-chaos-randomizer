@@ -6702,17 +6702,20 @@ tests.v075_preview_state_requires_a_rendered_frame = function()
   local preview = racePreview.build("generation", plan, lineup, nil, true)
   equal(preview.state, "PREVIEW_DATA_READY")
   equal(preview.formation, "GRID")
-  racePreview.recordRender(preview, {rendererAvailable = false, requestedMarkerCount = 1}, 1)
-  equal(preview.state, "PREVIEW_RENDERER_UNAVAILABLE")
+  racePreview.recordRender(preview, {rendererAvailable = false, requestedMarkerCount = 1}, 1, false)
+  equal(preview.state, "PREVIEW_FAILED")
+  equal(preview.renderer.availabilityState, "RENDER_UNAVAILABLE")
   racePreview.recordRender(preview, {
     rendererAvailable = true, requestedMarkerCount = 1, renderedMarkerCount = 0,
     errorCode = "fixture_renderer_error",
-  }, 2)
-  equal(preview.state, "PREVIEW_RENDER_ERROR")
+  }, 2, false)
+  equal(preview.state, "PREVIEW_FAILED")
   racePreview.recordRender(preview, {
     rendererAvailable = true, requestedMarkerCount = 1, renderedMarkerCount = 1,
-  }, 3)
-  equal(preview.state, "PREVIEW_VISIBLE")
+  }, 3, true)
+  equal(preview.state, "PREVIEW_RENDERED")
+  equal(preview.renderer.availabilityState, "RENDER_AVAILABLE")
+  equal(preview.renderer.renderState, "RENDERED")
   equal(preview.renderer.successfulFrames, 1)
   equal(preview.renderer.lastFrameAt, 3)
   truthy(racePreview.stale(preview, "generation_changed"))
@@ -6727,6 +6730,29 @@ tests.v075_preview_state_requires_a_rendered_frame = function()
   equal(preferences.race.formation, "GRID")
   preferences = p2.preferences.patch(preferences, {race = {previewEnabled = true}})
   equal(preferences.race.previewEnabled, true)
+end
+
+tests.v076_preview_renderer_failure_toggle_and_false_return_are_explicit = function()
+  local plan = {options = {requestedMode = "GRID"}, placements = {
+    {position = {x = 0, y = 0, z = 0}, normal = {x = 0, y = 0, z = 1}},
+  }}
+  local lineup = {settings = {formation = "GRID"}, competitors = {{status = "planned"}}}
+  local preview = racePreview.build("generation", plan, lineup, nil, true)
+  racePreview.recordRender(preview, nil, 1, false)
+  equal(preview.state, "PREVIEW_FAILED")
+  equal(preview.renderer.lastErrorCode, "preview_renderer_returned_false")
+  racePreview.recordRender(preview, {
+    rendererAvailable = true, requestedMarkerCount = 1, renderedMarkerCount = 0,
+  }, 2, true)
+  equal(preview.state, "PREVIEW_RENDERING")
+  equal(preview.renderer.renderState, "RENDERING")
+  for cycle = 1, 50 do
+    racePreview.clear(preview, "toggle_off")
+    equal(preview.state, "PREVIEW_DISABLED")
+    equal(#racePreview.placements(preview), 0)
+    preview = racePreview.build("generation", plan, lineup, nil, true)
+    equal(preview.state, "PREVIEW_DATA_READY")
+  end
 end
 
 tests.v076_race_retry_attempts_are_fresh_persistent_and_stale_safe = function()
@@ -7875,6 +7901,9 @@ local v076Required = {
   {"stale_preview_callback_is_inert", tests.v076_race_retry_attempts_are_fresh_persistent_and_stale_safe},
   {"staging_retry_uses_new_generation", tests.v076_race_retry_attempts_are_fresh_persistent_and_stale_safe},
   {"recoverable_error_can_be_dismissed", tests.v076_race_retry_attempts_are_fresh_persistent_and_stale_safe},
+  {"preview_renderer_false_is_failure", tests.v076_preview_renderer_failure_toggle_and_false_return_are_explicit},
+  {"preview_rendering_state_is_explicit", tests.v076_preview_renderer_failure_toggle_and_false_return_are_explicit},
+  {"preview_toggle_fifty_cycles", tests.v076_preview_renderer_failure_toggle_and_false_return_are_explicit},
 }
 
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")

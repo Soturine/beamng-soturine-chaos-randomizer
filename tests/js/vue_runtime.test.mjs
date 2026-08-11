@@ -165,6 +165,16 @@ for (const tab of ["chaos", "garage", "race", "settings"]) {
   check(invalidLayout.state.resizeModeByTab[tab], "appHost")
 }
 
+const raceProtocol = await load("ui/modules/apps/soturineChaosRandomizer/services/raceProtocol.js")
+check(raceProtocol.RACE_FORMATION_CODES.length, 9)
+check(raceProtocol.formationRuntimeName("AUTO_BEST_FIT"), "Automatic Best Fit")
+check(raceProtocol.formationRuntimeName("RADIAL"), "Circular / Radial")
+truthy(raceProtocol.isRaceFormation("SIDE_BY_SIDE_GRID"))
+truthy(raceProtocol.isPreviewOrigin("player_front"))
+truthy(raceProtocol.isHeadingMode("destination"))
+truthy(raceProtocol.isSpacingMode("manual"))
+check(raceProtocol.isRaceFormation("Automatic Best Fit"), false, "UI protocol must expose stable formation codes")
+
 const lifecycleModule = await load("ui/modules/apps/soturineChaosRandomizer/services/lifecycle.js")
 let cleanupCount = 0
 for (let cycle = 0; cycle < 100; cycle += 1) {

@@ -37,7 +37,7 @@
       <div class="scr-actions">
         <button type="button" :disabled="!options.previewEnabled || core.busy" @click="previewGeneration">{{ t('race.previewGeneration') }}</button>
       </div>
-      <small v-if="worldPreview">{{ t(`race.previewState.${worldPreview.state || 'PREVIEW_DATA_READY'}`) }} · {{ t('race.previewSlots', { count: worldPreview.slots?.length || 0 }) }}</small>
+      <small v-if="worldPreview">{{ previewStateLabel }} · {{ t('race.previewSlots', { count: worldPreview.slots?.length || 0 }) }}</small>
     </details>
 
     <RacePolicyPanel :open="false" />
@@ -59,6 +59,7 @@ import ScrSelect from "../common/ScrSelect.vue"
 import ToggleField from "../common/ToggleField.vue"
 import RacePolicyPanel from "./RacePolicyPanel.vue"
 import CompetitorList from "./CompetitorList.vue"
+import { HEADING_MODE_CODES, PREVIEW_ORIGIN_CODES, previewStatusKey, RACE_FORMATION_CODES, SPACING_MODE_CODES } from "../../services/raceProtocol.js"
 
 const stores = useStores()
 const core = stores.core.state
@@ -79,6 +80,11 @@ const configurationSummary = computed(() => t(
   { total: totalVehicles.value, opponents: plannedOpponents.value },
 ))
 const worldPreview = computed(() => stores.race.state.spawnDirector?.racePreview || current.value?.worldPreview)
+const previewStateLabel = computed(() => {
+  const preview = worldPreview.value
+  if (!preview) return ""
+  return t(previewStatusKey(preview))
+})
 const conflict = computed(() => options.allowOfficialVehicles === false && options.allowModVehicles === false)
 const presets = ["Balanced", "Maximum Chaos", "Mods Showcase", "Custom"]
 const participationItems = computed(() => [
@@ -86,16 +92,14 @@ const participationItems = computed(() => [
   { value: "spectator", label: t("race.spectator") },
 ])
 const presetItems = computed(() => presets.map(value => ({ value, label: t(`race.presetValue.${value}`) })))
-const originItems = computed(() => ["automatic", "player_front", "player_behind", "camera", "custom"]
+const originItems = computed(() => PREVIEW_ORIGIN_CODES
   .map(value => ({ value, label: t(`race.previewOriginValue.${value}`) })))
-const headingItems = computed(() => ["camera", "player", "road", "destination"]
+const headingItems = computed(() => HEADING_MODE_CODES
   .map(value => ({ value, label: t(`race.headingValue.${value}`) })))
-const formations = ["AUTO_BEST_FIT", "GRID", "LINE", "SIDE_BY_SIDE_GRID", "STAGGERED_GRID", "SPLIT_LEFT_RIGHT", "SINGLE_FILE_BEHIND", "SINGLE_FILE_AHEAD", "RADIAL"]
-const formationItems = computed(() => formations.map(value => ({ value, label: t(`race.formationValue.${value}`) })))
-const spacingItems = computed(() => [
-  { value: "automatic", label: t("race.automatic") },
-  { value: "manual", label: t("race.manual") },
-])
+const formationItems = computed(() => RACE_FORMATION_CODES.map(value => ({ value, label: t(`race.formationValue.${value}`) })))
+const spacingItems = computed(() => SPACING_MODE_CODES.map(value => ({
+  value, label: t(value === "automatic" ? "race.automatic" : "race.manual"),
+})))
 const balancedPolicy = Object.freeze({ acceptPartial: false, acceptMetadataUncertain: false, acceptPotentiallyUndrivable: false, avoidDuplicateModels: true, avoidDuplicateConfigurations: true, avoidDuplicateFamilies: false, maximumSameFamily: 2, diversifyVehicleClasses: true, diversifyPropulsion: false, diversifyDrivetrain: false, diversifySource: true, diversifyWheelStyles: false, diversifyBodyTypes: false, allowOfficialVehicles: true, allowModVehicles: true, allowAutomationVehicles: false, allowTrailers: false, allowProps: false, maxAttemptsPerCompetitor: 3, maxConsecutiveFailures: 4, retainAcceptedOnCancel: true })
 const presetValues = { "Balanced": { ...balancedPolicy }, "Maximum Chaos": { ...balancedPolicy, acceptPartial: true, acceptMetadataUncertain: true, acceptPotentiallyUndrivable: true }, "Mods Showcase": { ...balancedPolicy, acceptMetadataUncertain: true, allowOfficialVehicles: false, allowModVehicles: true } }
 const previewFields = new Set(["count", "participationMode", "previewOrigin", "headingMode", "formation", "spacingMode", "longitudinalSpacing", "lateralSpacing", "safetyMargin", "customPointX", "customPointY", "customPointZ"])
