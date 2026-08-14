@@ -56,6 +56,7 @@ local function validate(lineup, options)
   local seen = {}
   local seenPositions = {}
   local seenVehicleIds = {}
+  local seenManagedHandles = {}
   for index, competitor in ipairs(lineup.competitors) do
     if type(competitor) ~= "table" or tonumber(competitor.index) ~= index then return false, "lineup_competitor_index_invalid" end
     if not text(competitor.id, 128) or seen[competitor.id] then return false, "lineup_competitor_id_invalid" end
@@ -73,6 +74,18 @@ local function validate(lineup, options)
       then return false, "lineup_vehicle_identity_invalid" end
       seenVehicleIds[vehicleId] = true
     end
+    if competitor.managedHandle ~= nil then
+      if not text(competitor.managedHandle, 128) or seenManagedHandles[competitor.managedHandle] then
+        return false, "lineup_managed_identity_invalid"
+      end
+      seenManagedHandles[competitor.managedHandle] = true
+    end
+    if (competitor.currentVehicleId == nil) ~= (competitor.managedHandle == nil) then
+      return false, "lineup_managed_binding_incomplete"
+    end
+    if competitor.concreteVehicleId ~= nil
+      and tonumber(competitor.concreteVehicleId) ~= tonumber(competitor.currentVehicleId)
+    then return false, "lineup_concrete_identity_mismatch" end
     if not text(competitor.seed, 64) or not text(competitor.name, 80) or not STATUSES[competitor.status] then
       return false, "lineup_competitor_invalid"
     end
@@ -105,6 +118,7 @@ local function sanitizedImport(lineup)
     kind = lineup.kind, lineupSchemaVersion = lineup.lineupSchemaVersion,
     generatorVersion = lineup.generatorVersion,
     id = lineup.id, name = lineup.name, episodeSeed = lineup.episodeSeed,
+    seedIntent = lineup.seedIntent, repeatedFromLineupId = lineup.repeatedFromLineupId,
     preset = lineup.preset, createdAt = lineup.createdAt, updatedAt = lineup.updatedAt,
     settings = util.deepCopy(lineup.settings), varietyRules = util.deepCopy(lineup.varietyRules),
     spawnPlan = util.deepCopy(lineup.spawnPlan), aiPlan = util.deepCopy(lineup.aiPlan),
@@ -151,9 +165,17 @@ local function sanitizedImport(lineup)
       ownedTemporaryIds = util.deepCopy(competitor.ownedTemporaryIds),
       baseline = util.deepCopy(competitor.baseline), retryCount = competitor.retryCount,
       logicalCandidate = util.deepCopy(competitor.logicalCandidate),
-      currentVehicleId = competitor.currentVehicleId,
+      -- Physical IDs and managed handles are session-local. Imported lineup
+      -- data retains DNA/order but must be placed into fresh owned vehicles.
+      currentVehicleId = nil, concreteVehicleId = nil, managedHandle = nil,
       spawnState = competitor.spawnState, randomizationState = competitor.randomizationState,
-      validationState = competitor.validationState, placementState = competitor.placementState,
+      validationState = competitor.validationState, placementState = "planned",
+      generationReady = competitor.generationReady,
+      placementReady = false,
+      drivabilityState = competitor.drivabilityState,
+      drivable = competitor.drivable,
+      aiState = "NOT_PROBED", aiReady = false, aiCommandDispatched = false,
+      policyDecision = util.deepCopy(competitor.policyDecision),
       terminalResult = util.deepCopy(competitor.terminalResult),
       compatibility = {status = "requires_local_recompute"},
     }

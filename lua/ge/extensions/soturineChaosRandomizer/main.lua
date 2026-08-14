@@ -375,6 +375,8 @@ local function publicState()
     publicLineup = {
       id = runtime.lineup.current.id, name = runtime.lineup.current.name,
       episodeSeed = runtime.lineup.current.episodeSeed, preset = runtime.lineup.current.preset,
+      seedIntent = runtime.lineup.current.seedIntent,
+      repeatedFromLineupId = runtime.lineup.current.repeatedFromLineupId,
       active = runtime.lineup.current.active == true,
       generationState = runtime.lineup.current.generationState,
       processingState = runtime.lineup.current.processingState,
@@ -418,10 +420,25 @@ local function publicState()
         requestedIndex = competitor.requestedIndex,
         logicalCandidate = util.deepCopy(competitor.logicalCandidate),
         currentVehicleId = competitor.currentVehicleId,
+        concreteVehicleId = competitor.currentVehicleId,
+        generationId = runtime.lineup.current.id,
+        episodeSeed = runtime.lineup.current.episodeSeed,
+        slotSeed = competitor.seed,
         spawnState = competitor.spawnState,
         randomizationState = competitor.randomizationState,
         validationState = competitor.validationState,
         placementState = competitor.placementState,
+        generationReady = competitor.generationReady == true,
+        placementReady = competitor.placementReady == true,
+        drivabilityState = competitor.drivabilityState,
+        drivable = competitor.drivable,
+        aiState = competitor.aiState,
+        aiReady = competitor.aiReady == true,
+        aiCommandDispatched = competitor.aiCommandDispatched == true,
+        aiDispatch = util.deepCopy(competitor.aiDispatch),
+        policyDecision = util.deepCopy(competitor.policyDecision),
+        bindingFailureReason = competitor.bindingFailureReason,
+        replacementState = competitor.replacementState,
         terminalResult = util.deepCopy(competitor.terminalResult),
         spawnTransaction = util.deepCopy(competitor.spawnTransaction),
         raceStatus = competitor.raceStatus, traits = util.deepCopy(competitor.traits),
@@ -898,6 +915,13 @@ local function failureRecord(active, phase, errorData, context)
   end
   local selectedModel = active and active.selectedModel
   local selectedConfig = active and active.selectedConfig
+  context.operationId = context.operationId or active and active.operationId
+  context.operationGeneration = context.operationGeneration or active and active.operationGeneration
+  context.preset = context.preset or active and active.domain == "race"
+    and runtime.lineup.current and runtime.lineup.current.preset
+  context.sourceVehicleId = context.sourceVehicleId or active and active.originalVehicleId
+  context.candidateVehicleId = context.candidateVehicleId or active and active.vehicleId
+  context.spawnAction = context.spawnAction or active and active.kind
   return {
     phase = resolvedPhase,
     code = errorData.code or "operation_failed",
@@ -910,6 +934,11 @@ local function failureRecord(active, phase, errorData, context)
     paintLayer = context.paintLayer,
     seed = active and active.seed,
     operationToken = active and active.token,
+    operationId = context.operationId,
+    operationGeneration = context.operationGeneration,
+    preset = context.preset,
+    sourceVehicleId = context.sourceVehicleId,
+    candidateVehicleId = context.candidateVehicleId,
     attempt = context.attempt or (active and active.pass),
     timestamp = os.time(),
     context = context,
@@ -1260,10 +1289,23 @@ local function finishOperation(success, code, message, details, terminalState)
       and active.vehicleId ~= active.lineupPlayerVehicleId
     then
       local entry = productionModules.managedRegistry.findByVehicle(runtime.managedVehicles, active.vehicleId)
+      if entry then
+        local matches = productionModules.managedRegistry.matchesSlot(
+          runtime.managedVehicles, entry.handle, {
+            lineupId = lineup.id, competitorId = competitor.id,
+            slotId = competitor.slotId or tostring(competitor.index),
+            vehicleId = active.vehicleId,
+          }
+        )
+        if not matches then entry = nil end
+      end
+      local registryReason
       if not entry then
-        entry = productionModules.managedRegistry.register(runtime.managedVehicles, active.vehicleId, {
+        entry, registryReason = productionModules.managedRegistry.register(runtime.managedVehicles, active.vehicleId, {
           competitorId = competitor.id, lineupCompetitorId = competitor.id,
           lineupId = lineup.id, name = competitor.name, dnaId = competitor.dnaId,
+          slotId = competitor.slotId or tostring(competitor.index), generationId = lineup.id,
+          episodeSeed = lineup.episodeSeed, slotSeed = competitor.seed,
           modelKey = competitor.modelKey,
           configIdentity = {
             modelKey = competitor.modelKey, configPath = competitor.configuration,
@@ -1286,9 +1328,12 @@ local function finishOperation(success, code, message, details, terminalState)
         )
         competitor.managedHandle = entry.handle
         competitor.currentVehicleId = entry.vehicleId
+        competitor.concreteVehicleId = entry.vehicleId
         competitor.raceStatus = "Ready"
         competitor.spawnState = "spawned_and_retained"
         competitor.placementState = "staged"
+        competitor.generationReady = true
+        competitor.placementReady = true
       else
         competitor.status = "failed"
         competitor.phase = "failed"
@@ -1296,6 +1341,7 @@ local function finishOperation(success, code, message, details, terminalState)
         competitor.failureCode = "managed_registry_failed"
         competitor.validationState = "registry_failed"
         competitor.warning = "Generated vehicle could not be registered as an isolated managed competitor"
+        competitor.bindingFailureReason = registryReason or "managed_slot_binding_failed"
         accepted = false
       end
     end
@@ -1308,6 +1354,10 @@ local function finishOperation(success, code, message, details, terminalState)
       then productionModules.spawnAdapter.deleteVehicle(active.vehicleId) end
       if competitor then
         competitor.currentVehicleId = nil
+        competitor.concreteVehicleId = nil
+        competitor.generationReady = false
+        competitor.placementReady = false
+        competitor.aiReady = false
         competitor.spawnState = "failed_target_removed"
         competitor.placementState = "unavailable"
       end
@@ -2923,8 +2973,16 @@ production.evaluateFinalSafety = function(active, result, continuation)
     return true, result
   end
   if action == "policy_rejected" then
+    local ruleId = result.safetyReasons and result.safetyReasons.acceptance
+      or result.chaosAcceptance or "policy_requirements_not_satisfied"
     return false, adapter.errorValue("rejected_by_chaos_policy",
       "The stable result does not satisfy the selected chaos policy", {
+        policyProfile = active.domain == "race" and runtime.lineup.current
+          and runtime.lineup.current.preset or "Chaos",
+        ruleId = ruleId,
+        severity = "error",
+        decision = "REJECT",
+        evidence = util.deepCopy(result),
         runtimeIntegrity = result.runtimeIntegrity,
         drivability = result.drivability,
         chaosAcceptance = result.chaosAcceptance,
@@ -3954,8 +4012,16 @@ processMutationPass = function(active)
     active.warnings[#active.warnings + 1] =
       "The stable parts result was accepted with warnings by the selected chaos policy."
   elseif safetyAction == "policy_rejected" then
+    local ruleId = safetyResult.safetyReasons and safetyResult.safetyReasons.acceptance
+      or safetyResult.chaosAcceptance or "policy_requirements_not_satisfied"
     failActive(adapter.errorValue("rejected_by_chaos_policy",
       "The stable parts result does not satisfy the selected chaos policy", {
+        policyProfile = active.domain == "race" and runtime.lineup.current
+          and runtime.lineup.current.preset or "Chaos",
+        ruleId = ruleId,
+        severity = "error",
+        decision = "REJECT",
+        evidence = util.deepCopy(safetyResult),
         runtimeIntegrity = safetyResult.runtimeIntegrity,
         drivability = safetyResult.drivability,
         chaosAcceptance = safetyResult.chaosAcceptance,
@@ -6935,24 +7001,74 @@ local function getDeveloperStressState()
   return publicStressState()
 end
 
-function production.clearManagedRaceVehicles(reason)
-  local result = {removed = {}, failed = {}, skipped = {}}
-  for _, entry in ipairs(productionModules.managedRegistry.list(runtime.managedVehicles)) do
-    local metadata = type(entry.metadata) == "table" and entry.metadata or {}
-    if entry.lineupCompetitorId or metadata.lineupId then
-      productionModules.aiAdapter.stop(entry.vehicleId, true)
-      local deleted, deleteReason = productionModules.spawnAdapter.deleteVehicle(entry.vehicleId)
-      if deleted or deleteReason == "vehicle_missing" then
-        result.removed[#result.removed + 1] = entry.vehicleId
-        productionModules.domainOperations.recordRemoval(
-          runtime.domainOperations, entry.vehicleId, reason or "race_generation_replaced"
+function production.clearManagedRaceVehicles(reason, lineup)
+  lineup = lineup or runtime.lineup.current
+  local result = {removed = {}, failed = {}, blocked = {}, skipped = {}}
+  if not lineup then return result end
+  local expectedHandles = {}
+  local playerVehicleId = tonumber(lineup.playerVehicleId or lineup.playerParticipantVehicleId)
+  for _, competitor in ipairs(lineup.competitors or {}) do
+    local handle = competitor.managedHandle
+    if handle then expectedHandles[handle] = true end
+    local accepted = competitor.status == "ready" or competitor.status == "ready_with_warnings"
+      or competitor.status == "partial" and lineup.acceptPartial == true
+    if accepted and (not handle or not competitor.currentVehicleId) then
+      result.blocked[#result.blocked + 1] = {
+        slotId = competitor.slotId or tostring(competitor.index),
+        vehicleId = competitor.currentVehicleId,
+        reason = "race_cleanup_binding_missing",
+      }
+    elseif handle then
+      local matches, entryOrReason = productionModules.managedRegistry.matchesSlot(
+        runtime.managedVehicles, handle, {
+          lineupId = lineup.id, competitorId = competitor.id,
+          slotId = competitor.slotId or tostring(competitor.index),
+          vehicleId = competitor.currentVehicleId,
+        }
+      )
+      local entry = matches and entryOrReason or nil
+      local authorized, ownerOrReason = false, entryOrReason
+      if entry and tonumber(entry.vehicleId) ~= playerVehicleId then
+        authorized, ownerOrReason = productionModules.domainOperations.authorizeManagedCleanup(
+          runtime.domainOperations, entry.vehicleId, {
+            operationId = competitor.operationId, generation = competitor.generation,
+            slot = competitor.index,
+          }
         )
-        productionModules.managedRegistry.remove(runtime.managedVehicles, entry.handle)
+      elseif entry then ownerOrReason = "race_cleanup_player_protected" end
+      if not matches or not authorized then
+        result.blocked[#result.blocked + 1] = {
+          handle = handle, slotId = competitor.slotId or tostring(competitor.index),
+          vehicleId = competitor.currentVehicleId,
+          reason = type(ownerOrReason) == "string" and ownerOrReason or "race_cleanup_ownership_unproven",
+        }
       else
-        result.failed[#result.failed + 1] = {vehicleId = entry.vehicleId, reason = deleteReason}
+        productionModules.aiAdapter.stop(entry.vehicleId, true)
+        local deleted, deleteReason = productionModules.spawnAdapter.deleteVehicle(entry.vehicleId)
+        if deleted or deleteReason == "vehicle_missing" then
+          result.removed[#result.removed + 1] = entry.vehicleId
+          productionModules.domainOperations.recordRemoval(
+            runtime.domainOperations, entry.vehicleId, reason or "race_generation_replaced"
+          )
+          productionModules.managedRegistry.remove(runtime.managedVehicles, entry.handle)
+          competitor.managedHandle, competitor.currentVehicleId = nil, nil
+          competitor.concreteVehicleId = nil
+          competitor.raceStatus, competitor.placementState = "DNS", "removed"
+          competitor.placementReady, competitor.aiReady = false, false
+        else
+          result.failed[#result.failed + 1] = {
+            handle = handle, slotId = competitor.slotId or tostring(competitor.index),
+            vehicleId = entry.vehicleId, reason = deleteReason,
+          }
+        end
       end
-    else
-      result.skipped[#result.skipped + 1] = entry.vehicleId
+    end
+  end
+  for _, entry in ipairs(productionModules.managedRegistry.list(runtime.managedVehicles)) do
+    if not expectedHandles[entry.handle] then
+      result.skipped[#result.skipped + 1] = {
+        handle = entry.handle, vehicleId = entry.vehicleId, reason = "not_owned_by_target_lineup",
+      }
     end
   end
   return result
@@ -7062,7 +7178,15 @@ production.generationPreviewContext = function(options, lineup, playerOk, player
     playerPositionOk, playerPosition = productionModules.spawnAdapter.objectPosition(playerVehicleId)
     playerForwardOk, playerForward = productionModules.spawnAdapter.playerForward()
   end
-  if origin == "player_front" or origin == "player_behind" then
+  if origin == "automatic" and playerPositionOk and playerForwardOk then
+    frame.position = util.deepCopy(playerPosition)
+    frame.forward = {
+      x = tonumber(playerForward.x) or 0,
+      y = tonumber(playerForward.y) or 1,
+      z = 0,
+    }
+    frame.right = {x = frame.forward.y, y = -frame.forward.x, z = 0}
+  elseif origin == "player_front" or origin == "player_behind" then
     if not playerPositionOk or not playerForwardOk then return nil, "preview_player_origin_unavailable" end
     local direction = origin == "player_behind" and -1 or 1
     frame.position = util.deepCopy(playerPosition)
@@ -7088,7 +7212,10 @@ production.generationPreviewContext = function(options, lineup, playerOk, player
     if roadOk then frame.roadForward = roadForward end
   end
   local plan, planReason = productionModules.spawnDirector.plan(frame, {
-    mode = productionModules.formationEnum.runtimeName(lineup.settings.formation),
+    -- Generation uses a dedicated, forward staging grid. The requested final
+    -- formation remains a later positioning concern and never falls back to a
+    -- generic spawn beside or behind the camera.
+    mode = "Staggered Grid",
     count = #lineup.competitors,
     spacingMode = lineup.settings.spacingMode,
     longitudinalSpacing = lineup.settings.longitudinalSpacing,
@@ -7201,6 +7328,43 @@ function production.createChaosLineup(options)
     return false
   end
   options = type(options) == "table" and util.deepCopy(options) or {}
+  if not runtime.index.valid or runtime.index.stale == true then
+    local scheduled, indexResult = rebuildIndex()
+    setResult(false, scheduled and "race_pool_indexing" or "race_pool_index_unavailable",
+      scheduled and "The installed vehicle catalog is being indexed; retry Race generation when it is ready"
+        or "The Race candidate pool could not be inspected", {
+        cause = scheduled and "CANDIDATE_POOL_PENDING" or "CANDIDATE_RESOLUTION_FAILED",
+        index = util.deepCopy(indexResult), recoverable = scheduled == true,
+        retryAction = scheduled and "createChaosLineup" or nil,
+      })
+    publishState()
+    return false
+  end
+  local requestedPreset = productionModules.raceManager.PRESETS[options.preset]
+    and options.preset or "Balanced"
+  local resolvedPoolOptions = productionModules.raceManager.presetOptions(requestedPreset, options)
+  local poolSettings = util.deepCopy(runtime.settings)
+  poolSettings.contentFilter = resolvedPoolOptions.contentFilter or poolSettings.contentFilter
+  poolSettings.includeAutomation = resolvedPoolOptions.allowAutomationVehicles == true
+  poolSettings.includeTrailers = resolvedPoolOptions.allowTrailers == true
+  poolSettings.includeProps = resolvedPoolOptions.allowProps == true
+  local pool = productionModules.raceManager.poolSummary(
+    contentIndex.eligibleModels(runtime.index, poolSettings), resolvedPoolOptions, {}
+  )
+  if not pool.available then
+    local zeroCode = requestedPreset == "Mods Showcase"
+      and "race_zero_pool_mods_showcase" or "race_zero_pool"
+    setResult(false, zeroCode,
+      requestedPreset == "Mods Showcase"
+        and "No eligible mod vehicles are installed for Mods Showcase"
+        or "No eligible vehicles match the selected Race preset and filters", {
+        cause = "ZERO_POOL", preset = requestedPreset, pool = pool,
+        alternatives = {"Balanced", "Custom", "Maximum Chaos"},
+        recoverable = true, retryAction = "createChaosLineup",
+      })
+    publishState()
+    return false
+  end
   local attempt = productionModules.raceAttemptCoordinator.begin(runtime.raceAttempts,
     "lineup_generation", {now = runtime.time.realMonotonicTime, deadlineSeconds = 15, desired = options})
   local function finishAttempt(status, errorCode, recoverable)
@@ -7242,11 +7406,12 @@ function production.createChaosLineup(options)
   end
   productionModules.raceAttemptCoordinator.setPhase(runtime.raceAttempts, attempt, "replacing_previous_lineup")
   local previousLineup = runtime.lineup.current
-  local cleanup = production.clearManagedRaceVehicles("new_race_generation")
-  if #cleanup.failed > 0 then
+  local cleanup = production.clearManagedRaceVehicles("new_race_generation", previousLineup)
+  if #cleanup.failed > 0 or #cleanup.blocked > 0 then
     finishAttempt("failed", "race_cleanup_failed", true)
     setResult(false, "race_cleanup_failed", "Previous managed Race vehicles could not be cleaned safely", {
-      removed = cleanup.removed, failed = cleanup.failed, skipped = cleanup.skipped,
+      removed = cleanup.removed, failed = cleanup.failed, blocked = cleanup.blocked,
+      skipped = cleanup.skipped,
       operationId = attempt.operationId, generation = attempt.generation,
       recoverable = true, retryAction = "createChaosLineup",
     })
@@ -7290,6 +7455,7 @@ function production.createChaosLineup(options)
   setResult(true, persisted and "lineup_started" or "lineup_started_with_storage_warning",
     persisted and "Race grid generation started" or "The Race grid was created but its initial checkpoint could not be saved",
     {episodeSeed = lineup.episodeSeed, count = #lineup.competitors,
+      seedIntent = lineup.seedIntent, repeatedFromLineupId = lineup.repeatedFromLineupId,
       totalVehicles = lineup.totalVehicles, aiOpponents = lineup.aiOpponentCount,
       playerParticipates = lineup.playerParticipates, cleanup = cleanup,
       stagingPreview = util.deepCopy(lineup.stagingPreview), storageReason = persistReason})
@@ -7569,17 +7735,7 @@ function production.previewLineupSpawn(options)
       setResult(false, "spawn_selected_dna_missing", "The selected Vehicle DNA is unavailable"); publishState(); return false
     end
   elseif lineup then
-    for _, competitor in ipairs(lineup.competitors) do
-      local accepted = competitor.status == "ready" or competitor.status == "ready_with_warnings"
-        or (competitor.status == "partial" and lineup.acceptPartial)
-      if accepted then competitors[#competitors + 1] = competitor end
-    end
-    table.sort(competitors, function(left, right)
-      local leftPosition = tonumber(left.position) or tonumber(left.index) or 0
-      local rightPosition = tonumber(right.position) or tonumber(right.index) or 0
-      return leftPosition == rightPosition and tostring(left.id) < tostring(right.id)
-        or leftPosition < rightPosition
-    end)
+    competitors = productionModules.raceManager.placementCompetitors(lineup, options)
   else
     setResult(false, "lineup_missing", "Create or import a lineup, or choose a Vehicle DNA"); publishState(); return false
   end
@@ -7588,8 +7744,7 @@ function production.previewLineupSpawn(options)
     publishState()
     return false
   end
-  options.count = options.spawnAll == false
-    and math.min(#competitors, tonumber(options.count) or 1) or #competitors
+  options.count = #competitors
   if options.spacingMode == "automatic" then
     options.vehicleDimensions = {}
     for index, competitor in ipairs(competitors) do
@@ -7678,16 +7833,10 @@ function production.startLineupSpawn(options)
   if runtime.spawnDirector.run and runtime.spawnDirector.run.active then
     setResult(false, "spawn_director_busy", "Spawn Director is already running"); publishState(); return false
   end
-  if not runtime.spawnDirector.preview then
-    setResult(false, "placement_preview_required", "Preview the complete formation before confirming Placement")
-    publishState()
-    return false
-  end
+  -- Physical positioning always calculates a fresh plan. Renderer availability
+  -- and a prior visual-preview click are deliberately outside this contract.
+  if not production.previewLineupSpawn(options) then return false end
   local plan = runtime.spawnDirector.preview
-  if options and options.spawnAll == false then
-    plan.placements = {plan.placements[1]}
-    plan.competitors = {plan.competitors[1]}
-  end
   plan.active, plan.cursor, plan.nextAt = true, 1, adapter.clock()
   if runtime.lineup.current then runtime.lineup.current.placementState = "placing" end
   runtime.spawnDirector.run = plan
@@ -7733,9 +7882,18 @@ local function verifyPendingSpawn(pending)
     )
     if verified == true then
       if vehicleId ~= pending.vehicleId then
-        local rebound, rebindReason = productionModules.managedRegistry.rebind(
-          runtime.managedVehicles, pending.handle, pending.vehicleId, vehicleId, pending.targetGeneration
-        )
+        local rebound, rebindReason
+        if pending.replacement then
+          rebound, rebindReason = productionModules.managedRegistry.rebindReplacementCandidate(
+            runtime.managedVehicles, pending.handle, pending.vehicleId, vehicleId,
+            pending.targetGeneration
+          )
+        else
+          rebound, rebindReason = productionModules.managedRegistry.rebind(
+            runtime.managedVehicles, pending.handle, pending.vehicleId, vehicleId,
+            pending.targetGeneration
+          )
+        end
         if not rebound then return false, rebindReason end
         pending.vehicleId = vehicleId
         pending.targetGeneration = runtime.managedVehicles.entries[pending.handle].targetGeneration
@@ -7782,6 +7940,85 @@ function production.processSpawnDirector()
         run.nextAt = adapter.clock() + 0.1
         return true
       end
+      if pending.replacement then
+        local entry = runtime.managedVehicles.entries[pending.handle]
+        local transaction = entry and entry.pendingReplacement
+        local replacementValid = transaction
+          and transaction.targetGeneration == pending.targetGeneration
+          and transaction.sourceVehicleId == pending.replacement.sourceVehicleId
+          and transaction.candidateVehicleId == pending.vehicleId
+          and entry.vehicleId == transaction.sourceVehicleId
+        if not replacementValid then
+          production.cleanupSpawnTransaction(pending.spawnTransaction)
+          productionModules.managedRegistry.abortReplacement(
+            runtime.managedVehicles, pending.handle, pending.targetGeneration,
+            "managed_replacement_transaction_mismatch"
+          )
+          run.failures[#run.failures + 1] = {
+            index = pending.competitor.index, reason = "managed_replacement_transaction_mismatch",
+          }
+          pending.competitor.raceStatus = "Ready"
+          pending.competitor.replacementState = "failed_source_retained"
+          run.pendingVerification = nil
+          run.cursor = run.cursor + 1
+          run.nextAt = adapter.clock() + run.options.interval
+          publishState()
+          return true
+        end
+        local sourceOwner = productionModules.domainOperations.ownership(
+          runtime.domainOperations, transaction.sourceVehicleId
+        )
+        local deleted, deleteReason = productionModules.spawnAdapter.deleteVehicle(
+          transaction.sourceVehicleId
+        )
+        if not deleted and deleteReason ~= "vehicle_missing" then
+          production.cleanupSpawnTransaction(pending.spawnTransaction)
+          productionModules.managedRegistry.abortReplacement(
+            runtime.managedVehicles, pending.handle, pending.targetGeneration, deleteReason
+          )
+          run.failures[#run.failures + 1] = {
+            index = pending.competitor.index, reason = "managed_replacement_source_remove_failed",
+            detail = deleteReason,
+          }
+          pending.competitor.raceStatus = "Ready"
+          pending.competitor.replacementState = "failed_source_retained"
+          run.pendingVerification = nil
+          run.cursor = run.cursor + 1
+          run.nextAt = adapter.clock() + run.options.interval
+          publishState()
+          return true
+        end
+        local committed, commitReason = productionModules.managedRegistry.commitReplacement(
+          runtime.managedVehicles, pending.handle, pending.targetGeneration
+        )
+        if not committed then
+          production.cleanupSpawnTransaction(pending.spawnTransaction)
+          run.failures[#run.failures + 1] = {
+            index = pending.competitor.index, reason = commitReason,
+          }
+          pending.competitor.raceStatus = "DNS"
+          pending.competitor.replacementState = "failed_after_source_removed"
+          run.pendingVerification = nil
+          run.cursor = run.cursor + 1
+          run.nextAt = adapter.clock() + run.options.interval
+          publishState()
+          return true
+        end
+        productionModules.domainOperations.recordRemoval(
+          runtime.domainOperations, transaction.sourceVehicleId,
+          "managed_replacement_source_removed"
+        )
+        if sourceOwner then
+          productionModules.domainOperations.ownVehicle(runtime.domainOperations, pending.vehicleId, {
+            domain = sourceOwner.domain, operationId = sourceOwner.operationId,
+            generation = sourceOwner.generation, role = sourceOwner.role,
+            slot = sourceOwner.slot, managed = true, created = true, accepted = true,
+            terminal = true, identity = sourceOwner.identity,
+          })
+        end
+        pending.competitor.replacementState = "candidate_committed"
+        pending.competitor.replacedVehicleId = transaction.sourceVehicleId
+      end
       productionModules.managedRegistry.setPending(runtime.managedVehicles, pending.handle, {
         writes = 0, timers = 0, callbacks = 0,
       })
@@ -7803,7 +8040,10 @@ function production.processSpawnDirector()
         pending.competitor.raceStatus = "Ready"
         pending.competitor.managedHandle = pending.handle
         pending.competitor.currentVehicleId = pending.vehicleId
+        pending.competitor.concreteVehicleId = pending.vehicleId
         pending.competitor.placementState = pending.placementOnly and "placed" or "spawned"
+        pending.competitor.placementReady = true
+        if pending.replacement then pending.competitor.replacementState = "completed" end
         local entry = runtime.managedVehicles.entries[pending.handle]
         if entry and pending.placement then entry.spawnTransform = util.deepCopy(pending.placement) end
       else
@@ -7822,7 +8062,12 @@ function production.processSpawnDirector()
         pending.competitor.spawnTransaction = util.deepCopy(pending.spawnTransaction)
       end
       local entry = runtime.managedVehicles.entries[pending.handle]
-      if entry then
+      if pending.replacement then
+        productionModules.managedRegistry.abortReplacement(
+          runtime.managedVehicles, pending.handle, pending.targetGeneration,
+          verified == false and stateOrReason or "spawn_readback_timeout"
+        )
+      elseif entry then
         entry.status = pending.placementOnly and "ready" or "failed"
         entry.targetConfirmed = pending.placementOnly == true
         entry.validated = pending.placementOnly == true
@@ -7833,8 +8078,11 @@ function production.processSpawnDirector()
         index = pending.competitor.index,
         reason = verified == false and stateOrReason or "spawn_readback_timeout",
       }
-      pending.competitor.raceStatus = pending.placementOnly and "Ready" or "DNS"
-      pending.competitor.placementState = pending.placementOnly and "placement_failed" or "spawn_failed"
+      pending.competitor.raceStatus = (pending.placementOnly or pending.replacement) and "Ready" or "DNS"
+      pending.competitor.placementState = pending.placementOnly and "placement_failed"
+        or pending.replacement and "staged" or "spawn_failed"
+      pending.competitor.placementReady = pending.replacement == true
+      if pending.replacement then pending.competitor.replacementState = "failed_source_retained" end
       run.pendingVerification = nil
       run.cursor = run.cursor + 1
       run.nextAt = adapter.clock() + run.options.interval
@@ -7867,7 +8115,40 @@ function production.processSpawnDirector()
     if not entry then
       run.failures[#run.failures + 1] = {index = competitor.index, reason = readyReason}
       competitor.placementState = "managed_vehicle_unavailable"
+      competitor.placementReady = false
+    elseif tonumber(entry.vehicleId) == tonumber(runtime.lineup.current and runtime.lineup.current.playerVehicleId) then
+      run.failures[#run.failures + 1] = {index = competitor.index, reason = "race_placement_player_protected"}
+      competitor.placementState = "placement_authority_denied"
+      competitor.placementReady = false
     else
+      local bindingOk, bindingReason = productionModules.managedRegistry.matchesSlot(
+        runtime.managedVehicles, entry.handle, {
+          lineupId = runtime.lineup.current and runtime.lineup.current.id,
+          competitorId = competitor.id,
+          slotId = competitor.slotId or tostring(competitor.index),
+          vehicleId = competitor.currentVehicleId,
+        }
+      )
+      local authorized, authorityReason = false, bindingReason
+      if bindingOk then
+        authorized, authorityReason = productionModules.domainOperations.authorizeManagedCleanup(
+          runtime.domainOperations, entry.vehicleId, {
+            operationId = competitor.operationId, generation = competitor.generation,
+            slot = competitor.index,
+          }
+        )
+      end
+      if not bindingOk or not authorized then
+        run.failures[#run.failures + 1] = {
+          index = competitor.index, reason = authorityReason or "race_placement_authority_denied",
+        }
+        competitor.placementState = "placement_authority_denied"
+        competitor.placementReady = false
+        run.cursor = run.cursor + 1
+        run.nextAt = adapter.clock() + run.options.interval
+        publishState()
+        return true
+      end
       local generation = productionModules.managedRegistry.beginGeneration(
         runtime.managedVehicles, entry.handle, "placement"
       )
@@ -7900,6 +8181,7 @@ function production.processSpawnDirector()
       })
       run.failures[#run.failures + 1] = {index = competitor.index, reason = placementReason}
       competitor.placementState = "placement_failed"
+      competitor.placementReady = false
     end
     run.cursor = run.cursor + 1
     run.nextAt = adapter.clock() + run.options.interval
@@ -7916,6 +8198,10 @@ function production.processSpawnDirector()
       lineupId = runtime.lineup.current and runtime.lineup.current.id,
       name = competitor.name,
       lineupCompetitorId = competitor.id,
+      slotId = competitor.slotId or tostring(competitor.index),
+      generationId = runtime.lineup.current and runtime.lineup.current.id,
+      episodeSeed = runtime.lineup.current and runtime.lineup.current.episodeSeed,
+      slotSeed = competitor.seed,
       dnaId = competitor.dnaId,
       modelKey = modelKey,
       configIdentity = {modelKey = modelKey, configPath = config.partConfigFilename},
@@ -7975,14 +8261,25 @@ function production.cancelLineupSpawn()
         end
       end
       local entry = runtime.managedVehicles.entries[run.pendingVerification.handle]
-      if entry and entry.status == "loading" then
+      if run.pendingVerification.replacement then
+        productionModules.managedRegistry.abortReplacement(
+          runtime.managedVehicles, run.pendingVerification.handle,
+          run.pendingVerification.targetGeneration, "managed_replacement_cancelled"
+        )
+        if run.pendingVerification.competitor then
+          run.pendingVerification.competitor.raceStatus = "Ready"
+          run.pendingVerification.competitor.replacementState = "cancelled_source_retained"
+        end
+      elseif entry and entry.status == "loading" then
         entry.status = "failed"
         entry.failureReason = "spawn_verification_cancelled"
         productionModules.managedRegistry.setPending(runtime.managedVehicles, entry.handle, {
           writes = 0, timers = 0, callbacks = 0,
         })
       end
-      if run.pendingVerification.competitor then run.pendingVerification.competitor.raceStatus = "DNS" end
+      if run.pendingVerification.competitor and not run.pendingVerification.replacement then
+        run.pendingVerification.competitor.raceStatus = "DNS"
+      end
       run.pendingVerification = nil
     end
   end
@@ -7997,21 +8294,52 @@ function production.removeManagedVehicle(handle)
     setResult(false, "operation_busy", "Managed vehicles cannot be removed during a vehicle mutation operation"); publishState(); return false
   end
   local entry = runtime.managedVehicles.entries[handle]
-  if not entry then return false end
+  if not entry then
+    setResult(false, "managed_vehicle_unknown", "Managed vehicle is unavailable"); publishState(); return false
+  end
+  local lineup = runtime.lineup.current
+  local competitor
+  for _, candidate in ipairs(lineup and lineup.competitors or {}) do
+    if candidate.managedHandle == handle then competitor = candidate; break end
+  end
+  local matches, bindingReason = false, "managed_slot_binding_unproven"
+  if competitor then
+    matches, bindingReason = productionModules.managedRegistry.matchesSlot(
+      runtime.managedVehicles, handle, {
+        lineupId = lineup.id, competitorId = competitor.id,
+        slotId = competitor.slotId or tostring(competitor.index),
+        vehicleId = competitor.currentVehicleId,
+      }
+    )
+  end
+  if not matches then
+    setResult(false, bindingReason, "Managed removal requires a proven Race slot binding"); publishState(); return false
+  end
+  if tonumber(entry.vehicleId) == tonumber(lineup.playerVehicleId) then
+    setResult(false, "race_cleanup_player_protected", "The player vehicle cannot be removed by Race cleanup"); publishState(); return false
+  end
+  local authorized, authorizationReason = productionModules.domainOperations.authorizeManagedCleanup(
+    runtime.domainOperations, entry.vehicleId, {
+      operationId = competitor.operationId, generation = competitor.generation,
+      slot = competitor.index,
+    }
+  )
+  if not authorized then
+    setResult(false, authorizationReason, "Managed removal lacks local cleanup authority"); publishState(); return false
+  end
   productionModules.aiAdapter.stop(entry.vehicleId, true)
   local deleted, reason = productionModules.spawnAdapter.deleteVehicle(entry.vehicleId)
   if not deleted and reason ~= "vehicle_missing" then
     setResult(false, reason, "Managed vehicle could not be removed"); publishState(); return false
   end
+  productionModules.domainOperations.recordRemoval(
+    runtime.domainOperations, entry.vehicleId, "managed_vehicle_removed_by_user"
+  )
   productionModules.managedRegistry.remove(runtime.managedVehicles, handle)
-  if runtime.lineup.current then
-    for _, competitor in ipairs(runtime.lineup.current.competitors or {}) do
-      if competitor.managedHandle == handle then
-        competitor.managedHandle, competitor.raceStatus = nil, "Pending"
-        break
-      end
-    end
-  end
+  competitor.managedHandle, competitor.currentVehicleId = nil, nil
+  competitor.concreteVehicleId = nil
+  competitor.raceStatus, competitor.placementState = "DNS", "removed"
+  competitor.placementReady, competitor.aiReady = false, false
   setResult(true, "managed_vehicle_removed", "Managed vehicle removed", {handle = handle})
   publishState()
   return true
@@ -8021,8 +8349,42 @@ function production.respawnManagedVehicle(handle)
   if runtime.state.busy then
     setResult(false, "operation_busy", "Managed vehicles cannot respawn during a vehicle mutation operation"); publishState(); return false
   end
-  local entry = runtime.managedVehicles.entries[handle]
-  if not entry then return false end
+  if runtime.spawnDirector.run and runtime.spawnDirector.run.active then
+    setResult(false, "spawn_director_busy", "Finish or cancel the active placement/replacement first"); publishState(); return false
+  end
+  local entry, readyReason = productionModules.managedRegistry.readyEntry(
+    runtime.managedVehicles, handle
+  )
+  if not entry then
+    setResult(false, readyReason, "Managed vehicle is not ready for replacement"); publishState(); return false
+  end
+  local lineup = runtime.lineup.current
+  local competitor
+  for _, candidate in ipairs(lineup and lineup.competitors or {}) do
+    if candidate.managedHandle == handle then competitor = candidate; break end
+  end
+  local bindingOk, bindingReason = false, "managed_slot_binding_unproven"
+  if competitor then
+    bindingOk, bindingReason = productionModules.managedRegistry.matchesSlot(
+      runtime.managedVehicles, handle, {
+        lineupId = lineup.id, competitorId = competitor.id,
+        slotId = competitor.slotId or tostring(competitor.index),
+        vehicleId = competitor.currentVehicleId,
+      }
+    )
+  end
+  if not bindingOk then
+    setResult(false, bindingReason, "Managed replacement requires a proven Race slot binding"); publishState(); return false
+  end
+  local authorized, authorizationReason = productionModules.domainOperations.authorizeManagedCleanup(
+    runtime.domainOperations, entry.vehicleId, {
+      operationId = competitor.operationId, generation = competitor.generation,
+      slot = competitor.index,
+    }
+  )
+  if not authorized then
+    setResult(false, authorizationReason, "Managed replacement lacks local cleanup authority"); publishState(); return false
+  end
   local modelKey = entry.modelKey or entry.metadata and entry.metadata.modelKey
   local config = entry.metadata and entry.metadata.config
   local placement = entry.spawnTransform or entry.metadata and entry.metadata.spawnTransform
@@ -8030,27 +8392,33 @@ function production.respawnManagedVehicle(handle)
     setResult(false, "managed_respawn_state_missing", "Managed vehicle has no verified spawn state"); publishState(); return false
   end
   local oldId = entry.vehicleId
-  local generation = productionModules.managedRegistry.beginGeneration(runtime.managedVehicles, handle, "respawn")
   local spawned, newId, spawnTransaction = productionModules.spawnAdapter.spawnVehicle(modelKey, config, placement)
   if not spawned then
     production.cleanupSpawnTransaction(spawnTransaction)
-    entry.status, entry.failureReason = "destroyed", newId
     setResult(false, newId, "Managed vehicle respawn failed"); publishState(); return false
   end
-  local rebound, reason = productionModules.managedRegistry.respawn(
+  if newId == oldId then
+    setResult(false, "managed_replacement_reused_source_id",
+      "Managed replacement returned the still-owned source identity; the source was preserved")
+    publishState()
+    return false
+  end
+  local generation = productionModules.managedRegistry.beginGeneration(
+    runtime.managedVehicles, handle, "atomic_replacement"
+  )
+  local began, reason = productionModules.managedRegistry.beginReplacement(
     runtime.managedVehicles, handle, oldId, newId, generation
   )
-  if not rebound then
+  if not began then
     production.cleanupSpawnTransaction(spawnTransaction)
-    setResult(false, reason, "Managed vehicle respawn callback was stale"); publishState(); return false
+    productionModules.managedRegistry.abortReplacement(
+      runtime.managedVehicles, handle, generation, reason
+    )
+    setResult(false, reason, "Managed vehicle replacement transaction was rejected"); publishState(); return false
   end
   productionModules.managedRegistry.setPending(runtime.managedVehicles, handle, {timers = 1, callbacks = 1})
-  local competitor = {index = 0, id = entry.lineupCompetitorId, name = entry.metadata and entry.metadata.name or handle}
-  if runtime.lineup.current then
-    for _, candidate in ipairs(runtime.lineup.current.competitors or {}) do
-      if candidate.id == entry.lineupCompetitorId then competitor = candidate; break end
-    end
-  end
+  competitor.replacementState = "candidate_verifying"
+  competitor.replacementCandidateVehicleId = newId
   runtime.spawnDirector.run = {
     active = true, options = {interval = 0.75}, placements = {}, competitors = {}, cursor = 1,
     nextAt = adapter.clock() + 0.1, spawned = {}, failures = {},
@@ -8060,9 +8428,14 @@ function production.respawnManagedVehicle(handle)
       competitor = competitor, startedAt = adapter.clock(), deadline = adapter.clock() + WAIT_TIMEOUT,
       candidateIds = {}, candidateSeen = {}, stableScans = 0,
       spawnTransaction = spawnTransaction,
+      replacement = {sourceVehicleId = oldId, candidateVehicleId = newId},
     },
   }
-  setResult(true, "managed_vehicle_respawning", "Managed vehicle respawn is awaiting read-back", {handle = handle, vehicleId = newId})
+  setResult(true, "managed_vehicle_replacement_started",
+    "Managed replacement candidate is awaiting read-back; the source remains available", {
+      handle = handle, sourceVehicleId = oldId, candidateVehicleId = newId,
+      slotId = competitor.slotId, generation = generation,
+    })
   publishState()
   return true
 end
@@ -8138,10 +8511,33 @@ function production.startManagedAI(options)
     publishState()
     return false
   end
-  local selected = type(options.handles) == "table" and options.handles or runtime.managedVehicles.order
+  local selected
+  if type(options.handles) == "table" and #options.handles > 0 then
+    selected = options.handles
+  elseif lineup then
+    local ordered = {}
+    for _, competitor in ipairs(lineup.competitors or {}) do
+      if competitor.managedHandle then ordered[#ordered + 1] = competitor end
+    end
+    table.sort(ordered, function(left, right)
+      local leftPosition = tonumber(left.position) or tonumber(left.index) or 0
+      local rightPosition = tonumber(right.position) or tonumber(right.index) or 0
+      return leftPosition == rightPosition and tostring(left.id) < tostring(right.id)
+        or leftPosition < rightPosition
+    end)
+    selected = {}
+    for _, competitor in ipairs(ordered) do selected[#selected + 1] = competitor.managedHandle end
+  else selected = runtime.managedVehicles.order end
   local started, failures = 0, {}
   for order, handle in ipairs(selected) do
     local managed, managedReason = productionModules.managedRegistry.readyEntry(runtime.managedVehicles, handle)
+    local lineupCompetitor
+    for _, competitor in ipairs(lineup and lineup.competitors or {}) do
+      if competitor.managedHandle == handle then lineupCompetitor = competitor; break end
+    end
+    if managed and lineupCompetitor and lineupCompetitor.drivable == false then
+      managed, managedReason = nil, "vehicle_not_drivable"
+    end
     if managed then
       local currentOptions = util.deepCopy(options)
       local currentMode = mode
@@ -8193,6 +8589,25 @@ function production.startManagedAI(options)
         if entry then
           productionModules.managedRegistry.setAIState(runtime.managedVehicles, handle,
             managed.targetGeneration, {status = "scheduled", mode = currentMode})
+          if lineup then
+            for _, competitor in ipairs(lineup.competitors or {}) do
+              if competitor.managedHandle == handle then
+                competitor.aiState = "SCHEDULED"
+                competitor.aiReady = false
+                competitor.aiCommandDispatched = false
+                competitor.aiDispatch = {
+                  vehicleId = managed.vehicleId,
+                  slotId = competitor.slotId or tostring(competitor.index),
+                  behaviorRequested = currentMode,
+                  targetVehicleId = currentOptions.targetVehicleId,
+                  aiCommand = currentMode,
+                  dispatchResult = "SCHEDULED",
+                  readbackState = "PENDING",
+                }
+                break
+              end
+            end
+          end
           runtime.aiDirector.polling = runtime.aiDirector.polling or productionModules.adaptivePolling.create({
             fastInterval = 0.1, slowInterval = 1.0, stableThreshold = 3,
           }, adapter.clock())
@@ -8201,6 +8616,26 @@ function production.startManagedAI(options)
         else failures[#failures + 1] = {handle = handle, reason = reason} end
       end
     else failures[#failures + 1] = {handle = handle, reason = managedReason} end
+  end
+  if lineup then
+    for _, failure in ipairs(failures) do
+      for _, competitor in ipairs(lineup.competitors or {}) do
+        if competitor.managedHandle == failure.handle then
+          competitor.aiState = "REJECTED"
+          competitor.aiReady = false
+          competitor.aiCommandDispatched = false
+          competitor.aiDispatch = util.shallowMerge(competitor.aiDispatch or {}, {
+            vehicleId = competitor.currentVehicleId,
+            slotId = competitor.slotId or tostring(competitor.index),
+            behaviorRequested = mode,
+            dispatchResult = "REJECTED",
+            readbackState = "NOT_STARTED",
+            failureReason = failure.reason,
+          })
+          break
+        end
+      end
+    end
   end
   setResult(started > 0, started > 0 and "ai_director_scheduled" or "ai_director_failed",
     started > 0 and "AI Director scheduled managed vehicles"
@@ -8315,6 +8750,8 @@ function production.processAIDirector()
       local ok, reason = false, managedReason
       if managed then ok, reason = productionModules.aiAdapter.start(entry.vehicleId, entry.mode, entry.options) end
       entry.lastAttemptAt = now
+      entry.dispatchResult = ok and "QUEUED" or "REJECTED"
+      entry.dispatchFailureReason = ok and nil or reason
       if ok then
         entry.startedAt, entry.lastProgressAt = now, now
         local readOk, observedMode, method = productionModules.aiAdapter.readMode(entry.vehicleId)
@@ -8444,6 +8881,37 @@ function production.processAIDirector()
         distance = entry.distanceToDestination, replans = entry.replanCount,
         modeConfirmation = entry.modeConfirmation and entry.modeConfirmation.status or nil,
       })
+      if runtime.lineup.current then
+        for _, competitor in ipairs(runtime.lineup.current.competitors or {}) do
+          if competitor.managedHandle == handle then
+            competitor.aiState = string.upper(tostring(entry.status or "UNKNOWN"))
+            competitor.aiCommandDispatched = entry.dispatchResult == "QUEUED"
+            local modeConfirmed = entry.reason == "mode_confirmed"
+              or entry.modeConfirmation and entry.modeConfirmation.status == "confirmed"
+            local motionObserved = tonumber(entry.speed) and tonumber(entry.speed) >= 0.5
+            competitor.aiReady = modeConfirmed == true or motionObserved == true
+            if motionObserved then
+              competitor.drivable = true
+              competitor.drivabilityState = "MOTION_OBSERVED"
+            end
+            competitor.aiDispatch = util.shallowMerge(competitor.aiDispatch or {}, {
+              vehicleId = entry.vehicleId,
+              slotId = competitor.slotId or tostring(competitor.index),
+              behaviorRequested = entry.mode,
+              targetVehicleId = entry.options and entry.options.targetVehicleId,
+              aiCommand = entry.mode,
+              dispatchResult = entry.dispatchResult or "PENDING",
+              readbackState = modeConfirmed and "CONFIRMED"
+                or motionObserved and "MOTION_CONFIRMED"
+                or entry.reason == "mode_confirmation_unavailable" and "UNAVAILABLE"
+                or string.upper(tostring(entry.status or "UNKNOWN")),
+              failureReason = entry.dispatchFailureReason
+                or entry.status == "failed" and entry.reason or nil,
+            })
+            break
+          end
+        end
+      end
     end
     if entry and entry.status ~= statusBefore then changed = true end
   end

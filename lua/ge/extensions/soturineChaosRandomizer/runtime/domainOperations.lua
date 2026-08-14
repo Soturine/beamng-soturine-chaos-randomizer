@@ -526,6 +526,22 @@ local function canMutate(state, context, vehicleId)
   return false, "vehicle_owned_by_other_operation"
 end
 
+local function authorizeManagedCleanup(state, vehicleId, expected)
+  local entry = ownership(state, vehicleId)
+  if not entry or entry.removed == true or entry.domain ~= "race"
+    or entry.role ~= "race_competitor" or entry.managed ~= true or entry.accepted ~= true
+  then return false, "race_cleanup_ownership_unproven" end
+  if entry.identity and not vehicleIdentity.canCleanup(entry.identity) then
+    return false, "race_cleanup_authority_denied"
+  end
+  expected = type(expected) == "table" and expected or {}
+  if expected.operationId ~= nil and tostring(entry.operationId) ~= tostring(expected.operationId)
+    or expected.generation ~= nil and tonumber(entry.generation) ~= tonumber(expected.generation)
+    or expected.slot ~= nil and tostring(entry.slot) ~= tostring(expected.slot)
+  then return false, "race_cleanup_operation_mismatch" end
+  return true, entry
+end
+
 local function markOrphan(state, vehicleId, reason)
   local entry = ownership(state, vehicleId)
   if not entry or entry.managed ~= true or entry.accepted == true then
@@ -820,6 +836,7 @@ M.expectRemoval = expectRemoval
 M.expectAddition = expectAddition
 M.classifyWorldDelta = classifyWorldDelta
 M.canMutate = canMutate
+M.authorizeManagedCleanup = authorizeManagedCleanup
 M.markOrphan = markOrphan
 M.recordRemoval = recordRemoval
 M.reap = reap

@@ -4722,7 +4722,7 @@ tests.v061_race_presets_apply_real_policy = function()
   local balanced = lineupManager.presetOptions("Balanced", {})
   equal(balanced.chaos, 65)
   truthy(balanced.protectCriticalParts and not balanced.allowMissingParts and not balanced.extremeTuning)
-  truthy(not balanced.acceptPartial and not balanced.acceptMetadataUncertain)
+  truthy(not balanced.acceptPartial and balanced.acceptMetadataUncertain)
   local maximum = lineupManager.presetOptions("Maximum Chaos", {})
   equal(maximum.chaos, 100)
   truthy(maximum.allowMissingParts and maximum.extremeTuning and maximum.acceptPartial)
@@ -7223,6 +7223,207 @@ tests.v073_beamng_0394_fixture_covers_identity_failures_and_managed_ai = functio
   truthy(fixture:find('"engine_renderer_known_issue"', 1, true))
 end
 
+tests.v077_episode_seed_intent_is_explicit_unique_and_repeatable = function()
+  local first = assert(raceManager.create({count = 3, episodeSeed = "", seedIntent = "new"}))
+  local second = assert(raceManager.create({count = 3, episodeSeed = "", seedIntent = "new"}))
+  truthy(first.episodeSeed ~= second.episodeSeed)
+  truthy(first.competitors[1].seed ~= second.competitors[1].seed)
+  equal(first.seedIntent, "new")
+  equal(second.seedIntent, "new")
+
+  local explicit = assert(raceManager.create({count = 3, episodeSeed = "OWNER-SEED-X"}))
+  local repeated = assert(raceManager.create({
+    count = 3, episodeSeed = explicit.episodeSeed, seedIntent = "repeat",
+    repeatOfLineupId = explicit.id,
+  }))
+  equal(explicit.episodeSeed, "OWNER-SEED-X")
+  equal(repeated.episodeSeed, explicit.episodeSeed)
+  equal(repeated.seedIntent, "repeat")
+  equal(repeated.repeatedFromLineupId, explicit.id)
+  truthy(repeated.id ~= explicit.id)
+  for index = 1, 3 do
+    equal(repeated.competitors[index].seed, explicit.competitors[index].seed)
+    equal(repeated.competitors[index].selectionSeed, explicit.competitors[index].selectionSeed)
+    equal(repeated.competitors[index].mutationSeed, explicit.competitors[index].mutationSeed)
+  end
+
+  local whitespace = assert(raceManager.create({count = 2, episodeSeed = "   "}))
+  truthy(whitespace.episodeSeed ~= "")
+  equal(whitespace.seedIntent, "new")
+
+  local retryLineup = assert(raceManager.create({count = 2, episodeSeed = "RETRY-EPISODE"}))
+  local retrySlot = assert(raceManager.nextCompetitor(retryLineup))
+  local firstRetrySeed = raceManager.domainSeed(retryLineup, retrySlot, "operation", 1)
+  retrySlot.status, retrySlot.generationClosed, retrySlot.attemptCount = "failed", true, 1
+  truthy(raceManager.resolveFailure(retryLineup, 1, "retry"))
+  local retried = assert(raceManager.nextCompetitor(retryLineup))
+  equal(retried.seed, retrySlot.seed, "slot identity seed must remain stable across retry")
+  truthy(raceManager.domainSeed(retryLineup, retried, "operation", 2) ~= firstRetrySeed,
+    "retry substream must be fresh without minting a new episode")
+end
+
+tests.v077_managed_slot_binding_and_replacement_are_atomic = function()
+  local registry = managedVehicleRegistry.create(4)
+  local entry = assert(managedVehicleRegistry.register(registry, 10, {
+    lineupId = "lineup-a", lineupCompetitorId = "slot-a", slotId = "1",
+    generationId = "lineup-a", episodeSeed = "episode-a", slotSeed = "slot-seed-a",
+    targetConfirmed = true, validated = true,
+  }))
+  entry.status = "ready"
+  local duplicateSlot, duplicateSlotReason = managedVehicleRegistry.register(registry, 11, {
+    lineupId = "lineup-a", lineupCompetitorId = "slot-a", slotId = "1",
+  })
+  equal(duplicateSlot, nil); equal(duplicateSlotReason, "managed_slot_already_bound")
+  local duplicateVehicle, duplicateVehicleReason = managedVehicleRegistry.register(registry, 10, {
+    lineupId = "lineup-a", lineupCompetitorId = "slot-b", slotId = "2",
+  })
+  equal(duplicateVehicle, nil); equal(duplicateVehicleReason, "managed_vehicle_already_bound")
+  truthy(managedVehicleRegistry.matchesSlot(registry, entry.handle, {
+    lineupId = "lineup-a", competitorId = "slot-a", slotId = "1", vehicleId = 10,
+  }))
+
+  local failedGeneration = assert(managedVehicleRegistry.beginGeneration(registry, entry.handle, "replacement"))
+  truthy(managedVehicleRegistry.beginReplacement(registry, entry.handle, 10, 12, failedGeneration))
+  equal(entry.vehicleId, 10)
+  truthy(managedVehicleRegistry.abortReplacement(registry, entry.handle, failedGeneration, "fixture_failure"))
+  equal(entry.vehicleId, 10)
+  equal(entry.status, "ready")
+
+  local staleGeneration = assert(managedVehicleRegistry.beginGeneration(registry, entry.handle, "replacement"))
+  truthy(managedVehicleRegistry.beginReplacement(registry, entry.handle, 10, 13, staleGeneration))
+  local newerGeneration = assert(managedVehicleRegistry.beginGeneration(registry, entry.handle, "replacement_retry"))
+  local staleCommit, staleReason = managedVehicleRegistry.commitReplacement(registry, entry.handle, staleGeneration)
+  equal(staleCommit, false); equal(staleReason, "stale_callback_ignored")
+  truthy(managedVehicleRegistry.abortReplacement(registry, entry.handle, newerGeneration, "retry_reset"))
+  equal(entry.vehicleId, 10)
+
+  for cycle = 1, 20 do
+    local generation = assert(managedVehicleRegistry.beginGeneration(registry, entry.handle, "replacement"))
+    local candidate = 100 + cycle
+    truthy(managedVehicleRegistry.beginReplacement(
+      registry, entry.handle, entry.vehicleId, candidate, generation
+    ))
+    truthy(managedVehicleRegistry.commitReplacement(registry, entry.handle, generation))
+    truthy(managedVehicleRegistry.setPending(registry, entry.handle, {
+      writes = 0, timers = 0, callbacks = 0,
+    }))
+    truthy(managedVehicleRegistry.markReady(registry, entry.handle, generation, {
+      busy = false, targetConfirmed = true, validated = true,
+    }))
+    equal(entry.vehicleId, candidate)
+    equal(entry.concreteVehicleId, candidate)
+    equal(#managedVehicleRegistry.list(registry), 1)
+  end
+end
+
+tests.v077_race_cleanup_requires_exact_owned_slot_and_local_authority = function()
+  local ownership = domainOperations.create()
+  local context = assert(domainOperations.begin(ownership, {
+    domain = "race", operationId = "race-slot-one", action = "fullRandom",
+    expectedSlot = 1, createdAt = 1,
+  }))
+  local token = domainOperations.callbackToken(context, "spawn", {
+    expectedSlot = 1, expectedVehicleId = 40,
+  })
+  truthy(domainOperations.registerCandidate(ownership, token, 40, {
+    created = true, identity = {
+      environment = "single_player", localVehicleId = 40, authority = "LOCAL",
+    },
+  }))
+  truthy(domainOperations.acceptVehicle(ownership, context, 40, "race_competitor", 7))
+  truthy(domainOperations.terminal(ownership, context, "completed", {endedAt = 2}))
+  truthy(domainOperations.authorizeManagedCleanup(ownership, 40, {
+    operationId = context.operationId, generation = context.generation, slot = 1,
+  }))
+  local wrongSlot, wrongReason = domainOperations.authorizeManagedCleanup(ownership, 40, {
+    operationId = context.operationId, generation = context.generation, slot = 2,
+  })
+  equal(wrongSlot, false); equal(wrongReason, "race_cleanup_operation_mismatch")
+  local unrelated, unrelatedReason = domainOperations.authorizeManagedCleanup(ownership, 99, {})
+  equal(unrelated, false); equal(unrelatedReason, "race_cleanup_ownership_unproven")
+end
+
+tests.v077_balanced_warning_policy_presets_and_readiness_axes_are_distinct = function()
+  local balanced = assert(raceManager.create({count = 2, preset = "Balanced", episodeSeed = "BALANCED-WARN"}))
+  local slot = assert(raceManager.nextCompetitor(balanced))
+  truthy(raceManager.record(balanced, 1, {
+    success = true, code = "full_random_completed_with_warning", message = "fixture warning",
+    details = {
+      terminalOutcome = "COMPLETED_WITH_WARNING",
+      warnings = {"optional metadata missing"}, metadataUncertain = true,
+      safety = {
+        runtimeIntegrity = "VALID", drivability = "DRIVABLE",
+        chaosAcceptance = "ACCEPT_WITH_WARNING",
+        safetyReasons = {acceptance = "metadata_advisory"},
+      },
+      lifecycleAcceptance = {
+        finalValidationPassed = true, busy = false, pendingWrites = 0,
+        pendingTimers = 0, pendingCallbacks = 0,
+      },
+    },
+  }, nil, slot.targetGeneration))
+  equal(balanced.competitors[1].status, "ready_with_warnings")
+  equal(balanced.competitors[1].policyDecision.decision, "ACCEPT_WITH_WARNING")
+  equal(balanced.competitors[1].policyDecision.ruleId, "metadata_advisory")
+  truthy(balanced.competitors[1].generationReady)
+  equal(balanced.competitors[1].placementReady, false)
+  equal(balanced.competitors[1].drivable, true)
+  equal(balanced.competitors[1].aiReady, false)
+
+  local maximum = raceManager.presetOptions("Maximum Chaos", {})
+  truthy(maximum.extremeTuning and maximum.allowMissingParts
+    and maximum.acceptPotentiallyUndrivable)
+  local custom = raceManager.presetOptions("Custom", {
+    preset = "Custom", chaos = 37, acceptMetadataUncertain = false,
+    acceptPotentiallyUndrivable = false,
+  })
+  equal(custom.chaos, 37)
+  equal(custom.acceptMetadataUncertain, false)
+  equal(custom.acceptPotentiallyUndrivable, false)
+  local modPool = raceManager.poolSummary({}, raceManager.presetOptions("Mods Showcase", {}), {})
+  equal(modPool.available, false)
+  equal(modPool.models, 0)
+  equal(modPool.configurations, 0)
+  equal(modPool.reason, "ZERO_POOL")
+end
+
+tests.v077_formation_selection_and_canonical_order_are_renderer_independent = function()
+  local lineup = assert(raceManager.create({count = 4, episodeSeed = "PLACEMENT-ORDER"}))
+  for index, competitor in ipairs(lineup.competitors) do
+    competitor.status = "ready"
+    competitor.generationReady = true
+    competitor.placementReady = index == 1
+  end
+  local first = raceManager.placementCompetitors(lineup, {
+    spawnAll = false, useNextLineupCompetitor = false,
+  })
+  equal(#first, 1); equal(first[1].index, 1)
+  local nextSlot = raceManager.placementCompetitors(lineup, {
+    spawnAll = false, useNextLineupCompetitor = true,
+  })
+  equal(#nextSlot, 1); equal(nextSlot[1].index, 2)
+  local all = raceManager.placementCompetitors(lineup, {spawnAll = true})
+  equal(#all, 4)
+
+  truthy(raceManager.reorder(lineup, 4, 2))
+  local ordered = raceManager.placementCompetitors(lineup, {spawnAll = true})
+  equal(ordered[1].index, 1)
+  equal(ordered[2].index, 4)
+  equal(ordered[3].index, 2)
+  equal(ordered[4].index, 3)
+  equal(ordered[2].seed, lineup.competitors[4].seed)
+  local none = raceManager.placementCompetitors({competitors = {
+    {index = 1, position = 1, status = "failed"},
+  }}, {spawnAll = false, useNextLineupCompetitor = true})
+  equal(#none, 0)
+
+  local summary = raceManager.summary(lineup)
+  equal(summary.generationReady, 4)
+  equal(summary.placementReady, 1)
+  equal(summary.drivable, 0)
+  equal(summary.aiReady, 0)
+end
+
 tests.all_lua_sources_compile = function()
   local paths = {
     "/lua/ge/extensions/soturineChaosRandomizer.lua",
@@ -8160,6 +8361,32 @@ local v076Required = {
   {"property_new_operation_invalidates_old_callback", tests.v076_ownership_properties_hold_across_adversarial_callback_sequences},
 }
 
+local v077Required = {
+  {"blank_seed_mints_new_episode", tests.v077_episode_seed_intent_is_explicit_unique_and_repeatable},
+  {"explicit_seed_reproduces_slot_substreams", tests.v077_episode_seed_intent_is_explicit_unique_and_repeatable},
+  {"repeat_intent_keeps_episode_seed", tests.v077_episode_seed_intent_is_explicit_unique_and_repeatable},
+  {"retry_uses_fresh_attempt_substream", tests.v077_episode_seed_intent_is_explicit_unique_and_repeatable},
+  {"managed_slot_binding_is_one_to_one", tests.v077_managed_slot_binding_and_replacement_are_atomic},
+  {"managed_vehicle_binding_is_one_to_one", tests.v077_managed_slot_binding_and_replacement_are_atomic},
+  {"managed_replacement_failure_retains_source", tests.v077_managed_slot_binding_and_replacement_are_atomic},
+  {"managed_replacement_stale_commit_is_inert", tests.v077_managed_slot_binding_and_replacement_are_atomic},
+  {"managed_replacement_twenty_cycles_has_one_entry", tests.v077_managed_slot_binding_and_replacement_are_atomic},
+  {"race_cleanup_requires_exact_owned_slot", tests.v077_race_cleanup_requires_exact_owned_slot_and_local_authority},
+  {"race_cleanup_rejects_unrelated_vehicle", tests.v077_race_cleanup_requires_exact_owned_slot_and_local_authority},
+  {"race_cleanup_requires_local_authority", tests.v077_race_cleanup_requires_exact_owned_slot_and_local_authority},
+  {"balanced_accepts_warning_only_candidate", tests.v077_balanced_warning_policy_presets_and_readiness_axes_are_distinct},
+  {"balanced_policy_reason_is_structured", tests.v077_balanced_warning_policy_presets_and_readiness_axes_are_distinct},
+  {"maximum_chaos_remains_extreme", tests.v077_balanced_warning_policy_presets_and_readiness_axes_are_distinct},
+  {"custom_policy_remains_explicit", tests.v077_balanced_warning_policy_presets_and_readiness_axes_are_distinct},
+  {"mods_showcase_zero_pool_is_preflightable", tests.v077_balanced_warning_policy_presets_and_readiness_axes_are_distinct},
+  {"generation_placement_drivability_ai_are_distinct", tests.v077_balanced_warning_policy_presets_and_readiness_axes_are_distinct},
+  {"placement_first_selects_first_slot", tests.v077_formation_selection_and_canonical_order_are_renderer_independent},
+  {"placement_next_selects_next_unplaced_slot", tests.v077_formation_selection_and_canonical_order_are_renderer_independent},
+  {"placement_all_uses_every_ready_slot", tests.v077_formation_selection_and_canonical_order_are_renderer_independent},
+  {"placement_selection_does_not_require_renderer", tests.v077_formation_selection_and_canonical_order_are_renderer_independent},
+  {"canonical_reorder_preserves_slot_seed", tests.v077_formation_selection_and_canonical_order_are_renderer_independent},
+}
+
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")
 equal(#v060Required, 104, "0.6.0 required scenario registry")
 equal(#v060PauseLifecycleRequired, 52, "0.6.0 pause lifecycle scenario registry")
@@ -8209,6 +8436,9 @@ for _, scenario in ipairs(v075Required) do
 end
 for _, scenario in ipairs(v076Required) do
   requirementMappings[#requirementMappings + 1] = {"0.7.6:" .. scenario[1], scenario[2]}
+end
+for _, scenario in ipairs(v077Required) do
+  requirementMappings[#requirementMappings + 1] = {"0.7.7:" .. scenario[1], scenario[2]}
 end
 
 local canonicalByFunction = {}

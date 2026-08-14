@@ -7,6 +7,9 @@ local formationEnum = require("ge/extensions/soturineChaosRandomizer/formationEn
 
 local M = {}
 
+local episodeSeedSequence = 0
+local lineupSequence = 0
+
 local PRESETS = {Balanced = true, ["Maximum Chaos"] = true, ["Mods Showcase"] = true, Custom = true}
 local RULE_DEFAULTS = {
   avoidDuplicateModels = true, avoidDuplicateConfigurations = true,
@@ -90,7 +93,10 @@ local function presetOptions(name, options)
     result.allowMissingParts = false
     result.extremeTuning = false
     result.acceptPartial = false
-    result.acceptMetadataUncertain = false
+    -- Missing descriptive metadata is advisory. Balanced remains strict about
+    -- confirmed drivability/integrity failures, but warning-only candidates
+    -- are not rejected solely because a mod omits optional descriptors.
+    result.acceptMetadataUncertain = true
     result.acceptPotentiallyUndrivable = false
   end
   result.preset = name
@@ -238,8 +244,34 @@ local function domainSeed(lineup, competitor, domain, attempt)
   return rng.new(tostring(lineup.episodeSeed) .. suffix).seed
 end
 
+local function explicitEpisodeSeed(value)
+  if type(value) ~= "string" and type(value) ~= "number" then return nil end
+  local seed = tostring(value):gsub("[%z\1-\31]", " "):gsub("^%s+", ""):gsub("%s+$", "")
+  if seed == "" then return nil end
+  return seed:sub(1, 64)
+end
+
+local function poolSummary(models, rules, acceptedCompetitors)
+  local filtered, diversity = filterModels(models, rules, acceptedCompetitors)
+  local configurations = 0
+  for _, model in ipairs(filtered) do configurations = configurations + #(model.configs or {}) end
+  return {
+    available = #filtered > 0 and configurations > 0,
+    models = #filtered,
+    configurations = configurations,
+    reason = (#filtered == 0 or configurations == 0) and "ZERO_POOL" or nil,
+    diversity = diversity,
+  }
+end
+
 local function raceSeed(value)
-  local numeric = rng.hashText(value or (tostring(os.time()) .. ":lineup"))
+  local explicit = explicitEpisodeSeed(value)
+  if explicit then return explicit end
+  episodeSeedSequence = episodeSeedSequence + 1
+  local material = table.concat({
+    tostring(os.time()), tostring(os.clock()), tostring(episodeSeedSequence), "lineup",
+  }, ":")
+  local numeric = rng.hashText(material)
   local compact = string.format("%08X", numeric)
   return "RACE-" .. compact:sub(1, 4) .. "-" .. compact:sub(5, 8)
 end
@@ -255,8 +287,11 @@ local function create(options)
   local opponentCount = playerParticipates and count - 1 or count
   if opponentCount < 1 then return nil, "lineup_opponent_limit" end
   local episodeSeed = raceSeed(options.episodeSeed)
+  local seedIntent = options.seedIntent == "repeat" and "repeat"
+    or explicitEpisodeSeed(options.episodeSeed) and "explicit" or "new"
   local preset = PRESETS[options.preset] and options.preset or "Balanced"
   options = presetOptions(preset, options)
+  lineupSequence = lineupSequence + 1
   local varietyRules = {}
   for key, default in pairs(RULE_DEFAULTS) do
     if type(default) == "boolean" then varietyRules[key] = options[key] == nil and default or options[key] == true
@@ -265,9 +300,13 @@ local function create(options)
   local lineup = {
     kind = "soturineChaosLineup", lineupSchemaVersion = schema.SCHEMA_VERSION,
     generatorVersion = 6,
-    id = "lineup-" .. string.format("%08X", rng.hashText(episodeSeed .. ":" .. tostring(os.time()))),
+    id = "lineup-" .. string.format("%08X", rng.hashText(table.concat({
+      episodeSeed, tostring(os.time()), tostring(os.clock()), tostring(lineupSequence),
+    }, ":"))),
     name = type(options.name) == "string" and options.name:sub(1, 80) or "Race Grid",
-    episodeSeed = episodeSeed, preset = preset, createdAt = os.time(), updatedAt = os.time(),
+    episodeSeed = episodeSeed, seedIntent = seedIntent,
+    repeatedFromLineupId = seedIntent == "repeat" and options.repeatOfLineupId or nil,
+    preset = preset, createdAt = os.time(), updatedAt = os.time(),
     settings = {
       preset = preset, count = count,
       countSemantics = "total_vehicles",
@@ -339,6 +378,9 @@ local function create(options)
       currentVehicleId = nil, spawnState = "planned",
       randomizationState = "pending", validationState = "pending",
       placementState = "planned", terminalResult = nil,
+      generationReady = false, placementReady = false,
+      drivabilityState = "UNKNOWN_OR_PENDING", drivable = nil,
+      aiState = "NOT_PROBED", aiReady = false, aiCommandDispatched = false,
       startedAtMonotonic = nil, deadlineAtMonotonic = nil,
     }
   end
@@ -474,6 +516,39 @@ local function record(lineup, index, result, dna, targetGeneration)
   competitor.terminalState = competitor.status
   competitor.failureCode = result.success == true and nil or result.code
   competitor.generationStatus = competitor.status
+  competitor.generationReady = competitor.status == "ready"
+    or competitor.status == "ready_with_warnings"
+    or competitor.status == "partial" and lineup.acceptPartial == true
+  competitor.placementReady = false
+  competitor.drivabilityState = safety.drivability or "UNKNOWN_OR_PENDING"
+  if competitor.drivabilityState == "DRIVABLE" then competitor.drivable = true
+  elseif competitor.drivabilityState == "UNDRIVABLE"
+    or competitor.drivabilityState == "PARTIAL"
+    or competitor.drivabilityState == "NOT_APPLICABLE"
+  then competitor.drivable = false
+  else competitor.drivable = nil end
+  competitor.aiState = competitor.drivable == false and "BLOCKED_NOT_DRIVABLE" or "NOT_PROBED"
+  competitor.aiReady = false
+  competitor.aiCommandDispatched = false
+  local failureContext = type(details.failure) == "table" and details.failure.context or {}
+  local acceptanceReason = safety.safetyReasons and safety.safetyReasons.acceptance
+    or failureContext and failureContext.ruleId
+  local decision = acceptanceBlocked and "REJECT"
+    or (hasWarnings or acceptedWarning or safety.chaosAcceptance == "ACCEPT_WITH_WARNING")
+      and "ACCEPT_WITH_WARNING" or result.success == true and "ACCEPT" or "FAILED_BEFORE_DECISION"
+  competitor.policyDecision = {
+    policyProfile = lineup.preset,
+    ruleId = acceptanceReason or (uncertain and "metadata_advisory") or "policy_requirements_satisfied",
+    severity = decision == "REJECT" and "error"
+      or decision == "ACCEPT_WITH_WARNING" and "warning" or "info",
+    evidence = {
+      runtimeIntegrity = safety.runtimeIntegrity,
+      drivability = safety.drivability,
+      metadataUncertain = uncertain,
+      potentiallyUndrivable = potentiallyUndrivable,
+    },
+    decision = decision,
+  }
   competitor.warning = result.success == true and outcome == "PARTIAL_APPLIED"
     and result.message or (result.success and nil or result.message)
   local persistDNA = (competitor.status == "ready" or competitor.status == "ready_with_warnings")
@@ -484,6 +559,9 @@ local function record(lineup, index, result, dna, targetGeneration)
     competitor.terminalState = "failed"
     competitor.failureCode = "lineup_dna_invalid"
     competitor.warning = "Generated Vehicle DNA failed schema validation"
+    competitor.generationReady = false
+    competitor.placementReady = false
+    competitor.aiReady = false
     persistDNA = false
   end
   competitor.dna = persistDNA and util.deepCopy(dna) or nil
@@ -554,6 +632,33 @@ local function reorder(lineup, index, newPosition)
   return true
 end
 
+local function placementCompetitors(lineup, options)
+  options = type(options) == "table" and options or {}
+  local result = {}
+  for _, competitor in ipairs(lineup and lineup.competitors or {}) do
+    local accepted = competitor.status == "ready" or competitor.status == "ready_with_warnings"
+      or competitor.status == "partial" and lineup.acceptPartial == true
+    if accepted then result[#result + 1] = competitor end
+  end
+  table.sort(result, function(left, right)
+    local leftPosition = tonumber(left.position) or tonumber(left.index) or 0
+    local rightPosition = tonumber(right.position) or tonumber(right.index) or 0
+    return leftPosition == rightPosition and tostring(left.id) < tostring(right.id)
+      or leftPosition < rightPosition
+  end)
+  if options.spawnAll == false then
+    local selected = result[1]
+    if options.useNextLineupCompetitor == true then
+      selected = nil
+      for _, competitor in ipairs(result) do
+        if competitor.placementReady ~= true then selected = competitor; break end
+      end
+    end
+    result = selected and {selected} or {}
+  end
+  return result
+end
+
 local function placementAvailability(lineup, managedVehicles, operationBusy, placementBusy)
   if not lineup then return {available = false, count = 0, reason = "race_required"} end
   local count = 0
@@ -588,6 +693,9 @@ local function resolveFailure(lineup, index, action)
     competitor.dna, competitor.dnaId, competitor.vehicleDNAId = nil, nil, nil
     competitor.currentVehicleId, competitor.acceptedVehicleId, competitor.candidateVehicleId = nil, nil, nil
     competitor.ownedTemporaryIds = {}
+    competitor.generationReady, competitor.placementReady, competitor.aiReady = false, false, false
+    competitor.drivabilityState, competitor.drivable = "UNKNOWN_OR_PENDING", nil
+    competitor.aiState, competitor.aiCommandDispatched = "NOT_PROBED", false
     lineup.nextIndex, lineup.active = index, true
   elseif action == "fallback" then
     competitor.status, competitor.phase, competitor.generationStatus, competitor.generationClosed = "planned", "planned", "planned", false
@@ -598,6 +706,9 @@ local function resolveFailure(lineup, index, action)
     competitor.dna, competitor.dnaId, competitor.vehicleDNAId = nil, nil, nil
     competitor.currentVehicleId, competitor.acceptedVehicleId, competitor.candidateVehicleId = nil, nil, nil
     competitor.ownedTemporaryIds = {}
+    competitor.generationReady, competitor.placementReady, competitor.aiReady = false, false, false
+    competitor.drivabilityState, competitor.drivable = "UNKNOWN_OR_PENDING", nil
+    competitor.aiState, competitor.aiCommandDispatched = "NOT_PROBED", false
     lineup.nextIndex, lineup.active = index, true
   elseif action == "skip" then
     competitor.status, competitor.phase, competitor.generationStatus, competitor.generationClosed = "skipped", "skipped", "skipped", true
@@ -607,6 +718,9 @@ local function resolveFailure(lineup, index, action)
     competitor.dna, competitor.dnaId, competitor.vehicleDNAId = nil, nil, nil
     competitor.currentVehicleId, competitor.acceptedVehicleId, competitor.candidateVehicleId = nil, nil, nil
     competitor.ownedTemporaryIds = {}
+    competitor.generationReady, competitor.placementReady, competitor.aiReady = false, false, false
+    competitor.drivabilityState, competitor.drivable = "NOT_APPLICABLE", false
+    competitor.aiState, competitor.aiCommandDispatched = "SKIPPED", false
     lineup.nextIndex, lineup.active = math.max(lineup.nextIndex or 1, index + 1), true
   elseif action == "stop" then
     cancel(lineup, "Generation stopped by user")
@@ -622,6 +736,8 @@ local function summary(lineup)
   local result = {
     active = lineup and lineup.active == true, total = 0, ready = 0, partial = 0,
     failed = 0, cancelled = 0, pending = 0, generated = 0,
+    generationReady = 0, placementReady = 0, drivable = 0, aiReady = 0,
+    generatedNotDrivable = 0, aiCommandDispatched = 0,
     retries = 0, quarantinedCandidates = 0,
     totalGenerationTime = lineup and math.max(0, os.time() - (tonumber(lineup.createdAt) or os.time())) or 0,
     generationState = lineup and lineup.generationState or "failed",
@@ -634,6 +750,16 @@ local function summary(lineup)
   for _, competitor in ipairs(lineup and lineup.competitors or {}) do
     result.total = result.total + 1
     if tonumber(competitor.currentVehicleId) then result.generated = result.generated + 1 end
+    if competitor.generationReady == true then result.generationReady = result.generationReady + 1 end
+    if competitor.placementReady == true then result.placementReady = result.placementReady + 1 end
+    if competitor.drivable == true then result.drivable = result.drivable + 1
+    elseif competitor.generationReady == true and competitor.drivable == false then
+      result.generatedNotDrivable = result.generatedNotDrivable + 1
+    end
+    if competitor.aiReady == true then result.aiReady = result.aiReady + 1 end
+    if competitor.aiCommandDispatched == true then
+      result.aiCommandDispatched = result.aiCommandDispatched + 1
+    end
     if competitor.status == "ready" or competitor.status == "ready_with_warnings" then result.ready = result.ready + 1
     elseif competitor.status == "partial" then result.partial = result.partial + 1
     elseif competitor.status == "failed" then result.failed = result.failed + 1
@@ -664,6 +790,7 @@ M.verifiedTraits = verifiedTraits
 M.metadataUncertain = metadataUncertain
 M.presetOptions = presetOptions
 M.filterModels = filterModels
+M.poolSummary = poolSummary
 M.domainSeed = domainSeed
 M.create = create
 M.nextCompetitor = nextCompetitor
@@ -673,6 +800,7 @@ M.cancel = cancel
 M.resolveFailure = resolveFailure
 M.summary = summary
 M.reorder = reorder
+M.placementCompetitors = placementCompetitors
 M.placementAvailability = placementAvailability
 
 return M
