@@ -8,7 +8,7 @@
   <section v-else>
     <div class="scr-race-summary">
       <strong>{{ t(step === 'start' ? 'race.startReady' : 'race.behaviorReady') }}</strong>
-      <span>{{ t('race.managedReady', { count: managedCount }) }}</span>
+      <span>{{ t('race.behaviorReadinessSummary', { managed: managedCount, ai: aiReadyCount, undrivable: generatedNotDrivableCount }) }}</span>
     </div>
     <AIDirectorControls />
   </section>
@@ -20,7 +20,12 @@ import AIDirectorControls from "./AIDirectorControls.vue"
 defineProps({ step: { type: String, default: "behavior" } })
 const stores = useStores()
 const { t } = stores.i18n
-const managedCount = computed(() => (stores.race.state.spawnDirector?.managed || []).length)
+const managedCount = computed(() => (stores.race.state.spawnDirector?.managed || [])
+  .filter(entry => entry.status === "ready").length)
+const competitors = computed(() => stores.race.state.lineup?.current?.competitors || [])
+const aiReadyCount = computed(() => competitors.value.filter(entry => entry.aiReady === true).length)
+const generatedNotDrivableCount = computed(() => competitors.value
+  .filter(entry => entry.generationReady === true && entry.drivable === false).length)
 const ready = computed(() => ["lineup_ready", "lineup_partial"].includes(stores.race.state.lineup?.current?.generationState)
   && managedCount.value > 0)
 function returnToPreparation() {

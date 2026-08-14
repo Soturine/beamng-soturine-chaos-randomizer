@@ -8,6 +8,7 @@
       :items="normalizedItems"
       type="dropdown"
       :disabled="disabled"
+      :title="selectedLabel"
       :aria-label="ariaLabel || label"
       :aria-invalid="invalid ? 'true' : undefined"
       @change="emit('change', $event)"
@@ -39,6 +40,8 @@ const normalizedItems = computed(() => props.items.map(item => {
   }
   return { value: item, label: String(item ?? "") }
 }))
+const selectedLabel = computed(() => normalizedItems.value
+  .find(item => Object.is(item.value, model.value))?.label || "")
 
 defineExpose({
   openDropdown: (...args) => control.value?.openDropdown?.(...args),

@@ -3,8 +3,13 @@
     <div class="scr-card scr-form-grid">
       <NumericInput :model-value="totalVehicles" :label="t('race.totalVehicles')" :min="2" :max="32" @update:model-value="value => update('count', value)" />
       <ScrSelect :model-value="options.participationMode" :label="t('race.participation')" :items="participationItems" @update:model-value="value => update('participationMode', value)" />
-      <label class="scr-field"><span>{{ t('race.episodeSeed') }}</span><input :value="options.episodeSeed" maxlength="128" @change="update('episodeSeed', $event.target.value)" /></label>
+      <label class="scr-field"><span>{{ t('race.episodeSeed') }}</span><input :value="options.episodeSeed" maxlength="64" @change="update('episodeSeed', $event.target.value)" /></label>
       <ScrSelect :model-value="options.preset" :label="t('race.preset')" :items="presetItems" @update:model-value="preset" />
+    </div>
+    <div v-if="current?.episodeSeed" class="scr-card scr-seed-result" role="status">
+      <span>{{ t('race.usedSeed') }}</span>
+      <code>{{ current.episodeSeed }}</code>
+      <button type="button" @click="copySeed">{{ t('race.copySeed') }}</button>
     </div>
 
     <div class="scr-race-summary" role="status" aria-live="polite">
@@ -16,6 +21,11 @@
       <template v-else-if="current">
         <span v-if="readyCount > 0">{{ t('race.readySummary', { count: readyCount }) }}</span>
         <span v-if="failedCount > 0">{{ t('race.failedSummary', { count: failedCount }) }}</span>
+        <span>{{ t('race.generatedSummary', { count: generationReadyCount }) }}</span>
+        <span>{{ t('race.placementReadySummary', { count: placementReadyCount }) }}</span>
+        <span>{{ t('race.drivableSummary', { count: drivableCount }) }}</span>
+        <span>{{ t('race.aiReadySummary', { count: aiReadyCount }) }}</span>
+        <span v-if="generatedNotDrivableCount > 0">{{ t('race.generatedNotDrivableSummary', { count: generatedNotDrivableCount }) }}</span>
       </template>
     </div>
     <div v-if="persistence?.status === 'warning'" class="scr-banner is-warning" role="status">
@@ -40,14 +50,15 @@
         <NumericInput v-if="options.previewOrigin === 'custom'" :model-value="Number(options.customPointZ || 0)" :label="t('race.customPointZ')" @update:model-value="value => update('customPointZ', value)" />
       </div>
       <div class="scr-actions">
-        <button type="button" :disabled="!options.previewEnabled || core.busy" @click="previewGeneration">{{ t('race.previewGeneration') }}</button>
+        <button type="button" :disabled="!options.previewEnabled || core.busy" @click="previewGeneration">{{ generationPreviewLabel }}</button>
       </div>
       <small v-if="worldPreview">{{ previewStateLabel }} · {{ t('race.previewSlots', { count: worldPreview.slots?.length || 0 }) }}</small>
     </details>
 
     <RacePolicyPanel :open="false" />
     <div class="scr-actions">
-      <button v-if="!core.busy" type="button" class="is-hot" :disabled="conflict" @click="generate">{{ t(current?.active ? 'race.regenerate' : 'race.generate') }}</button>
+      <button v-if="!core.busy" type="button" class="is-hot" :disabled="conflict" @click="generate">{{ t('race.generate') }}</button>
+      <button v-if="!core.busy" type="button" :disabled="conflict || !current?.episodeSeed" @click="repeatGeneration">{{ t('race.repeatGeneration') }}</button>
       <button v-if="current?.active || core.busy" type="button" @click="stores.command.send('cancelRaceGeneration')">{{ t('race.cancelGeneration') }}</button>
       <button type="button" @click="stores.command.send('exportChaosLineup')">{{ t('common.export') }}</button>
       <button type="button" @click="stores.command.send('importChaosLineup')">{{ t('common.import') }}</button>
@@ -64,6 +75,7 @@ import ScrSelect from "../common/ScrSelect.vue"
 import ToggleField from "../common/ToggleField.vue"
 import RacePolicyPanel from "./RacePolicyPanel.vue"
 import CompetitorList from "./CompetitorList.vue"
+import { copyText } from "../../services/clipboard.js"
 import { HEADING_MODE_CODES, PREVIEW_ORIGIN_CODES, previewStatusKey, RACE_FORMATION_CODES, SPACING_MODE_CODES } from "../../services/raceProtocol.js"
 
 const stores = useStores()
@@ -79,6 +91,11 @@ const plannedOpponents = computed(() => Math.max(1, Number(summary.value.planned
 const generatedCount = computed(() => Number(summary.value.generated || 0))
 const readyCount = computed(() => Number(summary.value.ready || 0))
 const failedCount = computed(() => Number(summary.value.failed || 0))
+const generationReadyCount = computed(() => Number(summary.value.generationReady || 0))
+const placementReadyCount = computed(() => Number(summary.value.placementReady || 0))
+const drivableCount = computed(() => Number(summary.value.drivable || 0))
+const aiReadyCount = computed(() => Number(summary.value.aiReady || 0))
+const generatedNotDrivableCount = computed(() => Number(summary.value.generatedNotDrivable || 0))
 const persistence = computed(() => current.value?.persistence)
 const processing = computed(() => current.value?.generationState === "lineup_processing")
 const configurationSummary = computed(() => t(
@@ -91,6 +108,8 @@ const previewStateLabel = computed(() => {
   if (!preview) return ""
   return t(previewStatusKey(preview))
 })
+const generationPreviewLabel = computed(() => t(worldPreview.value?.renderer?.availabilityState === "RENDER_UNAVAILABLE"
+  ? "race.calculateGenerationPlacements" : "race.previewGeneration"))
 const conflict = computed(() => options.allowOfficialVehicles === false && options.allowModVehicles === false)
 const presets = ["Balanced", "Maximum Chaos", "Mods Showcase", "Custom"]
 const participationItems = computed(() => [
@@ -106,7 +125,7 @@ const formationItems = computed(() => RACE_FORMATION_CODES.map(value => ({ value
 const spacingItems = computed(() => SPACING_MODE_CODES.map(value => ({
   value, label: t(value === "automatic" ? "race.automatic" : "race.manual"),
 })))
-const balancedPolicy = Object.freeze({ acceptPartial: false, acceptMetadataUncertain: false, acceptPotentiallyUndrivable: false, avoidDuplicateModels: true, avoidDuplicateConfigurations: true, avoidDuplicateFamilies: false, maximumSameFamily: 2, diversifyVehicleClasses: true, diversifyPropulsion: false, diversifyDrivetrain: false, diversifySource: true, diversifyWheelStyles: false, diversifyBodyTypes: false, allowOfficialVehicles: true, allowModVehicles: true, allowAutomationVehicles: false, allowTrailers: false, allowProps: false, maxAttemptsPerCompetitor: 3, maxConsecutiveFailures: 4, retainAcceptedOnCancel: true })
+const balancedPolicy = Object.freeze({ acceptPartial: false, acceptMetadataUncertain: true, acceptPotentiallyUndrivable: false, avoidDuplicateModels: true, avoidDuplicateConfigurations: true, avoidDuplicateFamilies: false, maximumSameFamily: 2, diversifyVehicleClasses: true, diversifyPropulsion: false, diversifyDrivetrain: false, diversifySource: true, diversifyWheelStyles: false, diversifyBodyTypes: false, allowOfficialVehicles: true, allowModVehicles: true, allowAutomationVehicles: false, allowTrailers: false, allowProps: false, maxAttemptsPerCompetitor: 3, maxConsecutiveFailures: 4, retainAcceptedOnCancel: true })
 const presetValues = { "Balanced": { ...balancedPolicy }, "Maximum Chaos": { ...balancedPolicy, acceptPartial: true, acceptMetadataUncertain: true, acceptPotentiallyUndrivable: true }, "Mods Showcase": { ...balancedPolicy, acceptMetadataUncertain: true, allowOfficialVehicles: false, allowModVehicles: true } }
 const previewFields = new Set(["count", "participationMode", "previewOrigin", "headingMode", "formation", "spacingMode", "longitudinalSpacing", "lateralSpacing", "safetyMargin", "customPointX", "customPointY", "customPointZ"])
 
@@ -126,6 +145,26 @@ async function setPreviewEnabled(value) {
   previewGeneration()
 }
 function previewGeneration() { return stores.command.send("previewRaceGeneration", [{ ...options }]) }
-function generate() { return stores.command.send("createChaosLineup", [{ ...options }]) }
+function generate() {
+  const episodeSeed = String(options.episodeSeed || "").trim()
+  return stores.command.send("createChaosLineup", [{
+    ...options,
+    episodeSeed,
+    seedIntent: episodeSeed ? "explicit" : "new",
+  }])
+}
+function repeatGeneration() {
+  if (!current.value?.episodeSeed) return false
+  return stores.command.send("createChaosLineup", [{
+    ...options,
+    episodeSeed: current.value.episodeSeed,
+    seedIntent: "repeat",
+    repeatOfLineupId: current.value.id,
+  }])
+}
+async function copySeed() {
+  const copied = await copyText(current.value?.episodeSeed || "")
+  stores.diagnostics.state.status = copied ? "diagnostics_copied" : "diagnostics_copy_failed"
+}
 function retryStorage() { return stores.command.send("retryLineupPersistence") }
 </script>

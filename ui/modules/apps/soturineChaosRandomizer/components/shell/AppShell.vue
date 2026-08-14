@@ -40,7 +40,7 @@
         </template>
         <div class="scr-actions">
           <button v-if="compactRaceReady" type="button" :disabled="core.busy" @click="compactRaceAdvance">{{ t('race.positionOrStart') }}</button>
-          <button v-else-if="!race.lineup?.current?.active && !core.busy" type="button" @click="stores.command.send('createChaosLineup', [{ ...race.options }])">{{ t('race.generate') }}</button>
+          <button v-else-if="!race.lineup?.current?.active && !core.busy" type="button" @click="generateCompactRace">{{ t('race.generate') }}</button>
           <button v-else type="button" @click="stores.command.send('cancelRaceGeneration')">{{ t('race.cancelGeneration') }}</button>
         </div>
       </div>
@@ -60,6 +60,7 @@
       </main>
     </section>
     <GlobalStatus @details="toggleDetails" />
+    <OperationDetailsDrawer />
     <ConfirmDialog />
   </section>
 </template>
@@ -75,6 +76,7 @@ import AppNavigation from "./AppNavigation.vue"
 import CompatibilityBadge from "./CompatibilityBadge.vue"
 import OperationProgress from "./OperationProgress.vue"
 import GlobalStatus from "./GlobalStatus.vue"
+import OperationDetailsDrawer from "./OperationDetailsDrawer.vue"
 import ConfirmDialog from "../common/ConfirmDialog.vue"
 import ErrorBoundary from "../common/ErrorBoundary.vue"
 import ChaosActions from "../chaos/ChaosActions.vue"
@@ -145,6 +147,14 @@ function compactRaceAdvance() {
   options.useNextLineupCompetitor = true
   options.count = Math.max(1, compactReadyCount.value)
   stores.command.send("startLineupSpawn", [options])
+}
+function generateCompactRace() {
+  const episodeSeed = String(race.options?.episodeSeed || "").trim()
+  stores.command.send("createChaosLineup", [{
+    ...race.options,
+    episodeSeed,
+    seedIntent: episodeSeed ? "explicit" : "new",
+  }])
 }
 async function toggleCompact() {
   const next = !layout.compact

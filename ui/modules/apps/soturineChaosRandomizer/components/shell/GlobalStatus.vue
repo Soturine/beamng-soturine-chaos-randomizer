@@ -5,7 +5,7 @@
     <span v-if="Number(status.values?.skipped) > 0">{{ t('result.skippedSummary', { count: status.values.skipped }) }}</span>
     <button v-if="status.action" type="button" :disabled="core.busy" @click="retry">{{ t('common.retry') }}</button>
     <button v-if="status.recoverable" type="button" @click="dismiss">{{ t('common.dismiss') }}</button>
-    <button type="button" @click="$emit('details')">{{ t('common.details') }}</button>
+    <button v-if="hasDetails" type="button" @click="$emit('details')">{{ t('common.details') }}</button>
   </div>
 </template>
 <script setup>
@@ -16,6 +16,7 @@ const stores = useStores()
 const core = stores.core.state
 const { t, has } = stores.i18n
 const status = computed(() => stores.status.current(stores.uiLayout.state.activeTab, core.progress?.operationId))
+const hasDetails = computed(() => Boolean(core.lastResult?.code))
 const statusLabel = computed(() => {
   const key = `result.${status.value?.code || "unknown"}`
   return t(has(key) ? key : "result.unknown", status.value?.values)

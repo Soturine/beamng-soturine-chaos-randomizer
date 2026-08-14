@@ -23,9 +23,9 @@ import ScrSelect from "../common/ScrSelect.vue"
 const stores = useStores()
 const { t } = stores.i18n
 const managed = computed(() => normalizeManagedVehicles(stores.race.state.spawnDirector?.managed))
-const managedItems = computed(() => managed.value.map(item => ({
+const managedItems = computed(() => managed.value.map((item, index) => ({
   value: item.handle,
-  label: `${item.name || item.handle} · ${item.status || "—"}`,
+  label: item.name || t("race.managedVehicleNumber", { number: item.slotId || index + 1 }),
 })))
 const selected = ref("")
 watch(managed, list => {

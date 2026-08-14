@@ -4,8 +4,8 @@ export const createUILayoutStore = (profiler = null) => {
   const normalMinSize = { width: 320, height: 360 }
   const normalPreferredWidth = 520
   const expandedSizeByTab = {
-    chaos: { width: 440, height: 470 }, garage: { width: 560, height: 560 },
-    race: { width: 620, height: 600 }, settings: { width: 520, height: 560 },
+    chaos: { width: 440, height: 430 }, garage: { width: 560, height: 520 },
+    race: { width: 620, height: 560 }, settings: { width: 520, height: 520 },
   }
   const compactSizeByTab = {
     chaos: { width: 340, height: 250 }, garage: { width: 340, height: 270 },
@@ -23,6 +23,7 @@ export const createUILayoutStore = (profiler = null) => {
     hostSize: { ...initialNormalSize }, normalMinSize, normalPreferredWidth,
     normalPreferredHeightByTab: Object.fromEntries(Object.entries(expandedSizeByTab).map(([tab, size]) => [tab, size.height])),
     userPreferredNormalSize: { ...initialNormalSize },
+    normalSizePinned: false,
     expandedSizeByTab, compactSizeByTab, lastExpandedSizeByTab,
     userSizeByTab: lastExpandedSizeByTab,
     resizeModeByTab: { chaos: "appHost", garage: "appHost", race: "appHost", settings: "appHost" },
@@ -59,13 +60,17 @@ export const createUILayoutStore = (profiler = null) => {
       if (!state.compact && source === "appHost"
         && measured.width >= state.normalMinSize.width
         && measured.height >= state.normalMinSize.height) {
-        state.userPreferredNormalSize = { ...measured }
-        state.lastExpandedSizeByTab[state.activeTab] = { ...measured }
+        const requested = state.expandedSizeByTab[state.activeTab]
+        if (measured.width !== requested.width || measured.height !== requested.height) {
+          state.normalSizePinned = true
+          state.userPreferredNormalSize = { ...measured }
+          state.lastExpandedSizeByTab[state.activeTab] = { ...measured }
+        }
       }
     },
     preferredSize(tab = state.activeTab) {
       return state.compact ? state.compactSizeByTab[tab]
-        : state.userPreferredNormalSize || state.expandedSizeByTab[tab]
+        : state.normalSizePinned ? state.userPreferredNormalSize : state.expandedSizeByTab[tab]
     },
     normalMinimum() { return { ...state.normalMinSize } },
     noteGeometryApplied() { state.geometryRevision += 1 },

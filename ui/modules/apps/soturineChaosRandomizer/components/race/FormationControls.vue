@@ -12,10 +12,10 @@
       <NumericInput v-if="options.mode === 'Custom point'" v-model="options.customPointZ" :label="t('race.customPointZ')" />
     </div>
     <div class="scr-actions">
-      <button type="button" @click="preview">{{ t('race.preview') }}</button>
-      <button type="button" @click="spawn('one')">{{ t('race.placeOne') }}</button>
-      <button type="button" @click="spawn('next')">{{ t('race.placeNext') }}</button>
-      <button type="button" class="is-hot" @click="spawn('all')">{{ t('race.placeAll') }}</button>
+      <button type="button" :disabled="core.busy" @click="preview">{{ previewLabel }}</button>
+      <button type="button" :disabled="core.busy" @click="spawn('one')">{{ t('race.placeOne') }}</button>
+      <button type="button" :disabled="core.busy" @click="spawn('next')">{{ t('race.placeNext') }}</button>
+      <button type="button" class="is-hot" :disabled="core.busy" @click="spawn('all')">{{ t('race.placeAll') }}</button>
       <button type="button" @click="stores.command.send('cancelLineupSpawn')">{{ t('race.cancelPlacement') }}</button>
     </div>
   </section>
@@ -29,6 +29,7 @@ import ScrSelect from "../common/ScrSelect.vue"
 import { formationRuntimeName, PLACEMENT_HEADING_MODE_CODES, RACE_FORMATION_CODES, SPACING_MODE_CODES } from "../../services/raceProtocol.js"
 
 const stores = useStores()
+const core = stores.core.state
 const options = stores.race.state.placementOptions
 const { t } = stores.i18n
 const formationItems = computed(() => RACE_FORMATION_CODES.map(value => ({ value, label: t(`race.formationValue.${value}`) })))
@@ -38,8 +39,11 @@ const spacingItems = computed(() => SPACING_MODE_CODES.map(value => ({
 const headingItems = computed(() => PLACEMENT_HEADING_MODE_CODES.map(value => ({
   value, label: t(`race.heading${value[0].toUpperCase()}${value.slice(1)}`),
 })))
+const rendererUnavailable = computed(() => stores.race.state.spawnDirector?.racePreview
+  ?.renderer?.availabilityState === "RENDER_UNAVAILABLE")
+const previewLabel = computed(() => t(rendererUnavailable.value ? "race.calculatePlacements" : "race.preview"))
 function persist(field, value) { stores.command.send("updateUIPreferences", [{ race: { [field]: value } }]) }
 function merged() { return { ...options, mode: formationRuntimeName(options.mode) } }
 const preview = () => stores.command.send("previewLineupSpawn", [merged()])
-function spawn(variant) { const value = merged(); value.spawnAll = variant === "all"; value.useNextLineupCompetitor = variant !== "one"; value.count = variant === "all" ? Number(stores.race.state.options.count || 4) : 1; stores.command.send("startLineupSpawn", [value]) }
+function spawn(variant) { const value = merged(); value.spawnAll = variant === "all"; value.useNextLineupCompetitor = variant === "next"; value.placementAction = variant; value.count = variant === "all" ? Number(stores.race.state.options.count || 4) : 1; stores.command.send("startLineupSpawn", [value]) }
 </script>

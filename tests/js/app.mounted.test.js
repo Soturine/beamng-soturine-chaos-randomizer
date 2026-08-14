@@ -73,9 +73,19 @@ describe("mounted Runtime UI", () => {
     expect(wrapper.findAll(".scr-body .scr-card").length).toBeGreaterThanOrEqual(6)
 
     await tabs()[0].trigger("click")
+    stores.applyDiff("core", {
+      lastResult: {
+        success: true,
+        code: "completed",
+        message: "Completed",
+        details: { operationId: "op-mounted-details", phase: "COMPLETED" },
+      },
+    })
     stores.status.push({ code: "completed", scope: "tab", tab: "chaos", severity: "success" })
     await nextTick()
-    await wrapper.find(".scr-global-status button").trigger("click")
+    const detailsButton = wrapper.findAll(".scr-global-status button").find(button => button.text() === "Details")
+    expect(detailsButton).toBeTruthy()
+    await detailsButton.trigger("click")
     await settle()
     expect(wrapper.find(".scr-details").exists()).toBe(true)
     await wrapper.find(".scr-details header button").trigger("click")
@@ -371,6 +381,63 @@ describe("mounted Runtime UI", () => {
     wrapper.unmount()
   })
 
+  it("offers placement fallback data while physical positioning stays renderer-independent", async () => {
+    const { wrapper, stores, command } = mountShell()
+    stores.uiLayout.setTab("race")
+    stores.uiLayout.state.raceStep = "formation"
+    stores.race.state.spawnDirector.racePreview = {
+      enabled: true,
+      state: "PREVIEW_FAILED",
+      formation: "GRID",
+      slots: [
+        { slot: 1, slotId: "slot-1", name: "Competitor 1", transform: { position: { x: 10, y: 20, z: 3 } } },
+        { slot: 2, slotId: "slot-2", name: "Competitor 2", transform: { position: { x: 14, y: 20, z: 3 } } },
+      ],
+      renderer: { availabilityState: "RENDER_UNAVAILABLE", renderState: "FAILED", lastErrorCode: "preview_renderer_unavailable" },
+    }
+    await settle()
+    expect(wrapper.text()).toContain("2 placement positions are ready")
+    expect(wrapper.text()).toContain("Calculate placements")
+    expect(wrapper.text()).toContain("10.0, 20.0, 3.0")
+
+    const next = wrapper.findAll("button").find(button => button.text() === "Place next")
+    await next.trigger("click")
+    expect(command.calls.at(-1)).toEqual(["startLineupSpawn", [expect.objectContaining({
+      spawnAll: false, useNextLineupCompetitor: true, placementAction: "next",
+    })]])
+    wrapper.unmount()
+  })
+
+  it("separates a new blank-seed generation from an explicit repeat and exposes the used seed", async () => {
+    const { wrapper, stores, command } = mountShell()
+    stores.uiLayout.setTab("race")
+    stores.race.state.options.episodeSeed = ""
+    await settle()
+
+    const generate = wrapper.findAll("button").find(button => button.text() === "Generate cars")
+    await generate.trigger("click")
+    expect(command.calls.at(-1)[0]).toBe("createChaosLineup")
+    expect(command.calls.at(-1)[1][0]).toMatchObject({ episodeSeed: "", seedIntent: "new" })
+
+    stores.race.state.lineup.current = {
+      id: "lineup-seed-a", episodeSeed: "RACE-ABCD-1234", generationState: "lineup_ready",
+      summary: { ready: 3 }, competitors: [],
+    }
+    await settle()
+    expect(wrapper.text()).toContain("Seed used")
+    expect(wrapper.text()).toContain("RACE-ABCD-1234")
+    expect(wrapper.findAll("button").some(button => button.text() === "Copy seed")).toBe(true)
+
+    const repeat = wrapper.findAll("button").find(button => button.text() === "Repeat previous seed")
+    expect(repeat.attributes("disabled")).toBeUndefined()
+    await repeat.trigger("click")
+    expect(command.calls.at(-1)[0]).toBe("createChaosLineup")
+    expect(command.calls.at(-1)[1][0]).toMatchObject({
+      episodeSeed: "RACE-ABCD-1234", seedIntent: "repeat", repeatOfLineupId: "lineup-seed-a",
+    })
+    wrapper.unmount()
+  })
+
   it("keeps Events behavior presets simple and advanced AI controls disclosed", async () => {
     const { wrapper, stores } = mountShell()
     stores.race.state.aiDirector.capabilities = {
@@ -518,6 +585,106 @@ describe("mounted Runtime UI", () => {
     await nextTick()
     expect(wrapper.find(".scr-global-status").text()).not.toContain("mounted-diff-seed")
     expect(bridgeHarness.envelopes.filter(value => value.command === "requestState")).toHaveLength(initialRequests)
+    wrapper.unmount()
+  })
+
+  it("hides dead Details CTAs and opens the exact Race operation payload", async () => {
+    const { wrapper, stores, command } = mountShell()
+    stores.uiLayout.setTab("race")
+    stores.status.push({ code: "warning", scope: "tab", tab: "race", severity: "warning" })
+    await settle()
+    expect(wrapper.findAll(".scr-global-status button").some(button => button.text() === "Details")).toBe(false)
+
+    stores.applyDiff("core", {
+      lastResult: {
+        success: false,
+        code: "race_zero_pool_mods_showcase",
+        message: "backend-only English fixture",
+        details: {
+          operationId: "race:lineup_generation:77", generation: 77,
+          preset: "Mods Showcase", episodeSeed: "EPISODE-77", slotId: "slot-2",
+          model: "vivace", configuration: "gravel.pc", concreteVehicleId: 707,
+          recoverable: true, retryAction: "createChaosLineup",
+        },
+      },
+    })
+    await settle()
+    const details = wrapper.findAll(".scr-global-status button").find(button => button.text() === "Details")
+    expect(details).toBeTruthy()
+    await details.trigger("click")
+    await settle()
+    const drawer = wrapper.find(".scr-details.is-drawer")
+    expect(drawer.text()).toContain("race:lineup_generation:77")
+    expect(drawer.text()).toContain("Mods Showcase")
+    expect(drawer.text()).toContain("EPISODE-77")
+    expect(drawer.text()).toContain("slot-2")
+    expect(drawer.text()).toContain("vivace / gravel.pc")
+    expect(drawer.text()).toContain("707")
+    expect(drawer.text()).toContain("change the preset and content filters")
+    expect(drawer.findAll(".scr-tech-grid")[0].text()).not.toContain("backend-only English fixture")
+    await drawer.findAll("button").find(button => button.text() === "Copy diagnostics").trigger("click")
+    expect(command.calls.at(-1)[0]).toBe("copyDiagnostics")
+    wrapper.unmount()
+  })
+
+  it("renders canonical competitor order and persists move intent by slot identity", async () => {
+    const { wrapper, stores, command } = mountShell()
+    stores.uiLayout.setTab("race")
+    stores.race.state.lineup.current = {
+      generationState: "lineup_ready",
+      competitors: [
+        { index: 1, id: "slot-a", name: "A", position: 1, status: "ready" },
+        { index: 2, id: "slot-b", name: "B", position: 3, status: "ready" },
+        { index: 3, id: "slot-c", name: "C", position: 2, status: "ready", seed: "slot-c-seed" },
+      ],
+    }
+    await settle()
+    const names = wrapper.findAll(".scr-competitor input").map(input => input.element.value)
+    expect(names).toEqual(["A", "C", "B"])
+    const middle = wrapper.findAll(".scr-competitor")[1]
+    await middle.findAll("button").find(button => button.text() === "Move down").trigger("click")
+    expect(command.calls.at(-1)).toEqual(["reorderLineupCompetitor", [3, 3]])
+
+    stores.race.state.lineup.current.competitors[1].position = 2
+    stores.race.state.lineup.current.competitors[2].position = 3
+    await settle()
+    expect(wrapper.findAll(".scr-competitor input").map(input => input.element.value)).toEqual(["A", "B", "C"])
+    expect(stores.race.state.lineup.current.competitors[2].seed).toBe("slot-c-seed")
+    wrapper.unmount()
+  })
+
+  it("shows localized detected compatibility once and persists dismissal", async () => {
+    const { wrapper, stores, command } = mountShell()
+    stores.i18n.setPreference("pt-BR")
+    stores.applyDiff("core", {
+      conflicts: [{ id: "multiplayer_vehicle_sync", evidence: "loaded_extension:BeamMP" }],
+    })
+    await settle()
+    const banner = wrapper.find(".scr-compatibility-compact")
+    expect(banner.text()).toContain("A sincronização multiplayer está ativa")
+    expect(banner.text()).not.toContain("Multiplayer vehicle synchronization may")
+    await banner.findAll("button").find(button => button.text() === "Dispensar").trigger("click")
+    expect(wrapper.find(".scr-compatibility-compact").exists()).toBe(false)
+    expect(command.calls.at(-1)).toEqual(["updateUIPreferences", [{ compatibilityWarningDismissed: true }]])
+    wrapper.unmount()
+  })
+
+  it("keeps long selector labels accessible at every required width and locale", async () => {
+    const { wrapper, stores } = mountShell()
+    stores.uiLayout.setTab("race")
+    await settle()
+    const observer = resizeHarness.instances.at(-1)
+    for (const locale of ["pt-BR", "en-US", "es-ES"]) {
+      stores.i18n.setPreference(locale)
+      for (const width of [320, 360, 400, 480, 600, 720]) {
+        observer.emit(width, 560)
+        await settle()
+        for (const trigger of wrapper.findAll(".bng-smart-select-trigger")) {
+          expect(trigger.attributes("title")).toBe(trigger.text())
+        }
+        expect(wrapper.find(".scr-app").classes()).toContain(`scr-width-${width < 400 ? "narrow" : width < 640 ? "medium" : "wide"}`)
+      }
+    }
     wrapper.unmount()
   })
 

@@ -52,7 +52,7 @@ class StaticValidationTests(unittest.TestCase):
             cwd=ROOT, text=True, capture_output=True,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Validated 57 Vue SFC files.", result.stdout)
+        self.assertIn("Validated 58 Vue SFC files.", result.stdout)
 
     def test_no_trailing_whitespace(self) -> None:
         extensions = {".js", ".json", ".lua", ".md", ".mjs", ".py", ".scss", ".svg", ".txt", ".vue", ".yml", ""}
@@ -146,7 +146,7 @@ class StaticValidationTests(unittest.TestCase):
     def test_vue_component_and_store_topology_is_modular(self) -> None:
         expected_components = {
             "AppShell", "AppHeader", "AppNavigation", "CompatibilityBadge", "OperationProgress",
-            "GlobalStatus", "CompactToggle", "ChaosPanel", "ChaosActions", "ChaosResult",
+            "GlobalStatus", "OperationDetailsDrawer", "CompactToggle", "ChaosPanel", "ChaosActions", "ChaosResult",
             "ChaosProgress", "ChaosAdvanced", "LockControls", "MutationControls", "GaragePanel",
             "GarageToolbar", "GarageGrid", "GarageList", "VehicleDNACard", "VehicleDNADetails",
             "VehicleDNACompare", "VehicleDNAImportExport", "ThumbnailViewer", "MetadataEditor",

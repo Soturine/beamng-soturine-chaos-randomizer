@@ -49,6 +49,6 @@ export const createDefaultState = () => ({
     defaultRestoreMode: "exact",
     extremeTuning: false,
     allowPartialResult: false,
-    uiPreferences: { schemaVersion: 2, localeMode: "auto", manualLocale: "en-US", race: {}, legacyRacePolicyImported: false },
+    uiPreferences: { schemaVersion: 2, localeMode: "auto", manualLocale: "en-US", race: {}, legacyRacePolicyImported: false, compatibilityWarningDismissed: false },
   },
 })

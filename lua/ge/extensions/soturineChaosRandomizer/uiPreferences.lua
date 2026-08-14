@@ -57,6 +57,7 @@ local function defaults()
     localeMode = "auto",
     manualLocale = "en-US",
     race = util.deepCopy(DEFAULT_RACE),
+    compatibilityWarningDismissed = false,
     legacyRacePolicyImported = false,
   }
 end
@@ -84,6 +85,7 @@ local function normalize(raw)
     result.localeMode = "auto"
   end
   result.legacyRacePolicyImported = raw.legacyRacePolicyImported == true
+  result.compatibilityWarningDismissed = raw.compatibilityWarningDismissed == true
   local source = type(raw.race) == "table" and raw.race or {}
   local race = result.race
   for _, field in ipairs(BOOLEAN_RACE_FIELDS) do
@@ -131,6 +133,9 @@ local function patch(current, value)
   if type(value.race) == "table" then merged.race = util.shallowMerge(merged.race, value.race) end
   if value.legacyRacePolicyImported ~= nil then
     merged.legacyRacePolicyImported = value.legacyRacePolicyImported == true
+  end
+  if value.compatibilityWarningDismissed ~= nil then
+    merged.compatibilityWarningDismissed = value.compatibilityWarningDismissed == true
   end
   return normalize(merged)
 end
