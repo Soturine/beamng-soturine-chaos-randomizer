@@ -448,6 +448,9 @@ class StaticValidationTests(unittest.TestCase):
             "docs/testing/v0.7.6/EVIDENCE_TEMPLATE.md", "docs/testing/v0.7.6/AUTOMATED_RESULTS.md",
             "docs/testing/v0.7.6/FOX_ASSET.md", "docs/testing/v0.7.6/POST_RELEASE_VERIFICATION.md",
             "docs/BRANDING.md", "docs/releases/v0.7.6.md",
+            "docs/testing/v0.7.7/IMPLEMENTATION_MATRIX.md", "docs/testing/v0.7.7/LIVE_TEST_PLAN.md",
+            "docs/testing/v0.7.7/LIVE_RESULTS.md", "docs/testing/v0.7.7/EVIDENCE_TEMPLATE.md",
+            "docs/testing/v0.7.7/AUTOMATED_RESULTS.md", "docs/releases/v0.7.7.md",
         )
         for relative in required:
             with self.subTest(path=relative):
@@ -469,6 +472,10 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("Pending owner validation; not executed", v076_live)
         for row in ("| Executed | 0 |", "| Passed | 0 |", "| Failed | 0 |", "| Pending | 54 |", "| Blocked | 0 |"):
             self.assertIn(row, v076_live)
+        v077_live = (ROOT / "docs/testing/v0.7.7/LIVE_RESULTS.md").read_text(encoding="utf-8")
+        self.assertIn("Pending owner validation; not executed", v077_live)
+        for row in ("| Executed | 0 |", "| Passed | 0 |", "| Failed | 0 |", "| Pending | 11 |", "| Blocked | 0 |"):
+            self.assertIn(row, v077_live)
         visual = (ROOT / "docs/UI_VISUAL_BASELINE_0.6.9.md").read_text(encoding="utf-8")
         self.assertIn("Headless visual screenshot tests: Not implemented", visual)
         self.assertNotRegex(corpus.lower(), r"fully validated|confirmed compatible|performance proven")

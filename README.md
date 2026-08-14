@@ -73,7 +73,8 @@ The declared target and minimum version live in
 evidence-based: automated validation can pass while in-game validation remains
 **Pending owner validation**. See
 [BeamNG 0.39 compatibility](docs/BEAMNG_0.39_COMPATIBILITY.md) and
-[current validation](docs/status/CURRENT_VALIDATION.md).
+[current validation](docs/status/CURRENT_VALIDATION.md). The current owner-live
+retest is the focused [v0.7.7 A-K plan](docs/testing/v0.7.7/LIVE_TEST_PLAN.md).
 
 ## Data and safety
 

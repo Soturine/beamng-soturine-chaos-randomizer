@@ -2,6 +2,35 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.7] - 2026-08-13
+
+v0.7.6 live-findings stabilization experimental prerelease targeting BeamNG 0.39.4.
+
+### Fixed
+
+- Canonicalized Garage entry shapes before Saved/Compare/filter consumers.
+- Minted fresh blank-seed Race episodes while keeping explicit/Repeat determinism.
+- Reconciled prior exact Race-owned lineups and made managed regeneration an atomic source-to-candidate handoff with stable cardinality.
+- Decoupled physical placement and forward staging from World Preview renderer availability.
+- Corrected Balanced warning-only acceptance and Mods Showcase zero-pool preflight with structured policy/eligibility causes.
+- Replaced the dead global Details CTA with a shared scoped diagnostic drawer.
+
+### Changed
+
+- Unified slot, generation, seed, concrete vehicle, managed handle and placement lineage; cleanup/movement require exact ownership and local authority.
+- Split generation, placement, drivability and AI readiness, including command dispatch/readback evidence.
+- Made canonical order observable downstream and made preview capability, fallback data and drawn visibility independent.
+
+### UI/UX and localization
+
+- Added localized scoped compatibility dismissal, useful preview fallback, human normal-flow labels and typed Race recovery messages.
+- Improved long-label behavior and safe per-tab normal sizing across 320-720 px without changing explicit compact mode.
+
+### Testing and live status
+
+- Added Garage-shape, seed-intent, lineage/atomic replacement, preset/readiness, renderer-free placement, ordering, Details and three-locale width regressions.
+- Live BeamNG 0.39.4.x status: **Pending owner validation** (0 executed / 11 pending).
+
 ## [0.7.6] - 2026-08-11
 
 Live-findings stabilization experimental prerelease targeting BeamNG 0.39.4.

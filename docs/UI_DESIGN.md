@@ -1,6 +1,6 @@
 # UI design
 
-## v0.7.6 Events and AppHost geometry
+## v0.7.7 Events and AppHost geometry
 
 The normal navigation label is Events. Its stepper is Setup, Formation,
 Behavior and Start. Simple AI presets precede an advanced disclosure containing
@@ -25,6 +25,11 @@ diagnostics, technical IDs, and uncommon recovery actions use progressive
 disclosure. Normal screens use human model, configuration, lock, phase, and
 failure labels; paths and internal keys are restricted to developer/details
 areas.
+
+The global Details action is rendered only for a concrete result and opens one
+shared operation drawer. Preview fallback lists placement order when no world
+renderer exists. Compatibility notice is localized, dismissible and absent in
+ordinary supported single-player state.
 
 Responsive decisions use the measured app container width, not the game window.
 The required 320–720 px range maps to narrow, medium, and wide content classes;

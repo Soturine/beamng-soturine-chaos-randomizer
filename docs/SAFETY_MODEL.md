@@ -1,12 +1,16 @@
 # Safety Model
 
-v0.7.6 keeps terminal outcome and applied state separate from verification
+v0.7.7 keeps terminal outcome and applied state separate from verification
 confidence. Runtime
 integrity alone authorizes destructive rollback. Drivability and chaos-policy
 acceptance may reject a stable vehicle without granting cleanup authority, or
 accept it with a warning under a permissive preset such as Mods Showcase.
 Unknown or unsupported fluid telemetry is confidence evidence, never an
 automatic partial mutation.
+
+Balanced rejects proven runtime/drivability failure but accepts optional or
+unknown non-critical evidence with explicit warnings. Maximum Chaos remains
+permissive; neither profile weakens ownership or runtime-integrity cleanup.
 
 `Protect Critical Parts` is a conservative metadata safeguard. It does not certify drivability, physics stability, control availability, or compatibility with every third-party script.
 

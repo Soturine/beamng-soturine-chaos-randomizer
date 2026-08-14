@@ -1,6 +1,6 @@
 # Performance
 
-## v0.7.6 Full Random batching and instrumentation
+## v0.7.7 Full Random batching and instrumentation
 
 Full Random records total and per-phase duration, parts/tuning/repair reloads,
 readbacks, longest cooperative step, semantic progress and duplicate activity.
@@ -13,6 +13,10 @@ telemetry warning. These are automated limits, not live FPS or latency proof.
 The performance goal is bounded, observable work. Automated timings are useful
 regression signals but are not claims about BeamNG FPS, 1% low, CEF memory, or
 driver behavior.
+
+Race lifecycle tests also assert bounded candidate cardinality and no growth
+after 20 managed-slot regenerations. This is an automated ownership guard, not
+a live world-performance claim.
 
 ## Permanent architecture
 

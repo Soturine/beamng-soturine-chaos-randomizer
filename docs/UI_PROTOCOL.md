@@ -1,6 +1,6 @@
 # UI protocol v2
 
-## v0.7.6 stable result and Preview codes
+## v0.7.7 stable result and Preview codes
 
 Terminal outcomes are `COMPLETED`, `COMPLETED_WITH_SKIPS`,
 `COMPLETED_WITH_WARNING`, `PARTIAL_APPLIED`, `FAILED_TIMEOUT`,
@@ -15,6 +15,10 @@ Preview states are `PREVIEW_DISABLED`, `PREVIEW_DATA_READY`,
 `PREVIEW_RENDERER_UNAVAILABLE`, `PREVIEW_RENDER_ERROR`, `PREVIEW_VISIBLE` and
 `PREVIEW_STALE`. Phase, outcome, formation and Preview codes are translated by
 the frontend and appear raw only in explicit technical disclosure.
+
+Race readiness publishes separate generation, placement, drivability and AI
+axes. Policy failures include profile, rule, severity, evidence and decision;
+placement readiness never implies renderer visibility.
 
 The native Vue UI and GE Lua backend communicate through a centralized,
 versioned protocol. Public compatibility methods remain backend-only; Vue calls

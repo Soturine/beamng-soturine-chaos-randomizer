@@ -1,6 +1,6 @@
 # Race workflow
 
-## v0.7.6 retry and containment
+## v0.7.7 retry and containment
 
 The UI presents Race authoring under Events. Player-participation count N means
 N-1 generated opponents; spectator count N means N generated NPCs. Each slot
@@ -17,6 +17,13 @@ are terminally immutable.
 Race is the public three-stage workflow: **Cars → Placement → Drive**. Each
 generated competitor is an independent slot transaction. Older saved data may
 use “lineup” as a storage term; it is not a separate top-level UI destination.
+
+Blank explicit generations mint a fresh episode seed; Repeat is a separate
+intent that reuses a prior seed. Before replacement generation, exact prior
+Race-owned bindings are reconciled. Each accepted slot resolves 1:1 to its
+concrete vehicle and managed handle, and managed Regenerate commits an atomic
+source-to-candidate handoff. Placement is calculated and executable even when
+the optional world-preview renderer is unavailable.
 
 ## Cars and slot ownership
 

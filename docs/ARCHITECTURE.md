@@ -1,6 +1,6 @@
 # Architecture
 
-## v0.7.6 operation, Event and authority boundaries
+## v0.7.7 operation, Event and authority boundaries
 
 `operationOutcome` owns independent terminal, applied-state and confidence classification;
 `progressWatchdog` owns phase-aware liveness. Race composition uses
@@ -13,6 +13,11 @@ vehicle IDs. `domainOperations` still owns mutation/cleanup authorization and
 rejects remote or unknown-authority cleanup. `contactDetector` and
 `playgroundMode` are packaged foundations, not a user-facing Tag implementation.
 Broad `main.lua` composition remains v0.8.0 decomposition debt.
+
+Race slots bind generation, episode/slot seeds, concrete vehicle, managed
+handle and placement identity as one lineage. Replacement and cleanup require
+that exact binding plus local authority; renderer capability remains separate
+from placement calculation and physical positioning.
 
 The GE Lua backend owns game state and safety. The native Runtime UI Vue app is
 a projection and command surface; it never becomes authoritative for vehicle

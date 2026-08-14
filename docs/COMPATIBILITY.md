@@ -10,10 +10,14 @@ Vehicle DNA schema 1, settings schema 9, and UI preferences schema 2. These
 schema/generator numbers are independent from the release version and were not
 incremented without a data-format reason.
 
-v0.7.6 also carries an authority-aware `VehicleIdentity` envelope. This is a
+v0.7.7 also carries an authority-aware `VehicleIdentity` envelope. This is a
 multiplayer-compatible ownership boundary, not BeamMP integration. Only local
 or explicitly server-granted authority can mutate or clean an owned vehicle;
 remote and unknown authority fail closed.
+
+Race cleanup and physical placement additionally require an exact
+generation/slot/concrete-vehicle binding. Matching a numeric vehicle ID alone
+never grants authority.
 
 ## Content discovery
 

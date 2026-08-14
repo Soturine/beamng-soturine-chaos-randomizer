@@ -1,6 +1,6 @@
 # AI Director
 
-v0.7.6 keeps one capability-derived mode list across adapter, director and UI:
+v0.7.7 keeps one capability-derived mode list across adapter, director and UI:
 Destination, Route, Follow, Chase, Flee, Traffic and Roam. Quick presets are
 Follow, Convoy, Chase, Flee, Traffic, Roam and mixed-role Swarm. Speed entered
 as km/h is converted once to the adapter's m/s value; aggression is bounded to
@@ -11,7 +11,8 @@ in-game BeamNG APIs. It has no BeamNGpy dependency, external process, Python
 server, network service, or imported executable script.
 
 Drive stays disabled, with an explanation, until Placement has produced at
-least one confirmed managed vehicle. The compact public controls expose the
+least one confirmed managed vehicle with independent drivability and AI
+command-readback readiness. The compact public controls expose the
 core AI mode, destination/route, speed, aggression, stagger, start and stop
 workflow; capability details remain honest rather than working-looking stubs.
 

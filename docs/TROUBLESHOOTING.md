@@ -1,6 +1,6 @@
 # Troubleshooting
 
-## v0.7.6 diagnostic distinctions
+## v0.7.7 diagnostic distinctions
 
 - A completed operation with unsupported telemetry is a warning, not a partial
   mutation. Compare `terminalOutcome`, `appliedState` and
@@ -12,6 +12,10 @@
   slot or explicitly close an abandoned slot.
 - Authority errors are protective: remote or unknown-authority vehicles are not
   mutable or removable by this mod.
+- Race Details identifies preset, episode/slot seed, generation, slot,
+  candidate/concrete vehicle, policy decision, readiness and recovery. Pool
+  empty, candidate resolution, policy rejection and slot exhaustion are
+  different causes.
 
 ## App missing or blank
 

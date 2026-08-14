@@ -1,11 +1,19 @@
 # Current validation
 
-Current published release: **0.7.6 experimental prerelease**, targeting BeamNG 0.39.4. Its deterministic ZIP/checksum/manifest and independent post-publication download verification passed for package commit `9c0e745cedf865e981ca3929200e9be37f2358e4`.
+Current published release: **0.7.7 experimental prerelease**, targeting BeamNG
+0.39.4. The tagged package identity and independent post-publication download
+verification will be recorded after the publication workflow completes.
 
-Automated status and the live-derived implementation rows are recorded in the [v0.7.6 implementation matrix](../testing/v0.7.6/IMPLEMENTATION_MATRIX.md). Automated evidence is not a live BeamNG result.
+Automated status and the v0.7.6 live-derived corrections are recorded in the
+[v0.7.7 implementation matrix](../testing/v0.7.7/IMPLEMENTATION_MATRIX.md).
+Automated evidence is not a live BeamNG result.
 
-Live status: **Pending owner validation** - 0 executed / 0 passed / 0 failed / 54 pending / 0 blocked. See the [live plan](../testing/v0.7.6/LIVE_TEST_PLAN.md) and [live results](../testing/v0.7.6/LIVE_RESULTS.md).
+Live status: **Pending owner validation** - 0 executed / 0 passed / 0 failed /
+11 pending / 0 blocked. See the [A-K live plan](../testing/v0.7.7/LIVE_TEST_PLAN.md)
+and [live results](../testing/v0.7.7/LIVE_RESULTS.md).
 
-Historical reports remain unchanged in their versioned directories. v0.7.5 owner findings, retained v0.7.4 findings and earlier 0.39.2.1 failures are baseline evidence, not a claim about v0.7.6 in BeamNG 0.39.4.
+Historical reports remain unchanged in their versioned directories. The
+v0.7.6 owner observations are the ground truth for these corrections, not a
+claim that v0.7.7 has passed in BeamNG 0.39.4.x.
 
 Headless visual screenshot tests: not implemented.

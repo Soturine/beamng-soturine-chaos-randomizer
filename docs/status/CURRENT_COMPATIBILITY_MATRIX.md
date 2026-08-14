@@ -1,6 +1,6 @@
 # Current compatibility matrix
 
-Published: **0.7.6 experimental prerelease**. Primary target: BeamNG 0.39.4.
+Published: **0.7.7 experimental prerelease**. Primary target: BeamNG 0.39.4.
 Minimum family: 0.39. Live status: **Pending owner validation**.
 
 | Surface | Automated/source evidence | Live status |
@@ -9,8 +9,8 @@ Minimum family: 0.39. Live status: **Pending owner validation**.
 | ScrSelect/input | official-component adapter and interaction tests | Pending owner validation |
 | Chaos identity | generations, callback tokens, cardinality, rollback invariants | Pending owner validation |
 | Safety | ternary stable-evidence gate and bounded recovery tests | Pending owner validation |
-| Events/Race | focus, staging, exclusive slots, Preview renderer state and scheduler containment | Pending owner validation |
-| AI/Playground | adapter parity, managed presets and contact/Tag foundations | Pending owner validation |
+| Events/Race | fresh seeds, exact slot bindings, atomic replacement, independent placement/Preview and scheduler containment | Pending owner validation |
+| AI/Playground | adapter parity, managed presets, command/readback readiness and contact/Tag foundations | Pending owner validation |
 | Multiplayer readiness | owner/network identity and fail-closed authority; no BeamMP integration claim | Pending owner validation |
 | i18n/locales | internal parity plus packaged en-US/pt-BR/es-ES metadata | Pending owner validation |
 | Registry/content | sanitized 0.39.4 identity/subgroup/failure fixtures | Pending owner validation |
