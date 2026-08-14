@@ -450,7 +450,8 @@ class StaticValidationTests(unittest.TestCase):
             "docs/BRANDING.md", "docs/releases/v0.7.6.md",
             "docs/testing/v0.7.7/IMPLEMENTATION_MATRIX.md", "docs/testing/v0.7.7/LIVE_TEST_PLAN.md",
             "docs/testing/v0.7.7/LIVE_RESULTS.md", "docs/testing/v0.7.7/EVIDENCE_TEMPLATE.md",
-            "docs/testing/v0.7.7/AUTOMATED_RESULTS.md", "docs/releases/v0.7.7.md",
+            "docs/testing/v0.7.7/AUTOMATED_RESULTS.md", "docs/testing/v0.7.7/POST_RELEASE_VERIFICATION.md",
+            "docs/releases/v0.7.7.md",
         )
         for relative in required:
             with self.subTest(path=relative):
