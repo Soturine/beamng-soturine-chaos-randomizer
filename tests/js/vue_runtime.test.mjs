@@ -107,6 +107,21 @@ check(shapeIssues, [{ code: "normalized_state_shape", path: "spawnDirector.manag
 check(normalizerModule.normalizeManagedVehicles("invalid", issue => shapeIssues.push(issue)), [])
 check(shapeIssues.at(-1).receivedType, "string")
 check(normalizerModule.normalizeManagedVehicles([{ handle: "ok" }, null]).map(item => item.handle), ["ok"])
+const garageIssues = []
+const garageArray = [{ id: "dna-2", name: "Two" }, null, { id: "dna-1", name: "One" }]
+check(normalizerModule.normalizeGarageEntries(garageArray, issue => garageIssues.push(issue)).map(item => item.id), ["dna-2", "dna-1"])
+check(garageIssues.at(-1), { code: "invalid_state_shape", path: "garage.entries", receivedType: "array_with_invalid_entries" })
+check(normalizerModule.normalizeGarageEntries({
+  beta: { name: "Beta" }, alpha: { id: "physical-alpha", name: "Alpha" },
+}, issue => garageIssues.push(issue)).map(item => item.id), ["physical-alpha", "beta"])
+check(garageIssues.at(-1), { code: "normalized_state_shape", path: "garage.entries", receivedType: "object_map" })
+for (const invalid of [null, undefined, "invalid", 17]) {
+  check(normalizerModule.normalizeGarageEntries(invalid).length, 0)
+}
+check(normalizerModule.normalizeFullState({ garage: { entries: {} } }).garage.entries, [])
+check(normalizerModule.normalizeDomainPayload("garage", {
+  entries: { dna: { name: "Fixture" } },
+}).entries[0].id, "dna")
 
 const reactiveStub = "const reactive = value => value"
 const domainModule = await load(

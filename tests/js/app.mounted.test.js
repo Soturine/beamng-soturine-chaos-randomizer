@@ -310,6 +310,39 @@ describe("mounted Runtime UI", () => {
     wrapper.unmount()
   })
 
+  it("normalizes every Garage entries shape before Compare and survives dynamic updates", async () => {
+    const { wrapper, stores } = mountShell()
+    stores.uiLayout.setTab("garage")
+    await settle()
+    const compare = wrapper.findAll('[role="tab"]').find(tab => tab.text() === "Compare")
+    expect(compare).toBeTruthy()
+    await compare.trigger("click")
+    await settle()
+
+    const shapes = [
+      [{ id: "dna-array", name: "Array vehicle" }, null],
+      { dnaMap: { name: "Mapped vehicle" } },
+      {}, null, undefined, "invalid", 42,
+      { liveLuaOne: { id: "dna-lua-1", name: "Lua one", final: { modelKey: "pickup" } } },
+    ]
+    for (const entries of shapes) {
+      stores.applyDiff("garage", { entries })
+      await settle()
+      expect(Array.isArray(stores.garage.state.entries)).toBe(true)
+      expect(wrapper.find(".scr-error-boundary").exists()).toBe(false)
+      expect(wrapper.findAll("select")).toHaveLength(0)
+    }
+
+    stores.uiLayout.setTab("chaos")
+    stores.applyDiff("garage", { entries: { afterTab: { name: "After tab" } } })
+    stores.uiLayout.setTab("garage")
+    stores.uiLayout.state.garageSection = "saved"
+    await settle()
+    expect(wrapper.text()).toContain("After tab")
+    expect(wrapper.find(".scr-error-boundary").exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it("reports renderer failure without blocking generation and survives 50 Preview toggle cycles", async () => {
     const { wrapper, stores, command } = mountShell()
     stores.uiLayout.setTab("race")

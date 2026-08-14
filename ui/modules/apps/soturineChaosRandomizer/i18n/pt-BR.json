@@ -116,6 +116,8 @@
   "garage.grid": "Grid",
   "garage.list": "Lista",
   "garage.empty": "Nenhum DNA de veículo corresponde a esta visualização.",
+  "garage.emptySaved": "Nenhum veículo salvo ainda. Salve um DNA de veículo para começar.",
+  "garage.emptyFiltered": "Nenhum veículo corresponde aos filtros atuais.",
   "garage.loading": "Carregando Garagem…",
   "garage.name": "Nome do DNA de veículo",
   "garage.defaultName": "DNA de veículo",

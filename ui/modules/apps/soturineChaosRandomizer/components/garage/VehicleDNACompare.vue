@@ -18,14 +18,18 @@
 <script setup>
 import { computed, ref } from "vue"
 import { useStores } from "../../stores/index.js"
+import { normalizeGarageEntries } from "../../services/stateNormalizer.js"
 import ScrSelect from "../common/ScrSelect.vue"
 
 const stores = useStores()
 const { t } = stores.i18n
 const left = ref("")
 const right = ref("")
-const entries = computed(() => stores.garage.state.entries || [])
-const entryItems = computed(() => [{ value: "", label: "—" }, ...entries.value.map(entry => ({ value: entry.id, label: entry.name }))])
+const entries = computed(() => normalizeGarageEntries(stores.garage.state.entries))
+const entryItems = computed(() => [{ value: "", label: "—" }, ...entries.value.map(entry => ({
+  value: entry.id,
+  label: entry.name || entry.id,
+}))])
 const comparison = computed(() => stores.garage.state.comparison)
 const differenceCount = computed(() => comparison.value?.differenceCount || comparison.value?.differences?.length || 0)
 const compare = () => stores.command.send("compareVehicleDNA", [left.value, right.value])

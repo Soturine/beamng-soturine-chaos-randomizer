@@ -116,6 +116,8 @@
   "garage.grid": "Cuadrícula",
   "garage.list": "Lista",
   "garage.empty": "Ninguna entrada de ADN del vehículo coincide con esta vista.",
+  "garage.emptySaved": "Aún no hay vehículos guardados. Guarda ADN del vehículo para empezar.",
+  "garage.emptyFiltered": "Ningún vehículo coincide con los filtros actuales.",
   "garage.loading": "Cargando el garaje…",
   "garage.name": "Nombre del ADN del vehículo",
   "garage.defaultName": "ADN del vehículo",
