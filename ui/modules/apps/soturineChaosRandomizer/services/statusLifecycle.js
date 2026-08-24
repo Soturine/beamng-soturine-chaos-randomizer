@@ -43,6 +43,7 @@ export function createStatusLifecycle(options = {}) {
       persistent,
       values: value.values || {},
       recoverable: value.recoverable === true,
+      dismissible: value.dismissible === true,
       action: value.action || null,
     }
     items.push(item)

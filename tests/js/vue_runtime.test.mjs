@@ -122,6 +122,31 @@ check(normalizerModule.normalizeFullState({ garage: { entries: {} } }).garage.en
 check(normalizerModule.normalizeDomainPayload("garage", {
   entries: { dna: { name: "Fixture" } },
 }).entries[0].id, "dna")
+const previewIssues = []
+const normalizedSlots = normalizerModule.normalizePreviewSlots({
+  2: { name: "Two", transform: { position: { x: 2 } } },
+  1: { slotId: "physical-one", name: "One" },
+  bad: null,
+}, issue => previewIssues.push(issue))
+check(normalizedSlots.map(item => item.slot), [1, 2])
+check(normalizedSlots[0].slotId, "physical-one")
+check(previewIssues[0], {
+  code: "normalized_state_shape", path: "spawnDirector.racePreview.slots", receivedType: "object_map",
+})
+check(normalizerModule.normalizePreviewSlots("invalid", issue => previewIssues.push(issue)), [])
+check(previewIssues.at(-1).receivedType, "string")
+const normalizedRace = normalizerModule.normalizeDomainPayload("race", {
+  spawnDirector: { racePreview: { slots: { 1: { name: "Mapped" } } } },
+  lineup: { current: { worldPreview: { slots: null } } },
+})
+check(normalizedRace.spawnDirector.racePreview.slots[0].name, "Mapped")
+check(normalizedRace.lineup.current.worldPreview.slots, [])
+const sparseRaceDiff = normalizerModule.normalizeDomainPayload("race", {
+  spawnDirector: { placement: { available: true } },
+})
+check("managed" in sparseRaceDiff.spawnDirector, false)
+check("racePreview" in sparseRaceDiff.spawnDirector, false)
+check("lineup" in sparseRaceDiff, false)
 
 const reactiveStub = "const reactive = value => value"
 const domainModule = await load(
@@ -153,15 +178,16 @@ for (let cycle = 0; cycle < 100; cycle += 1) {
   const tab = ["chaos", "garage", "race", "settings"][cycle % 4]
   layout.setTab(tab)
   layout.recordHostSize(360 + cycle, 400 + cycle)
+  check(layout.state.normalSizePinned, false, "the first AppHost measurement is only a baseline")
+  check(layout.preferredSize(tab).height, null, "unowned normal height must remain content-driven")
   layout.setCompact(true)
   layout.toggleDetails(tab)
   layout.recordHostSize(200, 210)
   check(layout.state.activeTab, tab)
   check(layout.state.detailsOpenByTab[tab], true)
-  check(layout.state.userSizeByTab[tab].width, 360 + cycle)
   check(layout.preferredSize(tab).height, layout.state.compactSizeByTab[tab].height)
   layout.setCompact(false)
-  check(layout.preferredSize(tab).height, 400 + cycle)
+  check(layout.preferredSize(tab).height, null)
   check(layout.state.mode, "normal")
 }
 const invalidLayout = layoutModule.createUILayoutStore()
@@ -169,14 +195,16 @@ invalidLayout.setTab("not-a-tab")
 check(invalidLayout.state.activeTab, "chaos")
 const initialNormal = { ...invalidLayout.state.userPreferredNormalSize }
 invalidLayout.recordHostSize(180, 90, { source: "appHost" })
-check(invalidLayout.preferredSize().width, initialNormal.width, "tiny host feedback must not overwrite the normal preference")
-check(invalidLayout.preferredSize().height, initialNormal.height, "tiny content must not collapse normal geometry")
+check(invalidLayout.state.userPreferredNormalSize, initialNormal, "tiny baseline must not overwrite a user preference")
+check(invalidLayout.preferredSize().height, null, "tiny content must not pin normal geometry")
 invalidLayout.recordHostSize(580, 610, { source: "appHost" })
 invalidLayout.setTab("race")
 check(invalidLayout.preferredSize().width, 580, "manual AppHost size must survive a tab switch")
 check(invalidLayout.preferredSize().height, 610, "manual AppHost height must survive a tab switch")
 for (const tab of ["chaos", "garage", "race", "settings"]) {
-  truthy(invalidLayout.state.expandedSizeByTab[tab].height > invalidLayout.state.compactSizeByTab[tab].height)
+  truthy(invalidLayout.state.normalMinSizeByTab[tab].height > 0)
+  check(invalidLayout.state.expandedSizeByTab[tab].height, undefined,
+    "normal tabs must not carry fixed target heights")
   check(invalidLayout.state.resizeModeByTab[tab], "appHost")
 }
 
@@ -184,11 +212,25 @@ const raceProtocol = await load("ui/modules/apps/soturineChaosRandomizer/service
 check(raceProtocol.RACE_FORMATION_CODES.length, 9)
 check(raceProtocol.formationRuntimeName("AUTO_BEST_FIT"), "Automatic Best Fit")
 check(raceProtocol.formationRuntimeName("RADIAL"), "Circular / Radial")
+check(raceProtocol.normalizeFormationCode("Automatic Best Fit"), "AUTO_BEST_FIT")
+check(raceProtocol.normalizeFormationCode("Melhor ajuste automático"), "AUTO_BEST_FIT")
+check(raceProtocol.normalizeFormationCode("Parrilla escalonada"), "STAGGERED_GRID")
+check(raceProtocol.normalizeFormationCode({ invalid: true }), "AUTO_BEST_FIT")
 truthy(raceProtocol.isRaceFormation("SIDE_BY_SIDE_GRID"))
 truthy(raceProtocol.isPreviewOrigin("player_front"))
 truthy(raceProtocol.isHeadingMode("destination"))
 truthy(raceProtocol.isSpacingMode("manual"))
 check(raceProtocol.isRaceFormation("Automatic Best Fit"), false, "UI protocol must expose stable formation codes")
+
+const selectAdapter = await load("ui/modules/apps/soturineChaosRandomizer/services/selectAdapter.js")
+check(selectAdapter.normalizeSelectItems(null), [])
+check(selectAdapter.normalizeSelectItems("invalid"), [])
+check(selectAdapter.normalizeSelectItems([null, "one", { id: "two" }, {}]), [
+  { value: "one", label: "one" }, { id: "two", value: "two", label: "two" },
+])
+check(selectAdapter.normalizeSelectItems({ beta: "Beta", alpha: { label: "Alpha", disabled: true } }), [
+  { value: "alpha", label: "Alpha", disabled: true }, { value: "beta", label: "Beta" },
+])
 
 const lifecycleModule = await load("ui/modules/apps/soturineChaosRandomizer/services/lifecycle.js")
 let cleanupCount = 0
@@ -230,10 +272,11 @@ check(status.current("chaos", "op-1").code, "applying_parts")
 status.replaceOperation({ code: "validating", operationId: "op-1", persistent: true })
 check(status.items.filter(item => item.scope === "operation").length, 1)
 status.push({ code: "position_blocked", scope: "tab", tab: "race", persistent: true,
-  recoverable: true, action: { command: "previewRaceGeneration" } })
+  recoverable: true, dismissible: true, action: { command: "previewRaceGeneration" } })
 statusNow = 100000
 status.prune()
 check(status.current("race").code, "position_blocked", "recoverable status must not expire")
+check(status.current("race").dismissible, true)
 check(status.clearWhere(item => item.recoverable), 1)
 check(status.items.some(item => item.recoverable), false)
 statusNow = 2000

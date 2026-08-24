@@ -23,7 +23,33 @@ const FORMATION_RUNTIME_NAMES = Object.freeze({
   RADIAL: "Circular / Radial",
 })
 
-export const formationRuntimeName = value => FORMATION_RUNTIME_NAMES[value] || FORMATION_RUNTIME_NAMES.AUTO_BEST_FIT
+const FORMATION_ALIASES = new Map()
+Object.entries(FORMATION_RUNTIME_NAMES).forEach(([code, name]) => {
+  FORMATION_ALIASES.set(code.toLowerCase(), code)
+  FORMATION_ALIASES.set(name.toLowerCase(), code)
+})
+Object.entries({
+  "automatic best fit": "AUTO_BEST_FIT", "automatic best-fit": "AUTO_BEST_FIT",
+  "melhor ajuste automático": "AUTO_BEST_FIT", "mejor ajuste automático": "AUTO_BEST_FIT",
+  "grid": "GRID", "parrilla": "GRID", "line": "LINE", "linha": "LINE", "línea": "LINE",
+  "split left and right": "SPLIT_LEFT_RIGHT", "dividir à esquerda e à direita": "SPLIT_LEFT_RIGHT",
+  "dividir a izquierda y derecha": "SPLIT_LEFT_RIGHT",
+  "single file behind": "SINGLE_FILE_BEHIND", "fila única atrás": "SINGLE_FILE_BEHIND",
+  "fila única detrás": "SINGLE_FILE_BEHIND", "single file ahead": "SINGLE_FILE_AHEAD",
+  "fila única à frente": "SINGLE_FILE_AHEAD", "fila única delante": "SINGLE_FILE_AHEAD",
+  "staggered grid": "STAGGERED_GRID", "grid escalonado": "STAGGERED_GRID",
+  "parrilla escalonada": "STAGGERED_GRID", "side-by-side grid": "SIDE_BY_SIDE_GRID",
+  "grid lado a lado": "SIDE_BY_SIDE_GRID", "parrilla en paralelo": "SIDE_BY_SIDE_GRID",
+  "circular / radial": "RADIAL", "circular/radial": "RADIAL",
+}).forEach(([name, code]) => FORMATION_ALIASES.set(name, code))
+
+export const normalizeFormationCode = (value, fallback = RACE_FORMATION_CODES[0]) => {
+  const normalized = String(value ?? "").trim().toLowerCase()
+  return FORMATION_ALIASES.get(normalized) || (RACE_FORMATION_CODES.includes(fallback)
+    ? fallback : RACE_FORMATION_CODES[0])
+}
+
+export const formationRuntimeName = value => FORMATION_RUNTIME_NAMES[normalizeFormationCode(value)]
 export const isRaceFormation = value => RACE_FORMATION_CODES.includes(value)
 export const isPreviewOrigin = value => PREVIEW_ORIGIN_CODES.includes(value)
 export const isHeadingMode = value => HEADING_MODE_CODES.includes(value)

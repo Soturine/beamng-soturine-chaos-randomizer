@@ -20,10 +20,11 @@
 <script setup>
 import { computed, ref } from "vue"
 import { BngSmartSelect } from "@/common/components/base"
+import { normalizeSelectItems } from "../../services/selectAdapter.js"
 
 const model = defineModel({ default: "" })
 const props = defineProps({
-  items: { type: Array, default: () => [] },
+  items: { type: [Array, Object], default: () => [] },
   label: { type: String, default: "" },
   ariaLabel: { type: String, default: "" },
   description: { type: String, default: "" },
@@ -33,13 +34,7 @@ const props = defineProps({
 const emit = defineEmits(["change"])
 const control = ref(null)
 
-const normalizedItems = computed(() => props.items.map(item => {
-  if (item && typeof item === "object") {
-    const value = item.value ?? item.id ?? item.label
-    return { ...item, value, label: String(item.label ?? value ?? "") }
-  }
-  return { value: item, label: String(item ?? "") }
-}))
+const normalizedItems = computed(() => normalizeSelectItems(props.items))
 const selectedLabel = computed(() => normalizedItems.value
   .find(item => Object.is(item.value, model.value))?.label || "")
 

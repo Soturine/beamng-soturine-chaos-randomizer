@@ -24,13 +24,15 @@
 import { computed } from "vue"
 import { useStores } from "../../stores/index.js"
 import StatusBanner from "../common/StatusBanner.vue"
-import { previewStatusKey } from "../../services/raceProtocol.js"
+import { normalizeFormationCode, previewStatusKey } from "../../services/raceProtocol.js"
+import { normalizePreviewSlots } from "../../services/stateNormalizer.js"
 const stores = useStores()
 const { t, has } = stores.i18n
 const placement = computed(() => stores.race.state.spawnDirector?.placement || {})
 const preview = computed(() => stores.race.state.spawnDirector?.racePreview || stores.race.state.lineup?.current?.worldPreview)
 const available = computed(() => preview.value?.state === "PREVIEW_RENDERED")
-const fallbackSlots = computed(() => (preview.value?.slots || []).filter(item => Number(item.slot) > 0))
+const fallbackSlots = computed(() => normalizePreviewSlots(preview.value?.slots)
+  .filter(item => Number(item.slot) > 0))
 const fallbackAvailable = computed(() => !available.value && fallbackSlots.value.length > 0)
 const unavailableLabel = computed(() => {
   if (preview.value?.state) return t(previewStatusKey(preview.value))
@@ -40,7 +42,7 @@ const unavailableLabel = computed(() => {
   if (/create|import|lineup_missing/i.test(reason)) return t("race.noLineup")
   return t("race.previewUnavailable")
 })
-const formationLabel = computed(() => t(`race.formationValue.${preview.value?.formation || 'AUTO_BEST_FIT'}`))
+const formationLabel = computed(() => t(`race.formationValue.${normalizeFormationCode(preview.value?.formation)}`))
 const coordinates = position => [position?.x, position?.y, position?.z]
   .map(value => Number(value || 0).toFixed(1)).join(", ")
 </script>

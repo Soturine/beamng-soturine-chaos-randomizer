@@ -18,6 +18,33 @@
       <span v-if="concreteVehicleId"><strong>{{ t('operationDetails.concreteVehicle') }}:</strong> {{ concreteVehicleId }}</span>
       <span v-if="recoveryRecommendation"><strong>{{ t('operationDetails.recovery') }}:</strong> {{ recoveryRecommendation }}</span>
     </div>
+    <section v-if="coverage" class="scr-coverage-details">
+      <h4>{{ t('operationDetails.coverage') }}</h4>
+      <div v-if="coverage.slots" class="scr-coverage-row">
+        <strong>{{ t('operationDetails.parts') }}</strong>
+        <span>{{ coverageLine(coverage.slots, 'slots') }}</span>
+      </div>
+      <div v-if="coverage.tuning" class="scr-coverage-row">
+        <strong>{{ t('operationDetails.tuning') }}</strong>
+        <span>{{ coverageLine(coverage.tuning, 'tuning') }}</span>
+      </div>
+      <div v-if="coverage.paint" class="scr-coverage-row">
+        <strong>{{ t('operationDetails.paint') }}</strong>
+        <span>{{ coverageLine(coverage.paint, 'paint') }}</span>
+      </div>
+    </section>
+    <section v-if="planning" class="scr-coverage-details">
+      <h4>{{ t('operationDetails.planning') }}</h4>
+      <div class="scr-tech-grid">
+        <span>{{ t('operationDetails.planningSummary', {
+          attempts: planning.totalAttempts || 0,
+          rejected: planning.rejectedCandidates || 0,
+          depth: planning.fallbackDepth || 0,
+          duration: Number(planning.durationMs || 0).toFixed(1),
+        }) }}</span>
+        <span v-if="planning.budgetExhausted">{{ t('operationDetails.planningExhausted') }}</span>
+      </div>
+    </section>
     <details class="scr-technical-details">
       <summary>{{ t('common.technicalDetails') }}</summary>
       <div class="scr-tech-grid">
@@ -46,6 +73,8 @@ const layout = stores.uiLayout.state
 const { t, has } = stores.i18n
 const result = computed(() => core.lastResult || {})
 const details = computed(() => result.value.details || {})
+const coverage = computed(() => details.value.coverage || null)
+const planning = computed(() => details.value.planning || details.value.stagingPreview?.planning || null)
 const hasDetails = computed(() => Boolean(result.value.code))
 const open = computed(() => hasDetails.value && layout.details[layout.activeTab] === true)
 const outcomeLabel = computed(() => {
@@ -86,5 +115,12 @@ const recoveryRecommendation = computed(() => {
   const key = action && `operationDetails.recovery.${action}`
   if (key && has(key)) return t(key)
   return details.value.recoverable === true ? t("operationDetails.recovery.retry") : ""
+})
+const coverageLine = (value, prefix) => t("operationDetails.coverageLine", {
+  changed: Number(value?.[`${prefix}Changed`] || 0),
+  attempted: Number(value?.[`${prefix}Attempted`] || 0),
+  classified: Number(value?.[`${prefix}Classified`] || 0),
+  eligible: Number(value?.[`${prefix}Eligible`] || 0),
+  unresolved: Number(value?.[`${prefix}Unresolved`] || 0),
 })
 </script>

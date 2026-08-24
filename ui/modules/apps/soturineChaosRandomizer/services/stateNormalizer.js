@@ -3,6 +3,7 @@ const objectType = value => {
   if (Array.isArray(value)) return "array"
   return typeof value
 }
+const hasOwn = (value, key) => Object.prototype.hasOwnProperty.call(value, key)
 
 const managedEntry = (value, fallbackHandle) => {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null
@@ -16,6 +17,51 @@ const garageEntry = (value, fallbackId) => {
   const id = value.id ?? fallbackId
   if (id === undefined || id === null || String(id).length === 0) return null
   return { ...value, id: String(id) }
+}
+
+const previewSlot = (value, fallbackSlot) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null
+  const slot = value.slot ?? fallbackSlot
+  const slotId = value.slotId ?? (slot !== undefined ? String(slot) : undefined)
+  if (slot === undefined && slotId === undefined) return null
+  return { ...value, slot, slotId }
+}
+
+export function normalizePreviewSlots(value, report = () => {}, path = "spawnDirector.racePreview.slots") {
+  if (value === undefined || value === null) return []
+  if (Array.isArray(value)) {
+    const normalized = value.map(entry => previewSlot(entry)).filter(Boolean)
+    if (normalized.length !== value.length) {
+      report({ code: "invalid_state_shape", path, receivedType: "array_with_invalid_entries" })
+    }
+    return normalized
+  }
+  if (typeof value === "object") {
+    report({ code: "normalized_state_shape", path, receivedType: "object_map" })
+    return Object.keys(value).sort((left, right) => left.localeCompare(right, undefined, { numeric: true }))
+      .map(key => previewSlot(value[key], Number.isFinite(Number(key)) ? Number(key) : key))
+      .filter(Boolean)
+  }
+  report({ code: "invalid_state_shape", path, receivedType: objectType(value) })
+  return []
+}
+
+const normalizePreview = (value, report, path) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value ?? null
+  return { ...value, slots: normalizePreviewSlots(value.slots, report, `${path}.slots`) }
+}
+
+const normalizeLineup = (value, report, path = "lineup") => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value ?? {}
+  const current = value.current && typeof value.current === "object" && !Array.isArray(value.current)
+    ? value.current : value.current
+  return {
+    ...value,
+    current: current && typeof current === "object" ? {
+      ...current,
+      worldPreview: normalizePreview(current.worldPreview, report, `${path}.current.worldPreview`),
+    } : current,
+  }
 }
 
 export function normalizeGarageEntries(value, report = () => {}) {
@@ -74,13 +120,18 @@ export function normalizeRaceState(value, report = () => {}) {
   const spawnDirector = race.spawnDirector && typeof race.spawnDirector === "object"
     ? race.spawnDirector
     : {}
-  return {
-    ...race,
-    spawnDirector: {
-      ...spawnDirector,
-      managed: normalizeManagedVehicles(spawnDirector.managed, report),
-    },
+  const normalizedSpawnDirector = { ...spawnDirector }
+  if (hasOwn(spawnDirector, "managed")) {
+    normalizedSpawnDirector.managed = normalizeManagedVehicles(spawnDirector.managed, report)
   }
+  if (hasOwn(spawnDirector, "racePreview")) {
+    normalizedSpawnDirector.racePreview = normalizePreview(
+      spawnDirector.racePreview, report, "spawnDirector.racePreview",
+    )
+  }
+  const normalized = { ...race, spawnDirector: normalizedSpawnDirector }
+  if (hasOwn(race, "lineup")) normalized.lineup = normalizeLineup(race.lineup, report)
+  return normalized
 }
 
 export function normalizeFullState(value, report = () => {}) {
@@ -94,7 +145,9 @@ export function normalizeFullState(value, report = () => {}) {
     spawnDirector: {
       ...spawnDirector,
       managed: normalizeManagedVehicles(spawnDirector.managed, report),
+      racePreview: normalizePreview(spawnDirector.racePreview, report, "spawnDirector.racePreview"),
     },
+    lineup: normalizeLineup(state.lineup, report),
   }
 }
 

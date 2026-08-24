@@ -169,6 +169,16 @@ describe("mounted Runtime UI", () => {
     await wrapper.setProps({ disabled: true, modelValue: "b" })
     expect(wrapper.find(".bng-smart-select-trigger").attributes("disabled")).toBeDefined()
     expect(wrapper.find(".bng-smart-select-trigger").text()).toBe("Bravo")
+    await wrapper.setProps({ items: {
+      zulu: { label: "Zulu", disabled: true }, alpha: "Alpha",
+    }, modelValue: "alpha", disabled: false })
+    await settle()
+    expect(wrapper.find(".bng-smart-select-trigger").text()).toBe("Alpha")
+    await wrapper.find(".bng-smart-select-trigger").trigger("click")
+    expect(wrapper.findAll('[role="option"]')).toHaveLength(2)
+    await wrapper.setProps({ items: {} })
+    await settle()
+    expect(wrapper.find(".scr-select").exists()).toBe(true)
     wrapper.unmount()
   })
 
@@ -252,19 +262,25 @@ describe("mounted Runtime UI", () => {
     const { wrapper, stores } = mountShell()
     await settle()
     const observer = resizeHarness.instances.at(-1)
-    const initial = { ...stores.uiLayout.state.userPreferredNormalSize }
+    const initial = stores.uiLayout.preferredSize()
 
     expect(wrapper.find(".scr-app").attributes("data-layout-mode")).toBe("normal")
     expect(wrapper.find(".scr-normal-layout").exists()).toBe(true)
+    expect(initial).toEqual({ width: 440, height: null })
+    expect(wrapper.find(".scr-app").attributes("style")).not.toContain("--scr-target-height")
     observer.emit(120, 80)
     await settle()
     expect(stores.uiLayout.preferredSize()).toEqual(initial)
+    expect(stores.uiLayout.state.normalSizePinned).toBe(false)
     expect(wrapper.find(".scr-app").classes()).toContain("is-normal")
+    expect(wrapper.find(".scr-app").classes()).not.toContain("is-user-sized")
 
     observer.emit(560, 610)
     await settle()
     const userSize = { width: 560, height: 610 }
     expect(stores.uiLayout.state.userPreferredNormalSize).toEqual(userSize)
+    expect(wrapper.find(".scr-app").classes()).toContain("is-user-sized")
+    expect(wrapper.find(".scr-app").attributes("style")).toContain("--scr-target-height: 610px")
     const tabs = ["chaos", "garage", "race", "settings"]
     for (let cycle = 0; cycle < 50; cycle += 1) {
       stores.uiLayout.setTab(tabs[cycle % tabs.length])
@@ -317,6 +333,60 @@ describe("mounted Runtime UI", () => {
     })
     expect(wrapper.find(".scr-panel").text()).toContain("Alpha")
     expect(wrapper.findAll("select")).toHaveLength(0)
+    wrapper.unmount()
+  })
+
+  it("normalizes legacy formation values and map-shaped Preview slots without a filter crash", async () => {
+    const { wrapper, stores } = mountShell()
+    const state = createDefaultState()
+    state.settings.uiPreferences = {
+      ...(state.settings.uiPreferences || {}),
+      race: { formation: "Automatic Best Fit" },
+    }
+    state.spawnDirector.racePreview = {
+      enabled: true, state: "PREVIEW_FAILED", formation: "Automatic Best Fit",
+      slots: {
+        2: { name: "Mapped two", transform: { position: { x: 2, y: 4, z: 1 } } },
+        1: { name: "Mapped one", transform: { position: { x: 1, y: 3, z: 1 } } },
+      },
+      renderer: { availabilityState: "RENDER_UNAVAILABLE", lastErrorCode: "preview_renderer_unavailable" },
+    }
+    stores.applyFull(state)
+    stores.uiLayout.setTab("race")
+    stores.uiLayout.state.raceStep = "formation"
+    await settle()
+
+    expect(stores.race.state.options.formation).toBe("AUTO_BEST_FIT")
+    expect(stores.race.state.placementOptions.mode).toBe("AUTO_BEST_FIT")
+    expect(stores.race.state.spawnDirector.racePreview.slots.map(item => item.slot)).toEqual([1, 2])
+    expect(wrapper.text()).toContain("2 placement positions are ready")
+    expect(wrapper.find(".scr-error-boundary").exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it("keeps coverage status readable at narrow width and exposes ledger counts in Details", async () => {
+    const { wrapper, stores } = mountShell()
+    stores.uiLayout.state.width = 320
+    stores.applyDiff("core", { lastResult: {
+      success: true, code: "full_random_partial_applied", message: "fixture",
+      details: { operationId: "coverage-op", skippedCount: 2, coverage: {
+        slots: { slotsChanged: 4, slotsAttempted: 6, slotsClassified: 8, slotsEligible: 9, slotsUnresolved: 1 },
+        tuning: { tuningChanged: 3, tuningAttempted: 3, tuningClassified: 4, tuningEligible: 4, tuningUnresolved: 0 },
+        paint: { paintChanged: 2, paintAttempted: 2, paintClassified: 3, paintEligible: 3, paintUnresolved: 0 },
+      } },
+    } })
+    await settle()
+
+    const status = wrapper.find(".scr-global-status")
+    expect(status.exists()).toBe(true)
+    expect(status.text()).toContain("4 parts")
+    expect(status.text()).toContain("15/16 eligible items classified")
+    expect(status.find(".scr-global-status-content").exists()).toBe(true)
+    expect(status.find(".scr-global-status-actions").exists()).toBe(true)
+    await status.findAll("button").find(button => button.text() === "Details").trigger("click")
+    await settle()
+    expect(wrapper.find(".scr-coverage-details").text()).toContain("4 changed")
+    expect(wrapper.find(".scr-coverage-details").text()).toContain("8/9 classified")
     wrapper.unmount()
   })
 

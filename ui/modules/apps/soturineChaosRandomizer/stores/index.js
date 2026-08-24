@@ -13,7 +13,7 @@ import { createUILayoutStore } from "./uiLayout.js"
 import { createUIPerformanceProfiler } from "../services/uiPerformance.js"
 import { normalizeDomainPayload, normalizeFullState } from "../services/stateNormalizer.js"
 import { createStatusLifecycle } from "../services/statusLifecycle.js"
-import { RACE_FORMATION_CODES } from "../services/raceProtocol.js"
+import { normalizeFormationCode, RACE_FORMATION_CODES } from "../services/raceProtocol.js"
 
 export const STORES_KEY = Symbol("soturine-chaos-stores")
 
@@ -83,7 +83,7 @@ export function createStores(command) {
       aiDirector: initial.aiDirector,
       options: { ...RACE_DEFAULTS },
       placementOptions: {
-        mode: "Automatic Best Fit", count: 4, spacingMode: "automatic", spacing: 7,
+        mode: RACE_FORMATION_CODES[0], count: 4, spacingMode: "automatic", spacing: 7,
         longitudinalSpacing: 8, lateralSpacing: 5, safetyMargin: 1.5, availableWidth: null,
         rows: 2, columns: 2, radius: 14, headingMode: "camera", headingOffset: 0,
         groundOffset: 0.2, minimumObjectDistance: 3, interval: 0.75, spawnAll: true,
@@ -134,21 +134,35 @@ export function createStores(command) {
     if (retryCommand) {
       stores.status.clearWhere(item => item.recoverable && item.action?.command === retryCommand)
     }
+    const statusTab = retryCommand ? "race" : stores.uiLayout.state.activeTab
+    stores.status.clearWhere(item => item.scope === "tab" && item.tab === statusTab)
+    const coverage = result.details?.coverage
+    const slotCoverage = coverage?.slots
+    const tuningCoverage = coverage?.tuning
+    const paintCoverage = coverage?.paint
     stores.status.push({
       code: result.details?.terminalOutcome || result.code,
       values: {
-        parts: Number(result.details?.partsChanged || 0),
-        tuning: Array.isArray(result.details?.tuningValues)
-          ? result.details.tuningValues.length : Number(result.details?.tuningValues || 0),
-        paints: Number(result.details?.paintLayers || 0),
+        parts: Number(slotCoverage?.slotsChanged ?? result.details?.partsChanged ?? 0),
+        tuning: Number(tuningCoverage?.tuningChanged
+          ?? (Array.isArray(result.details?.tuningValues)
+            ? result.details.tuningValues.length : result.details?.tuningValues) ?? 0),
+        paints: Number(paintCoverage?.paintChanged ?? result.details?.paintLayers ?? 0),
+        partsClassified: Number(slotCoverage?.slotsClassified || 0),
+        partsEligible: Number(slotCoverage?.slotsEligible || 0),
+        tuningClassified: Number(tuningCoverage?.tuningClassified || 0),
+        tuningEligible: Number(tuningCoverage?.tuningEligible || 0),
+        paintsClassified: Number(paintCoverage?.paintClassified || 0),
+        paintsEligible: Number(paintCoverage?.paintEligible || 0),
         skipped: Number(result.details?.skippedCount || 0),
       },
       scope: "tab",
-      tab: retryCommand ? "race" : stores.uiLayout.state.activeTab,
+      tab: statusTab,
       severity: result.success === false ? "error" : "success",
       ttl: result.success === false ? 12000 : 5000,
-      persistent: Boolean(retryCommand),
+      persistent: Boolean(retryCommand || coverage),
       recoverable: Boolean(retryCommand),
+      dismissible: Boolean(retryCommand || coverage),
       operationId: result.details?.operationId || null,
       action: retryCommand ? { command: retryCommand } : null,
     })
@@ -164,8 +178,10 @@ export function createStores(command) {
     const placementOptions = stores.race.state.placementOptions || {}
     const aiOptions = stores.race.state.aiOptions || {}
     const racePreferences = state.settings?.uiPreferences?.race || {}
+    const formation = normalizeFormationCode(racePreferences.formation,
+      normalizeFormationCode(placementOptions.mode))
     Object.assign(placementOptions, {
-      mode: racePreferences.formation || placementOptions.mode,
+      mode: formation,
       spacingMode: racePreferences.spacingMode || placementOptions.spacingMode,
       longitudinalSpacing: racePreferences.longitudinalSpacing ?? placementOptions.longitudinalSpacing,
       lateralSpacing: racePreferences.lateralSpacing ?? placementOptions.lateralSpacing,
@@ -173,7 +189,7 @@ export function createStores(command) {
     })
     stores.race.replace({
       lineup: state.lineup || {}, spawnDirector: state.spawnDirector || {}, aiDirector: state.aiDirector || {},
-      options: { ...RACE_DEFAULTS, ...racePreferences }, placementOptions, aiOptions,
+      options: { ...RACE_DEFAULTS, ...racePreferences, formation }, placementOptions, aiOptions,
     })
     stores.settings.replace(state.settings || {})
     stores.compatibility.replace(state.compatibility || {})

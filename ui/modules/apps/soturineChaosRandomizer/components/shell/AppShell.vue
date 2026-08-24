@@ -2,7 +2,7 @@
   <section
     ref="root"
     class="scr-app bngApp"
-    :class="[{ 'is-normal': layout.mode === 'normal', 'is-compact': layout.mode === 'compact', 'is-reduced-motion': layout.reducedMotion }, `scr-width-${widthClass}`]"
+    :class="[{ 'is-normal': layout.mode === 'normal', 'is-compact': layout.mode === 'compact', 'is-user-sized': layout.mode === 'normal' && layout.normalSizePinned, 'is-reduced-motion': layout.reducedMotion }, `scr-width-${widthClass}`]"
     :style="geometryStyle"
     :data-layout-mode="layout.mode"
     bng-ui-scope="soturine-chaos-randomizer"
@@ -119,12 +119,17 @@ const compactFailedCount = computed(() => Number(compactLineup.value?.summary?.f
 const compactManagedCount = computed(() => (race.spawnDirector?.managed || []).length)
 const preferredSize = computed(() => stores.uiLayout.preferredSize(layout.activeTab))
 const normalMinimum = computed(() => stores.uiLayout.normalMinimum())
-const geometryStyle = computed(() => ({
-  "--scr-target-width": `${preferredSize.value.width}px`,
-  "--scr-target-height": `${preferredSize.value.height}px`,
-  "--scr-normal-min-width": `${normalMinimum.value.width}px`,
-  "--scr-normal-min-height": `${normalMinimum.value.height}px`,
-}))
+const geometryStyle = computed(() => {
+  const style = {
+    "--scr-target-width": `${preferredSize.value.width}px`,
+    "--scr-normal-min-width": `${normalMinimum.value.width}px`,
+    "--scr-normal-min-height": `${normalMinimum.value.height}px`,
+  }
+  if (Number.isFinite(preferredSize.value.height)) {
+    style["--scr-target-height"] = `${preferredSize.value.height}px`
+  }
+  return style
+})
 
 function selectTab(tab) { stores.uiLayout.setTab(tab) }
 function garageStep(delta) { if (entries.value.length) garageIndex.value = (garageIndex.value + delta + entries.value.length) % entries.value.length }
