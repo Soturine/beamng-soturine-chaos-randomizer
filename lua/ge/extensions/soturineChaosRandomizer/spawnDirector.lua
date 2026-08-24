@@ -145,6 +145,11 @@ local function normalize(options)
     groundOffset = util.clamp(tonumber(options.groundOffset) or 0.2, 0, 3),
     maxSlopeDegrees = util.clamp(tonumber(options.maxSlopeDegrees) or 25, 1, 60),
     minimumObjectDistance = util.clamp(tonumber(options.minimumObjectDistance) or 3, 1, 20),
+    maxPlacementAttemptsPerSlot = math.max(1, math.min(24,
+      math.floor(tonumber(options.maxPlacementAttemptsPerSlot) or 12))),
+    maxPlacementDistance = util.clamp(tonumber(options.maxPlacementDistance) or 180, 20, 250),
+    maxRejectedSamples = math.max(1, math.min(64,
+      math.floor(tonumber(options.maxRejectedSamples) or 16))),
     interval = util.clamp(tonumber(options.interval) or 0.75, 0.25, 10),
     maxConcurrentLoads = 1,
     headingMode = HEADING_MODES[headingMode] and headingMode or "camera",
@@ -157,6 +162,55 @@ local function normalize(options)
   }
   if normalized.mode == "Custom" then normalized.count = 1 end
   return normalized
+end
+
+-- The first candidate preserves the requested formation exactly. Later
+-- candidates expand in deterministic, bounded rings around that ideal point.
+-- This keeps the solver reproducible while allowing a nearby obstacle or bad
+-- ground sample to be bypassed without turning placement into an open-ended
+-- world search.
+local function fallbackOffset(attempt, options)
+  if attempt <= 1 then return 0, 0 end
+  local sequence = attempt - 2
+  local ring = math.floor(sequence / 5) + 1
+  local phase = sequence % 5
+  local lateralStep = math.max(options.minimumObjectDistance,
+    options.resolvedLateralSpacing or options.spacing)
+  local longitudinalStep = math.max(options.minimumObjectDistance,
+    options.resolvedLongitudinalSpacing or options.spacing)
+  if phase == 0 then return -ring * lateralStep, (ring - 1) * longitudinalStep * 0.5 end
+  if phase == 1 then return ring * lateralStep, (ring - 1) * longitudinalStep * 0.5 end
+  if phase == 2 then return 0, ring * longitudinalStep end
+  if phase == 3 then return -ring * lateralStep, ring * longitudinalStep end
+  return ring * lateralStep, ring * longitudinalStep
+end
+
+local function noteRejected(planning, options, index, attempt, lateral, longitudinal, reason, position)
+  planning.totalAttempts = planning.totalAttempts + 1
+  planning.rejectedCandidates = planning.rejectedCandidates + 1
+  planning.rejectionSummary[reason] = (planning.rejectionSummary[reason] or 0) + 1
+  if #planning.rejectionSamples < options.maxRejectedSamples then
+    planning.rejectionSamples[#planning.rejectionSamples + 1] = {
+      slot = index, attempt = attempt, reason = reason,
+      lateral = lateral, longitudinal = longitudinal,
+      position = util.deepCopy(position),
+    }
+  end
+end
+
+local function planningReport(options)
+  return {
+    totalAttempts = 0,
+    rejectedCandidates = 0,
+    selectedCandidates = 0,
+    fallbackDepth = 0,
+    budgetExhausted = false,
+    maxAttemptsPerSlot = options.maxPlacementAttemptsPerSlot,
+    maxPlacementDistance = options.maxPlacementDistance,
+    maxRejectedSamples = options.maxRejectedSamples,
+    rejectionSummary = {},
+    rejectionSamples = {},
+  }
 end
 
 local function flatUnit(value)
@@ -194,45 +248,107 @@ end
 local function plan(frame, options, raycastGround, occupied)
   options = normalize(options)
   if type(frame) ~= "table" or type(frame.position) ~= "table" then return nil, "camera_frame_invalid" end
+  if type(frame.right) ~= "table" or type(frame.forward) ~= "table"
+    or not util.isFinite(tonumber(frame.position.x)) or not util.isFinite(tonumber(frame.position.y))
+    or not util.isFinite(tonumber(frame.position.z))
+    or not util.isFinite(tonumber(frame.right.x)) or not util.isFinite(tonumber(frame.right.y))
+    or not util.isFinite(tonumber(frame.forward.x)) or not util.isFinite(tonumber(frame.forward.y))
+  then return nil, "camera_frame_invalid" end
+  if type(raycastGround) ~= "function" then return nil, "ground_raycast_unavailable" end
   local placements = {}
+  local planning = planningReport(options)
   for index = 1, options.count do
-    local lateral, longitudinal = offset(options.mode, index, options.count, options)
+    local idealLateral, idealLongitudinal = offset(options.mode, index, options.count, options)
     local customPoint = options.mode == "Custom" and type(options.customPoint) == "table"
       and {x = tonumber(options.customPoint.x), y = tonumber(options.customPoint.y), z = tonumber(options.customPoint.z)} or nil
     if options.mode == "Custom" and (not customPoint or not util.isFinite(customPoint.x)
       or not util.isFinite(customPoint.y) or not util.isFinite(customPoint.z))
-    then return nil, "custom_point_invalid" end
-    local raw = customPoint or {
-        x = frame.position.x + frame.right.x * lateral + frame.forward.x * longitudinal,
-        y = frame.position.y + frame.right.y * lateral + frame.forward.y * longitudinal,
-        z = frame.position.z,
-      }
-    if math.sqrt(lateral * lateral + longitudinal * longitudinal) > 1000 then return nil, "outside_supported_area" end
-    if type(raycastGround) ~= "function" then return nil, "ground_raycast_unavailable" end
-    local ok, ground = raycastGround(raw)
-    if not ok then return nil, ground or "ground_not_found" end
-    if math.abs(ground.point.z - frame.position.z) > 250 then return nil, "outside_supported_area" end
-    if ground.normal.z < math.cos(math.rad(options.maxSlopeDegrees)) then return nil, "slope_too_high" end
-    local position = {x = ground.point.x, y = ground.point.y, z = ground.point.z + options.groundOffset}
-    for _, existing in ipairs(occupied or {}) do
-      local dx, dy = position.x - existing.x, position.y - existing.y
-      local clearance = math.max(options.minimumObjectDistance, tonumber(existing.radius) or 0, options.spacing * 0.6)
-      if dx * dx + dy * dy < clearance * clearance then return nil, "position_blocked" end
+    then return nil, "custom_point_invalid", planning end
+    local selected, lastReason
+    local attempts = options.mode == "Custom" and 1 or options.maxPlacementAttemptsPerSlot
+    for attempt = 1, attempts do
+      local fallbackLateral, fallbackLongitudinal = fallbackOffset(attempt, options)
+      local lateral = idealLateral + fallbackLateral
+      local longitudinal = idealLongitudinal + fallbackLongitudinal
+      local raw = customPoint or {
+          x = frame.position.x + frame.right.x * lateral + frame.forward.x * longitudinal,
+          y = frame.position.y + frame.right.y * lateral + frame.forward.y * longitudinal,
+          z = frame.position.z,
+        }
+      local distance = math.sqrt(lateral * lateral + longitudinal * longitudinal)
+      local reason, position, ground
+      if distance > options.maxPlacementDistance then
+        reason = "outside_supported_area"
+      else
+        local okGround, groundOrReason = raycastGround(raw)
+        if not okGround or type(groundOrReason) ~= "table"
+          or type(groundOrReason.point) ~= "table" or type(groundOrReason.normal) ~= "table"
+          or not util.isFinite(tonumber(groundOrReason.point.x))
+          or not util.isFinite(tonumber(groundOrReason.point.y))
+          or not util.isFinite(tonumber(groundOrReason.point.z))
+          or not util.isFinite(tonumber(groundOrReason.normal.z))
+        then
+          reason = type(groundOrReason) == "string" and groundOrReason or "ground_not_found"
+        else
+          ground = groundOrReason
+          if math.abs(ground.point.z - frame.position.z) > 250 then
+            reason = "outside_supported_area"
+          elseif ground.normal.z < math.cos(math.rad(options.maxSlopeDegrees)) then
+            reason = "slope_too_high"
+          else
+            position = {x = ground.point.x, y = ground.point.y,
+              z = ground.point.z + options.groundOffset}
+            for _, existing in ipairs(type(occupied) == "table" and occupied or {}) do
+              local dx = position.x - (tonumber(existing.x) or position.x)
+              local dy = position.y - (tonumber(existing.y) or position.y)
+              local clearance = math.max(options.minimumObjectDistance,
+                tonumber(existing.radius) or 0, options.spacing * 0.6)
+              if dx * dx + dy * dy < clearance * clearance then
+                reason = "position_blocked"
+                break
+              end
+            end
+            if not reason then
+              for _, existing in ipairs(placements) do
+                local dx, dy = position.x - existing.position.x, position.y - existing.position.y
+                if dx * dx + dy * dy < options.spacing * options.spacing * 0.36 then
+                  reason = "position_blocked"
+                  break
+                end
+              end
+            end
+          end
+        end
+      end
+      if reason then
+        lastReason = reason
+        noteRejected(planning, options, index, attempt, lateral, longitudinal, reason, position or raw)
+      else
+        local forward, headingReason = headingVector(frame, options, position)
+        if not forward then return nil, headingReason, planning end
+        planning.totalAttempts = planning.totalAttempts + 1
+        planning.selectedCandidates = planning.selectedCandidates + 1
+        planning.fallbackDepth = math.max(planning.fallbackDepth, attempt - 1)
+        selected = {
+          index = index, position = position, normal = ground.normal,
+          forward = forward, attempt = attempt, fallbackDepth = attempt - 1,
+          dimensions = util.deepCopy(options.vehicleDimensions[index]
+            or {width = 2, length = 4.8}),
+        }
+        break
+      end
     end
-    for _, existing in ipairs(placements) do
-      local dx, dy = position.x - existing.position.x, position.y - existing.position.y
-      if dx * dx + dy * dy < options.spacing * options.spacing * 0.36 then return nil, "position_blocked" end
+    if not selected then
+      planning.budgetExhausted = true
+      planning.failedSlot = index
+      planning.failureReason = planning.rejectionSummary.position_blocked and "position_blocked"
+        or lastReason or "placement_budget_exhausted"
+      return nil, planning.failureReason, planning
     end
-    local forward, headingReason = headingVector(frame, options, position)
-    if not forward then return nil, headingReason end
-    placements[#placements + 1] = {
-      index = index, position = position, normal = ground.normal,
-      forward = forward,
-      dimensions = util.deepCopy(options.vehicleDimensions[index]
-        or {width = 2, length = 4.8}),
-    }
+    placements[#placements + 1] = selected
   end
-  return {options = options, placements = placements, cursor = 1, active = false, nextAt = 0, spawned = {}, failures = {}}
+  return {options = options, placements = placements, planning = planning,
+    cursor = 1, active = false, nextAt = 0, spawned = {}, failures = {}}
 end
 
 M.MODES = MODES

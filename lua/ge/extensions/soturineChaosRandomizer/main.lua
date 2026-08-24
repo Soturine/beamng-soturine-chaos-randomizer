@@ -4619,6 +4619,9 @@ end
 production.updateUIPreferences = function(patch)
   initialize()
   if runtime.state.busy or (runtime.stress and runtime.stress.active) then return false, "busy" end
+  if type(patch) == "table" and type(patch.race) == "table" and runtime.racePreview then
+    productionModules.racePreview.stale(runtime.racePreview, "race_options_changed")
+  end
   local nextPreferences = productionModules.uiPreferences.patch(runtime.settings.uiPreferences, patch)
   runtime.settings = settingsModule.update(runtime.settings, {uiPreferences = nextPreferences})
   local ok, saveError = adapter.saveSettings(settingsModule.forPersistence(runtime.settings))
@@ -7211,7 +7214,19 @@ production.generationPreviewContext = function(options, lineup, playerOk, player
     local roadOk, roadForward = productionModules.spawnAdapter.roadForward(frame.position)
     if roadOk then frame.roadForward = roadForward end
   end
-  local plan, planReason = productionModules.spawnDirector.plan(frame, {
+  local occupied = production.occupiedManagedPositions() or {}
+  if playerPositionOk then
+    local dimensions = productionModules.spawnAdapter.vehicleDimensions(playerVehicleId, 0)
+    local playerRadius = type(dimensions) == "table"
+      and math.max(tonumber(dimensions.width) or 2, tonumber(dimensions.length) or 4.8) * 0.5
+      or 2.4
+    occupied[#occupied + 1] = {
+      x = playerPosition.x, y = playerPosition.y, z = playerPosition.z,
+      radius = playerRadius + 1.5, vehicleId = playerVehicleId, protectedPlayer = true,
+    }
+  end
+  local planningStarted = adapter.clock()
+  local plan, planReason, planning = productionModules.spawnDirector.plan(frame, {
     -- Generation uses a dedicated, forward staging grid. The requested final
     -- formation remains a later positioning concern and never falls back to a
     -- generic spawn beside or behind the camera.
@@ -7227,8 +7242,14 @@ production.generationPreviewContext = function(options, lineup, playerOk, player
       and util.deepCopy(runtime.destination.point) or nil,
     minimumObjectDistance = 3,
     interval = 0.25,
-  }, productionModules.spawnAdapter.raycastGround, production.occupiedManagedPositions())
-  if not plan then return nil, planReason end
+  }, productionModules.spawnAdapter.raycastGround, occupied)
+  planning = util.deepCopy(planning or plan and plan.planning or {})
+  planning.durationMs = math.max(0, (adapter.clock() - planningStarted) * 1000)
+  productionModules.performanceMetrics.record(
+    runtime.performanceTelemetry, "racePlacementPlanning", planning.durationMs
+  )
+  if not plan then return nil, planReason, planning end
+  plan.planning = planning
   local playerPlacement
   if lineup.playerParticipates and playerPositionOk then
     local playerDimensions = productionModules.spawnAdapter.vehicleDimensions(playerVehicleId, 0)
@@ -7240,7 +7261,8 @@ production.generationPreviewContext = function(options, lineup, playerOk, player
       dimensions = playerDimensions,
     }
   end
-  return {plan = plan, frame = frame, playerPlacement = playerPlacement}
+  return {plan = plan, frame = frame, playerPlacement = playerPlacement,
+    planning = util.deepCopy(planning)}
 end
 
 function production.previewRaceGeneration(options)
@@ -7286,7 +7308,7 @@ function production.previewRaceGeneration(options)
     return false
   end
   productionModules.raceAttemptCoordinator.setPhase(runtime.raceAttempts, attempt, "planning_staging")
-  local context, previewReason = production.generationPreviewContext(
+  local context, previewReason, previewPlanning = production.generationPreviewContext(
     options, lineup, playerOk, playerVehicleId
   )
   if not context then
@@ -7294,6 +7316,7 @@ function production.previewRaceGeneration(options)
     setResult(false, previewReason, "Race generation preview is unavailable", {
       operationId = attempt.operationId, generation = attempt.generation,
       recoverable = true, retryAction = "previewRaceGeneration",
+      planning = util.deepCopy(previewPlanning),
     })
     publishState()
     return false
@@ -7309,6 +7332,7 @@ function production.previewRaceGeneration(options)
     aiOpponents = lineup.aiOpponentCount,
     kind = runtime.racePreview.kind, previewState = runtime.racePreview.state,
     operationId = attempt.operationId, generation = attempt.generation,
+    planning = util.deepCopy(context.planning),
   })
   publishState()
   return true
@@ -7390,7 +7414,7 @@ function production.createChaosLineup(options)
   end
   lineup.generationState = "lineup_processing"
   productionModules.raceAttemptCoordinator.setPhase(runtime.raceAttempts, attempt, "planning_staging")
-  local previewContext, stagingReason = production.generationPreviewContext(
+  local previewContext, stagingReason, stagingPlanning = production.generationPreviewContext(
     options, lineup, playerOk, playerVehicleId
   )
   if not previewContext then
@@ -7400,6 +7424,7 @@ function production.createChaosLineup(options)
     setResult(false, "lineup_staging_unsafe", "Race cars were not generated because safe staging failed", {
       reason = stagingReason, operationId = attempt.operationId, generation = attempt.generation,
       recoverable = true, retryAction = "createChaosLineup",
+      planning = util.deepCopy(stagingPlanning),
     })
     publishState()
     return false
@@ -7436,6 +7461,7 @@ function production.createChaosLineup(options)
     count = #staging.placements,
     resolvedLateralSpacing = staging.options.resolvedLateralSpacing,
     resolvedLongitudinalSpacing = staging.options.resolvedLongitudinalSpacing,
+    planning = util.deepCopy(staging.planning),
   }
   for index, competitor in ipairs(lineup.competitors) do
     competitor.stagingPlacement = util.deepCopy(staging.placements[index])
@@ -7458,7 +7484,8 @@ function production.createChaosLineup(options)
       seedIntent = lineup.seedIntent, repeatedFromLineupId = lineup.repeatedFromLineupId,
       totalVehicles = lineup.totalVehicles, aiOpponents = lineup.aiOpponentCount,
       playerParticipates = lineup.playerParticipates, cleanup = cleanup,
-      stagingPreview = util.deepCopy(lineup.stagingPreview), storageReason = persistReason})
+      stagingPreview = util.deepCopy(lineup.stagingPreview),
+      planning = util.deepCopy(staging.planning), storageReason = persistReason})
   publishState()
   return true
 end
@@ -7786,10 +7813,21 @@ function production.previewLineupSpawn(options)
   for _, item in ipairs(occupied or {}) do
     if not selectedIds[tostring(item.vehicleId)] then externalOccupied[#externalOccupied + 1] = item end
   end
-  local plan, reason = productionModules.spawnDirector.plan(
+  local planningStarted = adapter.clock()
+  local plan, reason, planning = productionModules.spawnDirector.plan(
     frame, options, productionModules.spawnAdapter.raycastGround, externalOccupied
   )
-  if not plan then setResult(false, reason, "Spawn preview is unsafe: " .. tostring(reason)); publishState(); return false end
+  planning = util.deepCopy(planning or plan and plan.planning or {})
+  planning.durationMs = math.max(0, (adapter.clock() - planningStarted) * 1000)
+  productionModules.performanceMetrics.record(
+    runtime.performanceTelemetry, "racePlacementPlanning", planning.durationMs
+  )
+  if not plan then
+    setResult(false, reason, "Spawn preview is unsafe: " .. tostring(reason), {planning = planning})
+    publishState()
+    return false
+  end
+  plan.planning = planning
   plan.competitors = competitors
   runtime.spawnDirector.preview = plan
   local previewLineup = {competitors = competitors}
@@ -7814,6 +7852,7 @@ function production.previewLineupSpawn(options)
       fallbackReason = plan.options.fallbackReason,
       resolvedLateralSpacing = plan.options.resolvedLateralSpacing,
       resolvedLongitudinalSpacing = plan.options.resolvedLongitudinalSpacing,
+      planning = util.deepCopy(plan.planning),
     }
   end
   setResult(true, "spawn_preview_ready", "Placement preview is ready; confirm to apply it", {
@@ -7821,6 +7860,7 @@ function production.previewLineupSpawn(options)
     mode = plan.options.mode, fallbackReason = plan.options.fallbackReason,
     resolvedLateralSpacing = plan.options.resolvedLateralSpacing,
     resolvedLongitudinalSpacing = plan.options.resolvedLongitudinalSpacing,
+    planning = util.deepCopy(plan.planning),
   })
   publishState()
   return true

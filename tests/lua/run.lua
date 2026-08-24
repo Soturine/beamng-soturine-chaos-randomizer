@@ -4132,8 +4132,80 @@ tests.v060_spawn_plans_are_camera_relative_and_safe = function()
   equal(#circle.placements, 4)
   local missing, missingReason = spawnDirector.plan(frame, {count = 1}, function() return false, "ground_not_found" end, {})
   equal(missing, nil); equal(missingReason, "ground_not_found")
-  local blocked, blockedReason = spawnDirector.plan(frame, {mode = "Right", count = 1, spacing = 6}, ground, {{x = 16, y = 20, z = 0}})
+  local blocked, blockedReason = spawnDirector.plan(frame, {
+    mode = "Right", count = 1, spacing = 6, maxPlacementAttemptsPerSlot = 1,
+  }, ground, {{x = 16, y = 20, z = 0}})
   equal(blocked, nil); equal(blockedReason, "position_blocked")
+end
+
+tests.v078_bounded_spawn_solver_recovers_and_reports_evidence = function()
+  local frame = {
+    position = {x = 0, y = 0, z = 5}, forward = {x = 0, y = 1, z = 0},
+    right = {x = 1, y = 0, z = 0},
+  }
+  local ground = function(position)
+    return true, {point = {x = position.x, y = position.y, z = 0}, normal = {x = 0, y = 0, z = 1}}
+  end
+  local options = {
+    mode = "Right", count = 1, spacing = 6, maxPlacementAttemptsPerSlot = 5,
+    maxPlacementDistance = 40, maxRejectedSamples = 3,
+  }
+  local recovered = assert(spawnDirector.plan(frame, options, ground, {{x = 6, y = 0, z = 0}}))
+  equal(recovered.placements[1].attempt, 2)
+  equal(recovered.planning.totalAttempts, 2)
+  equal(recovered.planning.rejectedCandidates, 1)
+  equal(recovered.planning.rejectionSummary.position_blocked, 1)
+  equal(recovered.planning.fallbackDepth, 1)
+  truthy(not recovered.planning.budgetExhausted)
+  local replay = assert(spawnDirector.plan(frame, options, ground, {{x = 6, y = 0, z = 0}}))
+  truthy(util.deepEqual(recovered, replay))
+
+  local groundCalls = 0
+  local groundRecovered = assert(spawnDirector.plan(frame, options, function(position)
+    groundCalls = groundCalls + 1
+    if groundCalls == 1 then return false, "ground_not_found" end
+    return ground(position)
+  end, {}))
+  equal(groundRecovered.placements[1].attempt, 2)
+  equal(groundRecovered.planning.rejectionSummary.ground_not_found, 1)
+
+  local slopeCalls = 0
+  local slopeRecovered = assert(spawnDirector.plan(frame, options, function(position)
+    slopeCalls = slopeCalls + 1
+    if slopeCalls == 1 then
+      return true, {point = position, normal = {x = 1, y = 0, z = 0}}
+    end
+    return ground(position)
+  end, {}))
+  equal(slopeRecovered.placements[1].attempt, 2)
+  equal(slopeRecovered.planning.rejectionSummary.slope_too_high, 1)
+
+  local exhausted, exhaustedReason, exhaustedReport = spawnDirector.plan(frame, {
+    mode = "Front", count = 1, spacing = 6, maxPlacementAttemptsPerSlot = 5,
+    maxRejectedSamples = 2,
+  }, ground, {{x = 0, y = 0, z = 0, radius = 1000}})
+  equal(exhausted, nil); equal(exhaustedReason, "position_blocked")
+  equal(exhaustedReport.totalAttempts, 5)
+  equal(exhaustedReport.rejectedCandidates, 5)
+  equal(#exhaustedReport.rejectionSamples, 2)
+  truthy(exhaustedReport.budgetExhausted)
+
+  local sibling, siblingReason, siblingReport = spawnDirector.plan(frame, {
+    mode = "Grid", count = 2, columns = 1, spacing = 6,
+    maxPlacementAttemptsPerSlot = 3,
+  }, function()
+    return true, {point = {x = 10, y = 10, z = 0}, normal = {x = 0, y = 0, z = 1}}
+  end, {})
+  equal(sibling, nil); equal(siblingReason, "position_blocked")
+  equal(siblingReport.failedSlot, 2)
+  equal(siblingReport.rejectionSummary.position_blocked, 3)
+
+  local distant, distantReason, distantReport = spawnDirector.plan(frame, {
+    mode = "Right", count = 1, spacing = 40, maxPlacementDistance = 20,
+    maxPlacementAttemptsPerSlot = 1,
+  }, ground, {})
+  equal(distant, nil); equal(distantReason, "outside_supported_area")
+  equal(distantReport.totalAttempts, 1)
 end
 
 tests.v060_spawn_heading_readback_and_ownership = function()
@@ -8387,6 +8459,18 @@ local v077Required = {
   {"canonical_reorder_preserves_slot_seed", tests.v077_formation_selection_and_canonical_order_are_renderer_independent},
 }
 
+local v078Required = {
+  {"blocked_ideal_uses_deterministic_fallback", tests.v078_bounded_spawn_solver_recovers_and_reports_evidence},
+  {"ground_failure_uses_bounded_fallback", tests.v078_bounded_spawn_solver_recovers_and_reports_evidence},
+  {"slope_failure_uses_bounded_fallback", tests.v078_bounded_spawn_solver_recovers_and_reports_evidence},
+  {"external_obstacle_search_is_bounded", tests.v078_bounded_spawn_solver_recovers_and_reports_evidence},
+  {"sibling_conflict_search_is_bounded", tests.v078_bounded_spawn_solver_recovers_and_reports_evidence},
+  {"placement_distance_is_bounded", tests.v078_bounded_spawn_solver_recovers_and_reports_evidence},
+  {"placement_report_counts_attempts", tests.v078_bounded_spawn_solver_recovers_and_reports_evidence},
+  {"placement_report_caps_rejected_samples", tests.v078_bounded_spawn_solver_recovers_and_reports_evidence},
+  {"placement_solver_is_seed_independent_and_reproducible", tests.v078_bounded_spawn_solver_recovers_and_reports_evidence},
+}
+
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")
 equal(#v060Required, 104, "0.6.0 required scenario registry")
 equal(#v060PauseLifecycleRequired, 52, "0.6.0 pause lifecycle scenario registry")
@@ -8439,6 +8523,9 @@ for _, scenario in ipairs(v076Required) do
 end
 for _, scenario in ipairs(v077Required) do
   requirementMappings[#requirementMappings + 1] = {"0.7.7:" .. scenario[1], scenario[2]}
+end
+for _, scenario in ipairs(v078Required) do
+  requirementMappings[#requirementMappings + 1] = {"0.7.8:" .. scenario[1], scenario[2]}
 end
 
 local canonicalByFunction = {}

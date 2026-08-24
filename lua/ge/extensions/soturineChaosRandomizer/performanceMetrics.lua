@@ -9,7 +9,7 @@ local DEFAULT_METRICS = {
   "paintConfirmation", "treeRescan", "raceGeneration", "registryIndexing",
   "uiPublish", "diagnosticsSerialization", "vehicleEnumeration",
   "vehicleDimensionRead", "configVerification", "ownershipCleanup",
-  "orphanReaper", "garageLoad", "dnaCompatibility",
+  "orphanReaper", "garageLoad", "dnaCompatibility", "racePlacementPlanning",
 }
 
 local function clearArray(values)
