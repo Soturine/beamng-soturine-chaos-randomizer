@@ -1,18 +1,19 @@
 # UI design
 
-## v0.7.7 Events and AppHost geometry
+## v0.7.8 Events and AppHost geometry
 
 The normal navigation label is Events. Its stepper is Setup, Formation,
 Behavior and Start. Simple AI presets precede an advanced disclosure containing
 destination, route, speed, aggression and recovery controls. Technical IDs
 remain in Details.
 
-The normal child shell fills the AppHost geometry and preserves safe minima;
-internal content scrolls without persisting its measurements as user size.
-Measured parent-container width selects content density. No private host resize
-API or global viewport breakpoint is used. Compact mode has dedicated tab
-content and geometry. Preview is called visible only after a successful marker
-frame.
+The normal child shell follows useful content height by default and preserves
+safe per-tab minima. A later explicit user-sized AppHost is retained and may
+use the available height; tab content measurements never become a new user
+preference. Measured parent-container width selects content density. No private
+host resize API or global viewport breakpoint is used. Compact mode has
+dedicated tab content and geometry. Preview is called visible only after a
+successful marker frame.
 
 The app is a native Runtime UI Vue HUD App with four destinations: **Chaos**,
 **Garage**, **Events**, and **Settings**. The backend remains available if a

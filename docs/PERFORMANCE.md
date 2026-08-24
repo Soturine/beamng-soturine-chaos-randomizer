@@ -1,6 +1,6 @@
 # Performance
 
-## v0.7.7 Full Random batching and instrumentation
+## v0.7.8 Full Random batching and instrumentation
 
 Full Random records total and per-phase duration, parts/tuning/repair reloads,
 readbacks, longest cooperative step, semantic progress and duplicate activity.
@@ -17,6 +17,11 @@ driver behavior.
 Race lifecycle tests also assert bounded candidate cardinality and no growth
 after 20 managed-slot regenerations. This is an automated ownership guard, not
 a live world-performance claim.
+
+Race placement uses at most 12 candidates per slot by default (hard-clamped to
+24), a 180 m default search distance (hard-clamped to 250 m), and a capped
+rejection sample. Total attempts, rejection counts, fallback depth and planning
+duration are published without copying world or parts-tree state.
 
 ## Permanent architecture
 

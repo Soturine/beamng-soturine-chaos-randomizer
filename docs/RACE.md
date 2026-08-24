@@ -1,6 +1,6 @@
 # Race workflow
 
-## v0.7.7 retry and containment
+## v0.7.8 retry and containment
 
 The UI presents Race authoring under Events. Player-participation count N means
 N-1 generated opponents; spectator count N means N generated NPCs. Each slot
@@ -13,6 +13,13 @@ typed write failures retain coherent in-memory state and allow bounded retry.
 Preview and staging retries receive fresh attempt identities. The scheduler
 closes an abandoned open slot locally and continues later slots. Accepted slots
 are terminally immutable.
+
+Placement preserves the requested ideal formation first, then tests a bounded,
+deterministic set of nearby candidates for blocked ground, missing ground or
+excessive slope. Attempt counts, rejection reasons, capped samples, selected
+fallback depth and duration are diagnostics. Generation uses its own forward
+staging plan, protects the player as occupied space and does not depend on the
+final formation or renderer.
 
 Race is the public three-stage workflow: **Cars → Placement → Drive**. Each
 generated competitor is an independent slot transaction. Older saved data may

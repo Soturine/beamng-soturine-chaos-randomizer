@@ -27,8 +27,9 @@ native Runtime UI Vue app.
 The app has four destinations: Chaos, Garage, Events, and Settings. It uses
 BeamNG Runtime UI components, controller/UINav navigation, an actual compact
 presentation, localized status messages, and technical identifiers only in
-explicit diagnostic views. Layout responds to measured app width while BeamNG
-owns outer placement. Local artwork and CSS are packaged with the mod; runtime
+explicit diagnostic views. Normal height follows useful content by default,
+while an explicit user-sized AppHost remains stable. Layout responds to measured
+app width while BeamNG owns outer placement. Local artwork and CSS are packaged with the mod; runtime
 access does not depend on a CDN or `node_modules`.
 
 ## Installation
@@ -74,7 +75,7 @@ evidence-based: automated validation can pass while in-game validation remains
 **Pending owner validation**. See
 [BeamNG 0.39 compatibility](docs/BEAMNG_0.39_COMPATIBILITY.md) and
 [current validation](docs/status/CURRENT_VALIDATION.md). The current owner-live
-retest is the focused [v0.7.7 A-K plan](docs/testing/v0.7.7/LIVE_TEST_PLAN.md).
+retest is the focused [v0.7.8 A-G plan](docs/testing/v0.7.8/LIVE_TEST_PLAN.md).
 
 ## Data and safety
 

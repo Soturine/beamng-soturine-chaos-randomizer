@@ -2,6 +2,27 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.8] - 2026-08-23
+
+Owner-live v0.7.7 findings stabilization experimental prerelease targeting BeamNG 0.39.4.
+
+### Fixed
+
+- Made default normal App height content-driven and long status actions responsive while retaining explicit AppHost sizing and compact mode.
+- Normalized Preview slots, legacy formation values and smart-select inputs before Runtime UI consumers.
+- Added deterministic bounded safe-placement alternatives for blocked, missing-ground and excessive-slope candidates, with player-safe generation staging.
+
+### Changed
+
+- Projected final parts/tuning/paint evidence from the authoritative coverage ledgers into compact status and full Details.
+- Exposed bounded placement attempts, rejection summaries/samples, fallback depth, exhaustion and duration without making Preview rendering a generation prerequisite.
+- Naturalized Preview/staging language across pt-BR, en-US and es-ES.
+
+### Testing and live status
+
+- Added Lua solver recovery/budget/determinism regressions and mounted UI tests for content sizing, legacy/malformed Formation payloads, real smart-select normalization, narrow status and ledger-derived details.
+- Live BeamNG 0.39.4.x status: **Pending owner validation** (0 executed / 7 pending).
+
 ## [0.7.7] - 2026-08-13
 
 v0.7.6 live-findings stabilization experimental prerelease targeting BeamNG 0.39.4.

@@ -1,6 +1,6 @@
 # Current compatibility matrix
 
-Published: **0.7.7 experimental prerelease**. Primary target: BeamNG 0.39.4.
+Published: **0.7.8 experimental prerelease**. Primary target: BeamNG 0.39.4.
 Minimum family: 0.39. Live status: **Pending owner validation**.
 
 | Surface | Automated/source evidence | Live status |

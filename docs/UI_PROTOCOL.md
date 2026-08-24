@@ -1,6 +1,6 @@
 # UI protocol v2
 
-## v0.7.7 stable result and Preview codes
+## v0.7.8 stable result and Preview codes
 
 Terminal outcomes are `COMPLETED`, `COMPLETED_WITH_SKIPS`,
 `COMPLETED_WITH_WARNING`, `PARTIAL_APPLIED`, `FAILED_TIMEOUT`,
@@ -12,9 +12,14 @@ Terminal outcomes are `COMPLETED`, `COMPLETED_WITH_SKIPS`,
 `CONFIRMED`, `UNCERTAIN`, `NOT_APPLICABLE` or `UNSUPPORTED_TELEMETRY`.
 
 Preview states are `PREVIEW_DISABLED`, `PREVIEW_DATA_READY`,
-`PREVIEW_RENDERER_UNAVAILABLE`, `PREVIEW_RENDER_ERROR`, `PREVIEW_VISIBLE` and
-`PREVIEW_STALE`. Phase, outcome, formation and Preview codes are translated by
-the frontend and appear raw only in explicit technical disclosure.
+`PREVIEW_RENDER_AVAILABLE`, `PREVIEW_RENDERING`, `PREVIEW_RENDERED`,
+`PREVIEW_FAILED` and `PREVIEW_STALE`. Formation business values are the stable
+`AUTO_BEST_FIT`, `GRID`, `LINE`, `SIDE_BY_SIDE_GRID`, `STAGGERED_GRID`,
+`SPLIT_LEFT_RIGHT`, `SINGLE_FILE_BEHIND`, `SINGLE_FILE_AHEAD` and `RADIAL`
+codes. Legacy runtime or translated values normalize only at ingress; runtime
+names are produced only at the backend command boundary. Phase, outcome and
+Preview codes are translated by the frontend and appear raw only in explicit
+technical disclosure.
 
 Race readiness publishes separate generation, placement, drivability and AI
 axes. Policy failures include profile, rule, severity, evidence and decision;

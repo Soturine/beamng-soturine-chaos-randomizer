@@ -97,7 +97,7 @@ local production = {}
 
 M.dependencies = {"core_modmanager", "core_vehicle_manager", "core_vehicle_partmgmt", "core_vehicles"}
 
-local EXTENSION_VERSION = "0.7.7"
+local EXTENSION_VERSION = "0.7.8"
 local WAIT_TIMEOUT = 25
 local PAINT_CONFIRM_TIMEOUT = 2
 local RECENT_LIMIT = 4

@@ -46,6 +46,12 @@ Aggregate diagnostics report discovered, eligible, selected, attempted,
 changed, unchanged, rejected, disappeared, quarantined, locked, and terminal
 counts without copying the complete tree every frame.
 
+The normal Runtime UI status and Details views consume these final aggregate
+summaries. Parts, tuning and paint change counts come from their respective
+ledgers after read-back; legacy action counters are only a fallback when an
+operation has no coverage ledger. Applied outcome and classification coverage
+remain separate, and a bounded/Partial result is never hidden by the summary.
+
 ## Tree convergence
 
 Target identity and parts-tree convergence are independent:
