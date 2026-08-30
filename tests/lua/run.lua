@@ -58,6 +58,8 @@ local lineupManager = require("ge/extensions/soturineChaosRandomizer/lineupManag
 local raceManager = require("ge/extensions/soturineChaosRandomizer/raceManager")
 local raceFocusGuard = require("ge/extensions/soturineChaosRandomizer/raceFocusGuard")
 local racePreview = require("ge/extensions/soturineChaosRandomizer/racePreview")
+local racePreviewRenderer = require("ge/extensions/soturineChaosRandomizer/racePreviewRenderer")
+local raceFormationFrame = require("ge/extensions/soturineChaosRandomizer/raceFormationFrame")
 local raceAttemptCoordinator = require("ge/extensions/soturineChaosRandomizer/raceAttemptCoordinator")
 local raceScheduler = require("ge/extensions/soturineChaosRandomizer/raceScheduler")
 local lineupStorage = require("ge/extensions/soturineChaosRandomizer/lineupStorage")
@@ -4185,8 +4187,8 @@ tests.v078_bounded_spawn_solver_recovers_and_reports_evidence = function()
     maxRejectedSamples = 2,
   }, ground, {{x = 0, y = 0, z = 0, radius = 1000}})
   equal(exhausted, nil); equal(exhaustedReason, "position_blocked")
-  equal(exhaustedReport.totalAttempts, 5)
-  equal(exhaustedReport.rejectedCandidates, 5)
+  equal(exhaustedReport.totalAttempts, 20)
+  equal(exhaustedReport.rejectedCandidates, 20)
   equal(#exhaustedReport.rejectionSamples, 2)
   truthy(exhaustedReport.budgetExhausted)
 
@@ -4198,14 +4200,83 @@ tests.v078_bounded_spawn_solver_recovers_and_reports_evidence = function()
   end, {})
   equal(sibling, nil); equal(siblingReason, "position_blocked")
   equal(siblingReport.failedSlot, 2)
-  equal(siblingReport.rejectionSummary.position_blocked, 3)
+  equal(siblingReport.rejectionSummary.position_blocked, 12)
 
   local distant, distantReason, distantReport = spawnDirector.plan(frame, {
     mode = "Right", count = 1, spacing = 40, maxPlacementDistance = 20,
     maxPlacementAttemptsPerSlot = 1,
   }, ground, {})
   equal(distant, nil); equal(distantReason, "outside_supported_area")
-  equal(distantReport.totalAttempts, 1)
+  equal(distantReport.totalAttempts, 4)
+end
+
+tests.v079_final_formation_origin_heading_clearance_and_rigid_fallback_are_independent = function()
+  local adapterFixture = {
+    cameraFrame = function() return true, {
+      position = {x = 100, y = 100, z = 5}, forward = {x = 0, y = 1, z = 0},
+    } end,
+    objectFrame = function(vehicleId) return true, {
+      position = {x = 10, y = 20, z = 5}, forward = {x = 1, y = 0, z = 0}, vehicleId = vehicleId,
+    } end,
+  }
+  local lineup = {playerParticipates = true, playerVehicleId = 7}
+  local frame = assert(raceFormationFrame.resolve(adapterFixture, {formationOrigin = "automatic"}, lineup))
+  equal(frame.originSource, "player"); equal(frame.position.x, 10); equal(frame.position.y, 20)
+  local camera = assert(raceFormationFrame.resolve(adapterFixture, {formationOrigin = "camera"}, lineup))
+  equal(camera.originSource, "camera"); equal(camera.position.x, 100)
+
+  frame.roadForward = {x = 0, y = 1, z = 0}
+  local ground = function(position)
+    return true, {point = {x = position.x, y = position.y, z = 0}, normal = {x = 0, y = 0, z = 1}}
+  end
+  local single = assert(spawnDirector.plan(frame, {
+    mode = "Single File Behind", count = 2, spacingMode = "automatic", safetyMargin = 1,
+    originDimensions = {width = 2, length = 6},
+    vehicleDimensions = {{width = 2, length = 4}, {width = 2, length = 4}},
+    headingMode = "road",
+  }, ground, {}))
+  truthy(single.placements[1].position.x <= 4)
+  near(single.placements[1].forward.x, 0, 1e-8); near(single.placements[1].forward.y, 1, 1e-8)
+
+  local solverFrame = {
+    position = {x = 0, y = 0, z = 5}, forward = {x = 0, y = 1, z = 0},
+    right = {x = 1, y = 0, z = 0},
+  }
+  local options = {mode = "Grid", count = 4, columns = 2, spacing = 6, maxPlacementAttemptsPerSlot = 5}
+  local ideal = assert(spawnDirector.plan(solverFrame, options, ground, {}))
+  local shifted = assert(spawnDirector.plan(solverFrame, options, ground, {{
+    x = ideal.placements[1].position.x, y = ideal.placements[1].position.y, radius = 2,
+  }}))
+  truthy(shifted.planning.rigidGroupPreserved)
+  equal(shifted.planning.individualFallbackCount, 0)
+  local dx = shifted.placements[1].position.x - ideal.placements[1].position.x
+  local dy = shifted.placements[1].position.y - ideal.placements[1].position.y
+  for index = 2, #shifted.placements do
+    near(shifted.placements[index].position.x - ideal.placements[index].position.x, dx, 1e-8)
+    near(shifted.placements[index].position.y - ideal.placements[index].position.y, dy, 1e-8)
+  end
+end
+
+tests.v079_preview_renderer_draws_only_injected_read_only_primitives = function()
+  local calls = {sphere = 0, line = 0, text = 0}
+  local drawer = {}
+  function drawer:drawSphere() calls.sphere = calls.sphere + 1 end
+  function drawer:drawLine() calls.line = calls.line + 1 end
+  function drawer:drawTextAdvanced() calls.text = calls.text + 1 end
+  local rendered, report = racePreviewRenderer.draw({{
+    position = {x = 1, y = 2, z = 3}, forward = {x = 0, y = 1, z = 0},
+    dimensions = {width = 2, length = 4}, clearance = 1.5,
+    label = "1 - Fixture", visual = "ready", positionStatus = "valid",
+  }}, {
+    debugDrawer = drawer,
+    ColorF = function(...) return {...} end,
+    ColorI = function(...) return {...} end,
+    vec3 = function(x, y, z) return {x = x, y = y, z = z} end,
+  })
+  truthy(rendered); equal(report.renderedMarkerCount, 1)
+  equal(calls.sphere, 1); equal(calls.line, 9); equal(calls.text, 1)
+  local unavailable, unavailableReport = racePreviewRenderer.draw({}, {})
+  equal(unavailable, false); equal(unavailableReport.errorCode, "preview_renderer_unavailable")
 end
 
 tests.v060_spawn_heading_readback_and_ownership = function()
@@ -4919,6 +4990,7 @@ tests.v063_performance_telemetry_covers_runtime_subsystems = function()
   truthy(pipelineHarness.driveSuccess(harness, "fullRandom", {
     chaos = 100, manualSeed = "performance-telemetry", seedMode = "fixed",
   }))
+  harness.main.onPreRender()
   local telemetry = harness.main.requestState().performance.telemetry
   equal(telemetry.sampleLimit, 256)
   for _, category in ipairs({
@@ -7582,6 +7654,8 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/lineupManager.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/lineupPersistence.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/raceManager.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/raceFormationFrame.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/racePreviewRenderer.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/raceScheduler.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/lineupSchema.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/lineupStorage.lua",

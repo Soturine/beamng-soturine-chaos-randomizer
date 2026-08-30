@@ -478,6 +478,26 @@ describe("mounted Runtime UI", () => {
     wrapper.unmount()
   })
 
+  it("locks conflicting placement controls and exposes one monotonic active operation", async () => {
+    const { wrapper, stores, command } = mountShell()
+    stores.uiLayout.setTab("race")
+    stores.uiLayout.state.raceStep = "formation"
+    stores.race.state.spawnDirector.run = {
+      active: true, operationId: "race-placement:fixture:1", generation: 1,
+      kind: "reposition", requested: 4, completed: 2, failed: 0, currentSlot: 3,
+    }
+    await settle()
+    expect(wrapper.text()).toContain("Positioning 2/4 vehicles")
+    for (const label of ["Preview formation", "Place first", "Place next", "Place all"]) {
+      expect(wrapper.findAll("button").find(button => button.text() === label).attributes("disabled")).toBeDefined()
+    }
+    const cancel = wrapper.findAll("button").find(button => button.text() === "Cancel placement")
+    expect(cancel.attributes("disabled")).toBeUndefined()
+    await cancel.trigger("click")
+    expect(command.calls.at(-1)).toEqual(["cancelLineupSpawn", []])
+    wrapper.unmount()
+  })
+
   it("separates a new blank-seed generation from an explicit repeat and exposes the used seed", async () => {
     const { wrapper, stores, command } = mountShell()
     stores.uiLayout.setTab("race")

@@ -3,6 +3,7 @@ local spawnOutcome = require("ge/extensions/soturineChaosRandomizer/spawnOutcome
 local dimensionCacheModule = require("ge/extensions/soturineChaosRandomizer/dimensionCache")
 local vehicleBufferPool = require("ge/extensions/soturineChaosRandomizer/vehicleBufferPool")
 local vehicleIterator = require("ge/extensions/soturineChaosRandomizer/vehicleIterator")
+local racePreviewRenderer = require("ge/extensions/soturineChaosRandomizer/racePreviewRenderer")
 
 local M = {}
 local dimensionCache = dimensionCacheModule.create({limit = 64})
@@ -43,6 +44,27 @@ local function playerForward()
   local length = math.sqrt(direction.x * direction.x + direction.y * direction.y)
   if length < 1e-6 then return false, "player_heading_unavailable" end
   return true, {x = direction.x / length, y = direction.y / length, z = 0}
+end
+
+local function objectFrame(vehicleId)
+  if type(getObjectByID) ~= "function" or type(vehicleId) ~= "number" then
+    return false, "vehicle_lookup_unavailable"
+  end
+  local ok, vehicle = pcall(getObjectByID, vehicleId)
+  if not ok or vehicle == nil then return false, "vehicle_missing" end
+  local positionOk, position = pcall(function() return vehicle:getPosition() end)
+  local directionOk, direction = pcall(function() return vehicle:getDirectionVector() end)
+  position = positionOk and xyz(position) or nil
+  direction = directionOk and xyz(direction) or nil
+  if not position then return false, "vehicle_position_unavailable" end
+  if not direction then return false, "vehicle_heading_unavailable" end
+  local length = math.sqrt(direction.x * direction.x + direction.y * direction.y)
+  if length < 1e-6 then return false, "vehicle_heading_unavailable" end
+  local forward = {x = direction.x / length, y = direction.y / length, z = 0}
+  return true, {
+    position = position, forward = forward,
+    right = {x = forward.y, y = -forward.x, z = 0}, vehicleId = vehicleId,
+  }
 end
 
 local function roadForward(position)
@@ -354,6 +376,7 @@ end
 M.xyz = xyz
 M.cameraFrame = cameraFrame
 M.playerForward = playerForward
+M.objectFrame = objectFrame
 M.roadForward = roadForward
 M.raycastGround = raycastGround
 M.spawnVehicle = spawnVehicle
@@ -368,7 +391,7 @@ M.occupiedVehiclePositions = occupiedVehiclePositions
 M.deleteVehicle = deleteVehicle
 M.readVehicleState = readVehicleState
 M.verifySpawnTarget = verifySpawnTarget
-M.drawPreview = drawPreview
+M.drawPreview = racePreviewRenderer.draw
 M.performanceSnapshot = performanceSnapshot
 M.spawnOutcome = spawnOutcome
 

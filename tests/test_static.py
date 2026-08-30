@@ -199,6 +199,19 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("events.off?.(name, handler)", app)
         self.assertEqual(app.count('command.send("requestState")'), 2)
 
+    def test_race_preview_and_reposition_use_frame_correct_bounded_paths(self) -> None:
+        main = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/main.lua").read_text(encoding="utf-8")
+        renderer = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/racePreviewRenderer.lua").read_text(encoding="utf-8")
+        self.assertIn("production.onPreRender = function()", main)
+        self.assertIn("M.onPreRender = production.onPreRender", main)
+        on_update = main.split("local function onUpdate", 1)[1].split("M.onUpdate =", 1)[0]
+        self.assertNotIn("drawPreview", on_update)
+        self.assertIn('plan.kind = allManaged and "reposition" or "spawn"', main)
+        self.assertIn("production.processRepositionBatch = function(run)", main)
+        self.assertIn("pending.attempts < 2", main)
+        for forbidden in ("spawnNewVehicle", "deleteVehicle", "enterVehicle", "safeTeleport"):
+            self.assertNotIn(forbidden, renderer)
+
     def test_feature_parity_fixtures_cover_all_required_states(self) -> None:
         fixture = json.loads((ROOT / "tests/fixtures/v0.7.0/ui-states.json").read_text(encoding="utf-8"))
         expected = {

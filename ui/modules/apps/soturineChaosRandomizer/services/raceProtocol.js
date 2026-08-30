@@ -7,6 +7,8 @@ export const PREVIEW_ORIGIN_CODES = Object.freeze([
   "automatic", "player_front", "player_behind", "camera", "custom",
 ])
 
+export const FORMATION_ORIGIN_CODES = Object.freeze(["automatic", "player", "camera", "custom"])
+
 export const HEADING_MODE_CODES = Object.freeze(["camera", "player", "road", "destination"])
 export const PLACEMENT_HEADING_MODE_CODES = Object.freeze([...HEADING_MODE_CODES, "custom"])
 export const SPACING_MODE_CODES = Object.freeze(["automatic", "manual"])
@@ -52,6 +54,7 @@ export const normalizeFormationCode = (value, fallback = RACE_FORMATION_CODES[0]
 export const formationRuntimeName = value => FORMATION_RUNTIME_NAMES[normalizeFormationCode(value)]
 export const isRaceFormation = value => RACE_FORMATION_CODES.includes(value)
 export const isPreviewOrigin = value => PREVIEW_ORIGIN_CODES.includes(value)
+export const isFormationOrigin = value => FORMATION_ORIGIN_CODES.includes(value)
 export const isHeadingMode = value => HEADING_MODE_CODES.includes(value)
 export const isSpacingMode = value => SPACING_MODE_CODES.includes(value)
 

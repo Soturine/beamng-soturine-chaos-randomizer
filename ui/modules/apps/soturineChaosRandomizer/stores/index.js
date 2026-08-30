@@ -30,6 +30,7 @@ const RACE_DEFAULTS = Object.freeze({
   preset: "Balanced",
   previewEnabled: true,
   previewOrigin: "automatic",
+  formationOrigin: "automatic",
   headingMode: "camera",
   formation: RACE_FORMATION_CODES[0],
   spacingMode: "automatic",
@@ -86,6 +87,7 @@ export function createStores(command) {
         mode: RACE_FORMATION_CODES[0], count: 4, spacingMode: "automatic", spacing: 7,
         longitudinalSpacing: 8, lateralSpacing: 5, safetyMargin: 1.5, availableWidth: null,
         rows: 2, columns: 2, radius: 14, headingMode: "camera", headingOffset: 0,
+        formationOrigin: "automatic",
         groundOffset: 0.2, minimumObjectDistance: 3, interval: 0.75, spawnAll: true,
         useNextLineupCompetitor: true, selectedDNAId: "", customPointX: 0,
         customPointY: 0, customPointZ: 0,
@@ -186,6 +188,7 @@ export function createStores(command) {
       longitudinalSpacing: racePreferences.longitudinalSpacing ?? placementOptions.longitudinalSpacing,
       lateralSpacing: racePreferences.lateralSpacing ?? placementOptions.lateralSpacing,
       safetyMargin: racePreferences.safetyMargin ?? placementOptions.safetyMargin,
+      formationOrigin: racePreferences.formationOrigin || placementOptions.formationOrigin,
     })
     stores.race.replace({
       lineup: state.lineup || {}, spawnDirector: state.spawnDirector || {}, aiDirector: state.aiDirector || {},

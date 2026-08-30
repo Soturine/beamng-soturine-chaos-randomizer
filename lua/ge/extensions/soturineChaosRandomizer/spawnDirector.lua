@@ -39,38 +39,39 @@ local function offset(mode, index, count, options)
   local spacing = options.spacing
   local lateralSpacing = options.resolvedLateralSpacing or spacing
   local longitudinalSpacing = options.resolvedLongitudinalSpacing or spacing
+  local firstLongitudinal = options.firstLongitudinalOffset or longitudinalSpacing
   if mode == "Left of Origin" then return -lateralSpacing * index, 0 end
   if mode == "Right of Origin" then return lateralSpacing * index, 0 end
   if mode == "Split Left and Right" then
     local rank = math.ceil(index * 0.5)
     return (index % 2 == 1 and -1 or 1) * lateralSpacing * rank, 0
   end
-  if mode == "Single File Behind" then return 0, -longitudinalSpacing * index end
-  if mode == "Single File Ahead" then return 0, longitudinalSpacing * index end
+  if mode == "Single File Behind" then return 0, -(firstLongitudinal + longitudinalSpacing * (index - 1)) end
+  if mode == "Single File Ahead" then return 0, firstLongitudinal + longitudinalSpacing * (index - 1) end
   if mode == "Staggered Grid" or mode == "Side-by-side Grid" then
     local columns = math.max(1, options.columns)
     local row, column = math.floor((index - 1) / columns), (index - 1) % columns
     local stagger = mode == "Staggered Grid" and row % 2 == 1 and lateralSpacing * 0.5 or 0
     return (column - (columns - 1) * 0.5) * lateralSpacing + stagger,
-      (row + 1) * longitudinalSpacing
+      firstLongitudinal + row * longitudinalSpacing
   end
   if mode == "Circular / Radial" then
     local angle = (index - 1) * math.pi * 2 / count
     return math.cos(angle) * options.radius, math.sin(angle) * options.radius
   end
-  if mode == "Front" then return 0, spacing * index end
-  if mode == "Behind" then return 0, -spacing * index end
+  if mode == "Front" then return 0, firstLongitudinal + spacing * (index - 1) end
+  if mode == "Behind" then return 0, -(firstLongitudinal + spacing * (index - 1)) end
   if mode == "Left" then return -spacing * index, 0 end
   if mode == "Right" then return spacing * index, 0 end
   if mode == "Front Left" then return -spacing * index, spacing * index end
   if mode == "Front Right" then return spacing * index, spacing * index end
   if mode == "Behind Left" then return -spacing * index, -spacing * index end
   if mode == "Behind Right" then return spacing * index, -spacing * index end
-  if mode == "Line" then return (index - (count + 1) * 0.5) * lateralSpacing, longitudinalSpacing end
+  if mode == "Line" then return (index - (count + 1) * 0.5) * lateralSpacing, firstLongitudinal end
   if mode == "Grid" then
     local columns = math.max(1, options.columns)
     local row, column = math.floor((index - 1) / columns), (index - 1) % columns
-    return (column - (columns - 1) * 0.5) * lateralSpacing, (row + 1) * longitudinalSpacing
+    return (column - (columns - 1) * 0.5) * lateralSpacing, firstLongitudinal + row * longitudinalSpacing
   end
   if mode == "Circle" then
     local angle = (index - 1) * math.pi * 2 / count
@@ -101,6 +102,11 @@ local function normalize(options)
     or util.clamp(tonumber(options.lateralSpacing or options.spacing) or 6, 2, 40)
   local longitudinalSpacing = spacingMode == "automatic" and maximumLength + margin
     or util.clamp(tonumber(options.longitudinalSpacing or options.spacing) or 6, 3, 60)
+  local originDimensions = type(options.originDimensions) == "table" and options.originDimensions or nil
+  local originLength = originDimensions and util.clamp(tonumber(originDimensions.length) or 4.8, 1, 30) or 0
+  local firstLongitudinalOffset = originDimensions
+    and math.max(longitudinalSpacing, originLength * 0.5 + maximumLength * 0.5 + margin)
+    or longitudinalSpacing
   local effectiveMode, fallbackReason = requestedMode, nil
   local availableWidth = tonumber(options.availableWidth)
   local columns = math.max(1, math.min(8, math.floor(tonumber(options.columns) or 2)))
@@ -135,6 +141,8 @@ local function normalize(options)
     longitudinalSpacing = longitudinalSpacing,
     resolvedLateralSpacing = lateralSpacing,
     resolvedLongitudinalSpacing = longitudinalSpacing,
+    firstLongitudinalOffset = firstLongitudinalOffset,
+    originDimensions = util.deepCopy(originDimensions),
     safetyMargin = margin,
     vehicleDimensions = dimensions,
     availableWidth = availableWidth,
@@ -245,6 +253,58 @@ local function headingVector(frame, options, position)
   }
 end
 
+local function candidateAt(frame, options, index, lateral, longitudinal, customPoint,
+    raycastGround, occupied, placements)
+  local raw = customPoint or {
+    x = frame.position.x + frame.right.x * lateral + frame.forward.x * longitudinal,
+    y = frame.position.y + frame.right.y * lateral + frame.forward.y * longitudinal,
+    z = frame.position.z,
+  }
+  local distance = math.sqrt(lateral * lateral + longitudinal * longitudinal)
+  if distance > options.maxPlacementDistance then return nil, "outside_supported_area", raw end
+  local okGround, groundOrReason = raycastGround(raw)
+  if not okGround or type(groundOrReason) ~= "table"
+    or type(groundOrReason.point) ~= "table" or type(groundOrReason.normal) ~= "table"
+    or not util.isFinite(tonumber(groundOrReason.point.x))
+    or not util.isFinite(tonumber(groundOrReason.point.y))
+    or not util.isFinite(tonumber(groundOrReason.point.z))
+    or not util.isFinite(tonumber(groundOrReason.normal.z))
+  then
+    return nil, type(groundOrReason) == "string" and groundOrReason or "ground_not_found", raw
+  end
+  local ground = groundOrReason
+  if math.abs(ground.point.z - frame.position.z) > 250 then
+    return nil, "outside_supported_area", raw
+  end
+  if ground.normal.z < math.cos(math.rad(options.maxSlopeDegrees)) then
+    return nil, "slope_too_high", raw
+  end
+  local position = {
+    x = ground.point.x, y = ground.point.y, z = ground.point.z + options.groundOffset,
+  }
+  for _, existing in ipairs(type(occupied) == "table" and occupied or {}) do
+    local dx = position.x - (tonumber(existing.x) or position.x)
+    local dy = position.y - (tonumber(existing.y) or position.y)
+    local clearance = math.max(options.minimumObjectDistance,
+      tonumber(existing.radius) or 0, options.spacing * 0.6)
+    if dx * dx + dy * dy < clearance * clearance then
+      return nil, "position_blocked", position
+    end
+  end
+  for _, existing in ipairs(placements or {}) do
+    local dx, dy = position.x - existing.position.x, position.y - existing.position.y
+    if dx * dx + dy * dy < options.spacing * options.spacing * 0.36 then
+      return nil, "position_blocked", position
+    end
+  end
+  local forward, headingReason = headingVector(frame, options, position)
+  if not forward then return nil, headingReason, position end
+  return {
+    index = index, position = position, normal = ground.normal, forward = forward,
+    dimensions = util.deepCopy(options.vehicleDimensions[index] or {width = 2, length = 4.8}),
+  }, nil, position
+end
+
 local function plan(frame, options, raycastGround, occupied)
   options = normalize(options)
   if type(frame) ~= "table" or type(frame.position) ~= "table" then return nil, "camera_frame_invalid" end
@@ -257,6 +317,58 @@ local function plan(frame, options, raycastGround, occupied)
   if type(raycastGround) ~= "function" then return nil, "ground_raycast_unavailable" end
   local placements = {}
   local planning = planningReport(options)
+  planning.rigidGroupAttempted = options.mode ~= "Custom"
+  planning.rigidGroupPreserved = false
+  planning.groupTranslation = nil
+  planning.spacingScale = 1
+  planning.individualFallbackCount = 0
+  if options.mode ~= "Custom" then
+    local spacingScales = {1, 1.15, 1.3}
+    local translationAttempts = math.min(6, options.maxPlacementAttemptsPerSlot)
+    for _, spacingScale in ipairs(spacingScales) do
+      local trial = util.deepCopy(options)
+      trial.spacing = options.spacing * spacingScale
+      trial.resolvedLateralSpacing = options.resolvedLateralSpacing * spacingScale
+      trial.resolvedLongitudinalSpacing = options.resolvedLongitudinalSpacing * spacingScale
+      trial.firstLongitudinalOffset = options.firstLongitudinalOffset * spacingScale
+      for translationAttempt = 1, translationAttempts do
+        local shiftLateral, shiftLongitudinal = fallbackOffset(translationAttempt, trial)
+        local group, failure = {}, nil
+        planning.groupAttempts = (planning.groupAttempts or 0) + 1
+        for index = 1, trial.count do
+          local idealLateral, idealLongitudinal = offset(trial.mode, index, trial.count, trial)
+          local selected, reason, rejectedPosition = candidateAt(
+            frame, trial, index, idealLateral + shiftLateral,
+            idealLongitudinal + shiftLongitudinal, nil, raycastGround, occupied, group
+          )
+          if not selected then
+            failure = reason
+            noteRejected(planning, trial, index, translationAttempt,
+              idealLateral + shiftLateral, idealLongitudinal + shiftLongitudinal,
+              reason, rejectedPosition)
+            break
+          end
+          planning.totalAttempts = planning.totalAttempts + 1
+          selected.attempt = translationAttempt
+          selected.fallbackDepth = translationAttempt - 1
+          group[#group + 1] = selected
+        end
+        if not failure and #group == trial.count then
+          planning.selectedCandidates = #group
+          planning.rigidGroupPreserved = true
+          planning.groupTranslation = {lateral = shiftLateral, longitudinal = shiftLongitudinal}
+          planning.spacingScale = spacingScale
+          planning.fallbackDepth = translationAttempt - 1
+          planning.degraded = spacingScale > 1
+          planning.degradationReason = spacingScale > 1 and "global_spacing_increased" or nil
+          return {options = trial, placements = group, planning = planning,
+            cursor = 1, active = false, nextAt = 0, spawned = {}, failures = {}}
+        end
+      end
+    end
+    planning.degraded = true
+    planning.degradationReason = "rigid_group_solver_exhausted_individual_fallback"
+  end
   for index = 1, options.count do
     local idealLateral, idealLongitudinal = offset(options.mode, index, options.count, options)
     local customPoint = options.mode == "Custom" and type(options.customPoint) == "table"
@@ -329,6 +441,7 @@ local function plan(frame, options, raycastGround, occupied)
         planning.totalAttempts = planning.totalAttempts + 1
         planning.selectedCandidates = planning.selectedCandidates + 1
         planning.fallbackDepth = math.max(planning.fallbackDepth, attempt - 1)
+        if attempt > 1 then planning.individualFallbackCount = planning.individualFallbackCount + 1 end
         selected = {
           index = index, position = position, normal = ground.normal,
           forward = forward, attempt = attempt, fallbackDepth = attempt - 1,

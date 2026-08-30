@@ -35,6 +35,7 @@ local DEFAULT_RACE = {
   formation = "AUTO_BEST_FIT",
   previewEnabled = true,
   previewOrigin = "automatic",
+  formationOrigin = "automatic",
   headingMode = "camera",
   spacingMode = "automatic",
   longitudinalSpacing = 8,
@@ -107,8 +108,10 @@ local function normalize(raw)
   race.formation = formation.normalize(source.formation or race.formation)
   local origins = {automatic = true, player_front = true, player_behind = true,
     camera = true, custom = true}
+  local formationOrigins = {automatic = true, player = true, camera = true, custom = true}
   local headings = {camera = true, player = true, road = true, destination = true}
   if origins[source.previewOrigin] then race.previewOrigin = source.previewOrigin end
+  if formationOrigins[source.formationOrigin] then race.formationOrigin = source.formationOrigin end
   if headings[source.headingMode] then race.headingMode = source.headingMode end
   for _, field in ipairs({"customPointX", "customPointY", "customPointZ"}) do
     if tonumber(source[field]) then race[field] = tonumber(source[field]) end
