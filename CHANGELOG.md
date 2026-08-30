@@ -21,7 +21,8 @@ Owner-live v0.7.7 findings stabilization experimental prerelease targeting BeamN
 ### Testing and live status
 
 - Added Lua solver recovery/budget/determinism regressions and mounted UI tests for content sizing, legacy/malformed Formation payloads, real smart-select normalization, narrow status and ledger-derived details.
-- Live BeamNG 0.39.4.x status: **Pending owner validation** (0 executed / 7 pending).
+- Owner live validation on BeamNG 0.39.4.0.20972 / Direct3D 11 executed five of seven cases: 0 passed, 5 failed and 2 remained pending.
+- Maximum Chaos generation, Move Up/Down, physical Remove and sequential placement showed partial functionality, while Balanced usability, cleanup after explicit removal, player-relative/group-preserving formation, visible Preview, AI quick presets/end-to-end movement and narrow Participation layout failed their observed acceptance paths.
 
 ## [0.7.7] - 2026-08-13
 
