@@ -10,10 +10,10 @@ Authoritative status: **Pending owner validation; not executed**.
 | Required artifact | exact ZIP downloaded from the GitHub v0.7.8 prerelease |
 | Release URL | `https://github.com/Soturine/beamng-soturine-chaos-randomizer/releases/tag/v0.7.8` |
 | ZIP | `soturine_chaos_randomizer_0.7.8.zip` |
-| Bytes | Pending publication |
-| Entries | Pending publication |
-| SHA-256 | Pending publication |
-| Package/tag commit | Pending publication |
+| Bytes | 1432154 |
+| Entries | 210 |
+| SHA-256 | `c885b11ecaf1dbb32fc4ab7699f6529b6b431ef0a7a39676f6a82fcd980e8d4c` |
+| Package/tag commit | `7316cc78e8d6831e03d073ae21adbb4140cc58a6` |
 
 | Result | Count |
 | --- | ---: |
@@ -36,3 +36,11 @@ Authoritative status: **Pending owner validation; not executed**.
 No v0.7.8 gameplay, renderer, controller/UINav, UI-scale, safe-zone,
 language-rendering, third-party vehicle, Preview, AI or performance case has
 passed live. Automated and publication checks do not change these counts.
+
+## Published-asset verification
+
+On 2026-08-24 UTC, all three prerelease assets were downloaded into a fresh
+temporary directory. The ZIP, checksum and manifest matched the local tagged
+candidate byte-for-byte. The downloaded ZIP passed package validation with
+version 0.7.8, 210 entries and 1,432,154 bytes. See
+`POST_RELEASE_VERIFICATION.md` for tag, workflow and digest evidence.
