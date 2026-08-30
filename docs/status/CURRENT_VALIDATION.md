@@ -1,8 +1,9 @@
 # Current validation
 
 Current published release: **0.7.9 experimental prerelease**, targeting
-BeamNG.drive 0.39.4.x. Package publication and post-download identity evidence
-are recorded separately from gameplay evidence.
+BeamNG.drive 0.39.4.x. Its deterministic ZIP/checksum/manifest and independent
+post-download verification passed for tagged package commit
+`af60c787b5f3fdc26dad940d23e20f1bdf6f1b5e`.
 
 The v0.7.9 automated release-candidate suite covers frontend/backend command
 parity, removed-slot tombstones, fail-closed cleanup, independent formation
@@ -24,9 +25,8 @@ Preview, AI, Balanced and narrow-layout acceptance failed. Those outcomes are
 preserved in [v0.7.8 live results](../testing/v0.7.8/LIVE_RESULTS.md) and are not
 treated as v0.7.9 validation.
 
-The v0.7.8 public assets remain independently verified in its
-[post-release record](../testing/v0.7.8/POST_RELEASE_VERIFICATION.md). The
-v0.7.9 post-publication record is created only after its three public assets
-are downloaded and checked.
+The v0.7.9 public assets are independently verified in its
+[post-release record](../testing/v0.7.9/POST_RELEASE_VERIFICATION.md). Historical
+v0.7.8 publication evidence remains unchanged.
 
 Headless visual screenshot tests: not implemented.
