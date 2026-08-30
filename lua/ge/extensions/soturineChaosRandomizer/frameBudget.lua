@@ -26,6 +26,7 @@ local function create(values, options)
     values = normalize(values),
     warningCooldown = util.clamp(tonumber(options.warningCooldown) or 5, 0.25, 120),
     lastWarningAt = {}, exceeded = {}, totalExceeded = 0,
+    contaminated = {}, totalContaminated = 0, lastContamination = nil,
   }
 end
 
@@ -34,10 +35,22 @@ local function budgetFor(state, mode)
   return state.values[key], key
 end
 
-local function check(state, stage, elapsedMs, budgetMs, now, warningSink)
+local function check(state, stage, elapsedMs, budgetMs, now, warningSink, evidence)
   if type(state) ~= "table" or type(stage) ~= "string" or stage == ""
     or not util.isFinite(elapsedMs) or elapsedMs < 0
   then return false end
+  evidence = type(evidence) == "table" and evidence or {}
+  if evidence.clockStalled == true or evidence.clockDiscontinuity == true then
+    state.totalContaminated = (state.totalContaminated or 0) + 1
+    state.contaminated[stage] = (state.contaminated[stage] or 0) + 1
+    state.lastContamination = {
+      stage = stage, elapsedMs = elapsedMs,
+      reason = evidence.clockDiscontinuity == true and "external_clock_discontinuity"
+        or "external_clock_stall",
+      externalClockDelta = tonumber(evidence.externalClockDelta) or 0,
+    }
+    return true, false, "contaminated"
+  end
   budgetMs = tonumber(budgetMs) or 0
   if elapsedMs <= budgetMs then return true, false end
   state.totalExceeded = state.totalExceeded + 1
@@ -61,6 +74,9 @@ local function snapshot(state)
     warningCooldown = state.warningCooldown,
     totalExceeded = state.totalExceeded,
     exceeded = util.shallowMerge({}, state.exceeded),
+    totalContaminated = state.totalContaminated or 0,
+    contaminated = util.shallowMerge({}, state.contaminated),
+    lastContamination = util.deepCopy(state.lastContamination),
   }
 end
 

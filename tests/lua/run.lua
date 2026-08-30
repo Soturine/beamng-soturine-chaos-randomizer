@@ -5127,6 +5127,27 @@ tests.v069_profiler_disabled_reset_overflow_and_capabilities = function()
   equal(reset.count, 0); equal(reset.sampleCount, 0); equal(reset.totalMs, 0)
 end
 
+tests.v079_external_clock_stalls_and_discontinuities_are_contaminated_not_overruns = function()
+  local source = timeSource.create(function() return 0 end)
+  timeSource.sample(source, 0.016, 0.016, 0.016, false, 0)
+  truthy(source.clockStalledThisFrame)
+  local budgets = p1.frameBudget.create({idleBudgetMs = 0.2})
+  local continued, warned, classification = p1.frameBudget.check(
+    budgets, "onUpdate:idle", 50, 0.2, 0, nil, {
+      clockStalled = source.clockStalledThisFrame,
+      clockDiscontinuity = source.clockDiscontinuityThisFrame,
+      externalClockDelta = source.externalClockDelta,
+    }
+  )
+  truthy(continued); equal(warned, false); equal(classification, "contaminated")
+  equal(budgets.totalExceeded, 0); equal(budgets.totalContaminated, 1)
+  timeSource.sample(source, 0.016, 0.016, 0.016, false, 2)
+  truthy(source.clockDiscontinuityThisFrame)
+  local snapshot = timeSource.snapshot(source)
+  truthy(snapshot.clockDiscontinuityThisFrame)
+  truthy(snapshot.externalClockDelta > 1)
+end
+
 tests.v069_frame_budgets_warn_without_cancelling = function()
   local warnings = {}
   local state = p1.frameBudget.create({idleBudgetMs = 0.2}, {warningCooldown = 2})
@@ -5600,6 +5621,42 @@ tests.v066_safety_precedence_protects_structural_role_but_accepts_optional_missi
   local permissive = validator.validateGraph(currentGraph, baselineGraph, false)
   truthy(permissive.valid)
   equal(#permissive.missingParts, 2)
+end
+
+tests.v079_generic_balanced_dependencies_cover_ice_ev_control_and_nested_slots = function()
+  local function fixture(currentPart, candidates)
+    return {
+      id = "generic_slot", description = "", currentPart = currentPart,
+      candidates = candidates, allowTypes = {}, depth = 2,
+    }
+  end
+  local ice = fixture("mod_engine_internals", {"mod_engine_internals", "mod_longblock", "decorative_cover"})
+  truthy(validator.validateSelection(ice, "mod_longblock", true))
+  local rejected, rejectedReason = validator.validateSelection(ice, "decorative_cover", true)
+  equal(rejected, false); equal(rejectedReason, "safety_evidence_unproven:propulsion_combustion")
+  local ev = fixture("custom_electricmotor", {"custom_electricmotor", "custom_tractionmotor"})
+  truthy(validator.validateSelection(ev, "custom_tractionmotor", true))
+  local control = fixture("custom_controller", {"custom_controller", "custom_ecu"})
+  truthy(validator.validateSelection(control, "custom_ecu", true))
+  local nested = fixture("custom_oilpan", {"custom_oilpan", "custom_lubrication"})
+  truthy(validator.validateSelection(nested, "custom_lubrication", true))
+end
+
+tests.v079_ai_eligibility_requires_physical_placement_drivability_and_capability = function()
+  local competitor = {
+    managedHandle = "managed-1", currentVehicleId = 41,
+    generationReady = true, placementReady = true, drivable = true,
+  }
+  truthy(raceManager.aiEligibility(competitor, true, true))
+  competitor.placementReady = false
+  local eligible, reason = raceManager.aiEligibility(competitor, true, true)
+  equal(eligible, false); equal(reason, "race_ai_placement_not_ready")
+  competitor.placementReady, competitor.drivable = true, false
+  eligible, reason = raceManager.aiEligibility(competitor, true, true)
+  equal(eligible, false); equal(reason, "vehicle_not_drivable")
+  competitor.drivable = true
+  eligible, reason = raceManager.aiEligibility(competitor, true, false)
+  equal(eligible, false); equal(reason, "ai_mode_unavailable")
 end
 
 tests.v066_candidate_classification_matrix_is_explicit = function()

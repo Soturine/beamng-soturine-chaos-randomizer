@@ -681,7 +681,11 @@ end
 production.recordBudget = function(stage, elapsedMs, budgetMs)
   productionModules.frameBudget.check(runtime.frameBudgets, stage, elapsedMs, budgetMs, adapter.clock(), function(value)
     diagnosticsModule.write(runtime.diagnostics, "W", "frame_budget_exceeded", value, true)
-  end)
+  end, {
+    clockStalled = runtime.time.clockStalledThisFrame == true,
+    clockDiscontinuity = runtime.time.clockDiscontinuityThisFrame == true,
+    externalClockDelta = runtime.time.externalClockDelta,
+  })
 end
 
 local function publishState(forceFull)
@@ -1346,6 +1350,8 @@ local function finishOperation(success, code, message, details, terminalState)
         competitor.placementState = "staged"
         competitor.generationReady = true
         competitor.placementReady = true
+        competitor.aiReady = competitor.drivable == true
+        competitor.aiState = competitor.aiReady and "ELIGIBLE" or "BLOCKED_NOT_DRIVABLE"
       else
         competitor.status = "failed"
         competitor.phase = "failed"
@@ -8117,6 +8123,8 @@ production.processRepositionBatch = function(run)
             run.spawned[#run.spawned + 1] = pending.handle
             pending.competitor.raceStatus = "Ready"
             pending.competitor.placementState, pending.competitor.placementReady = "placed", true
+            pending.competitor.aiReady = pending.competitor.drivable == true
+            pending.competitor.aiState = pending.competitor.aiReady and "ELIGIBLE" or "BLOCKED_NOT_DRIVABLE"
             local entry = runtime.managedVehicles.entries[pending.handle]
             if entry then entry.spawnTransform = util.deepCopy(pending.placement) end
           else
@@ -8290,6 +8298,8 @@ function production.processSpawnDirector()
         pending.competitor.concreteVehicleId = pending.vehicleId
         pending.competitor.placementState = pending.placementOnly and "placed" or "spawned"
         pending.competitor.placementReady = true
+        pending.competitor.aiReady = pending.competitor.drivable == true
+        pending.competitor.aiState = pending.competitor.aiReady and "ELIGIBLE" or "BLOCKED_NOT_DRIVABLE"
         if pending.replacement then pending.competitor.replacementState = "completed" end
         local entry = runtime.managedVehicles.entries[pending.handle]
         if entry and pending.placement then entry.spawnTransform = util.deepCopy(pending.placement) end
@@ -8810,8 +8820,11 @@ function production.startManagedAI(options)
     for _, competitor in ipairs(lineup and lineup.competitors or {}) do
       if competitor.managedHandle == handle then lineupCompetitor = competitor; break end
     end
-    if managed and lineupCompetitor and lineupCompetitor.drivable == false then
-      managed, managedReason = nil, "vehicle_not_drivable"
+    if managed and lineupCompetitor then
+      local eligible, eligibilityReason = productionModules.raceManager.aiEligibility(
+        lineupCompetitor, true, capabilities[mode] == true
+      )
+      if not eligible then managed, managedReason = nil, eligibilityReason end
     end
     if managed then
       local currentOptions = util.deepCopy(options)
@@ -8868,7 +8881,7 @@ function production.startManagedAI(options)
             for _, competitor in ipairs(lineup.competitors or {}) do
               if competitor.managedHandle == handle then
                 competitor.aiState = "SCHEDULED"
-                competitor.aiReady = false
+                competitor.aiReady = true
                 competitor.aiCommandDispatched = false
                 competitor.aiDispatch = {
                   vehicleId = managed.vehicleId,
@@ -8912,10 +8925,12 @@ function production.startManagedAI(options)
       end
     end
   end
-  setResult(started > 0, started > 0 and "ai_director_scheduled" or "ai_director_failed",
+  local resultCode = started > 0 and #failures > 0 and "ai_director_scheduled_partial"
+    or started > 0 and "ai_director_scheduled" or "ai_director_failed"
+  setResult(started > 0, resultCode,
     started > 0 and "AI Director scheduled managed vehicles"
       or "Managed race cars could not start. Check Drive details and NavGraph availability.",
-    {started = started, failures = failures})
+    {requested = #selected, started = started, failed = #failures, failures = failures})
   publishState()
   return started > 0
 end
@@ -8939,7 +8954,10 @@ function production.startAIQuickPreset(name)
     return false
   end
   if options.mode == "Follow" or options.mode == "Chase" or options.mode == "Flee" then
-    local playerOk, playerVehicleId = adapter.getCurrentVehicleId()
+    local lineup = runtime.lineup.current
+    local playerVehicleId = lineup and tonumber(lineup.playerVehicleId or lineup.playerParticipantVehicleId)
+    local playerOk = playerVehicleId ~= nil
+    if not playerOk then playerOk, playerVehicleId = adapter.getCurrentVehicleId() end
     if not playerOk or type(playerVehicleId) ~= "number" then
       setResult(false, "ai_quick_preset_target_missing",
         "This AI preset needs an active local player vehicle")
@@ -9164,7 +9182,8 @@ function production.processAIDirector()
             local modeConfirmed = entry.reason == "mode_confirmed"
               or entry.modeConfirmation and entry.modeConfirmation.status == "confirmed"
             local motionObserved = tonumber(entry.speed) and tonumber(entry.speed) >= 0.5
-            competitor.aiReady = modeConfirmed == true or motionObserved == true
+            competitor.aiReady = competitor.placementReady == true and competitor.drivable == true
+              and entry.status ~= "failed" and entry.status ~= "dnf"
             if motionObserved then
               competitor.drivable = true
               competitor.drivabilityState = "MOTION_OBSERVED"

@@ -96,6 +96,18 @@ local function cleanupClassification(lineup, competitor, registry, objectExists)
   return "BOUND_AND_OWNED", entryOrReason
 end
 
+local function aiEligibility(competitor, managedReady, modeAvailable)
+  if type(competitor) ~= "table" then return false, "race_ai_slot_missing" end
+  if managedReady ~= true or type(competitor.managedHandle) ~= "string"
+    or type(competitor.currentVehicleId) ~= "number"
+  then return false, "race_ai_binding_not_ready" end
+  if competitor.generationReady ~= true then return false, "race_ai_generation_not_ready" end
+  if competitor.placementReady ~= true then return false, "race_ai_placement_not_ready" end
+  if competitor.drivable ~= true then return false, "vehicle_not_drivable" end
+  if modeAvailable ~= true then return false, "ai_mode_unavailable" end
+  return true, "race_ai_eligible"
+end
+
 local TRAIT_FIELDS = {
   family = {"family", "Family", "platform", "Platform"},
   vehicleClass = {"vehicleClass", "VehicleClass", "class", "Class", "type", "Type"},
@@ -880,5 +892,6 @@ M.acceptedState = acceptedState
 M.knownRemoved = knownRemoved
 M.markRemoved = markRemoved
 M.cleanupClassification = cleanupClassification
+M.aiEligibility = aiEligibility
 
 return M

@@ -212,6 +212,16 @@ class StaticValidationTests(unittest.TestCase):
         for forbidden in ("spawnNewVehicle", "deleteVehicle", "enterVehicle", "safeTeleport"):
             self.assertNotIn(forbidden, renderer)
 
+    def test_balanced_fallback_and_narrow_select_are_generic_and_bounded(self) -> None:
+        validator_source = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/validator.lua").read_text(encoding="utf-8")
+        styles = (APP / "styles/app.css").read_text(encoding="utf-8")
+        self.assertNotIn("wl40", validator_source.lower())
+        for token in ("internals", "oilpan", "electricmotor", "controller", "ecu"):
+            self.assertRegex(validator_source, rf"\b{token}\s*=")
+        self.assertIn(".scr-smart-select { width: 100%; min-width: 0; max-width: 100%", styles)
+        self.assertIn("display: block; width: 100%; min-width: 0; max-width: 100%; overflow: hidden", styles)
+        self.assertIn("text-overflow: ellipsis; white-space: nowrap", styles)
+
     def test_feature_parity_fixtures_cover_all_required_states(self) -> None:
         fixture = json.loads((ROOT / "tests/fixtures/v0.7.0/ui-states.json").read_text(encoding="utf-8"))
         expected = {

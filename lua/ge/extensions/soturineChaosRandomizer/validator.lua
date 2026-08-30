@@ -75,6 +75,19 @@ local FALLBACK_TOKENS = {
   fuel = "energy_fuel",
   tank = "energy_fuel",
   engine = "propulsion_combustion",
+  internals = "propulsion_combustion",
+  longblock = "propulsion_combustion",
+  piston = "propulsion_combustion",
+  crank = "propulsion_combustion",
+  crankshaft = "propulsion_combustion",
+  oilpan = "propulsion_combustion",
+  lubrication = "propulsion_combustion",
+  turbo = "propulsion_combustion",
+  supercharger = "propulsion_combustion",
+  intake = "propulsion_combustion",
+  exhaust = "propulsion_combustion",
+  electricmotor = "propulsion_electric",
+  tractionmotor = "propulsion_electric",
   motor = "propulsion_other",
   powertrain = "power_path",
   transmission = "transmission",
@@ -90,8 +103,23 @@ local FALLBACK_TOKENS = {
   brake = "braking",
   brakes = "braking",
   seat = "control",
+  ecu = "control",
+  controller = "control",
+  electronics = "control",
+  inverter = "control",
   tow = "attachment",
   hitch = "attachment",
+}
+
+local CANDIDATE_FALLBACK_TOKENS = {
+  internals = "propulsion_combustion", longblock = "propulsion_combustion",
+  piston = "propulsion_combustion", crank = "propulsion_combustion",
+  crankshaft = "propulsion_combustion", oilpan = "propulsion_combustion",
+  lubrication = "propulsion_combustion", turbo = "propulsion_combustion",
+  supercharger = "propulsion_combustion", intake = "propulsion_combustion",
+  exhaust = "propulsion_combustion", electricmotor = "propulsion_electric",
+  tractionmotor = "propulsion_electric", ecu = "control", controller = "control",
+  electronics = "control", inverter = "control",
 }
 
 local function roleSet(values)
@@ -167,15 +195,15 @@ local function evidenceFromPart(part)
   return {roles = roleList(roles), evidence = evidence, heuristic = false}
 end
 
-local function fallbackEvidence(slot)
+local function fallbackEvidence(slot, candidate, candidateOnly)
   local roles = {}
   local evidence = {}
-  local values = {slot.id, slot.description}
+  local values = candidateOnly and {candidate} or {slot.id, slot.description, candidate or slot.currentPart}
   for _, value in ipairs(slot.allowTypes or {}) do values[#values + 1] = value end
   for _, value in ipairs(values) do
     local text = util.normalizeText(value):gsub("[^a-z0-9]+", " ")
     for token in text:gmatch("%S+") do
-      local role = FALLBACK_TOKENS[token]
+      local role = (candidateOnly and CANDIDATE_FALLBACK_TOKENS or FALLBACK_TOKENS)[token]
       if role then
         roles[role] = true
         evidence[#evidence + 1] = {role = role, source = "normalized_slot_fallback", value = token}
@@ -190,8 +218,8 @@ local function selectedEvidence(slot, candidate)
   if type(metadata) == "table" and type(metadata.roles) == "table" and #metadata.roles > 0 then
     return {roles = roleList(metadata.roles), evidence = util.deepCopy(metadata.evidence or {}), heuristic = metadata.heuristic == true}
   end
-  if candidate == nil or candidate == slot.currentPart then return fallbackEvidence(slot) end
-  return {roles = {}, evidence = {}, heuristic = false}
+  if candidate == nil or candidate == slot.currentPart then return fallbackEvidence(slot, candidate, false) end
+  return fallbackEvidence(slot, candidate, true)
 end
 
 local function isCritical(slot)

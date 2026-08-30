@@ -149,6 +149,7 @@
 .scr-sr-only { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
 .scr-select { width: 100%; max-width: 100%; overflow: visible; }
 .scr-select > * { width: 100%; max-width: 100%; min-width: 0; }
+.scr-smart-select { width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; }
 .scr-smart-select.bng-dropdown-content {
   width: max-content; min-width: min(10rem, calc(var(--scr-target-width) - 24px));
   max-width: min(32rem, calc(var(--scr-target-width) - 24px));
@@ -156,6 +157,10 @@
   overflow-x: hidden;
 }
 .scr-smart-select .bng-smart-select-trigger, .scr-smart-select.bng-smart-select-trigger {
+  display: block; width: 100%; min-width: 0; max-width: 100%; overflow: hidden;
+  box-sizing: border-box; text-overflow: ellipsis; white-space: nowrap;
+}
+.scr-smart-select .bng-smart-select-trigger > *, .scr-smart-select.bng-smart-select-trigger > * {
   min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .scr-compatibility-compact { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 8px; align-items: center; padding: 4px 7px; border-left: 3px solid #ffb02e; background: #3c301d; font-size: .7rem; }

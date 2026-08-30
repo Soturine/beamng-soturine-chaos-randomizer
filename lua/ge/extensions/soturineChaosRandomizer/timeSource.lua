@@ -27,6 +27,9 @@ local function create(clock)
     lastRealMonotonicTime = now,
     source = "clock_fallback",
     externalClockStalls = 0,
+    clockStalledThisFrame = false,
+    clockDiscontinuityThisFrame = false,
+    externalClockDelta = 0,
   }
 end
 
@@ -52,6 +55,10 @@ local function sample(state, dtReal, dtSim, dtRaw, paused, explicitNow)
   if not clockAdvanced and realDelta and realDelta > 0 then
     state.externalClockStalls = (state.externalClockStalls or 0) + 1
   end
+  state.externalClockDelta = measuredRealDelta
+  state.clockStalledThisFrame = not clockAdvanced and realDelta and realDelta > 0 or false
+  state.clockDiscontinuityThisFrame = measuredRealDelta
+    > math.max(0.1, math.max(0, realDelta or 0) * 4)
 
   local pauseKnown = type(paused) == "boolean"
   local simulationDelta = finiteNumber(dtSim)
@@ -107,6 +114,9 @@ local function snapshot(state)
     lastPauseChangedAt = state.lastPauseChangedAt,
     pausedRealDuration = state.pausedRealDuration,
     externalClockStalls = state.externalClockStalls or 0,
+    clockStalledThisFrame = state.clockStalledThisFrame == true,
+    clockDiscontinuityThisFrame = state.clockDiscontinuityThisFrame == true,
+    externalClockDelta = state.externalClockDelta or 0,
     recentSamples = state.recentSamples,
   }
 end
