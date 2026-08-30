@@ -1,8 +1,8 @@
 # BeamNG.drive 0.39 compatibility
 
-v0.7.8 retains BeamNG 0.39.4 as its release target and 0.39.3 as the minimum
+v0.7.9 retains BeamNG 0.39.4 as its release target and 0.39.3 as the minimum
 documented Runtime UI baseline. v0.7.4 owner findings are historical live
-failure evidence; every v0.7.8 renderer, AppHost, controller, vehicle and
+failure evidence; every v0.7.9 renderer, AppHost, controller, vehicle and
 gameplay correction remains Pending owner validation against the exact
 published ZIP.
 
@@ -18,7 +18,7 @@ gameplay inside BeamNG. `testedGameVersions` therefore remains empty until the
 owner returns complete evidence for the downloaded asset.
 
 The official combined 0.39.3/0.39.4 notes, published on 2026-08-07, were
-reviewed again for v0.7.8:
+reviewed again for v0.7.9:
 
 - <https://www.beamng.com/game/news/patch/beamng-drive-v0-39-3/>
 - <https://www.beamng.com/game/news/announce/beamng-drive-v0-39-hotfixes/>

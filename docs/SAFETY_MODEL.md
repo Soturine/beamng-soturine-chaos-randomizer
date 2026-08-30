@@ -1,6 +1,6 @@
 # Safety Model
 
-v0.7.8 keeps terminal outcome and applied state separate from verification
+v0.7.9 keeps terminal outcome and applied state separate from verification
 confidence. Runtime
 integrity alone authorizes destructive rollback. Drivability and chaos-policy
 acceptance may reject a stable vehicle without granting cleanup authority, or

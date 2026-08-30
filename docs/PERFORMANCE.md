@@ -1,6 +1,6 @@
 # Performance
 
-## v0.7.8 Full Random batching and instrumentation
+## v0.7.9 Full Random batching and instrumentation
 
 Full Random records total and per-phase duration, parts/tuning/repair reloads,
 readbacks, longest cooperative step, semantic progress and duplicate activity.
@@ -22,6 +22,13 @@ Race placement uses at most 12 candidates per slot by default (hard-clamped to
 24), a 180 m default search distance (hard-clamped to 250 m), and a capped
 rejection sample. Total attempts, rejection counts, fallback depth and planning
 duration are published without copying world or parts-tree state.
+
+Existing Race vehicles use one bounded reposition transaction rather than the
+spawn/load interval. It publishes requested/completed/failed/current-slot
+progress, performs stable readback with one retry, and treats an immediate
+repeat request as the same active operation. External-clock stalls and
+discontinuities are retained as contaminated samples and cannot become frame
+overrun evidence.
 
 ## Permanent architecture
 

@@ -485,6 +485,8 @@ class StaticValidationTests(unittest.TestCase):
             "docs/releases/v0.7.7.md",
             "docs/testing/v0.7.8/LIVE_TEST_PLAN.md", "docs/testing/v0.7.8/LIVE_RESULTS.md",
             "docs/testing/v0.7.8/AUTOMATED_RESULTS.md", "docs/releases/v0.7.8.md",
+            "docs/testing/v0.7.9/LIVE_TEST_PLAN.md", "docs/testing/v0.7.9/LIVE_RESULTS.md",
+            "docs/testing/v0.7.9/AUTOMATED_RESULTS.md", "docs/releases/v0.7.9.md",
         )
         for relative in required:
             with self.subTest(path=relative):
@@ -513,9 +515,13 @@ class StaticValidationTests(unittest.TestCase):
         for finding in ("filter is not a function", "position_blocked", "lineup_staging_unsafe", "dead space"):
             self.assertIn(finding, v077_live)
         v078_live = (ROOT / "docs/testing/v0.7.8/LIVE_RESULTS.md").read_text(encoding="utf-8")
-        self.assertIn("Pending owner validation; not executed", v078_live)
-        for row in ("| Executed | 0 |", "| Passed | 0 |", "| Failed | 0 |", "| Pending | 7 |", "| Blocked | 0 |"):
+        self.assertIn("Executed live by the repository owner; failures observed", v078_live)
+        for row in ("| Executed | 5 |", "| Passed | 0 |", "| Failed | 5 |", "| Pending | 2 |", "| Blocked | 0 |"):
             self.assertIn(row, v078_live)
+        v079_live = (ROOT / "docs/testing/v0.7.9/LIVE_RESULTS.md").read_text(encoding="utf-8")
+        self.assertIn("Pending owner validation; not executed", v079_live)
+        for row in ("| Executed | 0 |", "| Passed | 0 |", "| Failed | 0 |", "| Pending | 15 |", "| Blocked | 0 |"):
+            self.assertIn(row, v079_live)
         visual = (ROOT / "docs/UI_VISUAL_BASELINE_0.6.9.md").read_text(encoding="utf-8")
         self.assertIn("Headless visual screenshot tests: Not implemented", visual)
         self.assertNotRegex(corpus.lower(), r"fully validated|confirmed compatible|performance proven")

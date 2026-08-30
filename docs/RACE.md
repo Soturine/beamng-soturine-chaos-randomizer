@@ -1,6 +1,6 @@
 # Race workflow
 
-## v0.7.8 retry and containment
+## v0.7.9 retry and containment
 
 The UI presents Race authoring under Events. Player-participation count N means
 N-1 generated opponents; spectator count N means N generated NPCs. Each slot
@@ -8,18 +8,23 @@ owns one candidate and staging transform. Background callbacks restore player
 focus while writes continue against the candidate's explicit ID.
 
 Preview data is not visibility evidence; only a successful drawn marker frame
-is visible. Persistence checkpoints are copied and committed transactionally;
+is visible. The renderer runs from the BeamNG render callback and only consumes
+read-only world-space footprint/heading primitives. Persistence checkpoints are
+copied and committed transactionally;
 typed write failures retain coherent in-memory state and allow bounded retry.
 Preview and staging retries receive fresh attempt identities. The scheduler
 closes an abandoned open slot locally and continues later slots. Accepted slots
 are terminally immutable.
 
 Placement preserves the requested ideal formation first, then tests a bounded,
-deterministic set of nearby candidates for blocked ground, missing ground or
-excessive slope. Attempt counts, rejection reasons, capped samples, selected
-fallback depth and duration are diagnostics. Generation uses its own forward
-staging plan, protects the player as occupied space and does not depend on the
-final formation or renderer.
+deterministic whole-group translation and spacing sequence for blocked ground,
+missing ground or excessive slope. Per-slot search is an explicit degraded
+fallback only after rigid geometry is exhausted. Formation origin and heading
+are separate: a participating player is the Automatic origin, Camera is an
+explicit option, and player bounds protect the first longitudinal gap. Attempt
+counts, rejection reasons, capped samples, selected fallback depth and duration
+are diagnostics. Generation uses its own forward staging plan, protects the
+player as occupied space and does not depend on the final formation or renderer.
 
 Race is the public three-stage workflow: **Cars → Placement → Drive**. Each
 generated competitor is an independent slot transaction. Older saved data may
@@ -59,8 +64,10 @@ focus switches during background generation do not change slot targets.
 Only Ready cars, or explicitly accepted Partial cars, are eligible. Automatic
 Best Fit and the directional/line/grid/circle/custom plans perform ground,
 slope, heading, distance, and spacing checks. Confirmation moves the already
-managed exact IDs and performs stable position readback; it does not spawn
-replacement clones.
+managed exact IDs through one bounded reposition transaction and performs stable
+position readback; it does not spawn replacement clones or inherit the
+spawn/load throttle. A repeated Position All request reuses the active
+transaction and publishes progress instead of producing a busy failure.
 
 ## World preview
 
@@ -73,7 +80,10 @@ cleanup occurs on cancel, map change, and extension unload.
 
 ## Drive and domain isolation
 
-AI commands operate only on confirmed managed vehicles. Destination and Route
+AI commands operate only on confirmed managed vehicles with current generation,
+physical binding, completed placement, proven drivability and supported
+capability. Scheduling eligibility and actual command/readback startup remain
+separate evidence. Destination and Route
 require reachable NavGraph evidence; Chase and Follow require a distinct target.
 Race operations publish Race-domain state and events only, never Chaos action
 success/failure events. Capabilities are reported as available, degraded,

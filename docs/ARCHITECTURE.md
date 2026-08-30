@@ -1,6 +1,6 @@
 # Architecture
 
-## v0.7.8 operation, Event and authority boundaries
+## v0.7.9 operation, Event and authority boundaries
 
 `operationOutcome` owns independent terminal, applied-state and confidence classification;
 `progressWatchdog` owns phase-aware liveness. Race composition uses

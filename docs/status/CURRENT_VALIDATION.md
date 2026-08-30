@@ -1,28 +1,32 @@
 # Current validation
 
-Current published release: **0.7.8 experimental prerelease**, targeting BeamNG
-0.39.4. Its deterministic ZIP/checksum/manifest and independent
-post-publication download verification passed for package commit
-`7316cc78e8d6831e03d073ae21adbb4140cc58a6`.
+Current published release: **0.7.9 experimental prerelease**, targeting
+BeamNG.drive 0.39.4.x. Package publication and post-download identity evidence
+are recorded separately from gameplay evidence.
 
-Automated validation passed for the release-candidate freeze and covers the bounded placement solver, formation/payload
-normalization, content-driven child sizing, responsive status, ledger-derived
-coverage projection, ownership regressions and deterministic packaging. It is
-not a live BeamNG result.
+The v0.7.9 automated release-candidate suite covers frontend/backend command
+parity, removed-slot tombstones, fail-closed cleanup, independent formation
+origin/heading, rigid-group fallback, bounded reposition progress, read-only
+Preview rendering calls, managed AI eligibility, generic Balanced dependencies,
+narrow selection layout and contaminated-clock telemetry. These checks do not
+execute BeamNG or prove physical/visual behavior.
 
-Owner live status for v0.7.8: **Failed cases recorded** - 5 executed / 0 passed /
+Owner live status for v0.7.9: **Pending owner validation; not executed** -
+0 executed / 0 passed / 0 failed / 15 pending / 0 blocked. Use the exact
+downloaded release asset with the [A-O live plan](../testing/v0.7.9/LIVE_TEST_PLAN.md)
+and record results in [v0.7.9 live results](../testing/v0.7.9/LIVE_RESULTS.md).
+
+The v0.7.8 owner run remains historical evidence: 5 executed / 0 passed /
 5 failed / 2 pending / 0 blocked on BeamNG 0.39.4.0.20972 with Direct3D 11.
-See the [A-G live plan](../testing/v0.7.8/LIVE_TEST_PLAN.md) and
-[live results](../testing/v0.7.8/LIVE_RESULTS.md). The observations prove
-specific v0.7.8 defects; they do not validate a later correction.
+Maximum Chaos generation, Move Up/Down, physical Remove and sequential
+placement were partially functional, but protocol, cleanup, formation,
+Preview, AI, Balanced and narrow-layout acceptance failed. Those outcomes are
+preserved in [v0.7.8 live results](../testing/v0.7.8/LIVE_RESULTS.md) and are not
+treated as v0.7.9 validation.
 
-The prior [v0.7.7 live results](../testing/v0.7.7/LIVE_RESULTS.md) preserve the
-earlier dead-space/overflow, Formation `.filter`, `position_blocked` and
-`lineup_staging_unsafe` failures. v0.7.8 improved those areas, but its owner
-run found new end-to-end Race protocol, cleanup, formation, Preview, AI,
-Balanced and narrow-layout failures.
-
-Publication evidence is recorded in the
-[post-release verification](../testing/v0.7.8/POST_RELEASE_VERIFICATION.md).
+The v0.7.8 public assets remain independently verified in its
+[post-release record](../testing/v0.7.8/POST_RELEASE_VERIFICATION.md). The
+v0.7.9 post-publication record is created only after its three public assets
+are downloaded and checked.
 
 Headless visual screenshot tests: not implemented.

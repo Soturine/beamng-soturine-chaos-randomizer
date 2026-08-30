@@ -1,7 +1,7 @@
 # AI behaviors and Playground foundation
 
 The Events area composes managed-vehicle behaviors over the same Race ownership
-and scheduler core. The simple v0.7.8 controls expose verified presets for
+and scheduler core. The simple v0.7.9 controls expose verified presets for
 Follow, Convoy, Chase, Flee, Traffic, Roam and Swarm. Advanced route, speed,
 aggression, recovery and destination controls remain in a disclosure.
 
@@ -12,12 +12,12 @@ only on managed local-authority vehicles.
 
 ## Tag foundation
 
-v0.7.8 packages a reusable `playgroundMode` state machine and
+v0.7.9 packages a reusable `playgroundMode` state machine and
 `contactDetector`. Contact evidence distinguishes `started`, `persisted` and
 `ended`, carries relative speed and optional severity/impulse, supports a
 proximity-plus-relative-speed fallback and applies a bounded cooldown.
 
-Pega-Pega/Tag is **not user-facing in v0.7.8**. The release does not claim role
+Pega-Pega/Tag is **not user-facing in v0.7.9**. The release does not claim role
 orchestration, gentle approach behavior or live contact reliability. The button
 is withheld because the required Race, AI, contact and live behavior gate has
 not been completed against the published ZIP.

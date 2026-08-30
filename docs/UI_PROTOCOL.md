@@ -1,6 +1,6 @@
 # UI protocol v2
 
-## v0.7.8 stable result and Preview codes
+## v0.7.9 stable result and Preview codes
 
 Terminal outcomes are `COMPLETED`, `COMPLETED_WITH_SKIPS`,
 `COMPLETED_WITH_WARNING`, `PARTIAL_APPLIED`, `FAILED_TIMEOUT`,

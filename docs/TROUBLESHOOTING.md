@@ -1,6 +1,6 @@
 # Troubleshooting
 
-## v0.7.8 diagnostic distinctions
+## v0.7.9 diagnostic distinctions
 
 - A completed operation with unsupported telemetry is a warning, not a partial
   mutation. Compare `terminalOutcome`, `appliedState` and

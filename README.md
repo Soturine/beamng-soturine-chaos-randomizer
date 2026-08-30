@@ -75,7 +75,7 @@ evidence-based: automated validation can pass while in-game validation remains
 **Pending owner validation**. See
 [BeamNG 0.39 compatibility](docs/BEAMNG_0.39_COMPATIBILITY.md) and
 [current validation](docs/status/CURRENT_VALIDATION.md). The current owner-live
-retest is the focused [v0.7.8 A-G plan](docs/testing/v0.7.8/LIVE_TEST_PLAN.md).
+retest is the focused [v0.7.9 A-O plan](docs/testing/v0.7.9/LIVE_TEST_PLAN.md).
 
 ## Data and safety
 

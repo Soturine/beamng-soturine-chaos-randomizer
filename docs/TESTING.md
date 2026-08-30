@@ -1,7 +1,7 @@
 # Testing
 
-v0.7.8 live-derived regressions are mapped in
-the focused [`testing/v0.7.8/LIVE_TEST_PLAN.md`](testing/v0.7.8/LIVE_TEST_PLAN.md).
+v0.7.9 live-derived regressions are mapped in
+the focused [`testing/v0.7.9/LIVE_TEST_PLAN.md`](testing/v0.7.9/LIVE_TEST_PLAN.md).
 The exact-package live plan and aggregate results remain separate. Automated
 Lua/UI/package evidence never upgrades renderer, AppHost, controller, gameplay
 or performance rows to live-passed.
@@ -39,7 +39,7 @@ The Python Lua wrapper uses a local Lua 5.1-compatible interpreter when availabl
 | Live BeamNG tests | actual packaged gameplay/UI/mod evidence | untested builds or content |
 
 Current exact automated results are recorded in
-[the v0.7.8 report](testing/v0.7.8/AUTOMATED_RESULTS.md). The mandatory live
+[the v0.7.9 report](testing/v0.7.9/AUTOMATED_RESULTS.md). The mandatory live
 plan and report remain separate.
 
 v0.7.0 preserves the v0.6.9 profiling/budgets, iterators/buffers, OOBB

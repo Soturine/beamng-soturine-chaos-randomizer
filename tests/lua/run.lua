@@ -8657,6 +8657,25 @@ local v078Required = {
   {"placement_solver_is_seed_independent_and_reproducible", tests.v078_bounded_spawn_solver_recovers_and_reports_evidence},
 }
 
+local v079Required = {
+  {"removed_slot_has_canonical_tombstone", tests.v079_removed_race_slots_are_idempotent_and_not_counted_as_ready},
+  {"known_removed_cleanup_is_idempotent", tests.v079_removed_race_slots_are_idempotent_and_not_counted_as_ready},
+  {"removed_slot_is_not_ready", tests.v079_removed_race_slots_are_idempotent_and_not_counted_as_ready},
+  {"unknown_cleanup_binding_fails_closed", tests.v079_cleanup_fails_closed_for_accepted_slots_without_proven_binding},
+  {"formation_origin_is_independent_from_heading", tests.v079_final_formation_origin_heading_clearance_and_rigid_fallback_are_independent},
+  {"player_participation_defaults_to_player_frame", tests.v079_final_formation_origin_heading_clearance_and_rigid_fallback_are_independent},
+  {"player_clearance_uses_vehicle_dimensions", tests.v079_final_formation_origin_heading_clearance_and_rigid_fallback_are_independent},
+  {"placement_fallback_preserves_rigid_group_geometry", tests.v079_final_formation_origin_heading_clearance_and_rigid_fallback_are_independent},
+  {"preview_renderer_uses_injected_read_only_primitives", tests.v079_preview_renderer_draws_only_injected_read_only_primitives},
+  {"preview_renderer_reports_actual_marker_count", tests.v079_preview_renderer_draws_only_injected_read_only_primitives},
+  {"external_clock_stall_is_contaminated_not_overrun", tests.v079_external_clock_stalls_and_discontinuities_are_contaminated_not_overruns},
+  {"external_clock_discontinuity_is_contaminated_not_overrun", tests.v079_external_clock_stalls_and_discontinuities_are_contaminated_not_overruns},
+  {"balanced_preserves_generic_ice_ev_control_dependencies", tests.v079_generic_balanced_dependencies_cover_ice_ev_control_and_nested_slots},
+  {"balanced_preserves_nested_functional_slots", tests.v079_generic_balanced_dependencies_cover_ice_ev_control_and_nested_slots},
+  {"ai_eligibility_requires_physical_placement_drivability_and_capability", tests.v079_ai_eligibility_requires_physical_placement_drivability_and_capability},
+  {"ai_readiness_is_distinct_from_command_start_readback", tests.v079_ai_eligibility_requires_physical_placement_drivability_and_capability},
+}
+
 equal(#alpha2Required, 113, "alpha.2 required scenario registry")
 equal(#v060Required, 104, "0.6.0 required scenario registry")
 equal(#v060PauseLifecycleRequired, 52, "0.6.0 pause lifecycle scenario registry")
@@ -8712,6 +8731,9 @@ for _, scenario in ipairs(v077Required) do
 end
 for _, scenario in ipairs(v078Required) do
   requirementMappings[#requirementMappings + 1] = {"0.7.8:" .. scenario[1], scenario[2]}
+end
+for _, scenario in ipairs(v079Required) do
+  requirementMappings[#requirementMappings + 1] = {"0.7.9:" .. scenario[1], scenario[2]}
 end
 
 local canonicalByFunction = {}

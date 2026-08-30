@@ -2,6 +2,27 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.9] - 2026-08-30
+
+Race end-to-end stabilization experimental prerelease targeting BeamNG 0.39.4.x.
+
+### Fixed
+
+- Restored AI quick-preset command parity and contained command rejection inside the Behavior view.
+- Reconciled explicit Race removal into an idempotent non-ready tombstone while preserving fail-closed unknown-binding cleanup.
+- Separated formation origin from heading, defaulted participating-player layouts to the player frame and protected player-bound clearance.
+- Preserved Line/Grid geometry through bounded rigid-group translation/spacing before explicitly degraded per-slot fallback.
+- Added one bounded fast reposition transaction with progress, readback, cancellation and harmless repeated-click behavior.
+- Routed read-only world Preview primitives through the BeamNG render callback and kept data readiness separate from a drawn frame.
+- Required physical placement, drivability and capability for AI eligibility and retained partial startup evidence.
+- Expanded generic Balanced ICE/EV/control/nested dependency recognition without accepting undrivable candidates.
+- Contained long Participation labels at narrow AppHost widths and separated contaminated external-clock samples from overruns.
+
+### Testing and live status
+
+- Added command-parity, cleanup/tombstone, formation/frame/geometry, Preview adapter, AI eligibility, Balanced dependency, responsive UI and telemetry regressions.
+- v0.7.9 live BeamNG status starts **Pending owner validation**: 0 executed / 15 pending. The v0.7.8 owner failures remain historical evidence and are not inherited as passes or failures for this release.
+
 ## [0.7.8] - 2026-08-23
 
 Owner-live v0.7.7 findings stabilization experimental prerelease targeting BeamNG 0.39.4.
