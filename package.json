@@ -7,7 +7,8 @@
   "scripts": {
     "test:ui": "node tests/js/vue_runtime.test.mjs && vitest run --config vitest.config.mjs",
     "test:ui:mounted": "vitest run --config vitest.config.mjs",
-    "validate:sfc": "node tools/validate_vue_sfc.mjs ui/modules/apps/soturineChaosRandomizer .",
+    "validate:sfc": "node tools/validate_vue_sfc.mjs ui/modules/apps/soturineChaosRandomizer . && python tools/validate_ui_command_parity.py",
+    "validate:commands": "python tools/validate_ui_command_parity.py",
     "validate:graph": "node tools/validate_vue_module_graph.mjs",
     "validate:styles": "node tools/validate_vue_style_graph.mjs",
     "validate:version": "python tools/sync_version.py"

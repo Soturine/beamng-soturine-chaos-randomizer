@@ -27,6 +27,75 @@ local GENERATION_STATES = {
   lineup_failed = true, lineup_cancelled = true,
 }
 
+local ACCEPTED_STATES = {ready = true, ready_with_warnings = true, partial = true}
+
+local function acceptedState(lineup, competitor)
+  if type(competitor) ~= "table" then return false end
+  if competitor.status == "partial" then return lineup and lineup.acceptPartial == true end
+  return ACCEPTED_STATES[competitor.status] == true
+end
+
+local function knownRemoved(competitor)
+  local tombstone = type(competitor) == "table" and competitor.removalTombstone or nil
+  return type(tombstone) == "table" and tombstone.confirmed == true
+    and competitor.status == "removed" and competitor.managedHandle == nil
+    and competitor.currentVehicleId == nil and competitor.concreteVehicleId == nil
+end
+
+local function markRemoved(competitor, evidence)
+  if type(competitor) ~= "table" then return false, "lineup_competitor_missing" end
+  if knownRemoved(competitor) then return true, "already_removed" end
+  evidence = type(evidence) == "table" and evidence or {}
+  competitor.removalTombstone = {
+    confirmed = true,
+    lineupId = evidence.lineupId,
+    competitorId = competitor.id,
+    slotId = competitor.slotId or tostring(competitor.index),
+    managedHandle = evidence.managedHandle or competitor.managedHandle,
+    vehicleId = evidence.vehicleId or competitor.currentVehicleId,
+    operationId = evidence.operationId or competitor.operationId,
+    generation = evidence.generation or competitor.generation,
+    reason = tostring(evidence.reason or "managed_vehicle_removed"),
+    removedAt = tonumber(evidence.removedAt) or os.time(),
+  }
+  competitor.removedFromStatus = competitor.status
+  competitor.managedHandle, competitor.currentVehicleId = nil, nil
+  competitor.concreteVehicleId, competitor.acceptedVehicleId = nil, nil
+  competitor.candidateVehicleId = nil
+  competitor.status, competitor.phase, competitor.terminalState = "removed", "removed", "removed"
+  competitor.generationStatus, competitor.generationClosed = "removed", true
+  competitor.phaseProgress = 1
+  competitor.generationReady, competitor.placementReady = false, false
+  competitor.drivabilityState, competitor.drivable = "NOT_APPLICABLE", false
+  competitor.aiState, competitor.aiReady = "REMOVED", false
+  competitor.aiCommandDispatched, competitor.aiDispatch = false, nil
+  competitor.raceStatus, competitor.spawnState = "DNS", "removed"
+  competitor.randomizationState, competitor.validationState = "removed", "removed"
+  competitor.placementState = "removed"
+  return true, "removed"
+end
+
+local function cleanupClassification(lineup, competitor, registry, objectExists)
+  if type(competitor) ~= "table" then return "UNRELATED", "lineup_competitor_missing" end
+  if knownRemoved(competitor) then return "KNOWN_REMOVED", competitor.removalTombstone end
+  local handle, vehicleId = competitor.managedHandle, competitor.currentVehicleId
+  if not handle or type(vehicleId) ~= "number" then
+    if acceptedState(lineup, competitor) or handle ~= nil or vehicleId ~= nil then
+      return "UNKNOWN_BINDING", "race_cleanup_binding_missing"
+    end
+    return "UNRELATED", "slot_has_no_managed_binding"
+  end
+  local matches, entryOrReason = managedRegistry.matchesSlot(registry, handle, {
+    lineupId = lineup and lineup.id, competitorId = competitor.id,
+    slotId = competitor.slotId or tostring(competitor.index), vehicleId = vehicleId,
+  })
+  if not matches then return "UNKNOWN_BINDING", entryOrReason end
+  if type(objectExists) == "function" and objectExists(vehicleId) ~= true then
+    return "ORPHANED_BUT_PROVABLY_OWNED", entryOrReason
+  end
+  return "BOUND_AND_OWNED", entryOrReason
+end
+
 local TRAIT_FIELDS = {
   family = {"family", "Family", "platform", "Platform"},
   vehicleClass = {"vehicleClass", "VehicleClass", "class", "Class", "type", "Type"},
@@ -636,8 +705,7 @@ local function placementCompetitors(lineup, options)
   options = type(options) == "table" and options or {}
   local result = {}
   for _, competitor in ipairs(lineup and lineup.competitors or {}) do
-    local accepted = competitor.status == "ready" or competitor.status == "ready_with_warnings"
-      or competitor.status == "partial" and lineup.acceptPartial == true
+    local accepted = acceptedState(lineup, competitor)
     if accepted then result[#result + 1] = competitor end
   end
   table.sort(result, function(left, right)
@@ -735,7 +803,7 @@ end
 local function summary(lineup)
   local result = {
     active = lineup and lineup.active == true, total = 0, ready = 0, partial = 0,
-    failed = 0, cancelled = 0, pending = 0, generated = 0,
+    failed = 0, cancelled = 0, removed = 0, skipped = 0, pending = 0, generated = 0,
     generationReady = 0, placementReady = 0, drivable = 0, aiReady = 0,
     generatedNotDrivable = 0, aiCommandDispatched = 0,
     retries = 0, quarantinedCandidates = 0,
@@ -749,21 +817,26 @@ local function summary(lineup)
   result.plannedOpponents = result.aiOpponents
   for _, competitor in ipairs(lineup and lineup.competitors or {}) do
     result.total = result.total + 1
-    if tonumber(competitor.currentVehicleId) then result.generated = result.generated + 1 end
-    if competitor.generationReady == true then result.generationReady = result.generationReady + 1 end
-    if competitor.placementReady == true then result.placementReady = result.placementReady + 1 end
-    if competitor.drivable == true then result.drivable = result.drivable + 1
-    elseif competitor.generationReady == true and competitor.drivable == false then
+    local physicallyBound = tonumber(competitor.currentVehicleId) ~= nil
+      and type(competitor.managedHandle) == "string" and competitor.managedHandle ~= ""
+    if physicallyBound then result.generated = result.generated + 1 end
+    if physicallyBound and competitor.generationReady == true then result.generationReady = result.generationReady + 1 end
+    if physicallyBound and competitor.placementReady == true then result.placementReady = result.placementReady + 1 end
+    if physicallyBound and competitor.drivable == true then result.drivable = result.drivable + 1
+    elseif physicallyBound and competitor.generationReady == true and competitor.drivable == false then
       result.generatedNotDrivable = result.generatedNotDrivable + 1
     end
-    if competitor.aiReady == true then result.aiReady = result.aiReady + 1 end
-    if competitor.aiCommandDispatched == true then
+    if physicallyBound and competitor.aiReady == true then result.aiReady = result.aiReady + 1 end
+    if physicallyBound and competitor.aiCommandDispatched == true then
       result.aiCommandDispatched = result.aiCommandDispatched + 1
     end
-    if competitor.status == "ready" or competitor.status == "ready_with_warnings" then result.ready = result.ready + 1
-    elseif competitor.status == "partial" then result.partial = result.partial + 1
+    if acceptedState(lineup, competitor) and physicallyBound then
+      if competitor.status == "partial" then result.partial = result.partial + 1
+      else result.ready = result.ready + 1 end
     elseif competitor.status == "failed" then result.failed = result.failed + 1
     elseif competitor.status == "cancelled" then result.cancelled = result.cancelled + 1
+    elseif competitor.status == "removed" then result.removed = result.removed + 1
+    elseif competitor.status == "skipped" then result.skipped = result.skipped + 1
     else result.pending = result.pending + 1 end
     result.retries = result.retries + math.max(0, (competitor.attemptCount or 0) - 1)
     if competitor.forceOfficialFallback or competitor.quarantinedCandidateReplaced then
@@ -771,6 +844,7 @@ local function summary(lineup)
     end
   end
   local terminal = result.ready + result.partial + result.failed + result.cancelled
+    + result.removed + result.skipped
   local activeProgress = 0
   for _, competitor in ipairs(lineup and lineup.competitors or {}) do
     if competitor.generationClosed ~= true then
@@ -802,5 +876,9 @@ M.summary = summary
 M.reorder = reorder
 M.placementCompetitors = placementCompetitors
 M.placementAvailability = placementAvailability
+M.acceptedState = acceptedState
+M.knownRemoved = knownRemoved
+M.markRemoved = markRemoved
+M.cleanupClassification = cleanupClassification
 
 return M

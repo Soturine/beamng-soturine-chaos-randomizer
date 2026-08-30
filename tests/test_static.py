@@ -177,6 +177,14 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("command_payload_oversize", protocol)
         self.assertIn("MAX_DEPTH = 12", protocol)
 
+    def test_ui_command_protocol_parity(self) -> None:
+        result = subprocess.run(
+            [sys.executable, "tools/validate_ui_command_parity.py"], cwd=ROOT,
+            text=True, capture_output=True, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("UI_COMMAND_PARITY_OK", result.stdout)
+
     def test_state_protocol_handles_full_diff_stale_gap_and_domains(self) -> None:
         source = (APP / "services/stateProtocol.js").read_text(encoding="utf-8")
         for fragment in (

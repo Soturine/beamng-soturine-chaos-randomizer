@@ -26,6 +26,7 @@ export const COMMAND_SCHEMAS = Object.freeze({
   removeManagedVehicle: [1, 1], respawnManagedVehicle: [1, 1], focusManagedVehicle: [1, 1],
   placeAIDestination: [0, 0], confirmAIDestination: [1, 1], clearAIDestination: [0, 0],
   addAIRoutePoint: [0, 0], editAIRoute: [1, 1], startManagedAI: [1, 1],
+  startAIQuickPreset: [1, 1],
   pauseManagedAI: [0, 0], resumeManagedAI: [0, 0], stopManagedAI: [0, 0],
   resetManagedAI: [0, 0], setAIRecording: [2, 2],
 })

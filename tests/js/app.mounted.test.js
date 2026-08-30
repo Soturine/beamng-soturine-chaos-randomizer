@@ -509,7 +509,7 @@ describe("mounted Runtime UI", () => {
   })
 
   it("keeps Events behavior presets simple and advanced AI controls disclosed", async () => {
-    const { wrapper, stores } = mountShell()
+    const { wrapper, stores, command } = mountShell()
     stores.race.state.aiDirector.capabilities = {
       supportedModes: ["Destination", "Route", "Follow", "Chase", "Flee", "Traffic", "Roam"],
       quickPresets: ["Follow", "Convoy", "Chase", "Flee", "Traffic", "Roam", "Swarm"],
@@ -524,6 +524,23 @@ describe("mounted Runtime UI", () => {
     for (const label of ["Follow me", "Convoy", "Chase", "Flee", "Chaotic traffic", "Roam", "Swarm"]) {
       expect(panel.text()).toContain(label)
     }
+    for (const preset of ["Follow", "Convoy", "Chase", "Flee", "Traffic", "Roam", "Swarm"]) {
+      const button = panel.findAll("button").find(item => item.text() === ({
+        Follow: "Follow me", Convoy: "Convoy", Chase: "Chase", Flee: "Flee",
+        Traffic: "Chaotic traffic", Roam: "Roam", Swarm: "Swarm",
+      })[preset])
+      await button.trigger("click")
+      expect(command.calls.at(-1)).toEqual(["startAIQuickPreset", [preset]])
+    }
+    command.send = async function (name, args = []) {
+      this.calls.push([name, args])
+      throw new Error("fixture_command_rejected")
+    }
+    await panel.findAll("button").find(item => item.text() === "Follow me").trigger("click")
+    await settle()
+    expect(wrapper.find(".scr-error-boundary").exists()).toBe(false)
+    expect(panel.text()).toContain("additional details")
+    expect(panel.text()).toContain("Follow me")
     const advanced = panel.findAll("details").find(item => item.find("summary").text().includes("Advanced options"))
     expect(advanced).toBeTruthy()
     expect(advanced.element.open).toBe(false)

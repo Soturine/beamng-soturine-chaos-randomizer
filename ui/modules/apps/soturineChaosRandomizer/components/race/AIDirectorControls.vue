@@ -1,5 +1,6 @@
 <template>
   <section>
+    <StatusBanner v-if="commandError" tone="error">{{ commandErrorLabel }}</StatusBanner>
     <div class="scr-actions">
       <button v-for="preset in quickPresets" :key="preset" type="button" @click="send('startAIQuickPreset', [preset])">{{ t(`race.aiPreset.${preset}`) }}</button>
     </div>
@@ -47,7 +48,7 @@
   </section>
 </template>
 <script setup>
-import { computed } from "vue"
+import { computed, ref } from "vue"
 import { useStores } from "../../stores/index.js"
 import NumericInput from "../common/NumericInput.vue"
 import ScrSelect from "../common/ScrSelect.vue"
@@ -60,5 +61,20 @@ const aiModeItems = computed(() => aiModes.value.map(value => ({ value, label: t
 const speedModeItems = computed(() => [{ value: "limit", label: t("race.speedLimit") }, { value: "set", label: t("race.speedSet") }])
 const finishItems = computed(() => [{ value: "stop", label: t("common.stop") }, { value: "loop", label: t("race.loop") }])
 const stuckItems = computed(() => [{ value: "none", label: t("common.none") }, { value: "respawn", label: t("race.respawn") }, { value: "stop", label: t("common.stop") }])
-const send = (command, args = []) => stores.command.send(command, args)
+const commandError = ref("")
+const commandErrorLabel = computed(() => {
+  const key = `result.${commandError.value}`
+  return t(stores.i18n.has(key) ? key : "result.unknown")
+})
+const send = async (command, args = []) => {
+  commandError.value = ""
+  try {
+    const result = await stores.command.send(command, args)
+    if (result?.success === false) commandError.value = result.code || "command_failed"
+    return result
+  } catch (error) {
+    commandError.value = String(error?.message || "command_failed")
+    return { success: false, code: commandError.value }
+  }
+}
 </script>

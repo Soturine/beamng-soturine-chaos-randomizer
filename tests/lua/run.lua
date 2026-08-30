@@ -5953,6 +5953,57 @@ tests.v067_race_participation_rng_and_state_machine = function()
   truthy(summary.overallProgress >= 0 and summary.overallProgress <= 1)
 end
 
+tests.v079_removed_race_slots_are_idempotent_and_not_counted_as_ready = function()
+  local lineup = assert(raceManager.create({count = 2, episodeSeed = "v079-cleanup", acceptPartial = true}))
+  local registry = managedVehicleRegistry.create(8)
+  local competitor = lineup.competitors[1]
+  competitor.status = "ready"
+  competitor.generationReady = true
+  competitor.placementReady = true
+  competitor.drivable = true
+  competitor.aiReady = true
+  competitor.currentVehicleId = 101
+  local entry = assert(managedVehicleRegistry.register(registry, 101, {
+    lineupId = lineup.id, competitorId = competitor.id, lineupCompetitorId = competitor.id,
+    slotId = competitor.slotId, operationId = competitor.operationId,
+    generation = competitor.generation,
+  }))
+  competitor.managedHandle = entry.handle
+
+  local classification = raceManager.cleanupClassification(lineup, competitor, registry, function() return true end)
+  equal(classification, "BOUND_AND_OWNED")
+  truthy(raceManager.markRemoved(competitor, {
+    lineupId = lineup.id, managedHandle = entry.handle, vehicleId = 101,
+    reason = "fixture_explicit_remove", removedAt = 123,
+  }))
+  truthy(raceManager.knownRemoved(competitor))
+  equal(competitor.status, "removed")
+  equal(competitor.currentVehicleId, nil)
+  equal(competitor.managedHandle, nil)
+  local repeated, repeatedReason = raceManager.markRemoved(competitor, {})
+  truthy(repeated); equal(repeatedReason, "already_removed")
+  equal(raceManager.cleanupClassification(lineup, competitor, registry, function() return false end), "KNOWN_REMOVED")
+
+  local summary = raceManager.summary(lineup)
+  equal(summary.ready, 0); equal(summary.generated, 0); equal(summary.removed, 1)
+  equal(summary.generationReady, 0); equal(summary.placementReady, 0)
+  equal(summary.drivable, 0); equal(summary.aiReady, 0)
+end
+
+tests.v079_cleanup_fails_closed_for_accepted_slots_without_proven_binding = function()
+  local lineup = assert(raceManager.create({count = 2, episodeSeed = "v079-cleanup-missing"}))
+  local competitor = lineup.competitors[1]
+  competitor.status = "ready_with_warnings"
+  competitor.currentVehicleId = nil
+  competitor.managedHandle = nil
+  local classification, reason = raceManager.cleanupClassification(
+    lineup, competitor, managedVehicleRegistry.create(4), function() return false end
+  )
+  equal(classification, "UNKNOWN_BINDING")
+  equal(reason, "race_cleanup_binding_missing")
+  equal(raceManager.summary(lineup).ready, 0)
+end
+
 tests.v072_race_slots_are_independent_at_one_four_eight_and_twelve = function()
   for _, count in ipairs({1, 4, 8, 12}) do
     local lineup = assert(raceManager.create({
@@ -6324,6 +6375,7 @@ tests.v074_race_focus_slots_and_dna_are_isolated = function()
   end
   local first = assert(raceManager.nextCompetitor(lineup))
   truthy(raceManager.record(lineup, 1, acceptedResult("a"), sampleDNA({id = "v074-a"}), first.targetGeneration))
+  first.currentVehicleId, first.managedHandle = 101, "fixture-v074-a"
   equal(first.status, "ready_with_warnings")
   truthy(first.dna ~= nil)
   local second = assert(raceManager.nextCompetitor(lineup))
@@ -6333,6 +6385,7 @@ tests.v074_race_focus_slots_and_dna_are_isolated = function()
   equal(second.dna, nil)
   local third = assert(raceManager.nextCompetitor(lineup))
   truthy(raceManager.record(lineup, 3, acceptedResult("c"), sampleDNA({id = "v074-c"}), third.targetGeneration))
+  third.currentVehicleId, third.managedHandle = 103, "fixture-v074-c"
   equal(third.status, "ready_with_warnings")
   equal(raceManager.nextCompetitor(lineup), nil)
   local summary = raceManager.summary(lineup)
@@ -7465,6 +7518,8 @@ tests.v077_formation_selection_and_canonical_order_are_renderer_independent = fu
     competitor.status = "ready"
     competitor.generationReady = true
     competitor.placementReady = index == 1
+    competitor.currentVehicleId = 200 + index
+    competitor.managedHandle = "fixture-v077-" .. tostring(index)
   end
   local first = raceManager.placementCompetitors(lineup, {
     spawnAll = false, useNextLineupCompetitor = false,

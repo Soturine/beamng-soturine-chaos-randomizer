@@ -7013,24 +7013,29 @@ function production.clearManagedRaceVehicles(reason, lineup)
   for _, competitor in ipairs(lineup.competitors or {}) do
     local handle = competitor.managedHandle
     if handle then expectedHandles[handle] = true end
-    local accepted = competitor.status == "ready" or competitor.status == "ready_with_warnings"
-      or competitor.status == "partial" and lineup.acceptPartial == true
-    if accepted and (not handle or not competitor.currentVehicleId) then
+    local classification, entryOrReason = productionModules.raceManager.cleanupClassification(
+      lineup, competitor, runtime.managedVehicles,
+      productionModules.spawnAdapter.objectExists
+    )
+    if classification == "KNOWN_REMOVED" then
+      result.skipped[#result.skipped + 1] = {
+        slotId = competitor.slotId or tostring(competitor.index),
+        reason = "already_removed",
+      }
+    elseif classification == "UNRELATED" then
+      result.skipped[#result.skipped + 1] = {
+        slotId = competitor.slotId or tostring(competitor.index),
+        reason = entryOrReason,
+      }
+    elseif classification == "UNKNOWN_BINDING" then
       result.blocked[#result.blocked + 1] = {
         slotId = competitor.slotId or tostring(competitor.index),
         vehicleId = competitor.currentVehicleId,
-        reason = "race_cleanup_binding_missing",
+        reason = type(entryOrReason) == "string" and entryOrReason or "race_cleanup_binding_missing",
       }
-    elseif handle then
-      local matches, entryOrReason = productionModules.managedRegistry.matchesSlot(
-        runtime.managedVehicles, handle, {
-          lineupId = lineup.id, competitorId = competitor.id,
-          slotId = competitor.slotId or tostring(competitor.index),
-          vehicleId = competitor.currentVehicleId,
-        }
-      )
-      local entry = matches and entryOrReason or nil
-      local authorized, ownerOrReason = false, entryOrReason
+    else
+      local entry = entryOrReason
+      local authorized, ownerOrReason = false, nil
       if entry and tonumber(entry.vehicleId) ~= playerVehicleId then
         authorized, ownerOrReason = productionModules.domainOperations.authorizeManagedCleanup(
           runtime.domainOperations, entry.vehicleId, {
@@ -7039,7 +7044,7 @@ function production.clearManagedRaceVehicles(reason, lineup)
           }
         )
       elseif entry then ownerOrReason = "race_cleanup_player_protected" end
-      if not matches or not authorized then
+      if not authorized then
         result.blocked[#result.blocked + 1] = {
           handle = handle, slotId = competitor.slotId or tostring(competitor.index),
           vehicleId = competitor.currentVehicleId,
@@ -7054,10 +7059,12 @@ function production.clearManagedRaceVehicles(reason, lineup)
             runtime.domainOperations, entry.vehicleId, reason or "race_generation_replaced"
           )
           productionModules.managedRegistry.remove(runtime.managedVehicles, entry.handle)
-          competitor.managedHandle, competitor.currentVehicleId = nil, nil
-          competitor.concreteVehicleId = nil
-          competitor.raceStatus, competitor.placementState = "DNS", "removed"
-          competitor.placementReady, competitor.aiReady = false, false
+          productionModules.raceManager.markRemoved(competitor, {
+            lineupId = lineup.id, managedHandle = entry.handle,
+            vehicleId = entry.vehicleId, operationId = competitor.operationId,
+            generation = competitor.generation,
+            reason = reason or "race_generation_replaced",
+          })
         else
           result.failed[#result.failed + 1] = {
             handle = handle, slotId = competitor.slotId or tostring(competitor.index),
@@ -8335,6 +8342,19 @@ function production.removeManagedVehicle(handle)
   end
   local entry = runtime.managedVehicles.entries[handle]
   if not entry then
+    local lineup = runtime.lineup.current
+    for _, competitor in ipairs(lineup and lineup.competitors or {}) do
+      local tombstone = competitor.removalTombstone
+      if productionModules.raceManager.knownRemoved(competitor)
+        and tombstone and tombstone.managedHandle == handle
+      then
+        setResult(true, "managed_vehicle_already_removed", "Managed vehicle was already removed", {
+          handle = handle, slotId = competitor.slotId or tostring(competitor.index),
+        })
+        publishState()
+        return true
+      end
+    end
     setResult(false, "managed_vehicle_unknown", "Managed vehicle is unavailable"); publishState(); return false
   end
   local lineup = runtime.lineup.current
@@ -8376,10 +8396,11 @@ function production.removeManagedVehicle(handle)
     runtime.domainOperations, entry.vehicleId, "managed_vehicle_removed_by_user"
   )
   productionModules.managedRegistry.remove(runtime.managedVehicles, handle)
-  competitor.managedHandle, competitor.currentVehicleId = nil, nil
-  competitor.concreteVehicleId = nil
-  competitor.raceStatus, competitor.placementState = "DNS", "removed"
-  competitor.placementReady, competitor.aiReady = false, false
+  productionModules.raceManager.markRemoved(competitor, {
+    lineupId = lineup.id, managedHandle = handle, vehicleId = entry.vehicleId,
+    operationId = competitor.operationId, generation = competitor.generation,
+    reason = "managed_vehicle_removed_by_user",
+  })
   setResult(true, "managed_vehicle_removed", "Managed vehicle removed", {handle = handle})
   publishState()
   return true
