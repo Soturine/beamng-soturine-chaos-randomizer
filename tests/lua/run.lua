@@ -59,7 +59,6 @@ local racePreviewRenderer = require("ge/extensions/soturineChaosRandomizer/raceP
 local raceFormationFrame = require("ge/extensions/soturineChaosRandomizer/raceFormationFrame")
 local raceAttemptCoordinator = require("ge/extensions/soturineChaosRandomizer/raceAttemptCoordinator")
 local raceScheduler = require("ge/extensions/soturineChaosRandomizer/raceScheduler")
-local lineupStorage = require("ge/extensions/soturineChaosRandomizer/lineupStorage")
 local lineupPersistence = require("ge/extensions/soturineChaosRandomizer/lineupPersistence")
 local managedVehicleRegistry = require("ge/extensions/soturineChaosRandomizer/managedVehicleRegistry")
 local spawnDirector = require("ge/extensions/soturineChaosRandomizer/spawnDirector")
@@ -4019,8 +4018,8 @@ tests.v060_lineup_seeds_progress_schema_and_storage = function()
   truthy(raceManager.record(lineup, 2, {success = false, message = "fixture retry"}, nil, retry.targetGeneration))
   equal(lineup.competitors[3].seed, thirdSeed)
   equal(raceManager.summary(lineup).failed, 1)
-  local library = lineupStorage.create(2)
-  truthy(lineupStorage.add(library, lineup))
+  local library = lineupPersistence.create(2)
+  truthy(lineupPersistence.add(library, lineup))
   equal(#library.entries, 1)
   local invalid = util.deepCopy(lineup); invalid.competitors[17] = util.deepCopy(invalid.competitors[16]); invalid.competitors[17].index = 17; invalid.competitors[17].id = "extra"
   truthy(not lineupSchema.validate(invalid))
@@ -7718,21 +7717,18 @@ tests.v075_lineup_persistence_and_scheduler_failures_are_contained = function()
   local lineup = assert(raceManager.create({
     count = 3, episodeSeed = "v075-scheduler", preset = "Mods Showcase",
   }))
-  local library = lineupStorage.create(4)
+  local library = lineupPersistence.create(4)
   local before = util.deepCopy(library)
-  local failed, failureReason, unchanged = lineupPersistence.checkpoint(library, lineup, {
-    add = function(candidate)
-      candidate.entries = {{id = "must-not-leak"}}
-      return false, "fixture_transient_write_failure"
-    end,
-  })
+  local invalid = util.deepCopy(lineup)
+  invalid.competitors = "not-a-list"
+  local failed, failureReason, unchanged = lineupPersistence.checkpoint(library, invalid)
   equal(failed, false)
-  equal(failureReason, "fixture_transient_write_failure")
+  truthy(type(failureReason) == "string" and failureReason ~= "")
   truthy(util.deepEqual(library, before))
   truthy(unchanged == library)
   truthy(lineupSchema.validate(lineup))
 
-  local saved, stored, committed = lineupPersistence.checkpoint(library, lineup, lineupStorage)
+  local saved, stored, committed = lineupPersistence.checkpoint(library, lineup)
   truthy(saved)
   truthy(stored ~= nil)
   truthy(committed ~= library)

@@ -1,6 +1,32 @@
 local util = require("ge/extensions/soturineChaosRandomizer/util")
+local schema = require("ge/extensions/soturineChaosRandomizer/lineupSchema")
 
 local M = {}
+
+-- Saved lineup library: bounded, schema-validated, newest first.
+local function create(limit)
+  return {kind = "soturineChaosLineupLibrary", lineupSchemaVersion = schema.SCHEMA_VERSION, limit = math.max(1, math.min(50, tonumber(limit) or 20)), entries = {}, revision = 0}
+end
+
+local function add(library, lineup)
+  local valid, reason = schema.validate(lineup, {allowOne = true})
+  if not valid then return false, reason end
+  local copy = util.deepCopy(lineup)
+  copy.active, copy.nextIndex = nil, nil
+  for index = #library.entries, 1, -1 do if library.entries[index].id == copy.id then table.remove(library.entries, index) end end
+  table.insert(library.entries, 1, copy)
+  while #library.entries > library.limit do table.remove(library.entries) end
+  library.revision = library.revision + 1
+  return true, copy
+end
+
+local function load(value, limit)
+  if type(value) ~= "table" or value.kind ~= "soturineChaosLineupLibrary" or type(value.entries) ~= "table" then return create(limit), "empty" end
+  local library = create(limit or value.limit)
+  for _, lineup in ipairs(value.entries) do if schema.validate(lineup, {allowOne = true}) then library.entries[#library.entries + 1] = util.deepCopy(lineup) end end
+  library.revision = math.max(0, math.floor(tonumber(value.revision) or 0))
+  return library, "loaded"
+end
 
 local function classify(reason, stage)
   local cause = tostring(type(reason) == "table" and (reason.code or reason.message) or reason or "lineup_storage_unknown")
@@ -66,16 +92,21 @@ local function recordSuccess(lineup, now)
   return persistence
 end
 
-local function checkpoint(library, lineup, storage)
-  if type(library) ~= "table" or type(lineup) ~= "table"
-    or type(storage) ~= "table" or type(storage.add) ~= "function"
-  then return false, "lineup_persistence_contract_invalid", library end
+-- Adds the lineup to a copy of the library; the caller swaps it in only after
+-- the copy is written, so a failed write never corrupts the in-memory library.
+local function checkpoint(library, lineup)
+  if type(library) ~= "table" or type(lineup) ~= "table" then
+    return false, "lineup_persistence_contract_invalid", library
+  end
   local candidateLibrary = util.deepCopy(library)
-  local added, result = storage.add(candidateLibrary, lineup)
+  local added, result = add(candidateLibrary, lineup)
   if not added then return false, result, library end
   return true, result, candidateLibrary
 end
 
+M.create = create
+M.add = add
+M.load = load
 M.checkpoint = checkpoint
 M.classify = classify
 M.recordFailure = recordFailure

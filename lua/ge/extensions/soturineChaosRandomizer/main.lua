@@ -58,7 +58,6 @@ local productionModules = {
   raceFormationFrame = require("ge/extensions/soturineChaosRandomizer/raceFormationFrame"),
   raceAttemptCoordinator = require("ge/extensions/soturineChaosRandomizer/raceAttemptCoordinator"),
   lineupSchema = require("ge/extensions/soturineChaosRandomizer/lineupSchema"),
-  lineupStorage = require("ge/extensions/soturineChaosRandomizer/lineupStorage"),
   lineupPersistence = require("ge/extensions/soturineChaosRandomizer/lineupPersistence"),
   managedRegistry = require("ge/extensions/soturineChaosRandomizer/managedVehicleRegistry"),
   spawnAdapter = require("ge/extensions/soturineChaosRandomizer/spawnApiAdapter"),
@@ -136,7 +135,7 @@ local runtime = {
   recovery = vehicleRecovery.create(),
   lineup = {
     current = nil,
-    library = productionModules.lineupStorage.create(20),
+    library = productionModules.lineupPersistence.create(20),
     loaded = false,
     pendingNext = false,
   },
@@ -1564,7 +1563,7 @@ local function initialize()
   if type(adapter.loadLineupLibrary) == "function" and runtime.capabilities.lineupRead then
     local okLineups, storedLineups, lineupSource = adapter.loadLineupLibrary()
     if okLineups then
-      runtime.lineup.library = productionModules.lineupStorage.load(storedLineups, 20)
+      runtime.lineup.library = productionModules.lineupPersistence.load(storedLineups, 20)
       runtime.lineup.loaded = true
       productionModules.userDataMigration.record(
         runtime.migrationReport, "lineups", storedLineups and storedLineups.schemaVersion,
@@ -7160,7 +7159,7 @@ function production.persistCurrentLineup()
     return false, failure.code
   end
   local added, stored, candidateLibrary = productionModules.lineupPersistence.checkpoint(
-    runtime.lineup.library, current, productionModules.lineupStorage
+    runtime.lineup.library, current
   )
   if not added then
     local failure = productionModules.lineupPersistence.recordFailure(
