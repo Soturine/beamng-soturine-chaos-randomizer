@@ -398,16 +398,13 @@ local function publicState()
     }
     for _, competitor in ipairs(runtime.lineup.current.competitors or {}) do
       publicLineup.competitors[#publicLineup.competitors + 1] = {
-        index = competitor.index, id = competitor.id, name = competitor.name,
-        seed = competitor.seed, selectionSeed = competitor.selectionSeed,
-        mutationSeed = competitor.mutationSeed, placementSeed = competitor.placementSeed,
+        index = competitor.index, id = competitor.id, name = competitor.name, seed = competitor.seed,
+        source = util.deepCopy(competitor.source), targetGeneration = competitor.targetGeneration,
         status = competitor.status, warning = competitor.warning,
         phase = competitor.phase, phaseProgress = competitor.phaseProgress,
         terminalState = competitor.terminalState, failureCode = competitor.failureCode,
         dnaId = competitor.dnaId, modelKey = competitor.modelKey,
         position = competitor.position, configuration = competitor.configuration,
-        source = util.deepCopy(competitor.source), dependencies = util.deepCopy(competitor.dependencies),
-        coverage = util.deepCopy(competitor.coverage), targetGeneration = competitor.targetGeneration,
         progress = competitor.progress,
         managedHandle = competitor.managedHandle,
         competitorId = competitor.competitorId or competitor.id,
@@ -415,12 +412,10 @@ local function publicState()
         slotId = competitor.slotId, derivedSeed = competitor.derivedSeed,
         candidateVehicleId = competitor.candidateVehicleId,
         acceptedVehicleId = competitor.acceptedVehicleId,
-        ownedTemporaryIds = util.deepCopy(competitor.ownedTemporaryIds),
         retryCount = competitor.retryCount,
         attemptCount = competitor.attemptCount,
         recovery = util.deepCopy(competitor.recoveryLog and competitor.recoveryLog[#competitor.recoveryLog]),
         requestedIndex = competitor.requestedIndex,
-        logicalCandidate = util.deepCopy(competitor.logicalCandidate),
         currentVehicleId = competitor.currentVehicleId,
         concreteVehicleId = competitor.currentVehicleId,
         generationId = runtime.lineup.current.id,
@@ -441,9 +436,7 @@ local function publicState()
         policyDecision = util.deepCopy(competitor.policyDecision),
         bindingFailureReason = competitor.bindingFailureReason,
         replacementState = competitor.replacementState,
-        terminalResult = util.deepCopy(competitor.terminalResult),
-        spawnTransaction = util.deepCopy(competitor.spawnTransaction),
-        raceStatus = competitor.raceStatus, traits = util.deepCopy(competitor.traits),
+        raceStatus = competitor.raceStatus,
       }
     end
   end
