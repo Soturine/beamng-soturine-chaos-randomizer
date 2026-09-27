@@ -850,13 +850,19 @@ local function reorder(lineup, index, newPosition)
   return true
 end
 
-local function placementCompetitors(lineup, options)
+-- Vehicles that already exist are repositioned as one batch; DNA-only slots
+-- (e.g. an imported lineup) are spawned only when nothing exists yet, so the
+-- fast reposition path never inherits the conservative spawn pipeline.
+local function placementCompetitors(lineup, options, registry)
   options = type(options) == "table" and options or {}
-  local result = {}
+  local existing, dnaOnly = {}, {}
   for _, competitor in ipairs(lineup and lineup.competitors or {}) do
-    local accepted = acceptedState(lineup, competitor)
-    if accepted then result[#result + 1] = competitor end
+    if isPlacementUsable(lineup, competitor, registry) then existing[#existing + 1] = competitor
+    elseif acceptedState(lineup, competitor) and competitor.managedHandle == nil
+      and competitor.currentVehicleId == nil
+    then dnaOnly[#dnaOnly + 1] = competitor end
   end
+  local result = #existing > 0 and existing or dnaOnly
   table.sort(result, function(left, right)
     local leftPosition = tonumber(left.position) or tonumber(left.index) or 0
     local rightPosition = tonumber(right.position) or tonumber(right.index) or 0
@@ -880,9 +886,7 @@ local function placementAvailability(lineup, managedVehicles, operationBusy, pla
   if not lineup then return {available = false, count = 0, reason = "race_required"} end
   local count = 0
   for _, competitor in ipairs(lineup.competitors or {}) do
-    local entry = competitor.managedHandle and managedVehicles
-      and managedRegistry.readyEntry(managedVehicles, competitor.managedHandle)
-    if entry and competitor.currentVehicleId == entry.vehicleId then count = count + 1 end
+    if managedVehicles and isPlacementUsable(lineup, competitor, managedVehicles) then count = count + 1 end
   end
   if operationBusy == true then
     return {available = false, count = count, reason = "operation_busy"}

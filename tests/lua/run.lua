@@ -4590,6 +4590,81 @@ tests.v0710_race_readiness_is_canonical_and_ordered = function()
   equal(summary.drivable, 2)
 end
 
+tests.v0710_position_all_is_one_batch_with_parallel_readback_and_targeted_retry = function()
+  local racePlacement = require("ge/extensions/soturineChaosRandomizer/racePlacement")
+  local registry = managedVehicleRegistry.create(8)
+  local competitors, placements, entries = {}, {}, {}
+  for index = 1, 3 do
+    local entry = assert(managedVehicleRegistry.register(registry, 200 + index, {
+      competitorId = "c" .. index, targetConfirmed = true, validated = true,
+    }))
+    managedVehicleRegistry.markReady(registry, entry.handle, entry.targetGeneration,
+      {busy = false, targetConfirmed = true, validated = true})
+    entries[index] = entry
+    competitors[index] = {index = index, id = "c" .. index, managedHandle = entry.handle,
+      currentVehicleId = entry.vehicleId, drivable = true}
+    placements[index] = {position = {x = index * 10, y = 0, z = 0}, forward = {x = 0, y = 1, z = 0}}
+  end
+  local world, placeCalls, jitter = {}, {}, 0
+  local stuck = {[202] = 1} -- slot 2 ignores its first teleport
+  local deps = {
+    registry = registry, now = 0, timeout = 5,
+    authorize = function(competitor) return registry.entries[competitor.managedHandle] end,
+    place = function(vehicleId, placement)
+      placeCalls[#placeCalls + 1] = vehicleId
+      if stuck[vehicleId] and stuck[vehicleId] > 0 then stuck[vehicleId] = stuck[vehicleId] - 1; return true end
+      world[vehicleId] = util.deepCopy(placement.position)
+      return true
+    end,
+    exists = function() return true end,
+    position = function(vehicleId)
+      local position = world[vehicleId] or {x = -500, y = 0, z = 0}
+      -- Suspension settling: a few centimetres of motion must still count as settled.
+      return true, {x = position.x + jitter, y = position.y, z = position.z}
+    end,
+    aiUsable = function(competitor) return competitor.drivable == true end,
+  }
+  local run = {competitors = competitors, placements = placements, requested = 3}
+  racePlacement.dispatch(run, deps)
+  equal(#placeCalls, 3, "one click teleports every slot in the same step")
+  equal(#run.pendingBatch, 3)
+  for scan = 1, 3 do
+    jitter = scan * 0.01; deps.now = scan * 0.1
+    racePlacement.poll(run, deps)
+  end
+  equal(run.completed, 2, "slots 1 and 3 settle in parallel")
+  equal(competitors[1].placementState, "placed"); equal(competitors[3].placementState, "placed")
+  equal(competitors[2].placementState, "placing")
+  deps.now = 6
+  racePlacement.poll(run, deps)
+  equal(#placeCalls, 4); equal(placeCalls[4], 202, "only the failed slot is retried")
+  for scan = 1, 2 do deps.now = 6 + scan * 0.1; racePlacement.poll(run, deps) end
+  truthy(racePlacement.finished(run))
+  equal(run.failed, 0); equal(#run.spawned, 3)
+  for index = 1, 3 do
+    truthy(competitors[index].placementReady); truthy(competitors[index].aiReady)
+    equal(registry.entries[entries[index].handle].status, "ready")
+  end
+  -- A slot that never arrives fails alone after one bounded retry.
+  local lonely = {index = 9, id = "c9", managedHandle = entries[1].handle, currentVehicleId = 201}
+  stuck[201] = 99
+  local failing = {competitors = {lonely}, placements = {{position = {x = 900, y = 0, z = 0}}}, requested = 1}
+  deps.now = 20
+  racePlacement.dispatch(failing, deps)
+  deps.now = 26; racePlacement.poll(failing, deps)
+  deps.now = 32; racePlacement.poll(failing, deps)
+  truthy(racePlacement.finished(failing))
+  equal(failing.failed, 1); equal(failing.failures[1].reason, "placement_readback_timeout")
+  equal(registry.entries[entries[1].handle].status, "ready", "a failed placement releases the vehicle")
+  -- Authorization failures are reported per slot without stopping the batch.
+  local denied = {competitors = {{index = 4, id = "c4"}}, placements = {{position = {x = 0, y = 0, z = 0}}}, requested = 1}
+  racePlacement.dispatch(denied, util.shallowMerge(deps, {
+    authorize = function() return nil, "race_placement_ownership_unproven", "placement_authority_denied" end,
+  }))
+  truthy(racePlacement.finished(denied))
+  equal(denied.failures[1].reason, "race_placement_ownership_unproven")
+end
+
 tests.v060_spawn_heading_readback_and_ownership = function()
   local frame = {
     position = {x = 0, y = 0, z = 5}, forward = {x = 0, y = 1, z = 0}, right = {x = 1, y = 0, z = 0},
@@ -6029,6 +6104,7 @@ tests.v066_race_contexts_ids_partial_cancel_and_placement_are_isolated = functio
       {busy = false, targetConfirmed = true, validated = true}))
     competitor.managedHandle = entry.handle
     competitor.currentVehicleId = entry.vehicleId
+    competitor.status, competitor.generationReady = "ready", true
   end
   equal(#managedVehicleRegistry.list(registry), 4)
   truthy(lineupSchema.validate(lineup))
@@ -8977,6 +9053,8 @@ local v0710Required = {
   {"rejected_candidate_discard_requires_exact_operation", tests.v0710_managed_mutation_authorization_is_purpose_specific},
   {"custom_preset_owns_policy", tests.v0710_custom_preset_owns_its_policy_and_fixed_presets_are_templates},
   {"readiness_is_canonical", tests.v0710_race_readiness_is_canonical_and_ordered},
+  {"position_all_single_batch", tests.v0710_position_all_is_one_batch_with_parallel_readback_and_targeted_retry},
+  {"position_retry_only_failed_slot", tests.v0710_position_all_is_one_batch_with_parallel_readback_and_targeted_retry},
   {"preview_engine_like_bindings", tests.v0710_preview_renderer_contract_uses_engine_like_bindings},
   {"preview_frame_loop_states", tests.v0710_preview_frame_loop_state_contract},
   {"preview_main_on_pre_render_bridge", tests.v0710_preview_main_bridge_draws_through_on_pre_render},

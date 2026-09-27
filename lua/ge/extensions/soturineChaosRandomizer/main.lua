@@ -53,6 +53,7 @@ local productionModules = {
   raceManager = require("ge/extensions/soturineChaosRandomizer/raceManager"),
   raceFocusGuard = require("ge/extensions/soturineChaosRandomizer/raceFocusGuard"),
   racePreview = require("ge/extensions/soturineChaosRandomizer/racePreview"),
+  racePlacement = require("ge/extensions/soturineChaosRandomizer/racePlacement"),
   previewRenderer = require("ge/extensions/soturineChaosRandomizer/racePreviewRenderer"),
   raceFormationFrame = require("ge/extensions/soturineChaosRandomizer/raceFormationFrame"),
   raceAttemptCoordinator = require("ge/extensions/soturineChaosRandomizer/raceAttemptCoordinator"),
@@ -7835,7 +7836,7 @@ function production.previewLineupSpawn(options)
       setResult(false, "spawn_selected_dna_missing", "The selected Vehicle DNA is unavailable"); publishState(); return false
     end
   elseif lineup then
-    competitors = productionModules.raceManager.placementCompetitors(lineup, options)
+    competitors = productionModules.raceManager.placementCompetitors(lineup, options, runtime.managedVehicles)
   else
     setResult(false, "lineup_missing", "Create or import a lineup, or choose a Vehicle DNA"); publishState(); return false
   end
@@ -8008,18 +8009,6 @@ function production.configForCompetitor(competitor)
 end
 
 local function verifyPendingSpawn(pending)
-  if pending.placementOnly then
-    local readable, positionOrReason = productionModules.spawnAdapter.objectPosition(pending.vehicleId)
-    if not readable then
-      return positionOrReason == "vehicle_missing" and false or nil, positionOrReason
-    end
-    local expected = pending.placement and pending.placement.position or {}
-    local dx = (tonumber(positionOrReason.x) or 0) - (tonumber(expected.x) or 0)
-    local dy = (tonumber(positionOrReason.y) or 0) - (tonumber(expected.y) or 0)
-    local dz = (tonumber(positionOrReason.z) or 0) - (tonumber(expected.z) or 0)
-    if dx * dx + dy * dy + dz * dz > 2.25 then return nil, "placement_readback_pending" end
-    return true, {vehicleId = pending.vehicleId, position = util.deepCopy(positionOrReason), placementOnly = true}
-  end
   local candidates, seen = {pending.vehicleId}, {[tostring(pending.vehicleId)] = true}
   for _, vehicleId in ipairs(pending.candidateIds or {}) do
     local key = tostring(vehicleId)
@@ -8103,119 +8092,20 @@ end
 
 production.processRepositionBatch = function(run)
   local now = adapter.clock()
-  if not run.batchDispatched then
-    run.batchDispatched = true
-    for index, competitor in ipairs(run.competitors or {}) do
-      local placement = run.placements[index]
-      run.currentSlot = index
-      local entry, reason, placementState = production.authorizeSlotPlacement(competitor)
-      if not entry then
-        run.failures[#run.failures + 1] = {index = competitor.index, reason = reason}
-        competitor.placementState, competitor.placementReady = placementState, false
-        run.completed, run.failed = run.completed + 1, run.failed + 1
-      else
-        local generation = productionModules.managedRegistry.beginGeneration(
-          runtime.managedVehicles, entry.handle, "placement_batch"
-        )
-        productionModules.managedRegistry.setPending(runtime.managedVehicles, entry.handle, {
-          writes = 1, timers = 1, callbacks = 0,
-        })
-        local placed, placementReason = productionModules.spawnAdapter.placeVehicle(entry.vehicleId, placement)
-        if not placed and productionModules.spawnAdapter.objectExists(entry.vehicleId) then
-          placed, placementReason = productionModules.spawnAdapter.placeVehicle(entry.vehicleId, placement)
-        end
-        if placed then
-          productionModules.managedRegistry.setPending(runtime.managedVehicles, entry.handle, {
-            writes = 0, timers = 1, callbacks = 0,
-          })
-          run.pendingBatch[#run.pendingBatch + 1] = {
-            handle = entry.handle, targetGeneration = generation,
-            vehicleId = entry.vehicleId, competitor = competitor,
-            placement = util.deepCopy(placement), placementOnly = true,
-            startedAt = now, deadline = now + WAIT_TIMEOUT,
-            stableScans = 0, attempts = 1, terminal = false,
-          }
-          competitor.raceStatus, competitor.placementState = "Loading", "placing"
-        else
-          entry.status, entry.targetConfirmed, entry.validated = "ready", true, true
-          productionModules.managedRegistry.setPending(runtime.managedVehicles, entry.handle, {
-            writes = 0, timers = 0, callbacks = 0,
-          })
-          run.failures[#run.failures + 1] = {index = competitor.index, reason = placementReason}
-          competitor.placementState, competitor.placementReady = "placement_failed", false
-          run.completed, run.failed = run.completed + 1, run.failed + 1
-        end
-      end
-    end
-    run.nextAt = now + 0.1
-    publishState()
-    return true
-  end
-
-  local changed = false
-  for _, pending in ipairs(run.pendingBatch or {}) do
-    if not pending.terminal then
-      run.currentSlot = pending.competitor.index
-      local verified, stateOrReason = verifyPendingSpawn(pending)
-      if verified == true then
-        if pending.lastVerifiedState and util.deepEqual(pending.lastVerifiedState, stateOrReason, 1e-8) then
-          pending.stableScans = pending.stableScans + 1
-        else
-          pending.lastVerifiedState, pending.stableScans = util.deepCopy(stateOrReason), 1
-        end
-        if pending.stableScans >= 2 then
-          productionModules.managedRegistry.setPending(runtime.managedVehicles, pending.handle, {
-            writes = 0, timers = 0, callbacks = 0,
-          })
-          productionModules.managedRegistry.updateState(
-            runtime.managedVehicles, pending.handle, pending.targetGeneration, stateOrReason
-          )
-          local ready, readyReason = productionModules.managedRegistry.markReady(
-            runtime.managedVehicles, pending.handle, pending.targetGeneration, {
-              busy = false, targetConfirmed = true, validated = true,
-            }
-          )
-          if ready then
-            run.spawned[#run.spawned + 1] = pending.handle
-            pending.competitor.raceStatus = "Ready"
-            pending.competitor.placementState, pending.competitor.placementReady = "placed", true
-            pending.competitor.aiReady = productionModules.raceManager.isAIUsable(
-              runtime.lineup.current, pending.competitor, runtime.managedVehicles
-            )
-            pending.competitor.aiState = pending.competitor.aiReady and "ELIGIBLE" or "BLOCKED_NOT_DRIVABLE"
-            local entry = runtime.managedVehicles.entries[pending.handle]
-            if entry then entry.spawnTransform = util.deepCopy(pending.placement) end
-          else
-            run.failures[#run.failures + 1] = {index = pending.competitor.index, reason = readyReason}
-            run.failed = run.failed + 1
-          end
-          pending.terminal, run.completed, changed = true, run.completed + 1, true
-        end
-      elseif verified == false or now >= pending.deadline then
-        if pending.attempts < 2 and productionModules.spawnAdapter.objectExists(pending.vehicleId) then
-          local retried = productionModules.spawnAdapter.placeVehicle(pending.vehicleId, pending.placement)
-          pending.attempts, pending.deadline, pending.stableScans = 2, now + WAIT_TIMEOUT, 0
-          pending.lastVerifiedState = nil
-          if not retried then pending.deadline = now end
-        else
-          local entry = runtime.managedVehicles.entries[pending.handle]
-          if entry then
-            entry.status, entry.targetConfirmed, entry.validated = "ready", true, true
-            productionModules.managedRegistry.setPending(runtime.managedVehicles, pending.handle, {
-              writes = 0, timers = 0, callbacks = 0,
-            })
-          end
-          local failureReason = verified == false and stateOrReason or "placement_readback_timeout"
-          run.failures[#run.failures + 1] = {index = pending.competitor.index, reason = failureReason}
-          pending.competitor.raceStatus = "Ready"
-          pending.competitor.placementState, pending.competitor.placementReady = "placement_failed", false
-          pending.terminal = true
-          run.completed, run.failed, changed = run.completed + 1, run.failed + 1, true
-        end
-      end
-    end
-  end
-  if run.completed >= run.requested then
+  local deps = {
+    registry = runtime.managedVehicles, now = now, timeout = productionModules.racePlacement.TIMEOUT,
+    authorize = production.authorizeSlotPlacement,
+    place = productionModules.spawnAdapter.placeVehicle,
+    exists = productionModules.spawnAdapter.objectExists,
+    position = productionModules.spawnAdapter.objectPosition,
+    aiUsable = function(competitor)
+      return productionModules.raceManager.isAIUsable(runtime.lineup.current, competitor, runtime.managedVehicles)
+    end,
+  }
+  local changed = true
+  if not run.batchDispatched then productionModules.racePlacement.dispatch(run, deps)
+  else changed = productionModules.racePlacement.poll(run, deps) end
+  if productionModules.racePlacement.finished(run) then
     run.active, run.currentSlot = false, nil
     runtime.spawnDirector.lastResult = {
       success = run.failed == 0, positioned = #run.spawned, failed = run.failed,
@@ -8354,7 +8244,7 @@ function production.processSpawnDirector()
         pending.competitor.managedHandle = pending.handle
         pending.competitor.currentVehicleId = pending.vehicleId
         pending.competitor.concreteVehicleId = pending.vehicleId
-        pending.competitor.placementState = pending.placementOnly and "placed" or "spawned"
+        pending.competitor.placementState = "spawned"
         pending.competitor.placementReady = true
         pending.competitor.aiReady = productionModules.raceManager.isAIUsable(
           runtime.lineup.current, pending.competitor, runtime.managedVehicles
@@ -8374,7 +8264,7 @@ function production.processSpawnDirector()
       return true
     end
     if verified == false or adapter.clock() >= pending.deadline then
-      if pending.spawnTransaction and not pending.placementOnly then
+      if pending.spawnTransaction then
         production.cleanupSpawnTransaction(pending.spawnTransaction)
         pending.competitor.spawnTransaction = util.deepCopy(pending.spawnTransaction)
       end
@@ -8385,9 +8275,8 @@ function production.processSpawnDirector()
           verified == false and stateOrReason or "spawn_readback_timeout"
         )
       elseif entry then
-        entry.status = pending.placementOnly and "ready" or "failed"
-        entry.targetConfirmed = pending.placementOnly == true
-        entry.validated = pending.placementOnly == true
+        entry.status = "failed"
+        entry.targetConfirmed, entry.validated = false, false
         entry.pendingWrites, entry.pendingTimers, entry.pendingCallbacks = 0, 0, 0
         entry.failureReason = stateOrReason
       end
@@ -8395,9 +8284,8 @@ function production.processSpawnDirector()
         index = pending.competitor.index,
         reason = verified == false and stateOrReason or "spawn_readback_timeout",
       }
-      pending.competitor.raceStatus = (pending.placementOnly or pending.replacement) and "Ready" or "DNS"
-      pending.competitor.placementState = pending.placementOnly and "placement_failed"
-        or pending.replacement and "staged" or "spawn_failed"
+      pending.competitor.raceStatus = pending.replacement and "Ready" or "DNS"
+      pending.competitor.placementState = pending.replacement and "staged" or "spawn_failed"
       pending.competitor.placementReady = pending.replacement == true
       if pending.replacement then pending.competitor.replacementState = "failed_source_retained" end
       run.pendingVerification = nil
@@ -8425,52 +8313,6 @@ function production.processSpawnDirector()
   end
   local config = production.configForCompetitor(competitor)
   local modelKey = competitor.modelKey or competitor.dna and competitor.dna.final and competitor.dna.final.modelKey
-  if competitor.managedHandle then
-    local entry, authorityReason, placementState = production.authorizeSlotPlacement(competitor)
-    if not entry then
-      run.failures[#run.failures + 1] = {index = competitor.index, reason = authorityReason}
-      competitor.placementState = placementState
-      competitor.placementReady = false
-    else
-      local generation = productionModules.managedRegistry.beginGeneration(
-        runtime.managedVehicles, entry.handle, "placement"
-      )
-      productionModules.managedRegistry.setPending(runtime.managedVehicles, entry.handle, {
-        writes = 1, timers = 1, callbacks = 0,
-      })
-      local placed, placementReason = productionModules.spawnAdapter.placeVehicle(entry.vehicleId, placement)
-      if placed then
-        productionModules.managedRegistry.setPending(runtime.managedVehicles, entry.handle, {
-          writes = 0, timers = 1, callbacks = 0,
-        })
-        run.pendingVerification = {
-          handle = entry.handle, targetGeneration = generation,
-          vehicleId = entry.vehicleId, modelKey = entry.modelKey,
-          config = util.deepCopy(entry.metadata and entry.metadata.config or config),
-          competitor = competitor, placement = util.deepCopy(placement), placementOnly = true,
-          startedAt = adapter.clock(), deadline = adapter.clock() + WAIT_TIMEOUT,
-          candidateIds = {}, candidateSeen = {}, stableScans = 0,
-        }
-        run.nextAt = adapter.clock() + 0.1
-        competitor.raceStatus = "Loading"
-        competitor.placementState = "placing"
-        publishState()
-        return true
-      end
-      entry.status = "ready"
-      entry.targetConfirmed, entry.validated = true, true
-      productionModules.managedRegistry.setPending(runtime.managedVehicles, entry.handle, {
-        writes = 0, timers = 0, callbacks = 0,
-      })
-      run.failures[#run.failures + 1] = {index = competitor.index, reason = placementReason}
-      competitor.placementState = "placement_failed"
-      competitor.placementReady = false
-    end
-    run.cursor = run.cursor + 1
-    run.nextAt = adapter.clock() + run.options.interval
-    publishState()
-    return true
-  end
   local ok, vehicleId, spawnTransaction
   if config and modelKey then
     ok, vehicleId, spawnTransaction = productionModules.spawnAdapter.spawnVehicle(modelKey, config, placement)
@@ -8800,11 +8642,15 @@ function production.startManagedAI(options)
   options.speed = tonumber(options.speed) or (tonumber(options.speedKph)
     and tonumber(options.speedKph) / 3.6) or nil
   local lineup = runtime.lineup.current
-  if lineup and (lineup.active == true or (lineup.generationState ~= "lineup_ready"
-    and not (lineup.generationState == "lineup_partial" and lineup.acceptPartial == true)))
-  then
-    setResult(false, "race_formation_not_ready",
-      "Race AI cannot start until generation and Placement are ready or an accepted partial formation is ready.")
+  if lineup and lineup.active == true then
+    setResult(false, "race_formation_not_ready", "Race AI cannot start while opponents are still being generated.")
+    publishState()
+    return false
+  end
+  -- Slots are independent: any AI-usable opponent can start while failed or
+  -- skipped slots are reported, never used to block the others.
+  if lineup and productionModules.raceManager.summary(lineup).aiReady == 0 then
+    setResult(false, "race_no_ai_ready_competitors", "No opponent is ready for AI. Fix generation or placement first.")
     publishState()
     return false
   end
