@@ -4257,26 +4257,165 @@ tests.v079_final_formation_origin_heading_clearance_and_rigid_fallback_are_indep
   end
 end
 
-tests.v079_preview_renderer_draws_only_injected_read_only_primitives = function()
+-- BeamNG exposes ColorF/ColorI as LuaIntf classes: callable tables, not Lua
+-- functions. v0.7.9 rejected them with type() checks and never drew a frame.
+local function engineLikeBindings(options)
+  options = options or {}
   local calls = {sphere = 0, line = 0, text = 0}
   local drawer = {}
   function drawer:drawSphere() calls.sphere = calls.sphere + 1 end
   function drawer:drawLine() calls.line = calls.line + 1 end
-  function drawer:drawTextAdvanced() calls.text = calls.text + 1 end
-  local rendered, report = racePreviewRenderer.draw({{
-    position = {x = 1, y = 2, z = 3}, forward = {x = 0, y = 1, z = 0},
-    dimensions = {width = 2, length = 4}, clearance = 1.5,
-    label = "1 - Fixture", visual = "ready", positionStatus = "valid",
-  }}, {
-    debugDrawer = drawer,
-    ColorF = function(...) return {...} end,
-    ColorI = function(...) return {...} end,
+  if options.text ~= false then
+    function drawer:drawTextAdvanced()
+      calls.text = calls.text + 1
+      if options.textThrows then error("fixture text failure") end
+    end
+  end
+  local function class(kind)
+    return setmetatable({}, {__call = function(_, ...) return {kind = kind, ...} end})
+  end
+  return {
+    debugDrawer = drawer, ColorF = class("ColorF"), ColorI = class("ColorI"),
     vec3 = function(x, y, z) return {x = x, y = y, z = z} end,
-  })
-  truthy(rendered); equal(report.renderedMarkerCount, 1)
-  equal(calls.sphere, 1); equal(calls.line, 9); equal(calls.text, 1)
-  local unavailable, unavailableReport = racePreviewRenderer.draw({}, {})
-  equal(unavailable, false); equal(unavailableReport.errorCode, "preview_renderer_unavailable")
+  }, calls
+end
+
+tests.v0710_preview_renderer_contract_uses_engine_like_bindings = function()
+  local deps, calls = engineLikeBindings()
+  truthy(type(deps.ColorF) ~= "function", "fixture must model a non-function engine class")
+  local probe = racePreviewRenderer.probe(deps)
+  truthy(probe.available); truthy(probe.textAvailable); equal(#probe.missing, 0)
+  local placements = {}
+  for index = 1, 3 do
+    placements[index] = {
+      position = {x = index * 5, y = 2, z = 3}, forward = {x = 0, y = 1, z = 0},
+      dimensions = {width = 2, length = 4}, clearance = 1.5,
+      label = tostring(index) .. " - Fixture", visual = "ready", positionStatus = "valid",
+    }
+  end
+  local drawn, report = racePreviewRenderer.draw(placements, deps, probe)
+  truthy(drawn); equal(report.requestedMarkerCount, 3); equal(report.renderedMarkerCount, 3)
+  equal(calls.sphere, 3); equal(calls.line, 27); equal(calls.text, 3)
+  -- Text is optional: a text failure never removes geometric markers.
+  local textDeps, textCalls = engineLikeBindings({textThrows = true})
+  drawn, report = racePreviewRenderer.draw(placements, textDeps)
+  truthy(drawn); equal(report.renderedMarkerCount, 3); equal(textCalls.sphere, 3)
+  equal(report.textErrorCode, "preview_text_draw_failed")
+  local noText = engineLikeBindings({text = false})
+  drawn, report = racePreviewRenderer.draw(placements, noText)
+  truthy(drawn); equal(report.renderedMarkerCount, 3)
+  -- Each missing binding is named precisely instead of a generic "unavailable".
+  local function failure(mutate)
+    local broken = engineLikeBindings(); mutate(broken)
+    local ok, failed = racePreviewRenderer.draw(placements, broken)
+    equal(ok, false); equal(failed.renderedMarkerCount, 0)
+    return failed.errorCode, failed.missing
+  end
+  equal(failure(function(value) value.debugDrawer = nil end), "preview_debug_drawer_missing")
+  equal(failure(function(value) value.ColorF = nil end), "preview_color_api_missing")
+  equal(failure(function(value) value.vec3 = nil end), "preview_vector_api_missing")
+  equal(failure(function(value) value.debugDrawer = {drawSphere = function() end} end),
+    "preview_draw_method_missing")
+  local _, missing = failure(function(value) value.ColorF = nil end)
+  truthy(util.arrayContains(missing, "ColorF"))
+  drawn, report = racePreviewRenderer.draw({}, deps)
+  equal(drawn, false); equal(report.errorCode, "preview_render_empty")
+  -- The shared single-point primitive uses the same probed bindings.
+  local pointDeps, pointCalls = engineLikeBindings()
+  truthy(racePreviewRenderer.drawPoint({x = 1, y = 2, z = 3}, pointDeps,
+    racePreviewRenderer.probe(pointDeps), 1.1, {1, 0, 0, 1}))
+  equal(pointCalls.sphere, 1)
+  equal(racePreviewRenderer.drawPoint({x = 1, y = 2, z = 3}, {}, racePreviewRenderer.probe({}), 1, {1, 0, 0, 1}), false)
+end
+
+tests.v0710_preview_frame_loop_state_contract = function()
+  local plan = {options = {requestedMode = "GRID", safetyMargin = 1.5}, placements = {
+    {position = {x = 0, y = 0, z = 0}, normal = {x = 0, y = 0, z = 1}},
+    {position = {x = 5, y = 0, z = 0}, normal = {x = 0, y = 0, z = 1}},
+  }}
+  local lineup = {settings = {formation = "GRID"}, competitors = {{status = "ready"}, {status = "planned"}}}
+  local preview = racePreview.build("generation", plan, lineup, nil, true)
+  equal(preview.state, "PREVIEW_DATA_READY")
+  local list = racePreview.placements(preview)
+  equal(#list, 2)
+  truthy(racePreview.placements(preview) == list, "draw list must not be rebuilt per frame")
+  local deps, calls = engineLikeBindings()
+  local probe = racePreviewRenderer.probe(deps)
+  local function frame(now)
+    local drawn, report = racePreviewRenderer.draw(racePreview.placements(preview), deps, probe)
+    return racePreview.recordRender(preview, drawn, report, now)
+  end
+  truthy(frame(1), "first drawn frame changes state")
+  equal(preview.state, "PREVIEW_RENDERED")
+  equal(preview.renderer.renderedMarkerCount, 2); equal(preview.renderer.successfulFrames, 1)
+  equal(frame(2), false, "an unchanged frame must not republish")
+  equal(calls.sphere, 4)
+  racePreview.update(preview, {competitors = {{status = "failed", name = "One"}, {status = "ready", name = "Two"}}})
+  truthy(racePreview.placements(preview) ~= list, "update invalidates the draw list")
+  equal(racePreview.placements(preview)[1].visual, "failed")
+  truthy(racePreview.stale(preview, "race_options_changed"))
+  frame(3)
+  equal(preview.state, "PREVIEW_STALE", "stale markers keep drawing but stay stale")
+  -- A failed frame is explicit and names its cause.
+  local failed = racePreview.build("generation", plan, lineup, nil, true)
+  local ok, report = racePreviewRenderer.draw(racePreview.placements(failed), {}, nil)
+  truthy(racePreview.recordRender(failed, ok, report, 4))
+  equal(failed.state, "PREVIEW_FAILED")
+  equal(failed.renderer.lastErrorCode, "preview_debug_drawer_missing")
+  -- Missing render callback is detected only while data is still unrendered.
+  local waiting = racePreview.build("generation", plan, lineup, nil, true)
+  truthy(racePreview.recordMissingCallback(waiting))
+  equal(waiting.renderer.lastErrorCode, "preview_render_callback_missing")
+  equal(racePreview.recordMissingCallback(preview), false)
+  -- Disabling removes the overlay in the same logical cycle.
+  racePreview.clear(preview, "toggle_off")
+  equal(preview.state, "PREVIEW_DISABLED")
+  equal(#racePreview.placements(preview), 0)
+  equal(racePreview.recordRender(preview, true, {renderedMarkerCount = 2}, 5), false)
+end
+
+tests.v0710_preview_main_bridge_draws_through_on_pre_render = function()
+  local harness = pipelineHarness.new({vehicleId = 7})
+  local spawnAdapter = require("ge/extensions/soturineChaosRandomizer/spawnApiAdapter")
+  local saved = {}
+  local stubs = {
+    cameraFrame = function()
+      return true, {position = {x = 0, y = 0, z = 0}, forward = {x = 0, y = 1, z = 0}, right = {x = 1, y = 0, z = 0}}
+    end,
+    raycastGround = function(position)
+      return true, {point = {x = position.x, y = position.y, z = 0}, normal = {x = 0, y = 0, z = 1}}
+    end,
+    occupiedVehiclePositions = function() return true, {} end,
+    objectPosition = function() return false, "vehicle_missing" end,
+    playerForward = function() return false, "player_missing" end,
+  }
+  for name, stub in pairs(stubs) do saved[name], spawnAdapter[name] = spawnAdapter[name], stub end
+  local deps, calls = engineLikeBindings()
+  local previous = {debugDrawer = _G.debugDrawer, ColorF = _G.ColorF, ColorI = _G.ColorI, vec3 = _G.vec3}
+  local ok, failure = pcall(function()
+    truthy(harness.main.previewRaceGeneration({count = 3, participationMode = "spectator", previewEnabled = true}),
+      "preview data")
+    equal(harness.main.requestState().spawnDirector.racePreview.state, "PREVIEW_DATA_READY")
+    -- Without bindings the exact missing symbol is reported, not a generic error.
+    for name in pairs(previous) do _G[name] = nil end
+    harness.main.onPreRender()
+    local failedPreview = harness.main.requestState().spawnDirector.racePreview
+    equal(failedPreview.state, "PREVIEW_FAILED")
+    equal(failedPreview.renderer.lastErrorCode, "preview_debug_drawer_missing")
+    for name, value in pairs(deps) do _G[name] = value end
+    harness.main.onPreRender()
+    local rendered = harness.main.requestState().spawnDirector.racePreview
+    equal(rendered.state, "PREVIEW_RENDERED")
+    equal(rendered.renderer.renderedMarkerCount, 3)
+    equal(calls.sphere, 3)
+    truthy(harness.main.previewRaceGeneration({count = 3, participationMode = "spectator", previewEnabled = false}))
+    harness.main.onPreRender()
+    equal(calls.sphere, 3, "disabled preview draws nothing")
+    equal(harness.main.requestState().spawnDirector.racePreview.state, "PREVIEW_DISABLED")
+  end)
+  for name, value in pairs(previous) do _G[name] = value end
+  for name, original in pairs(saved) do spawnAdapter[name] = original end
+  truthy(ok, failure)
 end
 
 tests.v060_spawn_heading_readback_and_ownership = function()
@@ -7165,20 +7304,16 @@ tests.v075_preview_state_requires_a_rendered_frame = function()
   local preview = racePreview.build("generation", plan, lineup, nil, true)
   equal(preview.state, "PREVIEW_DATA_READY")
   equal(preview.formation, "GRID")
-  racePreview.recordRender(preview, {rendererAvailable = false, requestedMarkerCount = 1}, 1, false)
+  racePreview.recordRender(preview, false, {errorCode = "preview_debug_drawer_missing", requestedMarkerCount = 1}, 1)
   equal(preview.state, "PREVIEW_FAILED")
-  equal(preview.renderer.availabilityState, "RENDER_UNAVAILABLE")
-  racePreview.recordRender(preview, {
-    rendererAvailable = true, requestedMarkerCount = 1, renderedMarkerCount = 0,
-    errorCode = "fixture_renderer_error",
-  }, 2, false)
+  equal(preview.renderer.lastErrorCode, "preview_debug_drawer_missing")
+  racePreview.recordRender(preview, false, {
+    requestedMarkerCount = 1, renderedMarkerCount = 0, errorCode = "fixture_renderer_error",
+  }, 2)
   equal(preview.state, "PREVIEW_FAILED")
-  racePreview.recordRender(preview, {
-    rendererAvailable = true, requestedMarkerCount = 1, renderedMarkerCount = 1,
-  }, 3, true)
+  racePreview.recordRender(preview, true, {requestedMarkerCount = 1, renderedMarkerCount = 1}, 3)
   equal(preview.state, "PREVIEW_RENDERED")
-  equal(preview.renderer.availabilityState, "RENDER_AVAILABLE")
-  equal(preview.renderer.renderState, "RENDERED")
+  equal(preview.renderer.lastErrorCode, nil)
   equal(preview.renderer.successfulFrames, 1)
   equal(preview.renderer.lastFrameAt, 3)
   truthy(racePreview.stale(preview, "generation_changed"))
@@ -7201,14 +7336,12 @@ tests.v076_preview_renderer_failure_toggle_and_false_return_are_explicit = funct
   }}
   local lineup = {settings = {formation = "GRID"}, competitors = {{status = "planned"}}}
   local preview = racePreview.build("generation", plan, lineup, nil, true)
-  racePreview.recordRender(preview, nil, 1, false)
+  racePreview.recordRender(preview, false, nil, 1)
   equal(preview.state, "PREVIEW_FAILED")
-  equal(preview.renderer.lastErrorCode, "preview_renderer_returned_false")
-  racePreview.recordRender(preview, {
-    rendererAvailable = true, requestedMarkerCount = 1, renderedMarkerCount = 0,
-  }, 2, true)
-  equal(preview.state, "PREVIEW_RENDERING")
-  equal(preview.renderer.renderState, "RENDERING")
+  equal(preview.renderer.lastErrorCode, "preview_render_empty")
+  -- A "successful" call that drew zero markers is never reported as rendered.
+  racePreview.recordRender(preview, true, {requestedMarkerCount = 1, renderedMarkerCount = 0}, 2)
+  equal(preview.state, "PREVIEW_FAILED")
   for cycle = 1, 50 do
     racePreview.clear(preview, "toggle_off")
     equal(preview.state, "PREVIEW_DISABLED")
@@ -8605,7 +8738,7 @@ local v076Required = {
   {"staging_retry_uses_new_generation", tests.v076_race_retry_attempts_are_fresh_persistent_and_stale_safe},
   {"recoverable_error_can_be_dismissed", tests.v076_race_retry_attempts_are_fresh_persistent_and_stale_safe},
   {"preview_renderer_false_is_failure", tests.v076_preview_renderer_failure_toggle_and_false_return_are_explicit},
-  {"preview_rendering_state_is_explicit", tests.v076_preview_renderer_failure_toggle_and_false_return_are_explicit},
+  {"preview_zero_marker_frame_is_failure", tests.v076_preview_renderer_failure_toggle_and_false_return_are_explicit},
   {"preview_toggle_fifty_cycles", tests.v076_preview_renderer_failure_toggle_and_false_return_are_explicit},
   {"lineup_storage_failures_are_typed", tests.v076_lineup_persistence_is_typed_and_scheduler_progress_is_bounded},
   {"lineup_storage_recovery_clears_warning", tests.v076_lineup_persistence_is_typed_and_scheduler_progress_is_bounded},
@@ -8666,8 +8799,8 @@ local v079Required = {
   {"player_participation_defaults_to_player_frame", tests.v079_final_formation_origin_heading_clearance_and_rigid_fallback_are_independent},
   {"player_clearance_uses_vehicle_dimensions", tests.v079_final_formation_origin_heading_clearance_and_rigid_fallback_are_independent},
   {"placement_fallback_preserves_rigid_group_geometry", tests.v079_final_formation_origin_heading_clearance_and_rigid_fallback_are_independent},
-  {"preview_renderer_uses_injected_read_only_primitives", tests.v079_preview_renderer_draws_only_injected_read_only_primitives},
-  {"preview_renderer_reports_actual_marker_count", tests.v079_preview_renderer_draws_only_injected_read_only_primitives},
+  {"preview_renderer_uses_injected_read_only_primitives", tests.v0710_preview_renderer_contract_uses_engine_like_bindings},
+  {"preview_renderer_reports_actual_marker_count", tests.v0710_preview_renderer_contract_uses_engine_like_bindings},
   {"external_clock_stall_is_contaminated_not_overrun", tests.v079_external_clock_stalls_and_discontinuities_are_contaminated_not_overruns},
   {"external_clock_discontinuity_is_contaminated_not_overrun", tests.v079_external_clock_stalls_and_discontinuities_are_contaminated_not_overruns},
   {"balanced_preserves_generic_ice_ev_control_dependencies", tests.v079_generic_balanced_dependencies_cover_ice_ev_control_and_nested_slots},

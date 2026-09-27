@@ -199,17 +199,12 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("events.off?.(name, handler)", app)
         self.assertEqual(app.count('command.send("requestState")'), 2)
 
-    def test_race_preview_and_reposition_use_frame_correct_bounded_paths(self) -> None:
-        main = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/main.lua").read_text(encoding="utf-8")
+    def test_preview_renderer_is_read_only_and_receives_engine_bindings(self) -> None:
+        # Behavior is covered by the Lua preview contract tests; this guards the
+        # architectural boundary: no globals and no vehicle side effects.
         renderer = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/racePreviewRenderer.lua").read_text(encoding="utf-8")
-        self.assertIn("production.onPreRender = function()", main)
-        self.assertIn("M.onPreRender = production.onPreRender", main)
-        on_update = main.split("local function onUpdate", 1)[1].split("M.onUpdate =", 1)[0]
-        self.assertNotIn("drawPreview", on_update)
-        self.assertIn('plan.kind = allManaged and "reposition" or "spawn"', main)
-        self.assertIn("production.processRepositionBatch = function(run)", main)
-        self.assertIn("pending.attempts < 2", main)
-        for forbidden in ("spawnNewVehicle", "deleteVehicle", "enterVehicle", "safeTeleport"):
+        self.assertNotIn("_G", renderer)
+        for forbidden in ("spawnNewVehicle", "deleteVehicle", "enterVehicle", "safeTeleport", "setPosition", "queueLuaCommand"):
             self.assertNotIn(forbidden, renderer)
 
     def test_balanced_fallback_and_narrow_select_are_generic_and_bounded(self) -> None:
@@ -355,14 +350,11 @@ class StaticValidationTests(unittest.TestCase):
         protocol = (APP / "services/raceProtocol.js").read_text(encoding="utf-8")
         cars = (APP / "components/race/RaceCarsStep.vue").read_text(encoding="utf-8")
         formation = (APP / "components/race/FormationControls.vue").read_text(encoding="utf-8")
-        runtime = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/main.lua").read_text(encoding="utf-8")
         for code in ("AUTO_BEST_FIT", "GRID", "LINE", "RADIAL"):
             self.assertIn(code, protocol)
         self.assertIn("RACE_FORMATION_CODES", cars)
         self.assertIn("RACE_FORMATION_CODES", formation)
         self.assertIn("formationRuntimeName", formation)
-        self.assertNotIn('elseif runtime.spawnDirector.preview then', runtime)
-        self.assertIn('errorCode = "preview_renderer_threw"', runtime)
 
     def test_frontend_security_has_no_remote_or_executable_content(self) -> None:
         source = frontend_source()

@@ -29,7 +29,7 @@ import { useStores } from "../../stores/index.js"
 import NumericInput from "../common/NumericInput.vue"
 import ScrSelect from "../common/ScrSelect.vue"
 import StatusBanner from "../common/StatusBanner.vue"
-import { FORMATION_ORIGIN_CODES, formationRuntimeName, PLACEMENT_HEADING_MODE_CODES, RACE_FORMATION_CODES, SPACING_MODE_CODES } from "../../services/raceProtocol.js"
+import { FORMATION_ORIGIN_CODES, formationRuntimeName, PLACEMENT_HEADING_MODE_CODES, previewFailed, RACE_FORMATION_CODES, SPACING_MODE_CODES } from "../../services/raceProtocol.js"
 
 const stores = useStores()
 const core = stores.core.state
@@ -45,8 +45,7 @@ const spacingItems = computed(() => SPACING_MODE_CODES.map(value => ({
 const headingItems = computed(() => PLACEMENT_HEADING_MODE_CODES.map(value => ({
   value, label: t(`race.heading${value[0].toUpperCase()}${value.slice(1)}`),
 })))
-const rendererUnavailable = computed(() => stores.race.state.spawnDirector?.racePreview
-  ?.renderer?.availabilityState === "RENDER_UNAVAILABLE")
+const rendererUnavailable = computed(() => previewFailed(stores.race.state.spawnDirector?.racePreview))
 const placementRun = computed(() => stores.race.state.spawnDirector?.run || {})
 const placementActive = computed(() => placementRun.value.active === true)
 const placementProgress = computed(() => t("race.placementProgress", {

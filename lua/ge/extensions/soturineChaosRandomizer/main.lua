@@ -53,6 +53,7 @@ local productionModules = {
   raceManager = require("ge/extensions/soturineChaosRandomizer/raceManager"),
   raceFocusGuard = require("ge/extensions/soturineChaosRandomizer/raceFocusGuard"),
   racePreview = require("ge/extensions/soturineChaosRandomizer/racePreview"),
+  previewRenderer = require("ge/extensions/soturineChaosRandomizer/racePreviewRenderer"),
   raceFormationFrame = require("ge/extensions/soturineChaosRandomizer/raceFormationFrame"),
   raceAttemptCoordinator = require("ge/extensions/soturineChaosRandomizer/raceAttemptCoordinator"),
   lineupSchema = require("ge/extensions/soturineChaosRandomizer/lineupSchema"),
@@ -9468,37 +9469,51 @@ production.processEngineFluidGuard = function()
   return true
 end
 
+-- Resolves the GE render bindings from this extension's environment and
+-- re-probes them only when one of them changes. Each change is logged once.
+production.previewBindings = function()
+  local deps = runtime.previewBindings
+  if not deps or deps.debugDrawer ~= debugDrawer or deps.ColorF ~= ColorF
+    or deps.ColorI ~= ColorI or deps.vec3 ~= vec3
+  then
+    deps = {debugDrawer = debugDrawer, ColorF = ColorF, ColorI = ColorI, vec3 = vec3}
+    deps.probe = productionModules.previewRenderer.probe(deps)
+    runtime.previewBindings = deps
+    local probe = deps.probe
+    diagnosticsModule.write(runtime.diagnostics, probe.available and "I" or "W", "race_preview_runtime_probe", {
+      onPreRenderObserved = true, debugDrawer = probe.debugDrawer, ColorF = probe.ColorF,
+      ColorI = probe.ColorI, vec3 = probe.vec3, drawSphere = probe.drawSphere,
+      drawLine = probe.drawLine, drawTextAdvanced = probe.drawTextAdvanced,
+      errorCode = probe.errorCode, missing = util.deepCopy(probe.missing),
+    }, probe.available ~= true)
+  end
+  return deps
+end
+
 production.onPreRender = function()
   local previewStarted = adapter.clock()
-  if runtime.racePreview and runtime.racePreview.enabled then
-    local drawWorked, renderResult, renderReport = pcall(function()
-      if type(productionModules.spawnAdapter.drawPreview) ~= "function" then
-        return false, {rendererAvailable = false, errorCode = "preview_renderer_unavailable"}
-      end
-      return productionModules.spawnAdapter.drawPreview(
-        productionModules.racePreview.placements(runtime.racePreview)
-      )
-    end)
-    if not drawWorked then
-      local drawFailure = renderResult
-      renderResult = false
-      renderReport = {rendererAvailable = true, requestedMarkerCount = #(runtime.racePreview.slots or {}),
-        renderedMarkerCount = 0, errorCode = "preview_renderer_threw", errorMessage = tostring(drawFailure)}
+  runtime.lastPreRenderAt = runtime.time.realMonotonicTime
+  local preview = runtime.racePreview
+  local deps
+  if preview and preview.enabled then
+    deps = production.previewBindings()
+    local worked, drawn, report = pcall(productionModules.previewRenderer.draw,
+      productionModules.racePreview.placements(preview), deps, deps.probe)
+    if not worked then
+      drawn, report = false, {requestedMarkerCount = #(preview.slots or {}), renderedMarkerCount = 0,
+        errorCode = "preview_marker_draw_failed", errorMessage = tostring(drawn)}
     end
-    local previewStateChanged = productionModules.racePreview.recordRender(
-      runtime.racePreview, renderReport, runtime.time.realMonotonicTime, renderResult
-    )
-    if previewStateChanged then
-      diagnosticsModule.write(runtime.diagnostics,
-        runtime.racePreview.state == "PREVIEW_RENDERED" and "I" or "W",
+    if productionModules.racePreview.recordRender(preview, drawn, report, runtime.time.realMonotonicTime) then
+      diagnosticsModule.write(runtime.diagnostics, preview.state == "PREVIEW_RENDERED" and "I" or "W",
         "race_preview_state_changed", {
-          state = runtime.racePreview.state,
-          renderer = util.deepCopy(runtime.racePreview.renderer),
-        }, runtime.racePreview.state ~= "PREVIEW_RENDERED")
+          state = preview.state, renderer = util.deepCopy(preview.renderer),
+        }, preview.state ~= "PREVIEW_RENDERED")
       publishState()
     end
   end
-  productionModules.destinationMarker.draw(runtime.destination)
+  if runtime.destination.point then
+    productionModules.destinationMarker.draw(runtime.destination, deps or production.previewBindings())
+  end
   productionModules.performanceMetrics.record(runtime.performanceTelemetry, "preview",
     math.max(0, (adapter.clock() - previewStarted) * 1000))
 end
@@ -9717,6 +9732,19 @@ local function onUpdate(dtReal, dtSim, dtRaw)
   end
 
   startStressIteration()
+  local preview = runtime.racePreview
+  if preview and preview.enabled and preview.state == "PREVIEW_DATA_READY" then
+    local now = runtime.time.realMonotonicTime
+    preview.dataReadyAt = preview.dataReadyAt or now
+    if now - preview.dataReadyAt > 2 and (runtime.lastPreRenderAt or -1) < preview.dataReadyAt
+      and productionModules.racePreview.recordMissingCallback(preview)
+    then
+      diagnosticsModule.write(runtime.diagnostics, "W", "race_preview_state_changed", {
+        state = preview.state, renderer = util.deepCopy(preview.renderer),
+      }, true)
+      publishState()
+    end
+  end
   local raceStarted = adapter.clock()
   production.auditRaceScheduler()
   if runtime.lineup.pendingNext and runtime.lineup.current then

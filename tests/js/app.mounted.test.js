@@ -349,7 +349,7 @@ describe("mounted Runtime UI", () => {
         2: { name: "Mapped two", transform: { position: { x: 2, y: 4, z: 1 } } },
         1: { name: "Mapped one", transform: { position: { x: 1, y: 3, z: 1 } } },
       },
-      renderer: { availabilityState: "RENDER_UNAVAILABLE", lastErrorCode: "preview_renderer_unavailable" },
+      renderer: { lastErrorCode: "preview_debug_drawer_missing" },
     }
     stores.applyFull(state)
     stores.uiLayout.setTab("race")
@@ -430,10 +430,10 @@ describe("mounted Runtime UI", () => {
       enabled: true,
       state: "PREVIEW_FAILED",
       slots: [{ slot: 1 }],
-      renderer: { available: true, renderState: "FAILED", lastErrorCode: "preview_renderer_returned_false" },
+      renderer: { lastErrorCode: "preview_color_api_missing" },
     }
     await settle()
-    expect(wrapper.text()).toContain("renderer did not draw a frame")
+    expect(wrapper.text()).toContain("color API (ColorF) did not respond")
     const generate = wrapper.findAll("button").find(button => button.text() === "Generate cars")
     expect(generate).toBeTruthy()
     expect(generate.attributes("disabled")).toBeUndefined()
@@ -463,7 +463,7 @@ describe("mounted Runtime UI", () => {
         { slot: 1, slotId: "slot-1", name: "Competitor 1", transform: { position: { x: 10, y: 20, z: 3 } } },
         { slot: 2, slotId: "slot-2", name: "Competitor 2", transform: { position: { x: 14, y: 20, z: 3 } } },
       ],
-      renderer: { availabilityState: "RENDER_UNAVAILABLE", renderState: "FAILED", lastErrorCode: "preview_renderer_unavailable" },
+      renderer: { lastErrorCode: "preview_debug_drawer_missing" },
     }
     await settle()
     expect(wrapper.text()).toContain("2 placement positions are ready")

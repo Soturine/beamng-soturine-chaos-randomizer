@@ -59,10 +59,12 @@ export const isHeadingMode = value => HEADING_MODE_CODES.includes(value)
 export const isSpacingMode = value => SPACING_MODE_CODES.includes(value)
 
 const PREVIEW_FAILURE_KEYS = Object.freeze({
-  preview_renderer_unavailable: "race.previewFailure.rendererUnavailable",
-  preview_renderer_threw: "race.previewFailure.rendererThrew",
-  preview_renderer_returned_false: "race.previewFailure.rendererReturnedFalse",
-  preview_marker_render_failed: "race.previewFailure.markerFailed",
+  preview_debug_drawer_missing: "race.previewFailure.debugDrawerMissing",
+  preview_color_api_missing: "race.previewFailure.colorApiMissing",
+  preview_vector_api_missing: "race.previewFailure.vectorApiMissing",
+  preview_draw_method_missing: "race.previewFailure.drawMethodMissing",
+  preview_render_callback_missing: "race.previewFailure.callbackMissing",
+  preview_marker_draw_failed: "race.previewFailure.markerFailed",
   preview_render_empty: "race.previewFailure.renderEmpty",
 })
 
@@ -73,3 +75,5 @@ export const previewStatusKey = preview => {
   }
   return `race.previewState.${state}`
 }
+
+export const previewFailed = preview => preview?.state === "PREVIEW_FAILED"

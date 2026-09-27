@@ -3,10 +3,12 @@ local formationEnum = require("ge/extensions/soturineChaosRandomizer/formationEn
 
 local M = {}
 
+-- The draw list is derived once per preview change, never per rendered frame.
+local drawLists = setmetatable({}, {__mode = "k"})
+
 local STATES = {
   PREVIEW_DISABLED = true,
   PREVIEW_DATA_READY = true,
-  PREVIEW_RENDER_AVAILABLE = true,
   PREVIEW_RENDERING = true,
   PREVIEW_RENDERED = true,
   PREVIEW_FAILED = true,
@@ -99,9 +101,6 @@ local function build(kind, plan, lineup, playerPlacement, enabled)
     slots = {},
     clearedReason = nil,
     renderer = {
-      available = nil,
-      availabilityState = "UNKNOWN",
-      renderState = enabled == false and "DISABLED" or "NOT_ATTEMPTED",
       attemptedFrames = 0,
       successfulFrames = 0,
       renderedMarkerCount = 0,
@@ -109,6 +108,8 @@ local function build(kind, plan, lineup, playerPlacement, enabled)
       lastFrameAt = nil,
       lastErrorCode = nil,
       lastErrorMessage = nil,
+      textErrorCode = nil,
+      missing = {},
     },
   }
   if playerPlacement then
@@ -125,48 +126,48 @@ local function build(kind, plan, lineup, playerPlacement, enabled)
   return preview
 end
 
-local function recordRender(preview, report, now, renderResult)
+-- Records one onPreRender draw attempt. PREVIEW_RENDERED requires a frame that
+-- actually drew at least one marker; returns true only when the published
+-- state or error changed so callers never publish per frame.
+local function recordRender(preview, drawn, report, now)
   if type(preview) ~= "table" or preview.enabled ~= true then return false end
-  report = type(report) == "table" and report or {
-    rendererAvailable = renderResult ~= nil,
-    requestedMarkerCount = #(preview.slots or {}), renderedMarkerCount = 0,
-    errorCode = renderResult == false and "preview_renderer_returned_false" or "preview_renderer_unavailable",
-  }
-  local previous = preview.state
+  report = type(report) == "table" and report or {errorCode = "preview_render_empty"}
   local renderer = preview.renderer or {}
   preview.renderer = renderer
+  local previousState, previousError = preview.state, renderer.lastErrorCode
   renderer.attemptedFrames = (tonumber(renderer.attemptedFrames) or 0) + 1
-  renderer.available = report.rendererAvailable == true
-  renderer.availabilityState = renderer.available and "RENDER_AVAILABLE" or "RENDER_UNAVAILABLE"
   renderer.requestedMarkerCount = math.max(0, math.floor(tonumber(report.requestedMarkerCount) or 0))
   renderer.renderedMarkerCount = math.max(0, math.floor(tonumber(report.renderedMarkerCount) or 0))
-  renderer.lastErrorCode = report.errorCode
-  renderer.lastErrorMessage = report.errorMessage
-  if renderer.available ~= true then
-    renderer.renderState = "FAILED"
-    renderer.lastErrorCode = renderer.lastErrorCode or "preview_renderer_unavailable"
-    preview.state = "PREVIEW_FAILED"
-  elseif renderResult == false then
-    renderer.renderState = "FAILED"
-    renderer.lastErrorCode = renderer.lastErrorCode or "preview_renderer_returned_false"
-    preview.state = "PREVIEW_FAILED"
-  elseif renderer.renderedMarkerCount > 0 then
+  renderer.textErrorCode = report.textErrorCode
+  renderer.missing = type(report.missing) == "table" and util.deepCopy(report.missing) or {}
+  if drawn == true and renderer.renderedMarkerCount > 0 then
     renderer.successfulFrames = (tonumber(renderer.successfulFrames) or 0) + 1
     renderer.lastFrameAt = tonumber(now) or 0
-    renderer.renderState = "RENDERED"
-    preview.state = "PREVIEW_RENDERED"
-  elseif report.errorCode ~= nil then
-    renderer.renderState = "FAILED"
-    preview.state = "PREVIEW_FAILED"
+    renderer.lastErrorCode, renderer.lastErrorMessage = nil, nil
+    -- Stale markers stay visible until the preview is rebuilt, but keep saying so.
+    if preview.state ~= "PREVIEW_STALE" then preview.state = "PREVIEW_RENDERED" end
   else
-    renderer.renderState = "RENDERING"
-    preview.state = "PREVIEW_RENDERING"
+    renderer.lastErrorCode = report.errorCode or "preview_render_empty"
+    renderer.lastErrorMessage = report.errorMessage
+    preview.state = "PREVIEW_FAILED"
   end
-  return previous ~= preview.state
+  return previousState ~= preview.state or previousError ~= renderer.lastErrorCode
+end
+
+-- The render callback was never observed although the preview is enabled.
+local function recordMissingCallback(preview)
+  if type(preview) ~= "table" or preview.enabled ~= true or preview.state ~= "PREVIEW_DATA_READY" then
+    return false
+  end
+  preview.renderer = preview.renderer or {}
+  preview.renderer.lastErrorCode = "preview_render_callback_missing"
+  preview.state = "PREVIEW_FAILED"
+  return true
 end
 
 local function stale(preview, reason)
   if type(preview) ~= "table" or preview.enabled ~= true then return false end
+  drawLists[preview] = nil
   preview.state = "PREVIEW_STALE"
   preview.staleReason = tostring(reason or "preview_data_stale")
   return true
@@ -174,6 +175,7 @@ end
 
 local function update(preview, lineup)
   if type(preview) ~= "table" or type(lineup) ~= "table" then return false end
+  drawLists[preview] = nil
   for _, marker in ipairs(preview.slots or {}) do
     if marker.slot ~= 0 then
       local competitor = lineup.competitors and lineup.competitors[marker.slot]
@@ -195,8 +197,9 @@ local function update(preview, lineup)
 end
 
 local function placements(preview)
+  if type(preview) ~= "table" or preview.enabled ~= true then return {} end
+  if drawLists[preview] then return drawLists[preview] end
   local result = {}
-  if type(preview) ~= "table" or preview.enabled ~= true then return result end
   for _, marker in ipairs(preview.slots or {}) do
     result[#result + 1] = {
       index = marker.slot, position = util.deepCopy(marker.transform.position),
@@ -206,15 +209,16 @@ local function placements(preview)
       label = marker.label, visual = marker.visual,
     }
   end
+  drawLists[preview] = result
   return result
 end
 
 local function clear(preview, reason)
   if type(preview) ~= "table" then return nil end
+  drawLists[preview] = nil
   preview.enabled = false
   preview.state = "PREVIEW_DISABLED"
   preview.renderer = preview.renderer or {}
-  preview.renderer.renderState = "DISABLED"
   preview.clearedReason = tostring(reason or "preview_cleared")
   preview.slots = {}
   return preview
@@ -226,6 +230,7 @@ M.build = build
 M.update = update
 M.placements = placements
 M.recordRender = recordRender
+M.recordMissingCallback = recordMissingCallback
 M.stale = stale
 M.clear = clear
 

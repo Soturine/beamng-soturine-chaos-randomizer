@@ -76,7 +76,7 @@ import ToggleField from "../common/ToggleField.vue"
 import RacePolicyPanel from "./RacePolicyPanel.vue"
 import CompetitorList from "./CompetitorList.vue"
 import { copyText } from "../../services/clipboard.js"
-import { HEADING_MODE_CODES, PREVIEW_ORIGIN_CODES, previewStatusKey, RACE_FORMATION_CODES, SPACING_MODE_CODES } from "../../services/raceProtocol.js"
+import { HEADING_MODE_CODES, PREVIEW_ORIGIN_CODES, previewFailed, previewStatusKey, RACE_FORMATION_CODES, SPACING_MODE_CODES } from "../../services/raceProtocol.js"
 
 const stores = useStores()
 const core = stores.core.state
@@ -108,7 +108,7 @@ const previewStateLabel = computed(() => {
   if (!preview) return ""
   return t(previewStatusKey(preview))
 })
-const generationPreviewLabel = computed(() => t(worldPreview.value?.renderer?.availabilityState === "RENDER_UNAVAILABLE"
+const generationPreviewLabel = computed(() => t(previewFailed(worldPreview.value)
   ? "race.calculateGenerationPlacements" : "race.previewGeneration"))
 const conflict = computed(() => options.allowOfficialVehicles === false && options.allowModVehicles === false)
 const presets = ["Balanced", "Maximum Chaos", "Mods Showcase", "Custom"]

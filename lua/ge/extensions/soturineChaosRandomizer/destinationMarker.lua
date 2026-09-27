@@ -1,5 +1,6 @@
 local spawnAdapter = require("ge/extensions/soturineChaosRandomizer/spawnApiAdapter")
 local util = require("ge/extensions/soturineChaosRandomizer/util")
+local previewRenderer = require("ge/extensions/soturineChaosRandomizer/racePreviewRenderer")
 
 local M = {}
 
@@ -65,10 +66,10 @@ local function clear(state)
   return true
 end
 
-local function draw(state)
-  if not state.point or debugDrawer == nil or type(vec3) ~= "function" or type(ColorF) ~= "function" then return false end
-  pcall(function() debugDrawer:drawSphere(vec3(state.point.x, state.point.y, state.point.z), 1.1, ColorF(1, 0.35, 0.05, 0.8)) end)
-  return true
+-- bindings: the probed GE render bindings shared with the Race preview.
+local function draw(state, bindings)
+  if not state.point or type(bindings) ~= "table" then return false end
+  return previewRenderer.drawPoint(state.point, bindings, bindings.probe, 1.1, {1, 0.35, 0.05, 0.8})
 end
 
 M.create = create
