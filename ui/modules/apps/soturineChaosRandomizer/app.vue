@@ -1,4 +1,4 @@
-<template><ErrorBoundary scope="application" area-key="app.title"><AppShell /></ErrorBoundary></template>
+<template><ErrorBoundary scope="application" area-key="app.name"><AppShell /></ErrorBoundary></template>
 
 <script setup>
 import { onMounted, onUnmounted, provide, watch } from "vue"

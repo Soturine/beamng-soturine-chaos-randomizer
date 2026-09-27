@@ -18,7 +18,7 @@ import { useStores } from "../../stores/index.js"
 
 const props = defineProps({
   scope: { type: String, default: "application" },
-  areaKey: { type: String, default: "app.title" },
+  areaKey: { type: String, default: "app.name" },
   backKey: { type: String, default: "" },
 })
 defineEmits(["back"])

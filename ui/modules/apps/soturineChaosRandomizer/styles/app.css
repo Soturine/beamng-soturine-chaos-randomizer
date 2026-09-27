@@ -177,7 +177,6 @@
 .scr-compatibility-compact > span { min-width: 0; overflow-wrap: break-word; }
 .scr-compatibility-compact .scr-actions { flex-wrap: nowrap; }
 .scr-compatibility-compact details { grid-column: 1 / -1; }
-.scr-placement-fallback { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 3px 12px; margin: 4px 0; padding-left: 1.4rem; }
 .scr-smart-select.bng-dropdown-content .dropdown-option { min-width: 0; white-space: normal; overflow-wrap: break-word; }
 .scr-width-narrow .scr-form-grid, .scr-width-narrow .scr-dna-grid { grid-template-columns: minmax(0, 1fr); }
 .scr-width-narrow .scr-dna-card { min-width: 0; }
