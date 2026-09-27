@@ -4665,6 +4665,64 @@ tests.v0710_position_all_is_one_batch_with_parallel_readback_and_targeted_retry 
   equal(denied.failures[1].reason, "race_placement_ownership_unproven")
 end
 
+tests.v0710_empty_map_formations_keep_their_geometry = function()
+  -- Player at the origin facing +Y; flat, empty ground everywhere.
+  local frame = {position = {x = 0, y = 0, z = 0}, forward = {x = 0, y = 1, z = 0}, right = {x = 1, y = 0, z = 0},
+    playerForward = {x = 0, y = 1, z = 0}}
+  local ground = function(position) return true, {point = {x = position.x, y = position.y, z = 0}, normal = {x = 0, y = 0, z = 1}} end
+  local occupied = {{x = 0, y = 0, z = 0, radius = 4, protectedPlayer = true}}
+  local dimensions = {}
+  for index = 1, 3 do dimensions[index] = {width = 2, length = 4.6, source = "actual_vehicle_bounds"} end
+  local function local2d(position)
+    return position.x, position.y -- right = +X, forward = +Y
+  end
+  local function planFor(mode, count)
+    local planned, reason = spawnDirector.plan(frame, {mode = mode, count = count, spacingMode = "automatic",
+      vehicleDimensions = dimensions, originDimensions = {width = 2, length = 4.6}, headingMode = "player"},
+      ground, occupied)
+    truthy(planned, mode .. " failed: " .. tostring(reason))
+    local function dump(value, depth)
+      depth = depth or 0
+      if type(value) ~= "table" or depth > 3 then return tostring(value) end
+      local parts = {}
+      for key, item in pairs(value) do parts[#parts + 1] = tostring(key) .. "=" .. dump(item, depth + 1) end
+      return "{" .. table.concat(parts, ",") .. "}"
+    end
+    truthy(planned.planning.rigidGroupPreserved, mode .. " lost its group geometry " .. dump(planned.planning)
+      .. " placements=" .. dump(planned.placements))
+    truthy(not planned.planning.degraded, mode .. " degraded in an empty map")
+    return planned.placements
+  end
+  local line = planFor("Line", 3)
+  local _, lineY = local2d(line[1].position)
+  local xs = {}
+  for _, placement in ipairs(line) do
+    local x, y = local2d(placement.position)
+    near(y, lineY, 1e-6); xs[#xs + 1] = x
+  end
+  table.sort(xs); truthy(xs[2] - xs[1] > 2 and math.abs((xs[3] - xs[2]) - (xs[2] - xs[1])) < 1e-6, "line is evenly spaced")
+  for _, mode in ipairs({"Single File Ahead", "Single File Behind"}) do
+    local file = planFor(mode, 3)
+    local firstX = local2d(file[1].position)
+    for _, placement in ipairs(file) do
+      local x, y = local2d(placement.position)
+      near(x, firstX, 1e-6)
+      if mode == "Single File Ahead" then truthy(y > 0, "ahead of the player") else truthy(y < 0, "behind the player") end
+    end
+  end
+  local grid = planFor("Grid", 4)
+  local rows, columns = {}, {}
+  for _, placement in ipairs(grid) do
+    local x, y = local2d(placement.position)
+    rows[string.format("%.3f", y)] = true; columns[string.format("%.3f", x)] = true
+  end
+  local rowCount, columnCount = 0, 0
+  for _ in pairs(rows) do rowCount = rowCount + 1 end
+  for _ in pairs(columns) do columnCount = columnCount + 1 end
+  truthy(rowCount >= 2 and columnCount >= 2, "grid has rows and columns")
+  equal(rowCount * columnCount, 4)
+end
+
 tests.v060_spawn_heading_readback_and_ownership = function()
   local frame = {
     position = {x = 0, y = 0, z = 5}, forward = {x = 0, y = 1, z = 0}, right = {x = 1, y = 0, z = 0},
@@ -9053,6 +9111,7 @@ local v0710Required = {
   {"rejected_candidate_discard_requires_exact_operation", tests.v0710_managed_mutation_authorization_is_purpose_specific},
   {"custom_preset_owns_policy", tests.v0710_custom_preset_owns_its_policy_and_fixed_presets_are_templates},
   {"readiness_is_canonical", tests.v0710_race_readiness_is_canonical_and_ordered},
+  {"empty_map_formations_keep_geometry", tests.v0710_empty_map_formations_keep_their_geometry},
   {"position_all_single_batch", tests.v0710_position_all_is_one_batch_with_parallel_readback_and_targeted_retry},
   {"position_retry_only_failed_slot", tests.v0710_position_all_is_one_batch_with_parallel_readback_and_targeted_retry},
   {"preview_engine_like_bindings", tests.v0710_preview_renderer_contract_uses_engine_like_bindings},

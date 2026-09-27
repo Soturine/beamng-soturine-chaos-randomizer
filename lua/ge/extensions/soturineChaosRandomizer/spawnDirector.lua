@@ -253,6 +253,33 @@ local function headingVector(frame, options, position)
   }
 end
 
+-- One blocking test for every candidate. External objects keep a radial
+-- clearance; members of the same formation are compared by footprint along the
+-- formation axes, so side-by-side Line/Grid neighbours at the requested
+-- width-based spacing are never mistaken for an overlap.
+local function blockedAt(frame, options, index, position, occupied, placements)
+  for _, existing in ipairs(type(occupied) == "table" and occupied or {}) do
+    local dx = position.x - (tonumber(existing.x) or position.x)
+    local dy = position.y - (tonumber(existing.y) or position.y)
+    local clearance = math.max(options.minimumObjectDistance,
+      tonumber(existing.radius) or 0, options.spacing * 0.6)
+    if dx * dx + dy * dy < clearance * clearance then return true end
+  end
+  local own = options.vehicleDimensions[index] or {}
+  local ownWidth, ownLength = tonumber(own.width) or 2, tonumber(own.length) or 4.8
+  local gap = (tonumber(options.safetyMargin) or 1.5) * 0.5
+  for _, existing in ipairs(placements or {}) do
+    local dx, dy = position.x - existing.position.x, position.y - existing.position.y
+    local lateral = math.abs(dx * frame.right.x + dy * frame.right.y)
+    local longitudinal = math.abs(dx * frame.forward.x + dy * frame.forward.y)
+    local other = existing.dimensions or {}
+    local width = (ownWidth + (tonumber(other.width) or 2)) * 0.5 + gap
+    local length = (ownLength + (tonumber(other.length) or 4.8)) * 0.5 + gap
+    if lateral < width - 1e-6 and longitudinal < length - 1e-6 then return true end
+  end
+  return false
+end
+
 local function candidateAt(frame, options, index, lateral, longitudinal, customPoint,
     raycastGround, occupied, placements)
   local raw = customPoint or {
@@ -282,20 +309,8 @@ local function candidateAt(frame, options, index, lateral, longitudinal, customP
   local position = {
     x = ground.point.x, y = ground.point.y, z = ground.point.z + options.groundOffset,
   }
-  for _, existing in ipairs(type(occupied) == "table" and occupied or {}) do
-    local dx = position.x - (tonumber(existing.x) or position.x)
-    local dy = position.y - (tonumber(existing.y) or position.y)
-    local clearance = math.max(options.minimumObjectDistance,
-      tonumber(existing.radius) or 0, options.spacing * 0.6)
-    if dx * dx + dy * dy < clearance * clearance then
-      return nil, "position_blocked", position
-    end
-  end
-  for _, existing in ipairs(placements or {}) do
-    local dx, dy = position.x - existing.position.x, position.y - existing.position.y
-    if dx * dx + dy * dy < options.spacing * options.spacing * 0.36 then
-      return nil, "position_blocked", position
-    end
+  if blockedAt(frame, options, index, position, occupied, placements) then
+    return nil, "position_blocked", position
   end
   local forward, headingReason = headingVector(frame, options, position)
   if not forward then return nil, headingReason, position end
@@ -410,24 +425,8 @@ local function plan(frame, options, raycastGround, occupied)
           else
             position = {x = ground.point.x, y = ground.point.y,
               z = ground.point.z + options.groundOffset}
-            for _, existing in ipairs(type(occupied) == "table" and occupied or {}) do
-              local dx = position.x - (tonumber(existing.x) or position.x)
-              local dy = position.y - (tonumber(existing.y) or position.y)
-              local clearance = math.max(options.minimumObjectDistance,
-                tonumber(existing.radius) or 0, options.spacing * 0.6)
-              if dx * dx + dy * dy < clearance * clearance then
-                reason = "position_blocked"
-                break
-              end
-            end
-            if not reason then
-              for _, existing in ipairs(placements) do
-                local dx, dy = position.x - existing.position.x, position.y - existing.position.y
-                if dx * dx + dy * dy < options.spacing * options.spacing * 0.36 then
-                  reason = "position_blocked"
-                  break
-                end
-              end
+            if blockedAt(frame, options, index, position, occupied, placements) then
+              reason = "position_blocked"
             end
           end
         end
