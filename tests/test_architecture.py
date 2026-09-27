@@ -10,11 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ENTRYPOINT = ROOT / "lua/ge/extensions/soturineChaosRandomizer.lua"
 MODULE_ROOT = ROOT / "lua/ge/extensions/soturineChaosRandomizer"
 MODULE_PREFIX = "ge/extensions/soturineChaosRandomizer"
-ENTRYPOINT_MODULES = (
-    MODULE_PREFIX,
-    # Deliberate compatibility entrypoint for historical third-party imports.
-    f"{MODULE_PREFIX}/lineupManager",
-)
+ENTRYPOINT_MODULES = (MODULE_PREFIX,)
 REQUIRE_PATTERN = re.compile(
     r'''\brequire\s*\(?\s*["'](ge/extensions/soturineChaosRandomizer(?:/[A-Za-z0-9_./-]+)?)["']'''
 )

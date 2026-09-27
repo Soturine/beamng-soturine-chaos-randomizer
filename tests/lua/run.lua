@@ -54,7 +54,6 @@ local transactionalJSON = require("ge/extensions/soturineChaosRandomizer/transac
 local userDataMigration = require("ge/extensions/soturineChaosRandomizer/userDataMigration")
 local paintCoverageLedger = require("ge/extensions/soturineChaosRandomizer/paintCoverageLedger")
 local lineupSchema = require("ge/extensions/soturineChaosRandomizer/lineupSchema")
-local lineupManager = require("ge/extensions/soturineChaosRandomizer/lineupManager")
 local raceManager = require("ge/extensions/soturineChaosRandomizer/raceManager")
 local raceFocusGuard = require("ge/extensions/soturineChaosRandomizer/raceFocusGuard")
 local racePreview = require("ge/extensions/soturineChaosRandomizer/racePreview")
@@ -352,11 +351,6 @@ tests.tuning_clamping_and_quantization = function()
   }, scriptedGenerator({false}, {0.37}), false)
   truthy(value >= 10 and value <= 20)
   equal((value - 10) % 2, 0)
-end
-
-tests.legacy_lineup_facade_preserves_race_manager_contract = function()
-  equal(lineupManager, raceManager)
-  equal(lineupManager.create, raceManager.create)
 end
 
 tests.crc32_canonical_vectors = function()
@@ -3995,7 +3989,7 @@ tests.v060_paint_coverage_confirms_supported_fields = function()
 end
 
 tests.v060_lineup_seeds_progress_schema_and_storage = function()
-  local lineup = assert(lineupManager.create({count = 16, episodeSeed = "episode", acceptPartial = false}))
+  local lineup = assert(raceManager.create({count = 16, episodeSeed = "episode", acceptPartial = false}))
   truthy(lineupSchema.validate(lineup))
   local seeds = {}
   for _, competitor in ipairs(lineup.competitors) do
@@ -4003,7 +3997,7 @@ tests.v060_lineup_seeds_progress_schema_and_storage = function()
     seeds[competitor.seed] = true
   end
   local thirdSeed = lineup.competitors[3].seed
-  local first = assert(lineupManager.nextCompetitor(lineup))
+  local first = assert(raceManager.nextCompetitor(lineup))
   equal(first.targetGeneration, 1)
   local accepted = {
     success = true,
@@ -4015,19 +4009,19 @@ tests.v060_lineup_seeds_progress_schema_and_storage = function()
       },
     },
   }
-  truthy(not lineupManager.record(lineup, 1, accepted, sampleDNA({id = "dna-stale"}), first.targetGeneration + 1))
+  truthy(not raceManager.record(lineup, 1, accepted, sampleDNA({id = "dna-stale"}), first.targetGeneration + 1))
   equal(first.status, "selecting_vehicle")
-  truthy(lineupManager.record(lineup, 1, accepted, sampleDNA({id = "dna-ready"}), first.targetGeneration))
+  truthy(raceManager.record(lineup, 1, accepted, sampleDNA({id = "dna-ready"}), first.targetGeneration))
   equal(first.status, "ready")
-  local second = assert(lineupManager.nextCompetitor(lineup))
+  local second = assert(raceManager.nextCompetitor(lineup))
   local secondGeneration = second.targetGeneration
-  truthy(lineupManager.record(lineup, 2, {success = false, message = "fixture"}, nil, secondGeneration))
-  truthy(lineupManager.resolveFailure(lineup, 2, "retry"))
-  local retry = assert(lineupManager.nextCompetitor(lineup))
+  truthy(raceManager.record(lineup, 2, {success = false, message = "fixture"}, nil, secondGeneration))
+  truthy(raceManager.resolveFailure(lineup, 2, "retry"))
+  local retry = assert(raceManager.nextCompetitor(lineup))
   equal(retry.targetGeneration, secondGeneration + 1)
-  truthy(lineupManager.record(lineup, 2, {success = false, message = "fixture retry"}, nil, retry.targetGeneration))
+  truthy(raceManager.record(lineup, 2, {success = false, message = "fixture retry"}, nil, retry.targetGeneration))
   equal(lineup.competitors[3].seed, thirdSeed)
-  equal(lineupManager.summary(lineup).failed, 1)
+  equal(raceManager.summary(lineup).failed, 1)
   local library = lineupStorage.create(2)
   truthy(lineupStorage.add(library, lineup))
   equal(#library.entries, 1)
@@ -4036,7 +4030,7 @@ tests.v060_lineup_seeds_progress_schema_and_storage = function()
 end
 
 tests.v060_lineup_import_is_data_only = function()
-  local lineup = assert(lineupManager.create({count = 2, episodeSeed = "import"}))
+  local lineup = assert(raceManager.create({count = 2, episodeSeed = "import"}))
   lineup.competitors[1].script = "os.execute('never')"
   lineup.competitors[1].compatibility = {status = "exporter_claim"}
   local imported = assert(lineupSchema.sanitizedImport(lineup))
@@ -4045,7 +4039,7 @@ tests.v060_lineup_import_is_data_only = function()
 end
 
 tests.v060_lineup_variety_substreams_and_failure_actions = function()
-  local lineup = assert(lineupManager.create({
+  local lineup = assert(raceManager.create({
     count = 3, episodeSeed = "variety",
     avoidDuplicateModels = true, avoidDuplicateConfigurations = true,
     avoidDuplicateFamilies = true, diversifyVehicleClasses = true,
@@ -4065,7 +4059,7 @@ tests.v060_lineup_variety_substreams_and_failure_actions = function()
       {modelKey = "model_b", key = "base", sourceKind = "mod"},
     }},
   }
-  local filtered, metrics = lineupManager.filterModels(models, lineup.varietyRules, {first})
+  local filtered, metrics = raceManager.filterModels(models, lineup.varietyRules, {first})
   equal(#filtered, 1)
   equal(filtered[1].key, "model_b")
   truthy(metrics.bestDiversityScore >= 1)
@@ -4073,33 +4067,33 @@ tests.v060_lineup_variety_substreams_and_failure_actions = function()
   local unknown = {{key = "unknown_model", sourceKind = "unknown", raw = {}, configs = {
     {modelKey = "unknown_model", key = "unknown_config", sourceKind = "unknown"},
   }}}
-  local unknownFiltered = lineupManager.filterModels(unknown, lineup.varietyRules, {first})
+  local unknownFiltered = raceManager.filterModels(unknown, lineup.varietyRules, {first})
   equal(#unknownFiltered, 1)
-  local unknownTraits = lineupManager.verifiedTraits(unknown[1], unknown[1].configs[1])
+  local unknownTraits = raceManager.verifiedTraits(unknown[1], unknown[1].configs[1])
   equal(unknownTraits.vehicleClass, nil)
   equal(unknownTraits.family, nil)
 
   local second = lineup.competitors[2]
-  local operationA = assert(lineupManager.domainSeed(lineup, second, "operation", 1))
-  local operationRetry = assert(lineupManager.domainSeed(lineup, second, "operation", 2))
-  local paintA = assert(lineupManager.domainSeed(lineup, second, "paint", 1))
-  local thirdOperation = assert(lineupManager.domainSeed(lineup, lineup.competitors[3], "operation", 1))
+  local operationA = assert(raceManager.domainSeed(lineup, second, "operation", 1))
+  local operationRetry = assert(raceManager.domainSeed(lineup, second, "operation", 2))
+  local paintA = assert(raceManager.domainSeed(lineup, second, "paint", 1))
+  local thirdOperation = assert(raceManager.domainSeed(lineup, lineup.competitors[3], "operation", 1))
   truthy(operationA ~= operationRetry)
   truthy(operationA ~= paintA)
-  local thirdAgain = assert(lineupManager.domainSeed(lineup, lineup.competitors[3], "operation", 1))
+  local thirdAgain = assert(raceManager.domainSeed(lineup, lineup.competitors[3], "operation", 1))
   equal(thirdOperation, thirdAgain)
 
   second.status, second.attemptCount = "failed", 1
-  truthy(lineupManager.resolveFailure(lineup, 2, "retry"))
+  truthy(raceManager.resolveFailure(lineup, 2, "retry"))
   equal(second.status, "planned")
   second.status = "failed"
-  truthy(lineupManager.resolveFailure(lineup, 2, "fallback"))
+  truthy(raceManager.resolveFailure(lineup, 2, "fallback"))
   truthy(second.forceOfficialFallback)
   second.status = "failed"
-  truthy(lineupManager.resolveFailure(lineup, 2, "skip"))
+  truthy(raceManager.resolveFailure(lineup, 2, "skip"))
   equal(second.status, "skipped")
   lineup.competitors[3].status = "failed"
-  truthy(lineupManager.resolveFailure(lineup, 3, "stop"))
+  truthy(raceManager.resolveFailure(lineup, 3, "stop"))
   truthy(not lineup.active)
 
   local lifecycleResult = {success = true, details = {
@@ -4107,17 +4101,17 @@ tests.v060_lineup_variety_substreams_and_failure_actions = function()
     metadataUncertain = true, potentiallyUndrivable = true,
     lifecycleAcceptance = {finalValidationPassed = true, busy = false, pendingWrites = 0, pendingTimers = 0, pendingCallbacks = 0},
   }}
-  local strict = assert(lineupManager.create({count = 2, episodeSeed = "strict"}))
-  local strictCompetitor = assert(lineupManager.nextCompetitor(strict))
-  truthy(lineupManager.record(strict, 1, lifecycleResult, sampleDNA({id = "strict-dna"}), strictCompetitor.targetGeneration))
+  local strict = assert(raceManager.create({count = 2, episodeSeed = "strict"}))
+  local strictCompetitor = assert(raceManager.nextCompetitor(strict))
+  truthy(raceManager.record(strict, 1, lifecycleResult, sampleDNA({id = "strict-dna"}), strictCompetitor.targetGeneration))
   equal(strictCompetitor.status, "partial")
   truthy(strictCompetitor.warning:find("requires explicit acceptance", 1, true) ~= nil)
-  local permissive = assert(lineupManager.create({
+  local permissive = assert(raceManager.create({
     count = 2, episodeSeed = "permissive", preset = "Custom",
     acceptMetadataUncertain = true, acceptPotentiallyUndrivable = true,
   }))
-  local permissiveCompetitor = assert(lineupManager.nextCompetitor(permissive))
-  truthy(lineupManager.record(permissive, 1, lifecycleResult, sampleDNA({id = "permissive-dna"}), permissiveCompetitor.targetGeneration))
+  local permissiveCompetitor = assert(raceManager.nextCompetitor(permissive))
+  truthy(raceManager.record(permissive, 1, lifecycleResult, sampleDNA({id = "permissive-dna"}), permissiveCompetitor.targetGeneration))
   equal(permissiveCompetitor.status, "ready_with_warnings")
 end
 
@@ -5306,31 +5300,31 @@ tests.v061_seed_modes_refresh_or_reproduce = function()
 end
 
 tests.v061_race_presets_apply_real_policy = function()
-  local balanced = lineupManager.presetOptions("Balanced", {})
+  local balanced = raceManager.presetOptions("Balanced", {})
   equal(balanced.chaos, 65)
   truthy(balanced.protectCriticalParts and not balanced.allowMissingParts and not balanced.extremeTuning)
   truthy(not balanced.acceptPartial and balanced.acceptMetadataUncertain)
-  local maximum = lineupManager.presetOptions("Maximum Chaos", {})
+  local maximum = raceManager.presetOptions("Maximum Chaos", {})
   equal(maximum.chaos, 100)
   truthy(maximum.allowMissingParts and maximum.extremeTuning and maximum.acceptPartial)
   truthy(maximum.diversifyVehicleClasses and maximum.diversifyBodyTypes)
-  local mods = lineupManager.presetOptions("Mods Showcase", {})
+  local mods = raceManager.presetOptions("Mods Showcase", {})
   equal(mods.contentFilter, "mods")
   truthy(not mods.allowOfficialVehicles and mods.allowModVehicles)
   truthy(mods.protectCriticalParts and mods.acceptMetadataUncertain)
 end
 
 tests.v061_race_statuses_and_cancel_are_terminal = function()
-  local lineup = assert(lineupManager.create({count = 3, preset = "Balanced", episodeSeed = "v061-race"}))
-  local competitor = assert(lineupManager.nextCompetitor(lineup))
+  local lineup = assert(raceManager.create({count = 3, preset = "Balanced", episodeSeed = "v061-race"}))
+  local competitor = assert(raceManager.nextCompetitor(lineup))
   equal(competitor.status, "selecting_vehicle")
-  truthy(lineupManager.setPhase(lineup, 1, "binding_vehicle", 0.2))
-  truthy(lineupManager.setPhase(lineup, 1, "randomizing", 0.6))
-  truthy(lineupManager.setPhase(lineup, 1, "validating", 0.9))
-  truthy(lineupManager.cancel(lineup, "fixture cancel"))
+  truthy(raceManager.setPhase(lineup, 1, "binding_vehicle", 0.2))
+  truthy(raceManager.setPhase(lineup, 1, "randomizing", 0.6))
+  truthy(raceManager.setPhase(lineup, 1, "validating", 0.9))
+  truthy(raceManager.cancel(lineup, "fixture cancel"))
   truthy(not lineup.active)
   for _, entry in ipairs(lineup.competitors) do equal(entry.status, "cancelled") end
-  equal(lineupManager.summary(lineup).pending, 0)
+  equal(raceManager.summary(lineup).pending, 0)
 end
 
 tests.v061_recovery_invalidation_drops_all_old_plans = function()
@@ -8139,7 +8133,6 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/coverageContext.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/coverageLimits.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/contentIndex.lua",
-    "/lua/ge/extensions/soturineChaosRandomizer/compat/legacyLineupFacade.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/crc32.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/candidateIsolation.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/baselineSemantics.lua",
@@ -8155,11 +8148,12 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/formationEnum.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/incrementalIndexer.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/lifecycle.lua",
-    "/lua/ge/extensions/soturineChaosRandomizer/lineupManager.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/raceManager.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/lineupPersistence.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/raceManager.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/raceFormationFrame.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/racePreviewRenderer.lua",
+    "/lua/ge/extensions/soturineChaosRandomizer/racePlacement.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/raceScheduler.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/lineupSchema.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/lineupStorage.lua",
