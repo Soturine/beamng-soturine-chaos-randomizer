@@ -76,6 +76,7 @@ import ToggleField from "../common/ToggleField.vue"
 import RacePolicyPanel from "./RacePolicyPanel.vue"
 import CompetitorList from "./CompetitorList.vue"
 import { copyText } from "../../services/clipboard.js"
+import { effectivePolicy, policyConflict, RACE_PRESETS } from "../../services/racePolicy.js"
 import { HEADING_MODE_CODES, PREVIEW_ORIGIN_CODES, previewFailed, previewStatusKey, RACE_FORMATION_CODES, SPACING_MODE_CODES } from "../../services/raceProtocol.js"
 
 const stores = useStores()
@@ -110,13 +111,12 @@ const previewStateLabel = computed(() => {
 })
 const generationPreviewLabel = computed(() => t(previewFailed(worldPreview.value)
   ? "race.calculateGenerationPlacements" : "race.previewGeneration"))
-const conflict = computed(() => options.allowOfficialVehicles === false && options.allowModVehicles === false)
-const presets = ["Balanced", "Maximum Chaos", "Mods Showcase", "Custom"]
+const conflict = computed(() => policyConflict(effectivePolicy(options, stores.race.state.lineup?.presetPolicies)))
 const participationItems = computed(() => [
   { value: "player", label: t("race.player") },
   { value: "spectator", label: t("race.spectator") },
 ])
-const presetItems = computed(() => presets.map(value => ({ value, label: t(`race.presetValue.${value}`) })))
+const presetItems = computed(() => RACE_PRESETS.map(value => ({ value, label: t(`race.presetValue.${value}`) })))
 const originItems = computed(() => PREVIEW_ORIGIN_CODES
   .map(value => ({ value, label: t(`race.previewOriginValue.${value}`) })))
 const headingItems = computed(() => HEADING_MODE_CODES
@@ -125,8 +125,6 @@ const formationItems = computed(() => RACE_FORMATION_CODES.map(value => ({ value
 const spacingItems = computed(() => SPACING_MODE_CODES.map(value => ({
   value, label: t(value === "automatic" ? "race.automatic" : "race.manual"),
 })))
-const balancedPolicy = Object.freeze({ acceptPartial: false, acceptMetadataUncertain: true, acceptPotentiallyUndrivable: false, avoidDuplicateModels: true, avoidDuplicateConfigurations: true, avoidDuplicateFamilies: false, maximumSameFamily: 2, diversifyVehicleClasses: true, diversifyPropulsion: false, diversifyDrivetrain: false, diversifySource: true, diversifyWheelStyles: false, diversifyBodyTypes: false, allowOfficialVehicles: true, allowModVehicles: true, allowAutomationVehicles: false, allowTrailers: false, allowProps: false, maxAttemptsPerCompetitor: 3, maxConsecutiveFailures: 4, retainAcceptedOnCancel: true })
-const presetValues = { "Balanced": { ...balancedPolicy }, "Maximum Chaos": { ...balancedPolicy, acceptPartial: true, acceptMetadataUncertain: true, acceptPotentiallyUndrivable: true }, "Mods Showcase": { ...balancedPolicy, acceptMetadataUncertain: true, allowOfficialVehicles: false, allowModVehicles: true } }
 const previewFields = new Set(["count", "participationMode", "previewOrigin", "headingMode", "formation", "spacingMode", "longitudinalSpacing", "lateralSpacing", "safetyMargin", "customPointX", "customPointY", "customPointZ"])
 
 async function update(field, value) {
@@ -135,8 +133,9 @@ async function update(field, value) {
   if (options.previewEnabled && previewFields.has(field) && !core.busy) previewGeneration()
 }
 async function preset(value) {
-  Object.assign(options, presetValues[value] || {}, { preset: value })
-  await stores.command.send("updateUIPreferences", [{ race: { ...options } }])
+  // Presets only select a policy; Custom's own policy is never overwritten.
+  options.preset = value
+  await stores.command.send("updateUIPreferences", [{ race: { preset: value } }])
   if (options.previewEnabled && !core.busy) previewGeneration()
 }
 async function setPreviewEnabled(value) {

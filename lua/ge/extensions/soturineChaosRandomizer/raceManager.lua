@@ -35,6 +35,30 @@ local function acceptedState(lineup, competitor)
   return ACCEPTED_STATES[competitor.status] == true
 end
 
+-- A slot is physically bound when it owns a managed handle and a live id.
+local function isBound(competitor)
+  return type(competitor) == "table" and type(competitor.managedHandle) == "string"
+    and competitor.managedHandle ~= "" and type(competitor.currentVehicleId) == "number"
+end
+
+-- Canonical readiness, in dependency order. Every consumer (summary, placement,
+-- AI, UI projection) derives from these instead of re-deriving flags.
+local function isGenerationUsable(lineup, competitor)
+  return acceptedState(lineup, competitor) and isBound(competitor) and competitor.generationReady == true
+end
+
+local function isPlacementUsable(lineup, competitor, registry)
+  if not isGenerationUsable(lineup, competitor) then return false end
+  if registry == nil then return true end
+  local entry = managedRegistry.readyEntry(registry, competitor.managedHandle)
+  return entry ~= nil and entry.vehicleId == competitor.currentVehicleId
+end
+
+local function isAIUsable(lineup, competitor, registry)
+  return isPlacementUsable(lineup, competitor, registry) and competitor.placementReady == true
+    and competitor.drivable == true
+end
+
 local function knownRemoved(competitor)
   local tombstone = type(competitor) == "table" and competitor.removalTombstone or nil
   return type(tombstone) == "table" and tombstone.confirmed == true
@@ -117,69 +141,81 @@ local TRAIT_FIELDS = {
   bodyType = {"bodyType", "BodyType", "bodyStyle", "BodyStyle"},
 }
 
+-- Candidate policy owned by a preset. Fixed presets are immutable templates;
+-- Custom keeps its own policy (options.customPolicy), so switching presets
+-- never destroys it and a fixed preset never reports an altered policy.
+local POLICY_FIELDS = {
+  "acceptPartial", "acceptMetadataUncertain", "acceptPotentiallyUndrivable",
+  "avoidDuplicateModels", "avoidDuplicateConfigurations", "avoidDuplicateFamilies", "maximumSameFamily",
+  "diversifyVehicleClasses", "diversifyPropulsion", "diversifyDrivetrain", "diversifySource",
+  "diversifyWheelStyles", "diversifyBodyTypes",
+  "allowOfficialVehicles", "allowModVehicles", "allowAutomationVehicles", "allowTrailers", "allowProps",
+  "maxAttemptsPerCompetitor", "maxConsecutiveFailures", "retainAcceptedOnCancel",
+}
+
+local BALANCED_POLICY = {
+  acceptPartial = false, acceptMetadataUncertain = true, acceptPotentiallyUndrivable = false,
+  avoidDuplicateModels = true, avoidDuplicateConfigurations = true, avoidDuplicateFamilies = false,
+  maximumSameFamily = 2,
+  diversifyVehicleClasses = true, diversifyPropulsion = false, diversifyDrivetrain = false,
+  diversifySource = true, diversifyWheelStyles = false, diversifyBodyTypes = false,
+  allowOfficialVehicles = true, allowModVehicles = true, allowAutomationVehicles = false,
+  allowTrailers = false, allowProps = false,
+  maxAttemptsPerCompetitor = 3, maxConsecutiveFailures = 4, retainAcceptedOnCancel = true,
+}
+
+local PRESET_POLICIES = {
+  Balanced = BALANCED_POLICY,
+  ["Maximum Chaos"] = util.shallowMerge(BALANCED_POLICY, {
+    acceptPartial = true, acceptPotentiallyUndrivable = true,
+    diversifyPropulsion = true, diversifyDrivetrain = true,
+    diversifyWheelStyles = true, diversifyBodyTypes = true,
+  }),
+  -- Accepts stable unusual mod vehicles; runtime integrity and slot ownership
+  -- remain mandatory while metadata and drivability are advisory.
+  ["Mods Showcase"] = util.shallowMerge(BALANCED_POLICY, {
+    acceptPotentiallyUndrivable = true, allowOfficialVehicles = false, diversifyBodyTypes = true,
+  }),
+}
+
+local PRESET_ACTIONS = {
+  Balanced = {chaos = 65, protectCriticalParts = true, allowMissingParts = false, extremeTuning = false},
+  ["Maximum Chaos"] = {chaos = 100, protectCriticalParts = false, allowMissingParts = true, extremeTuning = true},
+  ["Mods Showcase"] = {chaos = 80, protectCriticalParts = true, allowMissingParts = false,
+    extremeTuning = false, tuningIntensity = "medium"},
+}
+
+local function sanitizePolicy(raw, base)
+  raw = type(raw) == "table" and raw or {}
+  local result = util.deepCopy(base or BALANCED_POLICY)
+  for _, field in ipairs(POLICY_FIELDS) do
+    local default = result[field]
+    if type(default) == "boolean" and type(raw[field]) == "boolean" then result[field] = raw[field]
+    elseif type(default) == "number" and tonumber(raw[field]) then
+      local limit = field == "maxAttemptsPerCompetitor" and 10 or 32
+      result[field] = math.max(1, math.min(limit, math.floor(tonumber(raw[field]))))
+    end
+  end
+  return result
+end
+
 local function presetOptions(name, options)
   options = type(options) == "table" and options or {}
-  if name == "Custom" then return util.deepCopy(options) end
   local result = util.deepCopy(options)
-  if name == "Maximum Chaos" then
-    result.chaos = 100
+  result.customPolicy = nil
+  local policy
+  if name == "Custom" then
+    -- Legacy callers passed Custom policy fields at the top level.
+    policy = sanitizePolicy(type(options.customPolicy) == "table" and options.customPolicy or options)
+    -- Race sources are decided by the policy itself, never by the global
+    -- Randomizer content filter.
     result.contentFilter = "everything"
-    result.allowOfficialVehicles = true
-    result.allowModVehicles = true
-    result.allowAutomationVehicles = options.allowAutomationVehicles == true
-    result.avoidDuplicateModels = true
-    result.avoidDuplicateConfigurations = true
-    result.diversifyVehicleClasses = true
-    result.diversifyPropulsion = true
-    result.diversifyDrivetrain = true
-    result.diversifySource = true
-    result.diversifyWheelStyles = true
-    result.diversifyBodyTypes = true
-    result.protectCriticalParts = false
-    result.allowMissingParts = true
-    result.extremeTuning = true
-    result.acceptPartial = options.acceptPartial == nil or options.acceptPartial == true
-    result.acceptMetadataUncertain = options.acceptMetadataUncertain == nil or options.acceptMetadataUncertain == true
-    result.acceptPotentiallyUndrivable = options.acceptPotentiallyUndrivable == nil
-      or options.acceptPotentiallyUndrivable == true
-  elseif name == "Mods Showcase" then
-    result.chaos = 80
-    result.contentFilter = options.allowOfficialVehicles == true and "everything" or "mods"
-    result.allowOfficialVehicles = options.allowOfficialVehicles == true
-    result.allowModVehicles = true
-    result.allowAutomationVehicles = options.allowAutomationVehicles == true
-    result.avoidDuplicateModels = true
-    result.avoidDuplicateConfigurations = true
-    result.diversifySource = true
-    result.diversifyVehicleClasses = true
-    result.diversifyBodyTypes = true
-    result.protectCriticalParts = true
-    result.allowMissingParts = false
-    result.extremeTuning = false
-    result.tuningIntensity = "medium"
-    result.acceptPartial = options.acceptPartial == true
-    result.acceptMetadataUncertain = true
-    -- Mods Showcase accepts stable unusual mod vehicles. Runtime integrity and
-    -- slot ownership remain mandatory; metadata/drivability are advisory.
-    result.acceptPotentiallyUndrivable = options.acceptPotentiallyUndrivable ~= false
   else
-    result.chaos = 65
-    result.contentFilter = "everything"
-    result.allowOfficialVehicles = true
-    result.allowModVehicles = true
-    result.allowAutomationVehicles = options.allowAutomationVehicles == true
-    result.avoidDuplicateModels = true
-    result.avoidDuplicateConfigurations = true
-    result.protectCriticalParts = true
-    result.allowMissingParts = false
-    result.extremeTuning = false
-    result.acceptPartial = false
-    -- Missing descriptive metadata is advisory. Balanced remains strict about
-    -- confirmed drivability/integrity failures, but warning-only candidates
-    -- are not rejected solely because a mod omits optional descriptors.
-    result.acceptMetadataUncertain = true
-    result.acceptPotentiallyUndrivable = false
+    policy = PRESET_POLICIES[name] or BALANCED_POLICY
+    for key, value in pairs(PRESET_ACTIONS[name] or PRESET_ACTIONS.Balanced) do result[key] = value end
+    result.contentFilter = policy.allowOfficialVehicles and "everything" or "mods"
   end
+  for _, field in ipairs(POLICY_FIELDS) do result[field] = policy[field] end
   result.preset = name
   return result
 end
@@ -343,6 +379,96 @@ local function poolSummary(models, rules, acceptedCompetitors)
     reason = (#filtered == 0 or configurations == 0) and "ZERO_POOL" or nil,
     diversity = diversity,
   }
+end
+
+-- Bounded, deterministic relaxation used only when the strict pool is empty.
+-- Only variety preferences relax; source, automation, trailer and prop rules,
+-- runtime integrity, drivability policy and ownership never do.
+local RELAXATION_LEVELS = {
+  {name = "strict", rules = {}},
+  {name = "relaxed_traits", rules = {
+    avoidDuplicateFamilies = false, maximumSameFamily = 32,
+    diversifyVehicleClasses = false, diversifyPropulsion = false, diversifyDrivetrain = false,
+    diversifySource = false, diversifyWheelStyles = false, diversifyBodyTypes = false,
+  }},
+  {name = "repeated_model", rules = {avoidDuplicateModels = false}},
+  {name = "repeated_configuration", rules = {avoidDuplicateConfigurations = false}},
+}
+
+local function candidateKey(modelKey, configuration)
+  local model, config = cleanEvidence(modelKey), cleanEvidence(configuration)
+  if not model or not config then return nil end
+  return util.normalizeText(model) .. "/" .. util.normalizeText(config)
+end
+
+local function withoutRejected(models, rejected)
+  local excluded = {}
+  for _, item in ipairs(type(rejected) == "table" and rejected or {}) do
+    local key = candidateKey(item.modelKey, item.configuration)
+    if key then excluded[key] = true end
+  end
+  if next(excluded) == nil then return models end
+  local result = {}
+  for _, model in ipairs(models) do
+    local configs = {}
+    for _, config in ipairs(model.configs or {}) do
+      if not excluded[candidateKey(config.modelKey or model.key, config.key)] then configs[#configs + 1] = config end
+    end
+    if #configs > 0 then
+      local copy = util.shallowMerge(model, {})
+      copy.configs = configs
+      result[#result + 1] = copy
+    end
+  end
+  return result
+end
+
+local function selectCandidatePool(models, rules, acceptedCompetitors, rejected)
+  rules = type(rules) == "table" and rules or RULE_DEFAULTS
+  local source = withoutRejected(type(models) == "table" and models or {}, rejected)
+  for level, relaxation in ipairs(RELAXATION_LEVELS) do
+    local filtered, info = filterModels(source, util.shallowMerge(rules, relaxation.rules), acceptedCompetitors)
+    if #filtered > 0 then
+      info.relaxation, info.relaxationLevel = relaxation.name, level - 1
+      return filtered, info
+    end
+  end
+  return {}, {eligible = 0, relaxation = "exhausted", relaxationLevel = #RELAXATION_LEVELS}
+end
+
+-- Other slots that genuinely hold an accepted vehicle. A rejected partial or a
+-- failed slot never constrains the remaining pool.
+local function diversityReferences(lineup, competitor)
+  local accepted, models, configurations = {}, {}, {}
+  local rules = lineup and lineup.varietyRules or {}
+  for _, other in ipairs(lineup and lineup.competitors or {}) do
+    if other ~= competitor and acceptedState(lineup, other) and isBound(other) then
+      accepted[#accepted + 1] = util.deepCopy(other)
+      if rules.avoidDuplicateModels and other.modelKey then models[#models + 1] = other.modelKey end
+      if rules.avoidDuplicateConfigurations and other.modelKey and other.configuration then
+        configurations[#configurations + 1] = tostring(other.modelKey) .. "/" .. tostring(other.configuration)
+      end
+    end
+  end
+  return accepted, models, configurations
+end
+
+-- Decides the bounded automatic recovery for a slot that just ended without an
+-- accepted vehicle: retry with a new attempt substream, then one verified
+-- official fallback when official vehicles are allowed. nil means terminal.
+local function planRecovery(lineup, index)
+  local competitor = lineup and lineup.competitors and lineup.competitors[index]
+  if not competitor or lineup.active ~= true then return nil end
+  if competitor.status ~= "failed" and not (competitor.status == "partial" and lineup.acceptPartial ~= true) then
+    return nil
+  end
+  local poolExhausted = competitor.failureCode == "no_eligible_vehicles"
+  if not poolExhausted and (competitor.attemptCount or 0) < (lineup.maxAttemptsPerCompetitor or 3) then
+    return "retry"
+  end
+  local rules = lineup.varietyRules or {}
+  if rules.allowOfficialVehicles ~= false and competitor.officialFallbackUsed ~= true then return "fallback" end
+  return nil
 end
 
 local function raceSeed(value)
@@ -686,6 +812,17 @@ local function record(lineup, index, result, dna, targetGeneration)
   elseif competitor.status == "ready_with_warnings" and dna == nil and not competitor.warning then
     competitor.warning = "Vehicle retained; DNA persistence was unavailable"
   end
+  if not acceptedState(lineup, competitor) and competitor.modelKey and competitor.configuration
+    and competitor.failureCode ~= "no_eligible_vehicles"
+  then
+    competitor.rejectedCandidates = competitor.rejectedCandidates or {}
+    if #competitor.rejectedCandidates < 8 then
+      competitor.rejectedCandidates[#competitor.rejectedCandidates + 1] = {
+        modelKey = competitor.modelKey, configuration = competitor.configuration,
+        failureCode = competitor.failureCode, decision = competitor.policyDecision and competitor.policyDecision.decision,
+      }
+    end
+  end
   lineup.nextIndex = index + 1
   lineup.updatedAt = os.time()
   return true
@@ -760,36 +897,35 @@ local function placementAvailability(lineup, managedVehicles, operationBusy, pla
   return {available = true, count = count}
 end
 
-local function resolveFailure(lineup, index, action)
+local function resetForAttempt(lineup, competitor, index)
+  competitor.status, competitor.phase, competitor.generationStatus, competitor.generationClosed = "planned", "planned", "planned", false
+  competitor.phaseProgress, competitor.terminalState, competitor.failureCode = 0, nil, nil
+  competitor.spawnState, competitor.validationState, competitor.placementState = "planned", "pending", "planned"
+  competitor.dna, competitor.dnaId, competitor.vehicleDNAId = nil, nil, nil
+  competitor.currentVehicleId, competitor.acceptedVehicleId, competitor.candidateVehicleId = nil, nil, nil
+  competitor.ownedTemporaryIds = {}
+  competitor.generationReady, competitor.placementReady, competitor.aiReady = false, false, false
+  competitor.drivabilityState, competitor.drivable = "UNKNOWN_OR_PENDING", nil
+  competitor.aiState, competitor.aiCommandDispatched = "NOT_PROBED", false
+  lineup.nextIndex, lineup.active = index, true
+end
+
+-- options.automatic marks recovery chosen by planRecovery rather than a click.
+local function resolveFailure(lineup, index, action, options)
   local competitor = lineup and lineup.competitors and lineup.competitors[index]
   if not competitor then return false, "lineup_competitor_missing" end
   if competitor.status ~= "failed" and competitor.status ~= "partial" then return false, "lineup_competitor_not_failed" end
+  local originalFailure = competitor.failureCode
+    or competitor.policyDecision and competitor.policyDecision.decision == "REJECT" and "policy_rejected" or nil
   if action == "retry" then
     if (competitor.attemptCount or 0) >= (lineup.maxAttemptsPerCompetitor or 3) then return false, "lineup_attempt_limit" end
-    competitor.status, competitor.phase, competitor.generationStatus, competitor.generationClosed = "planned", "planned", "planned", false
-    competitor.phaseProgress, competitor.terminalState, competitor.failureCode = 0, nil, nil
+    resetForAttempt(lineup, competitor, index)
     competitor.warning = "Retry requested with a new target generation and independent retry substream"
-    competitor.spawnState, competitor.validationState, competitor.placementState = "planned", "pending", "planned"
-    competitor.dna, competitor.dnaId, competitor.vehicleDNAId = nil, nil, nil
-    competitor.currentVehicleId, competitor.acceptedVehicleId, competitor.candidateVehicleId = nil, nil, nil
-    competitor.ownedTemporaryIds = {}
-    competitor.generationReady, competitor.placementReady, competitor.aiReady = false, false, false
-    competitor.drivabilityState, competitor.drivable = "UNKNOWN_OR_PENDING", nil
-    competitor.aiState, competitor.aiCommandDispatched = "NOT_PROBED", false
-    lineup.nextIndex, lineup.active = index, true
   elseif action == "fallback" then
-    competitor.status, competitor.phase, competitor.generationStatus, competitor.generationClosed = "planned", "planned", "planned", false
-    competitor.phaseProgress, competitor.terminalState, competitor.failureCode = 0, nil, nil
+    resetForAttempt(lineup, competitor, index)
     competitor.forceOfficialFallback = true
+    competitor.officialFallbackUsed = true
     competitor.warning = "Verified official fallback requested"
-    competitor.spawnState, competitor.validationState, competitor.placementState = "planned", "pending", "planned"
-    competitor.dna, competitor.dnaId, competitor.vehicleDNAId = nil, nil, nil
-    competitor.currentVehicleId, competitor.acceptedVehicleId, competitor.candidateVehicleId = nil, nil, nil
-    competitor.ownedTemporaryIds = {}
-    competitor.generationReady, competitor.placementReady, competitor.aiReady = false, false, false
-    competitor.drivabilityState, competitor.drivable = "UNKNOWN_OR_PENDING", nil
-    competitor.aiState, competitor.aiCommandDispatched = "NOT_PROBED", false
-    lineup.nextIndex, lineup.active = index, true
   elseif action == "skip" then
     competitor.status, competitor.phase, competitor.generationStatus, competitor.generationClosed = "skipped", "skipped", "skipped", true
     competitor.phaseProgress, competitor.terminalState = 1, "skipped"
@@ -807,6 +943,15 @@ local function resolveFailure(lineup, index, action)
     competitor.warning = "Generation stopped by user"
   else
     return false, "lineup_failure_action_invalid"
+  end
+  if action == "retry" or action == "fallback" then
+    competitor.recoveryLog = competitor.recoveryLog or {}
+    if #competitor.recoveryLog < 8 then
+      competitor.recoveryLog[#competitor.recoveryLog + 1] = {
+        action = action, automatic = type(options) == "table" and options.automatic == true,
+        originalFailure = originalFailure, attempt = competitor.attemptCount or 0,
+      }
+    end
   end
   lineup.updatedAt = os.time()
   return true
@@ -829,16 +974,16 @@ local function summary(lineup)
   result.plannedOpponents = result.aiOpponents
   for _, competitor in ipairs(lineup and lineup.competitors or {}) do
     result.total = result.total + 1
-    local physicallyBound = tonumber(competitor.currentVehicleId) ~= nil
-      and type(competitor.managedHandle) == "string" and competitor.managedHandle ~= ""
+    local physicallyBound = isBound(competitor)
+    local generationUsable = isGenerationUsable(lineup, competitor)
     if physicallyBound then result.generated = result.generated + 1 end
-    if physicallyBound and competitor.generationReady == true then result.generationReady = result.generationReady + 1 end
-    if physicallyBound and competitor.placementReady == true then result.placementReady = result.placementReady + 1 end
-    if physicallyBound and competitor.drivable == true then result.drivable = result.drivable + 1
-    elseif physicallyBound and competitor.generationReady == true and competitor.drivable == false then
+    if generationUsable then result.generationReady = result.generationReady + 1 end
+    if generationUsable and competitor.placementReady == true then result.placementReady = result.placementReady + 1 end
+    if generationUsable and competitor.drivable == true then result.drivable = result.drivable + 1
+    elseif generationUsable and competitor.drivable == false then
       result.generatedNotDrivable = result.generatedNotDrivable + 1
     end
-    if physicallyBound and competitor.aiReady == true then result.aiReady = result.aiReady + 1 end
+    if isAIUsable(lineup, competitor) then result.aiReady = result.aiReady + 1 end
     if physicallyBound and competitor.aiCommandDispatched == true then
       result.aiCommandDispatched = result.aiCommandDispatched + 1
     end
@@ -869,6 +1014,9 @@ end
 
 M.PRESETS = PRESETS
 M.RULE_DEFAULTS = RULE_DEFAULTS
+M.POLICY_FIELDS = POLICY_FIELDS
+M.PRESET_POLICIES = PRESET_POLICIES
+M.sanitizePolicy = sanitizePolicy
 M.PARTICIPATION_MODES = PARTICIPATION_MODES
 M.GENERATION_STATES = GENERATION_STATES
 M.raceSeed = raceSeed
@@ -876,6 +1024,14 @@ M.verifiedTraits = verifiedTraits
 M.metadataUncertain = metadataUncertain
 M.presetOptions = presetOptions
 M.filterModels = filterModels
+M.selectCandidatePool = selectCandidatePool
+M.RELAXATION_LEVELS = RELAXATION_LEVELS
+M.diversityReferences = diversityReferences
+M.planRecovery = planRecovery
+M.isBound = isBound
+M.isGenerationUsable = isGenerationUsable
+M.isPlacementUsable = isPlacementUsable
+M.isAIUsable = isAIUsable
 M.poolSummary = poolSummary
 M.domainSeed = domainSeed
 M.create = create

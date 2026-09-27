@@ -234,24 +234,6 @@ class StaticValidationTests(unittest.TestCase):
                 self.assertIn(item["envelope"]["eventType"], {"full", "diff"})
                 self.assertTrue({"features", "actions", "disabled", "labels", "compact", "details"} <= set(item["expected"]))
 
-    def test_race_policy_preserves_every_technical_field(self) -> None:
-        panel = (APP / "components/race/RacePolicyPanel.vue").read_text(encoding="utf-8")
-        preferences = (ROOT / "lua/ge/extensions/soturineChaosRandomizer/uiPreferences.lua").read_text(encoding="utf-8")
-        fields = (
-            "avoidDuplicateModels", "avoidDuplicateConfigurations", "avoidDuplicateFamilies",
-            "maximumSameFamily", "diversifyVehicleClasses", "diversifyPropulsion", "diversifyDrivetrain",
-            "diversifySource", "diversifyWheelStyles", "diversifyBodyTypes", "allowOfficialVehicles",
-            "allowModVehicles", "allowAutomationVehicles", "allowTrailers", "allowProps", "acceptPartial",
-            "acceptMetadataUncertain", "acceptPotentiallyUndrivable", "maxAttemptsPerCompetitor",
-            "maxConsecutiveFailures", "retainAcceptedOnCancel",
-        )
-        for field in fields:
-            with self.subTest(field=field):
-                self.assertIn(field, panel)
-                self.assertIn(field, preferences)
-        self.assertIn('options.preset = "Custom"', panel)
-        self.assertIn('command.send("updateUIPreferences"', panel)
-
     def test_i18n_catalogs_are_complete_and_safe(self) -> None:
         en = json.loads((APP / "i18n/en-US.json").read_text(encoding="utf-8"))
         pt = json.loads((APP / "i18n/pt-BR.json").read_text(encoding="utf-8"))

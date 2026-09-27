@@ -1,4 +1,5 @@
 local util = require("ge/extensions/soturineChaosRandomizer/util")
+local raceManager = require("ge/extensions/soturineChaosRandomizer/raceManager")
 
 local M = {}
 
@@ -11,27 +12,8 @@ local DEFAULT_RACE = {
   participationMode = "spectator",
   preset = "Balanced",
   episodeSeed = "",
-  acceptPartial = false,
-  acceptMetadataUncertain = false,
-  acceptPotentiallyUndrivable = false,
-  avoidDuplicateModels = true,
-  avoidDuplicateConfigurations = true,
-  avoidDuplicateFamilies = false,
-  maximumSameFamily = 2,
-  diversifyVehicleClasses = true,
-  diversifyPropulsion = false,
-  diversifyDrivetrain = false,
-  diversifySource = true,
-  diversifyWheelStyles = false,
-  diversifyBodyTypes = false,
-  allowOfficialVehicles = true,
-  allowModVehicles = true,
-  allowAutomationVehicles = false,
-  allowTrailers = false,
-  allowProps = false,
-  maxAttemptsPerCompetitor = 3,
-  maxConsecutiveFailures = 4,
-  retainAcceptedOnCancel = true,
+  -- Custom owns its own candidate policy; fixed presets are backend templates.
+  customPolicy = raceManager.sanitizePolicy(nil),
   formation = "AUTO_BEST_FIT",
   previewEnabled = true,
   previewOrigin = "automatic",
@@ -43,14 +25,7 @@ local DEFAULT_RACE = {
   safetyMargin = 1.5,
 }
 
-local BOOLEAN_RACE_FIELDS = {
-  "acceptPartial", "acceptMetadataUncertain", "acceptPotentiallyUndrivable",
-  "avoidDuplicateModels", "avoidDuplicateConfigurations", "avoidDuplicateFamilies",
-  "diversifyVehicleClasses", "diversifyPropulsion", "diversifyDrivetrain",
-  "diversifySource", "diversifyWheelStyles", "diversifyBodyTypes",
-  "allowOfficialVehicles", "allowModVehicles", "allowAutomationVehicles",
-  "allowTrailers", "allowProps", "retainAcceptedOnCancel", "previewEnabled",
-}
+local BOOLEAN_RACE_FIELDS = {"previewEnabled"}
 
 local function defaults()
   return {
@@ -93,9 +68,13 @@ local function normalize(raw)
     if type(source[field]) == "boolean" then race[field] = source[field] end
   end
   race.count = boundedNumber(source.count, race.count, 1, 32, true)
-  race.maximumSameFamily = boundedNumber(source.maximumSameFamily, race.maximumSameFamily, 1, 32, true)
-  race.maxAttemptsPerCompetitor = boundedNumber(source.maxAttemptsPerCompetitor, race.maxAttemptsPerCompetitor, 1, 10, true)
-  race.maxConsecutiveFailures = boundedNumber(source.maxConsecutiveFailures, race.maxConsecutiveFailures, 1, 32, true)
+  -- Pre-0.7.10 preferences stored one flat policy that silently followed the
+  -- last preset. It is adopted as Custom only when Custom was the saved preset.
+  if type(source.customPolicy) == "table" then
+    race.customPolicy = raceManager.sanitizePolicy(source.customPolicy)
+  elseif source.preset == "Custom" then
+    race.customPolicy = raceManager.sanitizePolicy(source)
+  end
   race.longitudinalSpacing = boundedNumber(source.longitudinalSpacing, race.longitudinalSpacing, 2, 50, false)
   race.lateralSpacing = boundedNumber(source.lateralSpacing, race.lateralSpacing, 1, 25, false)
   race.safetyMargin = boundedNumber(source.safetyMargin, race.safetyMargin, 0, 10, false)
@@ -146,7 +125,12 @@ end
 local function importLegacy(current, legacy)
   current = normalize(current)
   if current.legacyRacePolicyImported then return current, false end
-  local nextValue = patch(current, {race = type(legacy) == "table" and legacy or {}})
+  legacy = type(legacy) == "table" and legacy or {}
+  -- A legacy flat policy is a user choice: it becomes the Custom policy while
+  -- the selected preset stays unchanged.
+  local race = util.deepCopy(legacy)
+  race.customPolicy = raceManager.sanitizePolicy(legacy, current.race.customPolicy)
+  local nextValue = patch(current, {race = race})
   nextValue.legacyRacePolicyImported = true
   return nextValue, true
 end

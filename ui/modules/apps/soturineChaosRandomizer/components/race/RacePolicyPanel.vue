@@ -4,12 +4,12 @@
     <StatusBanner v-if="conflict" tone="error">{{ t('race.policyConflict') }}</StatusBanner>
     <section v-for="group in groups" :key="group.title" class="scr-policy-group">
       <h4>{{ t(group.title) }}</h4>
-      <ToggleField v-for="field in group.fields" :key="field" :model-value="options[field] === true" :label="t(`race.policy.${field}`)" @update:model-value="value => update(field, value)" />
+      <ToggleField v-for="field in group.fields" :key="field" :model-value="policy[field] === true" :label="t(`race.policy.${field}`)" @update:model-value="value => update(field, value)" />
     </section>
     <div class="scr-form-grid">
-      <NumericInput :model-value="Number(options.maximumSameFamily || 2)" :label="t('race.maxSameFamily')" :min="1" :max="32" @update:model-value="value => update('maximumSameFamily', value)" />
-      <NumericInput :model-value="Number(options.maxAttemptsPerCompetitor || 3)" :label="t('race.attempts')" :min="1" :max="10" @update:model-value="value => update('maxAttemptsPerCompetitor', value)" />
-      <NumericInput :model-value="Number(options.maxConsecutiveFailures || 4)" :label="t('race.consecutiveFailures')" :min="1" :max="32" @update:model-value="value => update('maxConsecutiveFailures', value)" />
+      <NumericInput :model-value="Number(policy.maximumSameFamily || 2)" :label="t('race.maxSameFamily')" :min="1" :max="32" @update:model-value="value => update('maximumSameFamily', value)" />
+      <NumericInput :model-value="Number(policy.maxAttemptsPerCompetitor || 3)" :label="t('race.attempts')" :min="1" :max="10" @update:model-value="value => update('maxAttemptsPerCompetitor', value)" />
+      <NumericInput :model-value="Number(policy.maxConsecutiveFailures || 4)" :label="t('race.consecutiveFailures')" :min="1" :max="32" @update:model-value="value => update('maxConsecutiveFailures', value)" />
     </div>
   </details>
 </template>
@@ -19,6 +19,7 @@ import { useStores } from "../../stores/index.js"
 import ToggleField from "../common/ToggleField.vue"
 import NumericInput from "../common/NumericInput.vue"
 import StatusBanner from "../common/StatusBanner.vue"
+import { customizedPolicy, effectivePolicy, policyConflict } from "../../services/racePolicy.js"
 defineProps({ open: Boolean })
 const stores = useStores()
 const options = stores.race.state.options
@@ -29,6 +30,12 @@ const groups = [
   { title: "race.sources", fields: ["allowOfficialVehicles", "allowModVehicles", "allowAutomationVehicles", "allowTrailers", "allowProps"] },
   { title: "race.failures", fields: ["acceptPartial", "acceptMetadataUncertain", "acceptPotentiallyUndrivable", "retainAcceptedOnCancel"] },
 ]
-const conflict = computed(() => options.allowOfficialVehicles === false && options.allowModVehicles === false)
-function update(field, value) { options[field] = value; options.preset = "Custom"; stores.command.send("updateUIPreferences", [{ race: { [field]: value, preset: "Custom" } }]) }
+const presetPolicies = computed(() => stores.race.state.lineup?.presetPolicies)
+const policy = computed(() => effectivePolicy(options, presetPolicies.value))
+const conflict = computed(() => policyConflict(policy.value))
+function update(field, value) {
+  options.customPolicy = customizedPolicy(options, presetPolicies.value, field, value)
+  options.preset = "Custom"
+  stores.command.send("updateUIPreferences", [{ race: { preset: "Custom", customPolicy: { ...options.customPolicy } } }])
+}
 </script>

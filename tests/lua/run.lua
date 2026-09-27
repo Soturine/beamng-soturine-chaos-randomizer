@@ -4418,6 +4418,178 @@ tests.v0710_preview_main_bridge_draws_through_on_pre_render = function()
   truthy(ok, failure)
 end
 
+-- Owner live failure (v0.7.9, lineup-015B3BDA): Custom with official vehicles
+-- disabled left five user "vivace" configs. Slot 1 was a rejected partial yet
+-- still blocked "vivace" for slots 2-3, emptying the pool with no recovery.
+local function vivaceCatalog()
+  local configs = {}
+  for _, key in ipairs({"definitivo394544", "definitivo534967", "melhor518727", "slick104223", "yhujiobhg541974"}) do
+    configs[#configs + 1] = {key = key, modelKey = "vivace", sourceKind = "user", vehicleClass = "Car"}
+  end
+  return {
+    {key = "vivace", sourceKind = "official", configs = configs},
+    {key = "pickup", sourceKind = "official", configs = {
+      {key = "d15", modelKey = "pickup", sourceKind = "official", vehicleClass = "Truck"},
+    }},
+  }
+end
+
+tests.v0710_race_pool_relaxes_only_variety_and_ignores_rejected_slots = function()
+  local lineup = assert(raceManager.create({
+    count = 4, participationMode = "spectator", preset = "Custom", episodeSeed = "V0710-POOL",
+    customPolicy = {allowOfficialVehicles = false, allowModVehicles = true},
+  }))
+  equal(lineup.varietyRules.allowOfficialVehicles, false)
+  local first, second = lineup.competitors[1], lineup.competitors[2]
+  first.status, first.modelKey, first.configuration = "partial", "vivace", "yhujiobhg541974"
+  first.traits = {verified = {modelKey = "vivace", configuration = "yhujiobhg541974", sourceKind = "user"}}
+  first.managedHandle, first.currentVehicleId = "managed-1", 35393
+  -- A rejected partial (acceptPartial=false) never constrains other slots.
+  local accepted, models = raceManager.diversityReferences(lineup, second)
+  equal(#accepted, 0); equal(#models, 0)
+  local pool, info = raceManager.selectCandidatePool(vivaceCatalog(), lineup.varietyRules, accepted, {})
+  equal(info.relaxation, "strict"); equal(#pool, 1); equal(pool[1].key, "vivace")
+  -- Once slot 1 is genuinely accepted the strict pool is empty; the ladder
+  -- relaxes variety only (same model, different configuration) deterministically.
+  first.status = "ready"
+  accepted = raceManager.diversityReferences(lineup, second)
+  equal(#accepted, 1)
+  pool, info = raceManager.selectCandidatePool(vivaceCatalog(), lineup.varietyRules, accepted, {})
+  equal(info.relaxation, "repeated_model"); equal(info.relaxationLevel, 2)
+  equal(#pool[1].configs, 4, "the accepted configuration stays excluded")
+  local again = raceManager.selectCandidatePool(vivaceCatalog(), lineup.varietyRules, accepted, {})
+  equal(#again[1].configs, #pool[1].configs)
+  -- Rejected candidates of this slot are never offered again.
+  pool = raceManager.selectCandidatePool(vivaceCatalog(), lineup.varietyRules, accepted, {
+    {modelKey = "vivace", configuration = "slick104223"},
+  })
+  equal(#pool[1].configs, 3)
+  -- Source/trailer/prop rules never relax.
+  local trailers = {{key = "tanker", sourceKind = "official", isTrailer = true,
+    configs = {{key = "a", modelKey = "tanker", sourceKind = "official"}}}}
+  pool, info = raceManager.selectCandidatePool(trailers, lineup.varietyRules, {}, {})
+  equal(#pool, 0); equal(info.relaxation, "exhausted")
+  local official = raceManager.selectCandidatePool({vivaceCatalog()[2]}, lineup.varietyRules, {}, {})
+  equal(#official, 0, "official vehicles stay disabled when the policy disables them")
+end
+
+tests.v0710_race_recovery_retries_then_falls_back_then_stops = function()
+  local lineup = assert(raceManager.create({count = 2, participationMode = "spectator",
+    preset = "Balanced", episodeSeed = "V0710-RECOVERY"}))
+  local competitor = assert(raceManager.nextCompetitor(lineup))
+  local rejected = {success = true, details = {terminalOutcome = "COMPLETED_WITH_WARNING",
+    potentiallyUndrivable = true, safety = {drivability = "UNDRIVABLE"},
+    verifiedTraits = {modelKey = "vivace", configuration = "a", sourceKind = "official", vehicleClass = "Car"},
+    model = "vivace", configuration = "a"}}
+  local function fail(result)
+    truthy(raceManager.record(lineup, competitor.index, result, nil, competitor.targetGeneration))
+    return raceManager.planRecovery(lineup, competitor.index)
+  end
+  equal(fail(rejected), "retry", "a policy rejection retries automatically")
+  equal(competitor.rejectedCandidates[1].modelKey, "vivace")
+  truthy(raceManager.resolveFailure(lineup, competitor.index, "retry", {automatic = true}))
+  equal(competitor.status, "planned"); equal(competitor.recoveryLog[1].automatic, true)
+  equal(competitor.recoveryLog[1].originalFailure, "policy_rejected")
+  for _ = 2, lineup.maxAttemptsPerCompetitor do
+    competitor = assert(raceManager.nextCompetitor(lineup))
+    local action = fail({success = false, code = "spawn_failed", message = "fixture"})
+    if competitor.attemptCount < lineup.maxAttemptsPerCompetitor then
+      equal(action, "retry"); raceManager.resolveFailure(lineup, competitor.index, action, {automatic = true})
+    else
+      equal(action, "fallback", "attempt budget exhausted falls back to verified official")
+      raceManager.resolveFailure(lineup, competitor.index, action, {automatic = true})
+      truthy(competitor.forceOfficialFallback and competitor.officialFallbackUsed)
+    end
+  end
+  competitor = assert(raceManager.nextCompetitor(lineup))
+  equal(fail({success = false, code = "spawn_failed"}), nil, "recovery is bounded")
+  -- An empty pool skips pointless retries; without official vehicles it is terminal.
+  local custom = assert(raceManager.create({count = 2, participationMode = "spectator", preset = "Custom",
+    episodeSeed = "V0710-EMPTY", customPolicy = {allowOfficialVehicles = false}}))
+  local slot = assert(raceManager.nextCompetitor(custom))
+  raceManager.record(custom, slot.index, {success = false, code = "no_eligible_vehicles"}, nil, slot.targetGeneration)
+  equal(raceManager.planRecovery(custom, slot.index), nil)
+  local balanced = assert(raceManager.create({count = 2, participationMode = "spectator", preset = "Balanced",
+    episodeSeed = "V0710-EMPTY-B"}))
+  slot = assert(raceManager.nextCompetitor(balanced))
+  raceManager.record(balanced, slot.index, {success = false, code = "no_eligible_vehicles"}, nil, slot.targetGeneration)
+  equal(raceManager.planRecovery(balanced, slot.index), "fallback")
+  -- Cancelled generation never recovers.
+  raceManager.cancel(balanced, "fixture")
+  equal(raceManager.planRecovery(balanced, slot.index), nil)
+end
+
+tests.v0710_managed_mutation_authorization_is_purpose_specific = function()
+  local state = domainOperations.create()
+  local context = assert(domainOperations.begin(state, {domain = "race", action = "fullRandom",
+    operationId = "SCR-DISCARD", sourceVehicleId = 7, expectedSlot = 2}))
+  truthy(domainOperations.acceptVehicle(state, context, 40, "race_competitor", 7))
+  local expected = {operationId = context.operationId, generation = context.generation}
+  -- Cleanup/placement/replacement require an accepted slot and keep stable codes.
+  truthy(domainOperations.authorizeCleanup(state, 40, expected))
+  truthy(domainOperations.authorizePlacement(state, 40, expected))
+  truthy(domainOperations.authorizeReplacement(state, 40, expected))
+  local _, placementReason = domainOperations.authorizePlacement(state, 99, expected)
+  equal(placementReason, "race_placement_ownership_unproven")
+  -- Discard requires the exact producing operation and revokes acceptance.
+  local denied, deniedReason = domainOperations.authorizeDiscard(state, 40, {operationId = context.operationId})
+  equal(denied, false); equal(deniedReason, "race_discard_operation_mismatch")
+  equal(domainOperations.authorizeDiscard(state, 40, {operationId = "OTHER", generation = context.generation}), false)
+  truthy(domainOperations.authorizeDiscard(state, 40, expected))
+  equal(domainOperations.ownership(state, 40).accepted, false)
+  local _, cleanupReason = domainOperations.authorizeCleanup(state, 40, expected)
+  equal(cleanupReason, "race_cleanup_ownership_unproven", "a discarded candidate is never cleaned as a slot")
+  truthy(domainOperations.markOrphan(state, 40, "race_candidate_rejected_by_policy"))
+end
+
+tests.v0710_custom_preset_owns_its_policy_and_fixed_presets_are_templates = function()
+  local balanced = raceManager.presetOptions("Balanced", {allowOfficialVehicles = false, acceptPartial = true})
+  equal(balanced.allowOfficialVehicles, true, "fixed presets ignore stray policy fields")
+  equal(balanced.acceptPartial, false); equal(balanced.contentFilter, "everything")
+  local customPolicy = {allowOfficialVehicles = false, acceptPartial = true, maximumSameFamily = 99}
+  local custom = raceManager.presetOptions("Custom", {customPolicy = customPolicy, chaos = 40})
+  equal(custom.allowOfficialVehicles, false); equal(custom.acceptPartial, true)
+  equal(custom.maximumSameFamily, 32, "custom policy values are bounded")
+  equal(custom.contentFilter, "everything", "global content filter never narrows a Race")
+  equal(custom.chaos, 40); equal(custom.customPolicy, nil)
+  equal(raceManager.presetOptions("Custom", {allowTrailers = true}).allowTrailers, true, "legacy top-level fields")
+  equal(raceManager.presetOptions("Mods Showcase", {}).contentFilter, "mods")
+  for name, policy in pairs(raceManager.PRESET_POLICIES) do
+    for _, field in ipairs(raceManager.POLICY_FIELDS) do
+      truthy(policy[field] ~= nil, name .. " is missing policy field " .. field)
+    end
+  end
+end
+
+tests.v0710_race_readiness_is_canonical_and_ordered = function()
+  local lineup = assert(raceManager.create({count = 4, participationMode = "spectator", episodeSeed = "V0710-READY"}))
+  local registry = managedVehicleRegistry.create()
+  for index, competitor in ipairs(lineup.competitors) do
+    competitor.status, competitor.generationReady, competitor.drivable = "ready", true, true
+    if index <= 2 then
+      local entry = assert(managedVehicleRegistry.register(registry, 100 + index, {
+        lineupId = lineup.id, competitorId = competitor.id, slotId = tostring(index),
+        targetConfirmed = true, validated = true,
+      }))
+      managedVehicleRegistry.markReady(registry, entry.handle, entry.targetGeneration, {busy = false, targetConfirmed = true, validated = true})
+      competitor.managedHandle, competitor.currentVehicleId = entry.handle, entry.vehicleId
+    end
+  end
+  lineup.competitors[1].placementReady = true
+  lineup.competitors[2].placementReady = false
+  lineup.competitors[3].placementReady = true -- not bound: never usable
+  truthy(raceManager.isAIUsable(lineup, lineup.competitors[1], registry))
+  equal(raceManager.isAIUsable(lineup, lineup.competitors[2], registry), false)
+  truthy(raceManager.isPlacementUsable(lineup, lineup.competitors[2], registry))
+  equal(raceManager.isGenerationUsable(lineup, lineup.competitors[3]), false)
+  lineup.competitors[1].status = "partial"
+  equal(raceManager.isGenerationUsable(lineup, lineup.competitors[1]), false, "rejected partial is not usable")
+  lineup.competitors[1].status = "ready"
+  local summary = raceManager.summary(lineup)
+  equal(summary.generationReady, 2); equal(summary.placementReady, 1); equal(summary.aiReady, 1)
+  equal(summary.drivable, 2)
+end
+
 tests.v060_spawn_heading_readback_and_ownership = function()
   local frame = {
     position = {x = 0, y = 0, z = 5}, forward = {x = 0, y = 1, z = 0}, right = {x = 1, y = 0, z = 0},
@@ -5596,17 +5768,24 @@ end
 
 tests.v070_ui_preferences_migrate_once_and_keep_technical_policy = function()
   local normalized = p2.preferences.normalize({
-    locale = "pt-BR", race = {count = 99, maximumSameFamily = 0,
+    locale = "pt-BR", race = {count = 99, preset = "Custom", maximumSameFamily = 0,
       allowOfficialVehicles = false, allowModVehicles = true, episodeSeed = string.rep("s", 256)},
   })
   equal(normalized.schemaVersion, 2)
   equal(normalized.localeMode, "manual")
   equal(normalized.manualLocale, "pt-BR")
   equal(normalized.race.count, 32)
-  equal(normalized.race.maximumSameFamily, 1)
-  equal(normalized.race.allowOfficialVehicles, false)
-  equal(normalized.race.allowModVehicles, true)
+  -- A saved flat Custom policy is adopted as the Custom policy, bounded.
+  equal(normalized.race.customPolicy.maximumSameFamily, 1)
+  equal(normalized.race.customPolicy.allowOfficialVehicles, false)
+  equal(normalized.race.customPolicy.allowModVehicles, true)
+  equal(normalized.race.allowOfficialVehicles, nil, "fixed presets never carry a flat policy")
   equal(#normalized.race.episodeSeed, 128)
+  -- A flat policy saved under a fixed preset was the preset template: ignored.
+  local balanced = p2.preferences.normalize({race = {preset = "Balanced", allowOfficialVehicles = false}})
+  equal(balanced.race.customPolicy.allowOfficialVehicles, true)
+  local switched = p2.preferences.patch(normalized, {race = {preset = "Balanced"}})
+  equal(switched.race.customPolicy.allowOfficialVehicles, false, "switching presets keeps Custom")
   local spanish = p2.preferences.normalize({localeMode = "manual", manualLocale = "es-ES"})
   equal(spanish.localeMode, "manual")
   equal(spanish.manualLocale, "es-ES")
@@ -5617,11 +5796,12 @@ tests.v070_ui_preferences_migrate_once_and_keep_technical_policy = function()
     avoidDuplicateModels = false, retainAcceptedOnCancel = false,
   })
   truthy(changed)
-  equal(migrated.race.avoidDuplicateModels, false)
-  equal(migrated.race.retainAcceptedOnCancel, false)
+  equal(migrated.race.customPolicy.avoidDuplicateModels, false)
+  equal(migrated.race.customPolicy.retainAcceptedOnCancel, false)
+  equal(migrated.race.preset, "Balanced")
   local repeated, changedAgain = p2.preferences.importLegacy(migrated, {avoidDuplicateModels = true})
   truthy(not changedAgain)
-  equal(repeated.race.avoidDuplicateModels, false)
+  equal(repeated.race.customPolicy.avoidDuplicateModels, false)
 end
 
 tests.v070_native_vue_runtime_is_single_and_legacy_angular_is_absent = function()
@@ -7719,14 +7899,14 @@ tests.v077_race_cleanup_requires_exact_owned_slot_and_local_authority = function
   }))
   truthy(domainOperations.acceptVehicle(ownership, context, 40, "race_competitor", 7))
   truthy(domainOperations.terminal(ownership, context, "completed", {endedAt = 2}))
-  truthy(domainOperations.authorizeManagedCleanup(ownership, 40, {
+  truthy(domainOperations.authorizeCleanup(ownership, 40, {
     operationId = context.operationId, generation = context.generation, slot = 1,
   }))
-  local wrongSlot, wrongReason = domainOperations.authorizeManagedCleanup(ownership, 40, {
+  local wrongSlot, wrongReason = domainOperations.authorizeCleanup(ownership, 40, {
     operationId = context.operationId, generation = context.generation, slot = 2,
   })
   equal(wrongSlot, false); equal(wrongReason, "race_cleanup_operation_mismatch")
-  local unrelated, unrelatedReason = domainOperations.authorizeManagedCleanup(ownership, 99, {})
+  local unrelated, unrelatedReason = domainOperations.authorizeCleanup(ownership, 99, {})
   equal(unrelated, false); equal(unrelatedReason, "race_cleanup_ownership_unproven")
 end
 
@@ -8790,6 +8970,18 @@ local v078Required = {
   {"placement_solver_is_seed_independent_and_reproducible", tests.v078_bounded_spawn_solver_recovers_and_reports_evidence},
 }
 
+local v0710Required = {
+  {"custom_pool_relaxes_only_variety", tests.v0710_race_pool_relaxes_only_variety_and_ignores_rejected_slots},
+  {"rejected_partial_does_not_constrain_pool", tests.v0710_race_pool_relaxes_only_variety_and_ignores_rejected_slots},
+  {"automatic_retry_then_official_fallback", tests.v0710_race_recovery_retries_then_falls_back_then_stops},
+  {"rejected_candidate_discard_requires_exact_operation", tests.v0710_managed_mutation_authorization_is_purpose_specific},
+  {"custom_preset_owns_policy", tests.v0710_custom_preset_owns_its_policy_and_fixed_presets_are_templates},
+  {"readiness_is_canonical", tests.v0710_race_readiness_is_canonical_and_ordered},
+  {"preview_engine_like_bindings", tests.v0710_preview_renderer_contract_uses_engine_like_bindings},
+  {"preview_frame_loop_states", tests.v0710_preview_frame_loop_state_contract},
+  {"preview_main_on_pre_render_bridge", tests.v0710_preview_main_bridge_draws_through_on_pre_render},
+}
+
 local v079Required = {
   {"removed_slot_has_canonical_tombstone", tests.v079_removed_race_slots_are_idempotent_and_not_counted_as_ready},
   {"known_removed_cleanup_is_idempotent", tests.v079_removed_race_slots_are_idempotent_and_not_counted_as_ready},
@@ -8867,6 +9059,9 @@ for _, scenario in ipairs(v078Required) do
 end
 for _, scenario in ipairs(v079Required) do
   requirementMappings[#requirementMappings + 1] = {"0.7.9:" .. scenario[1], scenario[2]}
+end
+for _, scenario in ipairs(v0710Required) do
+  requirementMappings[#requirementMappings + 1] = {"0.7.10:" .. scenario[1], scenario[2]}
 end
 
 local canonicalByFunction = {}

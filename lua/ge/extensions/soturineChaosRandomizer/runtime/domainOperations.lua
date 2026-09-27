@@ -526,20 +526,59 @@ local function canMutate(state, context, vehicleId)
   return false, "vehicle_owned_by_other_operation"
 end
 
-local function authorizeManagedCleanup(state, vehicleId, expected)
+-- One ownership proof for every mutation of a Race vehicle. Purposes differ only
+-- in the authority they need and their stable error prefix:
+--   cleanup/replacement: accepted slot, local cleanup authority
+--   placement:           accepted slot, local mutation authority
+--   discard:             a candidate this exact operation produced that policy
+--                        rejected after the run completed; operationId and
+--                        generation are mandatory and acceptance is revoked.
+local PURPOSES = {
+  cleanup = {prefix = "race_cleanup", accepted = true, authority = vehicleIdentity.canCleanup},
+  replacement = {prefix = "race_cleanup", accepted = true, authority = vehicleIdentity.canCleanup},
+  placement = {prefix = "race_placement", accepted = true, authority = vehicleIdentity.canMutate},
+  discard = {prefix = "race_discard", accepted = false, authority = vehicleIdentity.canCleanup},
+}
+
+local function authorizeManagedMutation(state, vehicleId, expected, purpose)
+  local rule = PURPOSES[purpose] or PURPOSES.cleanup
   local entry = ownership(state, vehicleId)
   if not entry or entry.removed == true or entry.domain ~= "race"
-    or entry.role ~= "race_competitor" or entry.managed ~= true or entry.accepted ~= true
-  then return false, "race_cleanup_ownership_unproven" end
-  if entry.identity and not vehicleIdentity.canCleanup(entry.identity) then
-    return false, "race_cleanup_authority_denied"
+    or entry.role ~= "race_competitor" or entry.managed ~= true
+    or rule.accepted and entry.accepted ~= true
+  then return false, rule.prefix .. "_ownership_unproven" end
+  if entry.identity and not rule.authority(entry.identity) then
+    return false, rule.prefix .. "_authority_denied"
   end
   expected = type(expected) == "table" and expected or {}
+  if not rule.accepted and (expected.operationId == nil or expected.generation == nil) then
+    return false, rule.prefix .. "_operation_mismatch"
+  end
   if expected.operationId ~= nil and tostring(entry.operationId) ~= tostring(expected.operationId)
     or expected.generation ~= nil and tonumber(entry.generation) ~= tonumber(expected.generation)
     or expected.slot ~= nil and tostring(entry.slot) ~= tostring(expected.slot)
-  then return false, "race_cleanup_operation_mismatch" end
+  then return false, rule.prefix .. "_operation_mismatch" end
   return true, entry
+end
+
+local function authorizeCleanup(state, vehicleId, expected)
+  return authorizeManagedMutation(state, vehicleId, expected, "cleanup")
+end
+
+local function authorizePlacement(state, vehicleId, expected)
+  return authorizeManagedMutation(state, vehicleId, expected, "placement")
+end
+
+local function authorizeReplacement(state, vehicleId, expected)
+  return authorizeManagedMutation(state, vehicleId, expected, "replacement")
+end
+
+-- Revokes domain acceptance of a policy-rejected candidate so it can only be
+-- removed or reaped as an orphan, never adopted by another slot.
+local function authorizeDiscard(state, vehicleId, expected)
+  local authorized, entry = authorizeManagedMutation(state, vehicleId, expected, "discard")
+  if authorized then entry.accepted = false end
+  return authorized, entry
 end
 
 local function markOrphan(state, vehicleId, reason)
@@ -836,7 +875,11 @@ M.expectRemoval = expectRemoval
 M.expectAddition = expectAddition
 M.classifyWorldDelta = classifyWorldDelta
 M.canMutate = canMutate
-M.authorizeManagedCleanup = authorizeManagedCleanup
+M.authorizeManagedMutation = authorizeManagedMutation
+M.authorizeCleanup = authorizeCleanup
+M.authorizePlacement = authorizePlacement
+M.authorizeReplacement = authorizeReplacement
+M.authorizeDiscard = authorizeDiscard
 M.markOrphan = markOrphan
 M.recordRemoval = recordRemoval
 M.reap = reap
