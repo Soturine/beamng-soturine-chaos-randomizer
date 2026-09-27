@@ -28,7 +28,6 @@ const RACE_DEFAULTS = Object.freeze({
   participationMode: "spectator",
   episodeSeed: "",
   preset: "Balanced",
-  previewEnabled: true,
   previewOrigin: "automatic",
   formationOrigin: "automatic",
   headingMode: "camera",
@@ -58,13 +57,10 @@ export function preserveMonotonicProgress(current, payload) {
   }
 }
 const RECOVERABLE_RACE_ACTIONS = Object.freeze({
-  previewRaceGeneration: "previewRaceGeneration",
   createChaosLineup: "createChaosLineup",
   retryLineupPersistence: "retryLineupPersistence",
 })
 const SUCCESSFUL_RACE_ATTEMPT = Object.freeze({
-  race_generation_preview_data_ready: "previewRaceGeneration",
-  race_preview_disabled: "previewRaceGeneration",
   lineup_started: "createChaosLineup",
   lineup_started_with_storage_warning: "createChaosLineup",
   lineup_storage_recovered: "retryLineupPersistence",
@@ -80,6 +76,7 @@ export function createStores(command) {
     garage: createGarageStore(initial.garage),
     race: createRaceStore({
       lineup: initial.lineup,
+      racePreview: null,
       spawnDirector: initial.spawnDirector,
       aiDirector: initial.aiDirector,
       options: { ...RACE_DEFAULTS },
@@ -192,7 +189,8 @@ export function createStores(command) {
       headingMode: racePreferences.headingMode || placementOptions.headingMode,
     })
     stores.race.replace({
-      lineup: state.lineup || {}, spawnDirector: state.spawnDirector || {}, aiDirector: state.aiDirector || {},
+      lineup: state.lineup || {}, racePreview: state.racePreview || null,
+      spawnDirector: state.spawnDirector || {}, aiDirector: state.aiDirector || {},
       options: { ...RACE_DEFAULTS, ...racePreferences, formation }, placementOptions, aiOptions,
     })
     stores.settings.replace(state.settings || {})

@@ -29,14 +29,14 @@
       <button v-if="persistence.recoverable" type="button" :disabled="core.busy" @click="stores.command.send('retryLineupPersistence')">{{ t('race.retryStorage') }}</button>
     </div>
 
-    <CompetitorList />
+    <CompetitorList v-if="current?.competitors?.length" />
 
     <details class="scr-card scr-progressive">
       <summary>{{ t('race.advancedOptions') }}</summary>
       <RacePolicyPanel />
       <section class="scr-policy-group">
         <h4>{{ t('race.generationArea') }}</h4>
-        <ToggleField :model-value="options.previewEnabled" :label="t('race.previewEnabled')" @update:model-value="setPreviewEnabled" />
+        <small class="scr-field-help">{{ t('race.generationAreaHelp') }}</small>
         <div class="scr-form-grid">
           <ScrSelect :model-value="options.previewOrigin" :label="t('race.previewOrigin')" :items="originItems" @update:model-value="value => update('previewOrigin', value)" />
           <NumericInput :model-value="Number(options.safetyMargin)" :label="t('race.safetyMargin')" :min="0.25" :max="10" :step="0.25" @update:model-value="value => update('safetyMargin', value)" />
@@ -46,10 +46,6 @@
             <NumericInput :model-value="Number(options.customPointZ || 0)" :label="t('race.customPointZ')" @update:model-value="value => update('customPointZ', value)" />
           </template>
         </div>
-        <div class="scr-actions">
-          <button type="button" :disabled="!options.previewEnabled || core.busy" @click="previewGeneration">{{ t('race.previewGeneration') }}</button>
-        </div>
-        <small v-if="stagingPreview">{{ t(previewStatusKey(stagingPreview)) }}</small>
       </section>
       <div class="scr-actions">
         <button type="button" :disabled="conflict || core.busy || !current?.episodeSeed" @click="repeatGeneration">{{ t('race.repeatGeneration') }}</button>
@@ -66,12 +62,11 @@ import { useStores } from "../../stores/index.js"
 import NumericInput from "../common/NumericInput.vue"
 import ScrSelect from "../common/ScrSelect.vue"
 import StatusBanner from "../common/StatusBanner.vue"
-import ToggleField from "../common/ToggleField.vue"
 import RacePolicyPanel from "./RacePolicyPanel.vue"
 import CompetitorList from "./CompetitorList.vue"
 import { copyText } from "../../services/clipboard.js"
 import { effectivePolicy, policyConflict, RACE_PRESETS } from "../../services/racePolicy.js"
-import { PREVIEW_ORIGIN_CODES, previewStatusKey } from "../../services/raceProtocol.js"
+import { PREVIEW_ORIGIN_CODES } from "../../services/raceProtocol.js"
 
 const stores = useStores()
 const core = stores.core.state
@@ -89,10 +84,6 @@ const configurationSummary = computed(() => t(
   playerParticipates.value ? "race.configSummaryPlayer" : "race.configSummarySpectator",
   { total: totalVehicles.value, opponents: plannedOpponents.value },
 ))
-const stagingPreview = computed(() => {
-  const preview = stores.race.state.spawnDirector?.racePreview
-  return preview?.kind === "staging" ? preview : null
-})
 const conflict = computed(() => policyConflict(effectivePolicy(options, stores.race.state.lineup?.presetPolicies)))
 const participationItems = computed(() => [
   { value: "player", label: t("race.player") },
@@ -101,24 +92,16 @@ const participationItems = computed(() => [
 const presetItems = computed(() => RACE_PRESETS.map(value => ({ value, label: t(`race.presetValue.${value}`) })))
 const originItems = computed(() => PREVIEW_ORIGIN_CODES
   .map(value => ({ value, label: t(`race.previewOriginValue.${value}`) })))
-const previewFields = new Set(["count", "participationMode", "previewOrigin", "safetyMargin", "customPointX", "customPointY", "customPointZ"])
 
 async function update(field, value) {
   options[field] = value
   await stores.command.send("updateUIPreferences", [{ race: { [field]: value } }])
-  if (options.previewEnabled && previewFields.has(field) && stagingPreview.value && !core.busy) previewGeneration()
 }
 async function preset(value) {
   // Presets only select a policy; Custom's own policy is never overwritten.
   options.preset = value
   await stores.command.send("updateUIPreferences", [{ race: { preset: value } }])
 }
-async function setPreviewEnabled(value) {
-  options.previewEnabled = value === true
-  await stores.command.send("updateUIPreferences", [{ race: { previewEnabled: options.previewEnabled } }])
-  previewGeneration()
-}
-function previewGeneration() { return stores.command.send("previewRaceGeneration", [{ ...options }]) }
 function generate() {
   const episodeSeed = String(options.episodeSeed || "").trim()
   return stores.command.send("createChaosLineup", [{ ...options, episodeSeed, seedIntent: episodeSeed ? "explicit" : "new" }])

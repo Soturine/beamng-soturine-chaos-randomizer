@@ -18,7 +18,7 @@
 </template>
 
 <script setup>
-import { computed } from "vue"
+import { computed, onUnmounted } from "vue"
 import { useStores } from "../../stores/index.js"
 import ErrorBoundary from "../common/ErrorBoundary.vue"
 import SegmentedControl from "../common/SegmentedControl.vue"
@@ -30,4 +30,8 @@ const stores = useStores()
 const layout = stores.uiLayout.state
 const { t } = stores.i18n
 const steps = computed(() => ["setup", "formation", "behavior", "start"].map(value => ({ value, label: t(`race.${value}`) })))
+// Leaving Events never leaves world markers behind.
+onUnmounted(() => {
+  if (stores.race.state.racePreview?.enabled) stores.command.send("previewLineupSpawn", [{ previewEnabled: false }])
+})
 </script>

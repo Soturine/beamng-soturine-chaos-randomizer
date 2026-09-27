@@ -15,7 +15,6 @@ local DEFAULT_RACE = {
   -- Custom owns its own candidate policy; fixed presets are backend templates.
   customPolicy = raceManager.sanitizePolicy(nil),
   formation = "AUTO_BEST_FIT",
-  previewEnabled = true,
   previewOrigin = "automatic",
   formationOrigin = "automatic",
   headingMode = "camera",
@@ -25,7 +24,6 @@ local DEFAULT_RACE = {
   safetyMargin = 1.5,
 }
 
-local BOOLEAN_RACE_FIELDS = {"previewEnabled"}
 
 local function defaults()
   return {
@@ -64,9 +62,6 @@ local function normalize(raw)
   result.compatibilityWarningDismissed = raw.compatibilityWarningDismissed == true
   local source = type(raw.race) == "table" and raw.race or {}
   local race = result.race
-  for _, field in ipairs(BOOLEAN_RACE_FIELDS) do
-    if type(source[field]) == "boolean" then race[field] = source[field] end
-  end
   race.count = boundedNumber(source.count, race.count, 1, 32, true)
   -- Pre-0.7.10 preferences stored one flat policy that silently followed the
   -- last preset. It is adopted as Custom only when Custom was the saved preset.

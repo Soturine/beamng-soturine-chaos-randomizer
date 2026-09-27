@@ -13,7 +13,7 @@ BRIDGE = APP / "services/commandBridge.js"
 BACKEND = ROOT / "lua/ge/extensions/soturineChaosRandomizer/main.lua"
 
 RACE_COMMANDS = {
-    "previewRaceGeneration", "createChaosLineup", "cancelRaceGeneration",
+    "createChaosLineup", "cancelRaceGeneration",
     "retryLineupPersistence", "renameLineupCompetitor", "reorderLineupCompetitor",
     "resolveLineupFailure", "exportChaosLineup", "importChaosLineup",
     "previewLineupSpawn", "startLineupSpawn", "cancelLineupSpawn",

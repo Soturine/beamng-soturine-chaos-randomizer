@@ -27,7 +27,7 @@ const previewSlot = (value, fallbackSlot) => {
   return { ...value, slot, slotId }
 }
 
-export function normalizePreviewSlots(value, report = () => {}, path = "spawnDirector.racePreview.slots") {
+export function normalizePreviewSlots(value, report = () => {}, path = "racePreview.slots") {
   if (value === undefined || value === null) return []
   if (Array.isArray(value)) {
     const normalized = value.map(entry => previewSlot(entry)).filter(Boolean)
@@ -111,12 +111,9 @@ export function normalizeRaceState(value, report = () => {}) {
   if (hasOwn(spawnDirector, "managed")) {
     normalizedSpawnDirector.managed = normalizeManagedVehicles(spawnDirector.managed, report)
   }
-  if (hasOwn(spawnDirector, "racePreview")) {
-    normalizedSpawnDirector.racePreview = normalizePreview(
-      spawnDirector.racePreview, report, "spawnDirector.racePreview",
-    )
-  }
-  const normalized = { ...race, spawnDirector: normalizedSpawnDirector }
+  // A sparse Race diff (e.g. only racePreview) must not wipe spawnDirector.
+  const normalized = hasOwn(race, "spawnDirector") ? { ...race, spawnDirector: normalizedSpawnDirector } : { ...race }
+  if (hasOwn(race, "racePreview")) normalized.racePreview = normalizePreview(race.racePreview, report, "racePreview")
   return normalized
 }
 
@@ -128,10 +125,10 @@ export function normalizeFullState(value, report = () => {}) {
   return {
     ...state,
     garage: normalizeGarageState(state.garage, report),
+    racePreview: normalizePreview(state.racePreview, report, "racePreview"),
     spawnDirector: {
       ...spawnDirector,
       managed: normalizeManagedVehicles(spawnDirector.managed, report),
-      racePreview: normalizePreview(spawnDirector.racePreview, report, "spawnDirector.racePreview"),
     },
   }
 }

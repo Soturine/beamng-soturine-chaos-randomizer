@@ -52,6 +52,27 @@ describe("mounted Runtime UI", () => {
     expect(resizeHarness.active()).toBe(0)
   })
 
+  it("replaces a blank app with a recoverable root panel when state application fails", async () => {
+    const wrapper = mount(App, { attachTo: document.body })
+    await settle()
+    const poisoned = createDefaultState()
+    poisoned.settings.uiPreferences = { race: { formation: { toString() { throw new Error("fixture_bad_state") } } } }
+    eventHarness.emit("SoturineChaosRandomizerState", {
+      protocolVersion: 2, stateVersion: 99, eventType: "full", domain: "all", payload: poisoned,
+    })
+    await settle()
+    const panel = wrapper.find(".scr-root-failure")
+    expect(panel.exists()).toBe(true)
+    expect(panel.text()).toContain("The panel ran into an error.")
+    const requestsBefore = bridgeHarness.envelopes.filter(value => value.command === "requestState").length
+    await panel.findAll("button").find(button => button.text() === "Reload panel").trigger("click")
+    await settle()
+    expect(wrapper.find(".scr-root-failure").exists()).toBe(false)
+    expect(wrapper.find(".scr-header").exists()).toBe(true)
+    expect(bridgeHarness.envelopes.filter(value => value.command === "requestState").length).toBe(requestsBefore + 1)
+    wrapper.unmount()
+  })
+
   it("renders all primary panels, Race Policy, details, and compact mode", async () => {
     const { wrapper, stores } = mountShell()
     await settle()
@@ -343,7 +364,7 @@ describe("mounted Runtime UI", () => {
       ...(state.settings.uiPreferences || {}),
       race: { formation: "Automatic Best Fit" },
     }
-    state.spawnDirector.racePreview = {
+    state.racePreview = {
       enabled: true, kind: "finalGrid", state: "PREVIEW_FAILED", formation: "Automatic Best Fit",
       slots: {
         2: { slot: 2, name: "Mapped two", transform: { position: { x: 2, y: 4, z: 1 } } },
@@ -351,7 +372,6 @@ describe("mounted Runtime UI", () => {
       },
       renderer: { lastErrorCode: "preview_debug_drawer_missing" },
     }
-    state.spawnDirector.placement = { available: true, count: 2 }
     stores.applyFull(state)
     stores.uiLayout.setTab("race")
     stores.uiLayout.state.raceStep = "formation"
@@ -359,7 +379,7 @@ describe("mounted Runtime UI", () => {
 
     expect(stores.race.state.options.formation).toBe("AUTO_BEST_FIT")
     expect(stores.race.state.placementOptions.mode).toBe("AUTO_BEST_FIT")
-    expect(stores.race.state.spawnDirector.racePreview.slots.map(item => item.slot)).toEqual([1, 2])
+    expect(stores.race.state.racePreview.slots.map(item => item.slot)).toEqual([1, 2])
     expect(wrapper.text()).toContain("world debug drawer is unavailable")
     expect(wrapper.text()).toContain("1.0, 3.0, 1.0")
     expect(wrapper.find(".scr-error-boundary").exists()).toBe(false)
@@ -424,58 +444,64 @@ describe("mounted Runtime UI", () => {
     wrapper.unmount()
   })
 
-  it("reports renderer failure without blocking generation and survives 50 Preview toggle cycles", async () => {
+  it("shows the formation preview before generation and survives 50 show/hide cycles", async () => {
     const { wrapper, stores, command } = mountShell()
     stores.uiLayout.setTab("race")
-    stores.race.state.spawnDirector.racePreview = {
-      enabled: true, kind: "staging", state: "PREVIEW_FAILED", slots: [{ slot: 1 }],
-      renderer: { lastErrorCode: "preview_color_api_missing" },
-    }
+    stores.uiLayout.state.raceStep = "formation"
+    Object.assign(stores.race.state.options, { count: 4, participationMode: "player" })
+    stores.race.state.spawnDirector.placement = { available: false, count: 0, reason: "no_ready_competitors" }
     await settle()
-    expect(wrapper.text()).toContain("color API (ColorF) did not respond")
-    const generate = wrapper.findAll("button").find(button => button.text() === "Generate cars")
-    expect(generate).toBeTruthy()
-    expect(generate.attributes("disabled")).toBeUndefined()
-
-    const previewToggle = wrapper.findAll("label.scr-toggle").find(label => label.text().includes("world preview"))
-    expect(previewToggle).toBeTruthy()
-    const input = previewToggle.find('input[type="checkbox"]')
+    const toggle = () => wrapper.findAll("button").find(button => ["Show preview", "Hide preview"].includes(button.text()))
+    expect(toggle().text()).toBe("Show preview")
+    expect(toggle().attributes("disabled")).toBeUndefined()
+    expect(wrapper.findAll("button").find(button => button.text() === "Place all").attributes("disabled")).toBeDefined()
+    expect(wrapper.text()).toContain("0 opponents ready to position.")
     for (let cycle = 0; cycle < 50; cycle += 1) {
-      await input.setValue(cycle % 2 !== 0)
+      await toggle().trigger("click")
+      stores.applyDiff("race", { racePreview: cycle % 2 === 0
+        ? { enabled: true, state: "PREVIEW_RENDERED", kind: "finalGrid", quality: "estimated", slots: [], renderer: {} }
+        : false })
       await settle()
     }
-    expect(command.calls.filter(([name]) => name === "previewRaceGeneration")).toHaveLength(50)
-    expect(command.calls.filter(([name]) => name === "updateUIPreferences")).toHaveLength(50)
-    expect(stores.race.state.options.previewEnabled).toBe(true)
+    const sent = command.calls.filter(([name]) => name === "previewLineupSpawn")
+    expect(sent).toHaveLength(50)
+    expect(sent[0][1][0]).toMatchObject({ previewEnabled: true, participationMode: "player", totalVehicles: 4, plannedOpponents: 3 })
+    expect(sent[1][1][0]).toEqual({ previewEnabled: false })
+    // A failed preview is explained; generation stays available.
+    stores.applyDiff("race", { racePreview: { enabled: true, state: "PREVIEW_FAILED", kind: "finalGrid", slots: [],
+      renderer: { lastErrorCode: "preview_color_api_missing" } } })
+    await settle()
+    expect(wrapper.text()).toContain("color API (ColorF) did not respond")
+    stores.uiLayout.state.raceStep = "setup"
+    await settle()
+    expect(wrapper.findAll("button").find(button => button.text() === "Generate cars").attributes("disabled")).toBeUndefined()
     wrapper.unmount()
   })
-  it("offers placement fallback data while physical positioning stays renderer-independent", async () => {
+  it("keeps preview and placement independent and refreshes an active preview on changes", async () => {
     const { wrapper, stores, command } = mountShell()
     stores.uiLayout.setTab("race")
     stores.uiLayout.state.raceStep = "formation"
     stores.race.state.spawnDirector.placement = { available: true, count: 2 }
-    stores.race.state.spawnDirector.racePreview = {
-      enabled: true, kind: "finalGrid", state: "PREVIEW_FAILED", formation: "GRID",
+    stores.race.state.racePreview = {
+      enabled: true, kind: "finalGrid", state: "PREVIEW_RENDERED", quality: "validated", formation: "GRID",
       slots: [
         { slot: 1, slotId: "slot-1", name: "Competitor 1", transform: { position: { x: 10, y: 20, z: 3 } } },
         { slot: 2, slotId: "slot-2", name: "Competitor 2", transform: { position: { x: 14, y: 20, z: 3 } } },
       ],
-      renderer: { lastErrorCode: "preview_debug_drawer_missing" },
+      renderer: {},
     }
     await settle()
-    expect(wrapper.text()).toContain("world debug drawer is unavailable")
+    expect(wrapper.text()).toContain("Preview on")
+    expect(wrapper.text()).not.toContain("PREVIEW_RENDERED".toLowerCase())
     expect(wrapper.text()).toContain("10.0, 20.0, 3.0")
+    await choose(wrapper.findAll(".scr-select").find(item => item.find("span").text() === "Formation"), "LINE")
+    expect(command.calls.at(-1)).toEqual(["previewLineupSpawn", [expect.objectContaining({ previewEnabled: true, mode: "Line" })]])
     const placeAll = wrapper.findAll("button").find(button => button.text() === "Place all")
-    expect(placeAll.attributes("disabled")).toBeUndefined()
     await placeAll.trigger("click")
     expect(command.calls.at(-1)).toEqual(["startLineupSpawn", [expect.objectContaining({
       spawnAll: true, placementAction: "all", count: 2,
     })]])
-    const next = wrapper.findAll("button").find(button => button.text() === "Place next")
-    await next.trigger("click")
-    expect(command.calls.at(-1)).toEqual(["startLineupSpawn", [expect.objectContaining({
-      spawnAll: false, useNextLineupCompetitor: true, placementAction: "next",
-    })]])
+    expect(wrapper.find(".scr-field-help").text()).toContain("player")
     wrapper.unmount()
   })
   it("locks conflicting placement controls and exposes one monotonic active operation", async () => {
@@ -489,7 +515,7 @@ describe("mounted Runtime UI", () => {
     }
     await settle()
     expect(wrapper.text()).toContain("Positioning 2/4 vehicles")
-    for (const label of ["Preview formation", "Place first", "Place next"]) {
+    for (const label of ["Show preview", "Place first", "Place next"]) {
       expect(wrapper.findAll("button").find(button => button.text() === label).attributes("disabled")).toBeDefined()
     }
     expect(wrapper.findAll("button").some(button => button.text() === "Place all")).toBe(false)
@@ -499,6 +525,36 @@ describe("mounted Runtime UI", () => {
     wrapper.unmount()
   })
 
+  it("keeps the shell mounted through preview state updates, step and tab changes", async () => {
+    const { wrapper, stores, command } = mountShell()
+    stores.uiLayout.setTab("race")
+    stores.uiLayout.state.raceStep = "formation"
+    await settle()
+    for (let cycle = 0; cycle < 20; cycle += 1) {
+      stores.applyDiff("race", { racePreview: { enabled: true, state: cycle % 2 ? "PREVIEW_RENDERED" : "PREVIEW_DATA_READY",
+        kind: "finalGrid", slots: [{ slot: 1, transform: { position: { x: cycle, y: 0, z: 0 } } }], renderer: {} } })
+      stores.uiLayout.state.raceStep = ["formation", "setup", "behavior", "start"][cycle % 4]
+      await settle()
+      expect(wrapper.find(".scr-header").exists()).toBe(true)
+      expect(wrapper.findAll('.scr-nav [role="tab"]')).toHaveLength(4)
+      expect(wrapper.find(".scr-panel").exists()).toBe(true)
+    }
+    // A preview-only diff never wipes the placement/run state.
+    stores.race.state.spawnDirector.placement = { available: true, count: 3 }
+    stores.applyDiff("race", { racePreview: false })
+    expect(stores.race.state.spawnDirector.placement.count).toBe(3)
+    // Leaving Events hides an active preview.
+    stores.race.state.racePreview = { enabled: true, state: "PREVIEW_RENDERED", slots: [], renderer: {} }
+    stores.uiLayout.setTab("chaos")
+    await settle()
+    expect(command.calls.at(-1)).toEqual(["previewLineupSpawn", [{ previewEnabled: false }]])
+    // Something scrolling the clipped shell is put back so header and tabs stay visible.
+    const root = wrapper.find(".scr-app").element
+    root.scrollTop = 120
+    root.dispatchEvent(new Event("scroll"))
+    expect(root.scrollTop).toBe(0)
+    wrapper.unmount()
+  })
   it("shows 0/3 and 3/3 readiness and routes zero placeable opponents back to Setup", async () => {
     const { wrapper, stores } = mountShell()
     stores.uiLayout.setTab("race")
@@ -908,8 +964,8 @@ describe("mounted Runtime UI", () => {
       lastResult: {
         success: false,
         code: "position_blocked",
-        details: { operationId: "race:preview_generation:1", generation: 1,
-          recoverable: true, retryAction: "previewRaceGeneration" },
+        details: { operationId: "race:lineup_generation:1", generation: 1,
+          recoverable: true, retryAction: "createChaosLineup" },
       },
     })
     await settle()
@@ -918,15 +974,15 @@ describe("mounted Runtime UI", () => {
     expect(banner.text()).toContain("No safe Preview position")
     expect(stores.status.current("race").persistent).toBe(true)
     await banner.findAll("button").find(button => button.text() === "Retry").trigger("click")
-    expect(command.calls.at(-1)[0]).toBe("previewRaceGeneration")
+    expect(command.calls.at(-1)[0]).toBe("createChaosLineup")
 
     stores.applyDiff("core", {
       busy: false,
       lastResult: {
         success: false,
         code: "position_blocked",
-        details: { operationId: "race:preview_generation:2", generation: 2,
-          recoverable: true, retryAction: "previewRaceGeneration" },
+        details: { operationId: "race:lineup_generation:3", generation: 3,
+          recoverable: true, retryAction: "createChaosLineup" },
       },
     })
     await settle()

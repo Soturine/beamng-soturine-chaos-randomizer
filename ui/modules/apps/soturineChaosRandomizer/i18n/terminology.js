@@ -11,8 +11,8 @@ export const PRESERVED_TERMS = Object.freeze([
 ])
 
 const FORBIDDEN_LOCALIZATIONS = Object.freeze({
-  "pt-BR": [Object.freeze({ pattern: /\bsemente\b/i, preferred: "Seed" }),
-    Object.freeze({ pattern: /\bprévia\b/i, preferred: "Preview" })],
+  // "Prévia" is the owner-approved pt-BR label for the formation preview (v0.7.11).
+  "pt-BR": [Object.freeze({ pattern: /\bsemente\b/i, preferred: "Seed" })],
   "es-ES": [],
   "en-US": [],
 })

@@ -388,7 +388,6 @@ local function publicState()
       settings = util.deepCopy(runtime.lineup.current.settings),
       varietyRules = util.deepCopy(runtime.lineup.current.varietyRules),
       stagingPreview = util.deepCopy(runtime.lineup.current.stagingPreview),
-      placementPreview = util.deepCopy(runtime.lineup.current.placementPreview),
       warnings = util.deepCopy(runtime.lineup.current.warnings),
       persistence = util.deepCopy(runtime.lineup.current.persistence),
       schedulerState = runtime.lineup.current.schedulerState,
@@ -588,14 +587,10 @@ local function publicState()
       schemaVersion = productionModules.lineupSchema.SCHEMA_VERSION,
       storagePath = adapter.LINEUP_LIBRARY_PATH,
     },
+    racePreview = productionModules.racePreview.public(runtime.racePreview) or false,
     spawnDirector = {
       placement = production.placementAvailability(),
-      racePreview = util.deepCopy(runtime.racePreview),
       attempts = productionModules.raceAttemptCoordinator.snapshot(runtime.raceAttempts),
-      preview = runtime.spawnDirector.preview and {
-        count = #(runtime.spawnDirector.preview.placements or {}),
-        mode = runtime.spawnDirector.preview.options and runtime.spawnDirector.preview.options.mode,
-      } or nil,
       run = runtime.spawnDirector.run and {
         active = runtime.spawnDirector.run.active, cursor = runtime.spawnDirector.run.cursor,
         total = #(runtime.spawnDirector.run.placements or {}), spawned = #(runtime.spawnDirector.run.spawned or {}),
@@ -1407,7 +1402,7 @@ local function finishOperation(success, code, message, details, terminalState)
         competitor.previewDimensions = util.deepCopy(dimensions)
       end
     end
-    productionModules.racePreview.update(runtime.racePreview, lineup)
+    runtime.previewReplanDue = runtime.racePreviewRequest ~= nil
     if active.backgroundTarget and type(active.lineupPlayerVehicleId) == "number" then
       local focused, focusReason = adapter.enterVehicle(active.lineupPlayerVehicleId)
       if not focused then
@@ -6966,8 +6961,7 @@ local function onClientEndMission()
   cancelOperation("map_changed", "Operation cancelled because the map changed")
   productionModules.destinationMarker.clear(runtime.destination)
   productionModules.routePlanner.clear(runtime.aiRoute)
-  runtime.spawnDirector.preview = nil
-  runtime.racePreview = nil
+  runtime.racePreviewRequest, runtime.racePreview = nil, nil
   if runtime.spawnDirector.run then runtime.spawnDirector.run.active = false end
   production.controlManagedAI("reset")
 end
@@ -7120,7 +7114,6 @@ function production.cancelRaceGeneration(reason)
   if not lineup then return false end
   reason = reason or "Race generation cancelled by user"
   runtime.lineup.pendingNext = false
-  runtime.racePreview = nil
   productionModules.raceManager.cancel(lineup, reason)
   lineup.removeAcceptedOnCancel = lineup.settings and lineup.settings.retainAcceptedOnCancel == false
   if runtime.active and runtime.active.domain == "race" then
@@ -7303,79 +7296,6 @@ production.generationPreviewContext = function(options, lineup, playerOk, player
     planning = util.deepCopy(planning)}
 end
 
-function production.previewRaceGeneration(options)
-  initialize()
-  options = type(options) == "table" and util.deepCopy(options) or {}
-  if options.previewEnabled == false then
-    if runtime.racePreview then
-      productionModules.racePreview.clear(runtime.racePreview, "preference_disabled")
-    else
-      runtime.racePreview = {enabled = false, state = "PREVIEW_DISABLED", slots = {},
-        clearedReason = "preference_disabled"}
-    end
-    setResult(true, "race_preview_disabled", "Race generation preview disabled")
-    publishState()
-    return true
-  end
-  if runtime.state.busy then
-    setResult(false, "operation_busy", "Race generation preview cannot change during an active operation")
-    publishState()
-    return false
-  end
-  local attempt = productionModules.raceAttemptCoordinator.begin(runtime.raceAttempts,
-    "preview_generation", {now = runtime.time.realMonotonicTime, deadlineSeconds = 10, desired = options})
-  local function finishAttempt(status, errorCode, recoverable)
-    productionModules.raceAttemptCoordinator.finish(runtime.raceAttempts, attempt, status, {
-      now = runtime.time.realMonotonicTime, errorCode = errorCode, recoverable = recoverable,
-      retryAction = "previewRaceGeneration",
-    })
-  end
-  local lineup, reason = productionModules.raceManager.create(options)
-  if not lineup then
-    finishAttempt("failed", reason, false)
-    setResult(false, reason, "Race preview options are invalid")
-    publishState()
-    return false
-  end
-  local playerOk, playerVehicleId = adapter.getCurrentVehicleId()
-  if lineup.playerParticipates and (not playerOk or type(playerVehicleId) ~= "number") then
-    finishAttempt("failed", "lineup_player_vehicle_required", true)
-    setResult(false, "lineup_player_vehicle_required",
-      "Player participates requires an active player vehicle")
-    publishState()
-    return false
-  end
-  productionModules.raceAttemptCoordinator.setPhase(runtime.raceAttempts, attempt, "planning_staging")
-  local context, previewReason, previewPlanning = production.generationPreviewContext(
-    options, lineup, playerOk, playerVehicleId
-  )
-  if not context then
-    finishAttempt("failed", previewReason, true)
-    setResult(false, previewReason, "Race generation preview is unavailable", {
-      operationId = attempt.operationId, generation = attempt.generation,
-      recoverable = true, retryAction = "previewRaceGeneration",
-      planning = util.deepCopy(previewPlanning),
-    })
-    publishState()
-    return false
-  end
-  runtime.racePreview = productionModules.racePreview.build(
-    "generation_staging", context.plan, lineup, context.playerPlacement, true
-  )
-  runtime.racePreview.operationId = attempt.operationId
-  runtime.racePreview.generation = attempt.generation
-  finishAttempt("succeeded")
-  setResult(true, "race_generation_preview_data_ready", "Race generation preview data is ready", {
-    totalVehicles = lineup.totalVehicles,
-    aiOpponents = lineup.aiOpponentCount,
-    kind = runtime.racePreview.kind, previewState = runtime.racePreview.state,
-    operationId = attempt.operationId, generation = attempt.generation,
-    planning = util.deepCopy(context.planning),
-  })
-  publishState()
-  return true
-end
-
 function production.createChaosLineup(options)
   initialize()
   if runtime.state.busy then
@@ -7504,10 +7424,6 @@ function production.createChaosLineup(options)
   for index, competitor in ipairs(lineup.competitors) do
     competitor.stagingPlacement = util.deepCopy(staging.placements[index])
   end
-  runtime.racePreview = productionModules.racePreview.build(
-    "generation_staging", staging, lineup, previewContext.playerPlacement,
-    lineup.settings.previewEnabled ~= false
-  )
   runtime.lineup.current = lineup
   lineup.setupAttempt = {operationId = attempt.operationId, generation = attempt.generation}
   lineup.generationState = "lineup_processing"
@@ -7804,49 +7720,50 @@ function production.occupiedManagedPositions()
   return positions
 end
 
-function production.previewLineupSpawn(options)
-  if runtime.state.busy then
-    setResult(false, "operation_busy", "Spawn Director cannot start during a vehicle mutation operation"); publishState(); return false
-  end
-  if runtime.spawnDirector.run and runtime.spawnDirector.run.active then
-    setResult(false, "spawn_director_busy", "Spawn Director is already running"); publishState(); return false
-  end
+-- Plans the final formation in the current world frame. Read-only: nothing is
+-- spawned or moved. Existing competitors are planned with their real bounds;
+-- before generation the configured number of slots is planned with safe
+-- estimated bounds, so the preview works before any NPC exists.
+production.planFormation = function(options)
   options = type(options) == "table" and util.deepCopy(options) or {}
   local lineup = runtime.lineup.current
   local competitors = {}
   if type(options.selectedDNAId) == "string" and options.selectedDNAId ~= "" then
     local dna = vehicleDNAStorage.find(runtime.dna.library, options.selectedDNAId)
-    if dna then
-      competitors[1] = {
-        index = 1, id = "selected-dna:" .. dna.id, name = dna.name,
-        status = "ready", phase = "ready", phaseProgress = 1,
-        terminalState = "ready", raceStatus = "Pending", dnaId = dna.id,
-        dna = util.deepCopy(dna), modelKey = dna.final and dna.final.modelKey,
-      }
-    else
-      setResult(false, "spawn_selected_dna_missing", "The selected Vehicle DNA is unavailable"); publishState(); return false
-    end
+    if not dna then return nil, "spawn_selected_dna_missing" end
+    competitors[1] = {
+      index = 1, id = "selected-dna:" .. dna.id, name = dna.name,
+      status = "ready", phase = "ready", phaseProgress = 1,
+      terminalState = "ready", raceStatus = "Pending", dnaId = dna.id,
+      dna = util.deepCopy(dna), modelKey = dna.final and dna.final.modelKey,
+    }
   elseif lineup then
     competitors = productionModules.raceManager.placementCompetitors(lineup, options, runtime.managedVehicles)
-  else
-    setResult(false, "lineup_missing", "Create or import a lineup, or choose a Vehicle DNA"); publishState(); return false
   end
-  if #competitors == 0 then
-    setResult(false, "race_no_ready_cars", "No race cars are ready yet. Generate cars first.")
-    publishState()
-    return false
+  local estimated = #competitors == 0
+  local playerOk, currentVehicleId = adapter.getCurrentVehicleId()
+  local frameLineup = lineup or {
+    playerParticipates = options.participationMode == "player",
+    playerVehicleId = playerOk and currentVehicleId or nil,
+  }
+  if estimated then
+    local planned = math.floor(tonumber(options.plannedOpponents) or 0)
+    if planned < 1 then
+      planned = (tonumber(options.totalVehicles) or 4) - (frameLineup.playerParticipates and 1 or 0)
+    end
+    for index = 1, math.max(1, math.min(32, planned)) do
+      competitors[index] = {index = index, name = "Competitor " .. tostring(index), status = "planned"}
+    end
   end
   options.count = #competitors
   if options.spacingMode == "automatic" then
     options.vehicleDimensions = {}
     for index, competitor in ipairs(competitors) do
-      local dimensionStarted = adapter.clock()
       local dimensions = type(competitor.currentVehicleId) == "number"
         and productionModules.spawnAdapter.vehicleDimensions(
           competitor.currentVehicleId, competitor.targetGeneration or 0
         ) or nil
-      productionModules.performanceMetrics.record(runtime.performanceTelemetry, "vehicleDimensionRead", math.max(0, (adapter.clock() - dimensionStarted) * 1000))
-      options.vehicleDimensions[index] = dimensions or {width = 2, length = 4.8, source = "safe_fallback"}
+      options.vehicleDimensions[index] = dimensions or {width = 2, length = 4.8, source = "estimated_fallback"}
     end
   end
   if options.mode == "Custom point" or options.mode == "Custom" then
@@ -7859,32 +7776,26 @@ function production.previewLineupSpawn(options)
       and util.deepCopy(runtime.destination.point) or nil
   else options.destination = nil end
   local frame, frameReason = productionModules.raceFormationFrame.resolve(
-    productionModules.spawnAdapter, options, lineup
+    productionModules.spawnAdapter, options, frameLineup
   )
-  if not frame then
-    setResult(false, frameReason, "The requested formation origin is unavailable")
-    publishState()
-    return false
-  end
+  if not frame then return nil, frameReason end
   if options.headingMode == "road" then
     local okRoad, roadForward = productionModules.spawnAdapter.roadForward(frame.position)
     if okRoad then frame.roadForward = roadForward end
   end
   options.formationOrigin = frame.originMode
   options.resolvedFormationOrigin = frame.originSource
-  if lineup and lineup.playerParticipates and type(lineup.playerVehicleId) == "number" then
-    local originDimensions = productionModules.spawnAdapter.vehicleDimensions(lineup.playerVehicleId, 0)
+  local playerVehicleId = tonumber(frameLineup.playerVehicleId)
+  if frameLineup.playerParticipates and playerVehicleId then
+    local originDimensions = productionModules.spawnAdapter.vehicleDimensions(playerVehicleId, 0)
     if type(originDimensions) == "table" then options.originDimensions = originDimensions end
   end
-  local occupied = production.occupiedManagedPositions()
   local selectedIds = {}
   for _, competitor in ipairs(competitors) do
-    if type(competitor.currentVehicleId) == "number" then
-      selectedIds[tostring(competitor.currentVehicleId)] = true
-    end
+    if type(competitor.currentVehicleId) == "number" then selectedIds[tostring(competitor.currentVehicleId)] = true end
   end
   local externalOccupied = {}
-  for _, item in ipairs(occupied or {}) do
+  for _, item in ipairs(production.occupiedManagedPositions() or {}) do
     if not selectedIds[tostring(item.vehicleId)] then externalOccupied[#externalOccupied + 1] = item end
   end
   local planningStarted = adapter.clock()
@@ -7893,51 +7804,80 @@ function production.previewLineupSpawn(options)
   )
   planning = util.deepCopy(planning or plan and plan.planning or {})
   planning.durationMs = math.max(0, (adapter.clock() - planningStarted) * 1000)
-  productionModules.performanceMetrics.record(
-    runtime.performanceTelemetry, "racePlacementPlanning", planning.durationMs
-  )
-  if not plan then
-    setResult(false, reason, "Spawn preview is unsafe: " .. tostring(reason), {planning = planning})
-    publishState()
-    return false
-  end
+  productionModules.performanceMetrics.record(runtime.performanceTelemetry, "racePlacementPlanning", planning.durationMs)
+  if not plan then return nil, reason, planning end
   plan.planning = planning
   plan.competitors = competitors
-  runtime.spawnDirector.preview = plan
-  local previewLineup = {competitors = competitors}
-  local playerPlacement
-  if lineup and type(lineup.playerVehicleId) == "number" then
-    local positionOk, position = productionModules.spawnAdapter.objectPosition(lineup.playerVehicleId)
-    local forwardOk, forward = productionModules.spawnAdapter.playerForward()
-    local playerDimensions = productionModules.spawnAdapter.vehicleDimensions(lineup.playerVehicleId, 0)
+  plan.estimated = estimated
+  plan.anchor = {
+    mode = frame.originSource, vehicleId = frame.playerVehicleId,
+    position = util.deepCopy(frame.position), forward = util.deepCopy(frame.forward),
+  }
+  if playerVehicleId then
+    local positionOk, position = productionModules.spawnAdapter.objectPosition(playerVehicleId)
+    local frameOk, playerFrame = productionModules.spawnAdapter.objectFrame(playerVehicleId)
+    local playerDimensions = productionModules.spawnAdapter.vehicleDimensions(playerVehicleId, 0)
     if type(playerDimensions) == "table" then playerDimensions.source = "actual_vehicle_bounds" end
     if positionOk then
-      playerPlacement = {position = position, forward = forwardOk and forward or frame.forward,
-        normal = {x = 0, y = 0, z = 1}, dimensions = playerDimensions}
+      plan.playerPlacement = {position = position, forward = frameOk and playerFrame.forward or frame.forward,
+        normal = {x = 0, y = 0, z = 1}, dimensions = playerDimensions, vehicleId = playerVehicleId}
     end
   end
-  runtime.racePreview = productionModules.racePreview.build(
-    "final_grid", plan, previewLineup, playerPlacement, true
-  )
-  if lineup then
-    lineup.placementPreview = {
-      status = "preview_ready", count = #plan.placements,
-      requestedMode = plan.options.requestedMode, effectiveMode = plan.options.mode,
-      fallbackReason = plan.options.fallbackReason,
-      resolvedLateralSpacing = plan.options.resolvedLateralSpacing,
-      resolvedLongitudinalSpacing = plan.options.resolvedLongitudinalSpacing,
-      planning = util.deepCopy(plan.planning),
-    }
+  return plan
+end
+
+-- Rebuilds the visible preview from the stored request. Quiet: used for option
+-- changes, anchor drift and generation/placement completion.
+production.refreshFormationPreview = function()
+  local request = runtime.racePreviewRequest
+  if not request then return false end
+  runtime.previewValidatedAt = runtime.time.realMonotonicTime
+  runtime.previewReplanDue = false
+  local plan, reason = production.planFormation(request)
+  if not plan then
+    runtime.racePreview = {enabled = true, state = "PREVIEW_FAILED", kind = "finalGrid", slots = {},
+      renderer = {lastErrorCode = reason or "preview_plan_failed", missing = {}}}
+    runtime.previewStateDirty = true
+    return false, reason
   end
-  setResult(true, "spawn_preview_ready", "Placement preview is ready; confirm to apply it", {
-    count = #plan.placements, requestedMode = plan.options.requestedMode,
-    mode = plan.options.mode, fallbackReason = plan.options.fallbackReason,
-    resolvedLateralSpacing = plan.options.resolvedLateralSpacing,
-    resolvedLongitudinalSpacing = plan.options.resolvedLongitudinalSpacing,
-    planning = util.deepCopy(plan.planning),
-  })
-  publishState()
+  runtime.racePreview = productionModules.racePreview.build(
+    "final_grid", plan, {competitors = plan.competitors}, plan.playerPlacement, true, plan.anchor
+  )
+  runtime.previewStateDirty = true
   return true
+end
+
+-- Show/Hide toggle of the single user-facing formation preview.
+function production.previewLineupSpawn(options)
+  options = type(options) == "table" and util.deepCopy(options) or {}
+  if options.previewEnabled == false then
+    runtime.racePreviewRequest = nil
+    if runtime.racePreview then productionModules.racePreview.clear(runtime.racePreview, "preview_hidden") end
+    runtime.racePreview = nil
+    setResult(true, "race_preview_hidden", "Formation preview hidden")
+    publishState()
+    return true
+  end
+  runtime.racePreviewRequest = options
+  local shown, reason = production.refreshFormationPreview()
+  if shown then
+    setResult(true, "spawn_preview_ready", "Formation preview is shown")
+  else
+    setResult(false, reason or "preview_plan_failed", "The formation preview could not be planned")
+  end
+  publishState()
+  return shown
+end
+
+-- Minimal Race diff for preview transitions; never the full application state.
+production.publishPreviewState = function()
+  runtime.previewStateDirty = false
+  local envelope = productionModules.uiStateProjector.diff(
+    runtime.uiSequence, "race", {racePreview = productionModules.racePreview.public(runtime.racePreview) or false},
+    {"racePreview"}, {operationId = runtime.state.operationId}, adapter.clock()
+  )
+  adapter.emit("SoturineChaosRandomizerStateDiff", envelope, true)
+  productionModules.uiPublisher.note(runtime.uiPublisher, "partial", production.payloadBytes(envelope), adapter.clock())
 end
 
 function production.startLineupSpawn(options)
@@ -7953,10 +7893,16 @@ function production.startLineupSpawn(options)
     publishState()
     return true
   end
-  -- Physical positioning always calculates a fresh plan. Renderer availability
-  -- and a prior visual-preview click are deliberately outside this contract.
-  if not production.previewLineupSpawn(options) then return false end
-  local plan = runtime.spawnDirector.preview
+  -- Physical positioning always plans fresh from the current world with the
+  -- full safety planner; preview markers are never used as positions.
+  local plan, planReason, planning = production.planFormation(options)
+  if not plan or plan.estimated then
+    local code = plan and "race_no_ready_cars" or planReason
+    setResult(false, code, plan and "No race cars are ready yet. Generate cars first."
+      or "Placement is unsafe: " .. tostring(planReason), {planning = planning})
+    publishState()
+    return false
+  end
   plan.active, plan.cursor, plan.nextAt = true, 1, adapter.clock()
   runtime.spawnDirector.sequence = (runtime.spawnDirector.sequence or 0) + 1
   local allManaged = true
@@ -7977,8 +7923,8 @@ function production.startLineupSpawn(options)
   plan.pendingBatch = {}
   if runtime.lineup.current then runtime.lineup.current.placementState = "placing" end
   runtime.spawnDirector.run = plan
-  runtime.spawnDirector.preview = nil
-  runtime.racePreview = nil
+  -- Hide the preview while vehicles move; it is rebuilt when placement ends.
+  if runtime.racePreviewRequest then runtime.racePreview = nil end
   setResult(true, "spawn_director_started", allManaged
     and "Fast placement started for existing Race vehicles"
     or "Spawn Director started sequential spawning", {
@@ -8098,13 +8044,13 @@ production.processRepositionBatch = function(run)
   else changed = productionModules.racePlacement.poll(run, deps) end
   if productionModules.racePlacement.finished(run) then
     run.active, run.currentSlot = false, nil
+    runtime.previewReplanDue = runtime.racePreviewRequest ~= nil
     runtime.spawnDirector.lastResult = {
       success = run.failed == 0, positioned = #run.spawned, failed = run.failed,
       operationId = run.operationId, generation = run.generation, kind = run.kind,
     }
     if runtime.lineup.current then
       runtime.lineup.current.placementState = run.failed == 0 and "ready" or "partial"
-      runtime.lineup.current.placementPreview = nil
     end
     production.persistCurrentLineup()
     publishState()
@@ -8296,8 +8242,8 @@ function production.processSpawnDirector()
     runtime.spawnDirector.lastResult = {success = #run.failures == 0, spawned = #run.spawned, failed = #run.failures}
     if runtime.lineup.current then
       runtime.lineup.current.placementState = #run.failures == 0 and "ready" or "partial"
-      runtime.lineup.current.placementPreview = nil
     end
+    runtime.previewReplanDue = runtime.racePreviewRequest ~= nil
     production.persistCurrentLineup()
     publishState()
     return false
@@ -8364,8 +8310,7 @@ function production.processSpawnDirector()
 end
 
 function production.cancelLineupSpawn()
-  runtime.spawnDirector.preview = nil
-  runtime.racePreview = nil
+  runtime.previewReplanDue = runtime.racePreviewRequest ~= nil
   local run = runtime.spawnDirector.run
   if run then
     run.cancelRequested = true
@@ -9352,25 +9297,57 @@ production.previewBindings = function()
   return deps
 end
 
+-- Live frame of the anchor a dynamic preview follows, plus the player frame for
+-- the player marker. Two cheap object/camera reads; no planning.
+production.previewFrames = function(preview)
+  local anchor = preview.anchor or {}
+  local frames = runtime.previewFrames or {}
+  runtime.previewFrames = frames
+  frames.anchor, frames.player = nil, nil
+  local playerId = anchor.mode == "player" and anchor.vehicleId or nil
+  for _, marker in ipairs(preview.slots or {}) do
+    if marker.slot == 0 then playerId = playerId or (runtime.lineup.current and runtime.lineup.current.playerVehicleId) end
+  end
+  if tonumber(playerId) then
+    local ok, frame = productionModules.spawnAdapter.objectFrame(tonumber(playerId))
+    if ok then frames.player = frame end
+  end
+  if anchor.mode == "player" then
+    if not frames.player then return nil, "preview_anchor_player_missing" end
+    frames.anchor = frames.player
+  elseif anchor.mode == "camera" then
+    local ok, frame = productionModules.spawnAdapter.cameraFrame()
+    if not ok then return nil, "preview_anchor_camera_missing" end
+    frames.anchor = frame
+  end
+  return frames
+end
+
+-- Render hook: resolve anchor, draw, note transitions. It never plans, never
+-- publishes application state and never touches a vehicle.
 production.onPreRender = function()
   local previewStarted = adapter.clock()
   runtime.lastPreRenderAt = runtime.time.realMonotonicTime
   local preview = runtime.racePreview
   local deps
-  if preview and preview.enabled then
+  if preview and preview.enabled and preview.slots and #preview.slots > 0 then
     deps = production.previewBindings()
-    local worked, drawn, report = pcall(productionModules.previewRenderer.draw,
-      productionModules.racePreview.placements(preview), deps, deps.probe)
-    if not worked then
-      drawn, report = false, {requestedMarkerCount = #(preview.slots or {}), renderedMarkerCount = 0,
-        errorCode = "preview_marker_draw_failed", errorMessage = tostring(drawn)}
-    end
-    if productionModules.racePreview.recordRender(preview, drawn, report, runtime.time.realMonotonicTime) then
-      diagnosticsModule.write(runtime.diagnostics, preview.state == "PREVIEW_RENDERED" and "I" or "W",
-        "race_preview_state_changed", {
-          state = preview.state, renderer = util.deepCopy(preview.renderer),
-        }, preview.state ~= "PREVIEW_RENDERED")
-      publishState()
+    local frames, anchorReason = production.previewFrames(preview)
+    if not frames then
+      if productionModules.racePreview.recordAnchorUnavailable(preview, anchorReason) then
+        runtime.previewStateDirty = true
+      end
+    else
+      runtime.previewLiveAnchor = frames.anchor
+      local worked, drawn, report = pcall(productionModules.previewRenderer.draw,
+        productionModules.racePreview.placements(preview, frames), deps, deps.probe)
+      if not worked then
+        drawn, report = false, {requestedMarkerCount = #preview.slots, renderedMarkerCount = 0,
+          errorCode = "preview_marker_draw_failed", errorMessage = tostring(drawn)}
+      end
+      if productionModules.racePreview.recordRender(preview, drawn, report, runtime.time.realMonotonicTime) then
+        runtime.previewStateDirty = true
+      end
     end
   end
   if runtime.destination.point then
@@ -9378,6 +9355,31 @@ production.onPreRender = function()
   end
   productionModules.performanceMetrics.record(runtime.performanceTelemetry, "preview",
     math.max(0, (adapter.clock() - previewStarted) * 1000))
+end
+
+-- Throttled re-validation and deferred publish of the preview, from onUpdate.
+production.updatePreview = function()
+  local now = runtime.time.realMonotonicTime
+  local preview = runtime.racePreview
+  local placementActive = runtime.spawnDirector.run and runtime.spawnDirector.run.active
+  if runtime.racePreviewRequest and not placementActive
+    and now - (runtime.previewValidatedAt or -math.huge) >= 1
+  then
+    local distance, yaw = productionModules.racePreview.drift(preview, runtime.previewLiveAnchor)
+    local failedRetry = preview and preview.state == "PREVIEW_FAILED"
+      and now - (runtime.previewValidatedAt or -math.huge) >= 3
+    if runtime.previewReplanDue or preview == nil or failedRetry or distance > 8 or yaw > math.rad(20) then
+      production.refreshFormationPreview()
+      preview = runtime.racePreview
+    end
+  end
+  if preview and preview.enabled and preview.state == "PREVIEW_DATA_READY" then
+    preview.dataReadyAt = preview.dataReadyAt or now
+    if now - preview.dataReadyAt > 2 and (runtime.lastPreRenderAt or -1) < preview.dataReadyAt
+      and productionModules.racePreview.recordMissingCallback(preview)
+    then runtime.previewStateDirty = true end
+  end
+  if runtime.previewStateDirty then production.publishPreviewState() end
 end
 
 local function onUpdate(dtReal, dtSim, dtRaw)
@@ -9594,19 +9596,7 @@ local function onUpdate(dtReal, dtSim, dtRaw)
   end
 
   startStressIteration()
-  local preview = runtime.racePreview
-  if preview and preview.enabled and preview.state == "PREVIEW_DATA_READY" then
-    local now = runtime.time.realMonotonicTime
-    preview.dataReadyAt = preview.dataReadyAt or now
-    if now - preview.dataReadyAt > 2 and (runtime.lastPreRenderAt or -1) < preview.dataReadyAt
-      and productionModules.racePreview.recordMissingCallback(preview)
-    then
-      diagnosticsModule.write(runtime.diagnostics, "W", "race_preview_state_changed", {
-        state = preview.state, renderer = util.deepCopy(preview.renderer),
-      }, true)
-      publishState()
-    end
-  end
+  production.updatePreview()
   local raceStarted = adapter.clock()
   production.auditRaceScheduler()
   if runtime.lineup.pendingNext and runtime.lineup.current then
@@ -9700,7 +9690,6 @@ M.cancelDeveloperStress = cancelDeveloperStress
 M.cancelCurrentOperation = cancelCurrentOperation
 M.cancelRaceGeneration = production.cancelRaceGeneration
 M.getDeveloperStressState = getDeveloperStressState
-M.previewRaceGeneration = production.previewRaceGeneration
 M.createChaosLineup = production.createChaosLineup
 M.retryLineupPersistence = production.retryLineupPersistence
 M.renameLineupCompetitor = production.renameLineupCompetitor
@@ -9769,7 +9758,6 @@ production.uiCommandHandlers = {
   spawnSafeVehicle = spawnSafeVehicle,
   retryQuarantinedConfigurations = retryQuarantinedConfigurations,
   rerollUnlocked = rerollUnlocked,
-  previewRaceGeneration = production.previewRaceGeneration,
   saveVehicleDNA = saveVehicleDNA,
   deleteVehicleDNA = deleteVehicleDNA,
   renameVehicleDNA = renameVehicleDNA,
@@ -9859,8 +9847,7 @@ M.onExtensionUnloaded = function()
   end
   if runtime.active then vehicleRecovery.cleanup(runtime.active) end
   runtime.active = nil
-  runtime.spawnDirector.preview = nil
-  runtime.racePreview = nil
+  runtime.racePreviewRequest, runtime.racePreview = nil, nil
   if runtime.spawnDirector.run then runtime.spawnDirector.run.active = false end
   productionModules.destinationMarker.clear(runtime.destination)
   productionModules.routePlanner.clear(runtime.aiRoute)

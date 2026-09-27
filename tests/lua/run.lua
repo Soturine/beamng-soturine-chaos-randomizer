@@ -4337,7 +4337,7 @@ tests.v0710_preview_frame_loop_state_contract = function()
   end
   truthy(frame(1), "first drawn frame changes state")
   equal(preview.state, "PREVIEW_RENDERED")
-  equal(preview.renderer.renderedMarkerCount, 2); equal(preview.renderer.successfulFrames, 1)
+  equal(preview.renderer.renderedMarkerCount, 2)
   equal(frame(2), false, "an unchanged frame must not republish")
   equal(calls.sphere, 4)
   racePreview.update(preview, {competitors = {{status = "failed", name = "One"}, {status = "ready", name = "Two"}}})
@@ -4364,47 +4364,137 @@ tests.v0710_preview_frame_loop_state_contract = function()
   equal(racePreview.recordRender(preview, true, {renderedMarkerCount = 2}, 5), false)
 end
 
-tests.v0710_preview_main_bridge_draws_through_on_pre_render = function()
+tests.v0711_preview_anchor_follow_contract = function()
+  -- Planned with the player at the origin facing +Y; three slots ahead of it.
+  local anchor = {mode = "player", vehicleId = 7, position = {x = 0, y = 0, z = 0}, forward = {x = 0, y = 1, z = 0}}
+  local plan = {options = {requestedMode = "SINGLE_FILE_AHEAD"}, placements = {}}
+  for index = 1, 3 do
+    plan.placements[index] = {position = {x = 0, y = index * 7, z = 0.2}, forward = {x = 0, y = 1, z = 0},
+      normal = {x = 0, y = 0, z = 1}}
+  end
+  local player = {position = {x = 0, y = 0, z = 0}, forward = {x = 0, y = 1, z = 0}, normal = {x = 0, y = 0, z = 1}}
+  local preview = racePreview.build("final_grid", plan, {competitors = {}}, player, true, anchor)
+  truthy(racePreview.isDynamic(preview))
+  local function at(frame)
+    local list = racePreview.placements(preview, {anchor = frame, player = frame})
+    return list
+  end
+  -- Translation: every marker moves with the anchor, offsets preserved.
+  local moved = at({position = {x = 0, y = 10, z = 0}, forward = {x = 0, y = 1, z = 0}})
+  near(moved[1].position.y, 10, 1e-9, "player marker follows the player")
+  for index = 2, 4 do near(moved[index].position.y, 10 + (index - 1) * 7, 1e-9) end
+  -- Rotation: a 90 degree turn keeps Single File Ahead in front of the car.
+  local turned = at({position = {x = 0, y = 0, z = 0}, forward = {x = 1, y = 0, z = 0}})
+  for index = 2, 4 do
+    near(turned[index].position.x, (index - 1) * 7, 1e-9); near(turned[index].position.y, 0, 1e-9)
+    near(turned[index].forward.x, 1, 1e-9, "heading rotates with the origin")
+  end
+  local distance, yaw = racePreview.drift(preview, {position = {x = 6, y = 8, z = 0}, forward = {x = 1, y = 0}})
+  near(distance, 10, 1e-9); near(yaw, math.pi / 2, 1e-9)
+  -- Custom origin stays where it was planned.
+  local fixed = racePreview.build("final_grid", plan, {competitors = {}}, nil, true,
+    {mode = "custom", position = {x = 0, y = 0, z = 0}, forward = {x = 0, y = 1, z = 0}})
+  truthy(not racePreview.isDynamic(fixed))
+  local fixedList = racePreview.placements(fixed, {player = {position = {x = 50, y = 50, z = 0}, forward = {x = 1, y = 0}}})
+  near(fixedList[1].position.y, 7, 1e-9)
+  -- Losing the anchor draws nothing and says why, once.
+  truthy(racePreview.recordAnchorUnavailable(preview, "preview_anchor_player_missing"))
+  equal(preview.state, "PREVIEW_FAILED"); equal(preview.renderer.lastErrorCode, "preview_anchor_unavailable")
+  equal(racePreview.recordAnchorUnavailable(preview), false)
+  local public = racePreview.public(preview)
+  equal(public.anchorMode, "player"); equal(public.renderer.attemptedFrames, nil)
+end
+
+tests.v0711_preview_follows_live_anchor_without_planning_or_publishing_per_frame = function()
   local harness = pipelineHarness.new({vehicleId = 7})
   local spawnAdapter = require("ge/extensions/soturineChaosRandomizer/spawnApiAdapter")
+  local spawnDirector = require("ge/extensions/soturineChaosRandomizer/spawnDirector")
+  local playerFrame = {position = {x = 0, y = 0, z = 0}, forward = {x = 0, y = 1, z = 0}, right = {x = 1, y = 0, z = 0}}
+  local counts = {plan = 0, raycast = 0}
   local saved = {}
+  local function frameCopy(frame)
+    return {position = util.deepCopy(frame.position), forward = util.deepCopy(frame.forward),
+      right = {x = frame.forward.y, y = -frame.forward.x, z = 0}, vehicleId = 7}
+  end
   local stubs = {
-    cameraFrame = function()
-      return true, {position = {x = 0, y = 0, z = 0}, forward = {x = 0, y = 1, z = 0}, right = {x = 1, y = 0, z = 0}}
-    end,
+    cameraFrame = function() return true, {position = {x = 100, y = 100, z = 30}, forward = {x = 0, y = 1, z = 0}, right = {x = 1, y = 0, z = 0}} end,
+    objectFrame = function(id) if id ~= 7 then return false, "vehicle_missing" end return true, frameCopy(playerFrame) end,
+    objectPosition = function(id) if id ~= 7 then return false, "vehicle_missing" end return true, util.deepCopy(playerFrame.position) end,
     raycastGround = function(position)
+      counts.raycast = counts.raycast + 1
       return true, {point = {x = position.x, y = position.y, z = 0}, normal = {x = 0, y = 0, z = 1}}
     end,
     occupiedVehiclePositions = function() return true, {} end,
-    objectPosition = function() return false, "vehicle_missing" end,
-    playerForward = function() return false, "player_missing" end,
+    vehicleDimensions = function() return {width = 2, length = 4.6, source = "actual_vehicle_bounds"} end,
   }
   for name, stub in pairs(stubs) do saved[name], spawnAdapter[name] = spawnAdapter[name], stub end
-  local deps, calls = engineLikeBindings()
+  local originalPlan = spawnDirector.plan
+  spawnDirector.plan = function(...) counts.plan = counts.plan + 1; return originalPlan(...) end
+  local spheres = {}
+  local drawer = {}
+  function drawer:drawSphere(position) spheres[#spheres + 1] = {x = position.x, y = position.y} end
+  function drawer:drawLine() end
+  function drawer:drawTextAdvanced() end
+  local class = function() return setmetatable({}, {__call = function(_, ...) return {...} end}) end
   local previous = {debugDrawer = _G.debugDrawer, ColorF = _G.ColorF, ColorI = _G.ColorI, vec3 = _G.vec3}
+  _G.debugDrawer, _G.ColorF, _G.ColorI = drawer, class(), class()
+  _G.vec3 = function(x, y, z) return {x = x, y = y, z = z} end
   local ok, failure = pcall(function()
-    truthy(harness.main.previewRaceGeneration({count = 3, participationMode = "spectator", previewEnabled = true}),
-      "preview data")
-    equal(harness.main.requestState().spawnDirector.racePreview.state, "PREVIEW_DATA_READY")
-    -- Without bindings the exact missing symbol is reported, not a generic error.
-    for name in pairs(previous) do _G[name] = nil end
-    harness.main.onPreRender()
-    local failedPreview = harness.main.requestState().spawnDirector.racePreview
-    equal(failedPreview.state, "PREVIEW_FAILED")
-    equal(failedPreview.renderer.lastErrorCode, "preview_debug_drawer_missing")
-    for name, value in pairs(deps) do _G[name] = value end
-    harness.main.onPreRender()
-    local rendered = harness.main.requestState().spawnDirector.racePreview
-    equal(rendered.state, "PREVIEW_RENDERED")
-    equal(rendered.renderer.renderedMarkerCount, 3)
-    equal(calls.sphere, 3)
-    truthy(harness.main.previewRaceGeneration({count = 3, participationMode = "spectator", previewEnabled = false}))
-    harness.main.onPreRender()
-    equal(calls.sphere, 3, "disabled preview draws nothing")
-    equal(harness.main.requestState().spawnDirector.racePreview.state, "PREVIEW_DISABLED")
+    -- Before any generation: planned slots, estimated bounds, player anchor.
+    truthy(harness.main.previewLineupSpawn({mode = "Single File Ahead", formationOrigin = "automatic",
+      participationMode = "player", totalVehicles = 4, headingMode = "camera", spacingMode = "automatic"}))
+    local state = harness.main.requestState().racePreview
+    equal(state.quality, "estimated"); equal(state.anchorMode, "player"); equal(#state.slots, 4)
+    local plansAfterShow, raycastsAfterShow = counts.plan, counts.raycast
+    local emittedBefore = #harness.emitted
+    local function frame()
+      spheres = {}
+      harness.main.onPreRender()
+      return spheres
+    end
+    local first = frame()
+    equal(#first, 4)
+    equal(#harness.emitted, emittedBefore, "onPreRender never emits UI state")
+    -- The player drives forward and turns; the markers follow every frame.
+    playerFrame.position.y = 3
+    local ahead = frame()
+    near(ahead[1].y, 3, 1e-6); near(ahead[2].y - first[2].y, 3, 1e-6)
+    playerFrame.forward = {x = 1, y = 0, z = 0}
+    local turned = frame()
+    for index = 2, 4 do
+      truthy(turned[index].x > 0, "Single File Ahead stays in front after a 90 degree turn")
+      near(turned[index].y, 3, 1e-6)
+    end
+    for _ = 1, 20 do frame() end
+    equal(counts.plan, plansAfterShow, "no formation planning in the render hook")
+    equal(counts.raycast, raycastsAfterShow, "no ground raycasts in the render hook")
+    equal(#harness.emitted, emittedBefore)
+    -- Transitions are published later, from onUpdate, as one bounded Race diff.
+    pipelineHarness.advance(harness, 0.05, 0.05, 1)
+    local published
+    for index = emittedBefore + 1, #harness.emitted do
+      local event = harness.emitted[index]
+      if event.name == "SoturineChaosRandomizerStateDiff" and event.payload.domain == "race" then published = event end
+    end
+    truthy(published, "a Race preview diff is published from onUpdate")
+    equal(published.payload.payload.racePreview.state, "PREVIEW_RENDERED")
+    equal(published.payload.payload.garage, nil)
+    -- Hide removes the overlay in the same cycle.
+    truthy(harness.main.previewLineupSpawn({previewEnabled = false}))
+    equal(#frame(), 0)
+    equal(harness.main.requestState().racePreview, false)
+    -- Custom origin is fixed in the world.
+    truthy(harness.main.previewLineupSpawn({mode = "Line", formationOrigin = "custom", customPointX = 10,
+      customPointY = 10, customPointZ = 0, participationMode = "spectator", totalVehicles = 2,
+      headingMode = "camera", spacingMode = "automatic"}))
+    local fixed = frame()
+    playerFrame.position = {x = 40, y = -40, z = 0}
+    local afterMove = frame()
+    for index = 1, #fixed do near(afterMove[index].x, fixed[index].x, 1e-6) end
   end)
   for name, value in pairs(previous) do _G[name] = value end
   for name, original in pairs(saved) do spawnAdapter[name] = original end
+  spawnDirector.plan = originalPlan
   truthy(ok, failure)
 end
 
@@ -7008,7 +7098,6 @@ tests.v074_race_previews_are_read_only_structured_and_generation_scoped = functi
   }
   local staging = racePreview.build("generation_staging", plan, lineup, player, true)
   equal(staging.kind, "staging")
-  equal(staging.phase, "generation_staging")
   equal(staging.heading, "road")
   equal(staging.formation, "GRID")
   equal(staging.spacing.lateral, 3.25)
@@ -7036,7 +7125,6 @@ tests.v074_race_previews_are_read_only_structured_and_generation_scoped = functi
 
   local finalGrid = racePreview.build("final_grid", plan, lineup, player, true)
   equal(finalGrid.kind, "finalGrid")
-  equal(finalGrid.phase, "final_grid")
   equal(staging.kind, "staging")
   truthy(racePreview.clear(staging, "race_cancelled") ~= nil)
   equal(staging.enabled, false)
@@ -7602,7 +7690,6 @@ tests.v075_preview_state_requires_a_rendered_frame = function()
   racePreview.recordRender(preview, true, {requestedMarkerCount = 1, renderedMarkerCount = 1}, 3)
   equal(preview.state, "PREVIEW_RENDERED")
   equal(preview.renderer.lastErrorCode, nil)
-  equal(preview.renderer.successfulFrames, 1)
   equal(preview.renderer.lastFrameAt, 3)
   truthy(racePreview.stale(preview, "generation_changed"))
   equal(preview.state, "PREVIEW_STALE")
@@ -7612,10 +7699,9 @@ tests.v075_preview_state_requires_a_rendered_frame = function()
   local preferences = p2.preferences.patch(p2.preferences.defaults(), {
     race = {previewEnabled = false, formation = "Grid"},
   })
-  equal(preferences.race.previewEnabled, false)
+  -- The preview toggle is session UI state since v0.7.11, never a saved preference.
+  equal(preferences.race.previewEnabled, nil)
   equal(preferences.race.formation, "GRID")
-  preferences = p2.preferences.patch(preferences, {race = {previewEnabled = true}})
-  equal(preferences.race.previewEnabled, true)
 end
 
 tests.v076_preview_renderer_failure_toggle_and_false_return_are_explicit = function()

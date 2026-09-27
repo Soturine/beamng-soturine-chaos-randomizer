@@ -131,19 +131,20 @@ const normalizedSlots = normalizerModule.normalizePreviewSlots({
 check(normalizedSlots.map(item => item.slot), [1, 2])
 check(normalizedSlots[0].slotId, "physical-one")
 check(previewIssues[0], {
-  code: "normalized_state_shape", path: "spawnDirector.racePreview.slots", receivedType: "object_map",
+  code: "normalized_state_shape", path: "racePreview.slots", receivedType: "object_map",
 })
 check(normalizerModule.normalizePreviewSlots("invalid", issue => previewIssues.push(issue)), [])
 check(previewIssues.at(-1).receivedType, "string")
 const normalizedRace = normalizerModule.normalizeDomainPayload("race", {
-  spawnDirector: { racePreview: { slots: { 1: { name: "Mapped" } } } },
+  racePreview: { slots: { 1: { name: "Mapped" } } },
 })
-check(normalizedRace.spawnDirector.racePreview.slots[0].name, "Mapped")
+check(normalizedRace.racePreview.slots[0].name, "Mapped")
+check("spawnDirector" in normalizedRace, false, "a preview-only diff must not wipe spawnDirector")
 const sparseRaceDiff = normalizerModule.normalizeDomainPayload("race", {
   spawnDirector: { placement: { available: true } },
 })
 check("managed" in sparseRaceDiff.spawnDirector, false)
-check("racePreview" in sparseRaceDiff.spawnDirector, false)
+check("racePreview" in sparseRaceDiff, false)
 check("lineup" in sparseRaceDiff, false)
 
 const reactiveStub = "const reactive = value => value"
@@ -270,7 +271,7 @@ check(status.current("chaos", "op-1").code, "applying_parts")
 status.replaceOperation({ code: "validating", operationId: "op-1", persistent: true })
 check(status.items.filter(item => item.scope === "operation").length, 1)
 status.push({ code: "position_blocked", scope: "tab", tab: "race", persistent: true,
-  recoverable: true, dismissible: true, action: { command: "previewRaceGeneration" } })
+  recoverable: true, dismissible: true, action: { command: "createChaosLineup" } })
 statusNow = 100000
 status.prune()
 check(status.current("race").code, "position_blocked", "recoverable status must not expire")
@@ -337,7 +338,7 @@ for (const term of ["Seed", "DNA", "HUD", "Preview", "Grid", "Mod", "Preset", "A
   truthy(terminology.PRESERVED_TERMS.includes(term))
 }
 check(terminology.auditCatalog("pt-BR", ptBR), [])
-check(terminology.auditCatalog("pt-BR", { bad: "Semente e prévia" }).map(item => item.preferred), ["Seed", "Preview"])
+check(terminology.auditCatalog("pt-BR", { bad: "Semente e prévia" }).map(item => item.preferred), ["Seed"])
 
 const humanLabels = await load("ui/modules/apps/soturineChaosRandomizer/services/humanLabels.js")
 const labelI18n = i18nModule.createI18n()

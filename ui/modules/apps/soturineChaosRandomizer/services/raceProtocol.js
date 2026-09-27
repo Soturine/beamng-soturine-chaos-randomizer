@@ -66,6 +66,7 @@ const PREVIEW_FAILURE_KEYS = Object.freeze({
   preview_render_callback_missing: "race.previewFailure.callbackMissing",
   preview_marker_draw_failed: "race.previewFailure.markerFailed",
   preview_render_empty: "race.previewFailure.renderEmpty",
+  preview_anchor_unavailable: "race.previewFailure.anchorUnavailable",
 })
 
 export const previewStatusKey = preview => {

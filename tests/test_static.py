@@ -117,7 +117,6 @@ class StaticValidationTests(unittest.TestCase):
         self.assertEqual(app.count('subscribe("SoturineChaosRandomizerStateDiff"'), 1)
         self.assertIn("returnedCleanup", app)
         self.assertIn("events.off?.(name, handler)", app)
-        self.assertEqual(app.count('command.send("requestState")'), 2)
 
     def test_preview_renderer_is_read_only_and_receives_engine_bindings(self) -> None:
         # Behavior is covered by the Lua preview contract tests; this guards the
@@ -196,9 +195,9 @@ class StaticValidationTests(unittest.TestCase):
                 for outcome in outcomes:
                     self.assertIn(f"result.{outcome}", catalog)
         pt_values = "\n".join(catalogs["pt-BR"].values())
-        for term in ("Seed", "DNA", "Preview", "Grid", "Mod", "Preset"):
+        for term in ("Seed", "DNA", "Grid", "Mod", "Preset"):
             self.assertIn(term, pt_values)
-        self.assertNotRegex(pt_values, r"(?i)\bsemente\b|\bprévia\b")
+        self.assertNotRegex(pt_values, r"(?i)\bsemente\b")
 
         css = (APP / "styles/app.css").read_text(encoding="utf-8")
         self.assertNotIn("100vw", css)

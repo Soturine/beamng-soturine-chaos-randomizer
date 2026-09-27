@@ -49,7 +49,7 @@ function retry() {
     stores.command.send(command)
     return
   }
-  if (command !== "previewRaceGeneration" && command !== "createChaosLineup") return
+  if (command !== "createChaosLineup") return
   stores.command.send(command, [{ ...stores.race.state.options }])
 }
 function dismiss() { if (status.value?.id) stores.status.remove(status.value.id) }
