@@ -344,13 +344,14 @@ describe("mounted Runtime UI", () => {
       race: { formation: "Automatic Best Fit" },
     }
     state.spawnDirector.racePreview = {
-      enabled: true, state: "PREVIEW_FAILED", formation: "Automatic Best Fit",
+      enabled: true, kind: "finalGrid", state: "PREVIEW_FAILED", formation: "Automatic Best Fit",
       slots: {
-        2: { name: "Mapped two", transform: { position: { x: 2, y: 4, z: 1 } } },
-        1: { name: "Mapped one", transform: { position: { x: 1, y: 3, z: 1 } } },
+        2: { slot: 2, name: "Mapped two", transform: { position: { x: 2, y: 4, z: 1 } } },
+        1: { slot: 1, name: "Mapped one", transform: { position: { x: 1, y: 3, z: 1 } } },
       },
       renderer: { lastErrorCode: "preview_debug_drawer_missing" },
     }
+    state.spawnDirector.placement = { available: true, count: 2 }
     stores.applyFull(state)
     stores.uiLayout.setTab("race")
     stores.uiLayout.state.raceStep = "formation"
@@ -359,11 +360,11 @@ describe("mounted Runtime UI", () => {
     expect(stores.race.state.options.formation).toBe("AUTO_BEST_FIT")
     expect(stores.race.state.placementOptions.mode).toBe("AUTO_BEST_FIT")
     expect(stores.race.state.spawnDirector.racePreview.slots.map(item => item.slot)).toEqual([1, 2])
-    expect(wrapper.text()).toContain("2 placement positions are ready")
+    expect(wrapper.text()).toContain("world debug drawer is unavailable")
+    expect(wrapper.text()).toContain("1.0, 3.0, 1.0")
     expect(wrapper.find(".scr-error-boundary").exists()).toBe(false)
     wrapper.unmount()
   })
-
   it("keeps coverage status readable at narrow width and exposes ledger counts in Details", async () => {
     const { wrapper, stores } = mountShell()
     stores.uiLayout.state.width = 320
@@ -427,9 +428,7 @@ describe("mounted Runtime UI", () => {
     const { wrapper, stores, command } = mountShell()
     stores.uiLayout.setTab("race")
     stores.race.state.spawnDirector.racePreview = {
-      enabled: true,
-      state: "PREVIEW_FAILED",
-      slots: [{ slot: 1 }],
+      enabled: true, kind: "staging", state: "PREVIEW_FAILED", slots: [{ slot: 1 }],
       renderer: { lastErrorCode: "preview_color_api_missing" },
     }
     await settle()
@@ -450,15 +449,13 @@ describe("mounted Runtime UI", () => {
     expect(stores.race.state.options.previewEnabled).toBe(true)
     wrapper.unmount()
   })
-
   it("offers placement fallback data while physical positioning stays renderer-independent", async () => {
     const { wrapper, stores, command } = mountShell()
     stores.uiLayout.setTab("race")
     stores.uiLayout.state.raceStep = "formation"
+    stores.race.state.spawnDirector.placement = { available: true, count: 2 }
     stores.race.state.spawnDirector.racePreview = {
-      enabled: true,
-      state: "PREVIEW_FAILED",
-      formation: "GRID",
+      enabled: true, kind: "finalGrid", state: "PREVIEW_FAILED", formation: "GRID",
       slots: [
         { slot: 1, slotId: "slot-1", name: "Competitor 1", transform: { position: { x: 10, y: 20, z: 3 } } },
         { slot: 2, slotId: "slot-2", name: "Competitor 2", transform: { position: { x: 14, y: 20, z: 3 } } },
@@ -466,10 +463,14 @@ describe("mounted Runtime UI", () => {
       renderer: { lastErrorCode: "preview_debug_drawer_missing" },
     }
     await settle()
-    expect(wrapper.text()).toContain("2 placement positions are ready")
-    expect(wrapper.text()).toContain("Calculate placements")
+    expect(wrapper.text()).toContain("world debug drawer is unavailable")
     expect(wrapper.text()).toContain("10.0, 20.0, 3.0")
-
+    const placeAll = wrapper.findAll("button").find(button => button.text() === "Place all")
+    expect(placeAll.attributes("disabled")).toBeUndefined()
+    await placeAll.trigger("click")
+    expect(command.calls.at(-1)).toEqual(["startLineupSpawn", [expect.objectContaining({
+      spawnAll: true, placementAction: "all", count: 2,
+    })]])
     const next = wrapper.findAll("button").find(button => button.text() === "Place next")
     await next.trigger("click")
     expect(command.calls.at(-1)).toEqual(["startLineupSpawn", [expect.objectContaining({
@@ -477,27 +478,80 @@ describe("mounted Runtime UI", () => {
     })]])
     wrapper.unmount()
   })
-
   it("locks conflicting placement controls and exposes one monotonic active operation", async () => {
     const { wrapper, stores, command } = mountShell()
     stores.uiLayout.setTab("race")
     stores.uiLayout.state.raceStep = "formation"
+    stores.race.state.spawnDirector.placement = { available: false, count: 4, reason: "placement_busy" }
     stores.race.state.spawnDirector.run = {
       active: true, operationId: "race-placement:fixture:1", generation: 1,
       kind: "reposition", requested: 4, completed: 2, failed: 0, currentSlot: 3,
     }
     await settle()
     expect(wrapper.text()).toContain("Positioning 2/4 vehicles")
-    for (const label of ["Preview formation", "Place first", "Place next", "Place all"]) {
+    for (const label of ["Preview formation", "Place first", "Place next"]) {
       expect(wrapper.findAll("button").find(button => button.text() === label).attributes("disabled")).toBeDefined()
     }
+    expect(wrapper.findAll("button").some(button => button.text() === "Place all")).toBe(false)
     const cancel = wrapper.findAll("button").find(button => button.text() === "Cancel placement")
-    expect(cancel.attributes("disabled")).toBeUndefined()
     await cancel.trigger("click")
     expect(command.calls.at(-1)).toEqual(["cancelLineupSpawn", []])
     wrapper.unmount()
   })
 
+  it("shows 0/3 and 3/3 readiness and routes zero placeable opponents back to Setup", async () => {
+    const { wrapper, stores } = mountShell()
+    stores.uiLayout.setTab("race")
+    stores.race.state.lineup = { current: { generationState: "lineup_failed", summary: {
+      plannedOpponents: 3, generationReady: 0, drivable: 0, failed: 3, aiReady: 0, positioned: 0,
+    } } }
+    await settle()
+    const summary = () => wrapper.find(".scr-race-summary").text()
+    expect(summary()).toContain("0/3 generated")
+    expect(summary()).toContain("0/3 drivable")
+    expect(summary()).toContain("3 failed")
+    stores.uiLayout.state.raceStep = "formation"
+    stores.race.state.spawnDirector.placement = { available: false, count: 0, reason: "no_ready_competitors" }
+    await settle()
+    expect(wrapper.text()).toContain("0 opponents ready to position.")
+    expect(wrapper.findAll("button").find(button => button.text() === "Place all").attributes("disabled")).toBeDefined()
+    await wrapper.findAll("button").find(button => button.text() === "Fix generation").trigger("click")
+    expect(stores.uiLayout.state.raceStep).toBe("setup")
+    stores.race.state.lineup = { current: { generationState: "lineup_ready", summary: {
+      plannedOpponents: 3, generationReady: 3, drivable: 3, failed: 0, aiReady: 3, positioned: 3,
+    } } }
+    await settle()
+    expect(summary()).toContain("3/3 generated")
+    expect(summary()).toContain("3/3 drivable")
+    expect(summary()).not.toContain("failed")
+    wrapper.unmount()
+  })
+
+  it("keeps Custom policy across preset switches and turns fixed-preset edits into Custom", async () => {
+    const { wrapper, stores, command } = mountShell()
+    stores.race.state.lineup = { presetPolicies: {
+      Balanced: { allowOfficialVehicles: true, allowModVehicles: true },
+      "Mods Showcase": { allowOfficialVehicles: false, allowModVehicles: true },
+    } }
+    Object.assign(stores.race.state.options, { preset: "Mods Showcase", customPolicy: { allowOfficialVehicles: true, allowModVehicles: true, allowTrailers: true } })
+    stores.uiLayout.setTab("race")
+    await settle()
+    const toggle = label => wrapper.findAll("label.scr-toggle").find(item => item.text().includes(label)).find('input[type="checkbox"]')
+    expect(toggle("official").element.checked).toBe(false)
+    await toggle("official").setValue(true)
+    await settle()
+    expect(stores.race.state.options.preset).toBe("Custom")
+    expect(stores.race.state.options.customPolicy).toMatchObject({ allowOfficialVehicles: true, allowModVehicles: true })
+    expect(stores.race.state.options.customPolicy.allowTrailers).toBeUndefined()
+    expect(command.calls.at(-1)).toEqual(["updateUIPreferences", [{ race: {
+      preset: "Custom", customPolicy: expect.objectContaining({ allowOfficialVehicles: true }),
+    } }]])
+    const custom = { ...stores.race.state.options.customPolicy }
+    await choose(wrapper.findAll(".scr-select").find(item => item.find("span").text() === "Preset"), "Balanced")
+    expect(command.calls.at(-1)).toEqual(["updateUIPreferences", [{ race: { preset: "Balanced" } }]])
+    expect(stores.race.state.options.customPolicy).toEqual(custom)
+    wrapper.unmount()
+  })
   it("separates a new blank-seed generation from an explicit repeat and exposes the used seed", async () => {
     const { wrapper, stores, command } = mountShell()
     stores.uiLayout.setTab("race")
@@ -534,45 +588,43 @@ describe("mounted Runtime UI", () => {
       supportedModes: ["Destination", "Route", "Follow", "Chase", "Flee", "Traffic", "Roam"],
       quickPresets: ["Follow", "Convoy", "Chase", "Flee", "Traffic", "Roam", "Swarm"],
     }
-    stores.race.state.lineup = { current: { generationState: "lineup_ready" } }
-    stores.race.state.spawnDirector.managed = [{ handle: "npc-1", name: "Alpha", status: "ready" }]
+    stores.race.state.lineup = { current: { generationState: "lineup_partial", episodeSeed: "RACE-0001",
+      summary: { plannedOpponents: 3, aiReady: 2, generationReady: 2, positioned: 2, failed: 1 } } }
     stores.uiLayout.setTab("race")
     stores.uiLayout.state.raceStep = "behavior"
     await settle()
 
     const panel = wrapper.find(".scr-panel")
-    for (const label of ["Follow me", "Convoy", "Chase", "Flee", "Chaotic traffic", "Roam", "Swarm"]) {
-      expect(panel.text()).toContain(label)
-    }
-    for (const preset of ["Follow", "Convoy", "Chase", "Flee", "Traffic", "Roam", "Swarm"]) {
-      const button = panel.findAll("button").find(item => item.text() === ({
-        Follow: "Follow me", Convoy: "Convoy", Chase: "Chase", Flee: "Flee",
-        Traffic: "Chaotic traffic", Roam: "Roam", Swarm: "Swarm",
-      })[preset])
+    expect(panel.text()).toContain("2/3 ready for AI")
+    const labels = { Follow: "Follow me", Convoy: "Convoy", Chase: "Chase", Flee: "Flee",
+      Traffic: "Chaotic traffic", Roam: "Roam", Swarm: "Swarm" }
+    for (const [preset, label] of Object.entries(labels)) {
+      const button = panel.findAll('[role="radio"]').find(item => item.text() === label)
       await button.trigger("click")
-      expect(command.calls.at(-1)).toEqual(["startAIQuickPreset", [preset]])
+      expect(button.attributes("aria-checked")).toBe("true")
+      expect(stores.race.state.aiOptions.behaviorPreset).toBe(preset)
     }
-    command.send = async function (name, args = []) {
-      this.calls.push([name, args])
-      throw new Error("fixture_command_rejected")
-    }
-    await panel.findAll("button").find(item => item.text() === "Follow me").trigger("click")
-    await settle()
-    expect(wrapper.find(".scr-error-boundary").exists()).toBe(false)
-    expect(panel.text()).toContain("additional details")
-    expect(panel.text()).toContain("Follow me")
+    expect(command.calls.some(([name]) => name === "startAIQuickPreset")).toBe(false)
     const advanced = panel.findAll("details").find(item => item.find("summary").text().includes("Advanced options"))
-    expect(advanced).toBeTruthy()
     expect(advanced.element.open).toBe(false)
-    await advanced.find("summary").trigger("click")
-    expect(advanced.element.open).toBe(true)
     expect(advanced.text()).toContain("AI mode")
     expect(wrapper.findAll("select")).toHaveLength(0)
-    await advanced.find("summary").trigger("click")
-    expect(advanced.element.open).toBe(false)
+
+    await panel.findAll("button").find(item => item.text() === "Continue to Start").trigger("click")
+    await settle()
+    expect(stores.uiLayout.state.raceStep).toBe("start")
+    const start = wrapper.find(".scr-panel")
+    expect(start.text()).toContain("RACE-0001")
+    expect(start.text()).toContain("Swarm")
+    await start.findAll("button").find(item => item.text() === "Start event").trigger("click")
+    expect(command.calls.at(-1)).toEqual(["startAIQuickPreset", ["Swarm"]])
+    stores.applyDiff("core", { busy: false, lastResult: { success: true, code: "ai_director_scheduled_partial",
+      details: { requested: 3, started: 2, failed: 1 } } })
+    await settle()
+    expect(wrapper.find(".scr-panel").text()).toContain("2/3 NPCs started")
+    expect(wrapper.find(".scr-panel").text()).toContain("1 could not start")
     wrapper.unmount()
   })
-
   it("keeps compact Events actionable before and after lineup placement", async () => {
     const { wrapper, stores, command } = mountShell()
     stores.uiLayout.setTab("race")
@@ -600,8 +652,11 @@ describe("mounted Runtime UI", () => {
     stores.uiLayout.setTab("race")
     stores.uiLayout.state.raceStep = "behavior"
     await settle()
-    expect(wrapper.find(".scr-race-blocked").text()).toContain("Missing: at least one ready NPC.")
-    expect(wrapper.find(".scr-race-blocked button").text()).toBe("Generate and position NPCs")
+    const blocked = wrapper.find(".scr-race-blocked")
+    expect(blocked.text()).toContain("Behavior blocked")
+    expect(blocked.text()).toContain("Fix generation/positioning first.")
+    await blocked.find("button").trigger("click")
+    expect(stores.uiLayout.state.raceStep).toBe("setup")
 
     stores.applyDiff("core", {
       busy: false,
@@ -612,7 +667,6 @@ describe("mounted Runtime UI", () => {
     expect(wrapper.text()).not.toContain("future_backend_failure_code")
     wrapper.unmount()
   })
-
   it("summarizes applied Chaos changes separately from skipped options", async () => {
     const { wrapper, stores } = mountShell()
     stores.applyDiff("core", {

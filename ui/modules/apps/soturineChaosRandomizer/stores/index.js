@@ -189,6 +189,7 @@ export function createStores(command) {
       lateralSpacing: racePreferences.lateralSpacing ?? placementOptions.lateralSpacing,
       safetyMargin: racePreferences.safetyMargin ?? placementOptions.safetyMargin,
       formationOrigin: racePreferences.formationOrigin || placementOptions.formationOrigin,
+      headingMode: racePreferences.headingMode || placementOptions.headingMode,
     })
     stores.race.replace({
       lineup: state.lineup || {}, spawnDirector: state.spawnDirector || {}, aiDirector: state.aiDirector || {},

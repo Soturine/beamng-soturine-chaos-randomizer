@@ -137,10 +137,8 @@ check(normalizerModule.normalizePreviewSlots("invalid", issue => previewIssues.p
 check(previewIssues.at(-1).receivedType, "string")
 const normalizedRace = normalizerModule.normalizeDomainPayload("race", {
   spawnDirector: { racePreview: { slots: { 1: { name: "Mapped" } } } },
-  lineup: { current: { worldPreview: { slots: null } } },
 })
 check(normalizedRace.spawnDirector.racePreview.slots[0].name, "Mapped")
-check(normalizedRace.lineup.current.worldPreview.slots, [])
 const sparseRaceDiff = normalizerModule.normalizeDomainPayload("race", {
   spawnDirector: { placement: { available: true } },
 })

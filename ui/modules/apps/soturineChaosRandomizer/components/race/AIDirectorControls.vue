@@ -1,11 +1,6 @@
 <template>
   <section>
     <StatusBanner v-if="commandError" tone="error">{{ commandErrorLabel }}</StatusBanner>
-    <div class="scr-actions">
-      <button v-for="preset in quickPresets" :key="preset" type="button" @click="send('startAIQuickPreset', [preset])">{{ t(`race.aiPreset.${preset}`) }}</button>
-    </div>
-    <details class="scr-card scr-progressive">
-      <summary>{{ t('race.advancedOptions') }}</summary>
     <div class="scr-card">
       <h3>{{ t('race.destination') }}</h3>
       <StatusBanner>{{ t(`race.destinationState.${director.destination?.status || 'empty'}`) }}</StatusBanner>
@@ -36,13 +31,8 @@
       <ToggleField v-model="options.recoveryWhenStuck" :label="t('race.recovery')" />
       <ScrSelect v-model="options.stuckAction" :label="t('race.stuckAction')" :items="stuckItems" />
     </div>
-    </details>
     <div class="scr-actions">
-      <button type="button" class="is-hot" @click="send('startManagedAI', [{ ...options }])">{{ t('race.startAll') }}</button>
-      <button type="button" @click="send('pauseManagedAI')">{{ t('race.pauseAll') }}</button>
-      <button type="button" @click="send('resumeManagedAI')">{{ t('race.resumeAll') }}</button>
-      <button type="button" @click="send('stopManagedAI')">{{ t('race.stopAll') }}</button>
-      <button type="button" @click="send('resetManagedAI')">{{ t('race.resetAll') }}</button>
+      <button type="button" @click="send('startManagedAI', [{ ...options }])">{{ t('race.startWithOptions') }}</button>
     </div>
     <div class="scr-managed-ai"><article v-for="vehicle in director.vehicles || []" :key="vehicle.handle"><strong>{{ vehicle.name || t('race.managedVehicle') }}</strong><span>{{ t(`race.aiState.${vehicle.status || 'idle'}`) }}</span><ToggleField :model-value="vehicle.recording === true" :label="t('race.recording')" @update:model-value="value => send('setAIRecording', [vehicle.handle, value])" /></article></div>
   </section>
@@ -56,7 +46,6 @@ import ToggleField from "../common/ToggleField.vue"
 import StatusBanner from "../common/StatusBanner.vue"
 const stores = useStores(); const director = stores.race.state.aiDirector; const options = stores.race.state.aiOptions; const { t } = stores.i18n
 const aiModes = computed(() => director.capabilities?.supportedModes || [])
-const quickPresets = computed(() => director.capabilities?.quickPresets || [])
 const aiModeItems = computed(() => aiModes.value.map(value => ({ value, label: t(`race.aiModeValue.${value}`) })))
 const speedModeItems = computed(() => [{ value: "limit", label: t("race.speedLimit") }, { value: "set", label: t("race.speedSet") }])
 const finishItems = computed(() => [{ value: "stop", label: t("common.stop") }, { value: "loop", label: t("race.loop") }])

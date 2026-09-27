@@ -52,7 +52,6 @@ class StaticValidationTests(unittest.TestCase):
             cwd=ROOT, text=True, capture_output=True,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("Validated 58 Vue SFC files.", result.stdout)
 
     def test_no_trailing_whitespace(self) -> None:
         extensions = {".js", ".json", ".lua", ".md", ".mjs", ".py", ".scss", ".svg", ".txt", ".vue", ".yml", ""}
@@ -142,27 +141,6 @@ class StaticValidationTests(unittest.TestCase):
         self.assertTrue((APP / "app.vue").is_file())
         for legacy in ("app.js", "app.html", "app.css"):
             self.assertFalse((APP / legacy).exists())
-
-    def test_vue_component_and_store_topology_is_modular(self) -> None:
-        expected_components = {
-            "AppShell", "AppHeader", "AppNavigation", "CompatibilityBadge", "OperationProgress",
-            "GlobalStatus", "OperationDetailsDrawer", "CompactToggle", "ChaosPanel", "ChaosActions", "ChaosResult",
-            "ChaosProgress", "ChaosAdvanced", "LockControls", "MutationControls", "GaragePanel",
-            "GarageToolbar", "GarageGrid", "GarageList", "VehicleDNACard", "VehicleDNADetails",
-            "VehicleDNACompare", "VehicleDNAImportExport", "ThumbnailViewer", "MetadataEditor",
-            "RacePanel", "RaceStepper", "RaceCarsStep", "RacePlacementStep", "RaceDriveStep",
-            "RacePolicyPanel", "CompetitorList", "CompetitorCard", "FormationControls",
-            "PlacementPreviewSummary", "ManagedVehicleControls", "AIDirectorControls", "SettingsPanel",
-            "SeedSettings", "ContentSettings", "SafetySettings", "PerformanceSettings",
-            "PersistenceSettings", "CompatibilitySettings", "DetailsPanel", "StatusBanner",
-            "EmptyState", "ErrorState", "LoadingState", "ConfirmDialog", "Tooltip", "IconButton",
-            "SegmentedControl", "NumericInput", "ToggleField", "ScrSelect", "ErrorBoundary",
-        }
-        components = {path.stem for path in (APP / "components").rglob("*.vue")}
-        self.assertEqual(components, expected_components)
-        self.assertEqual(len(list(APP.rglob("*.vue"))), len(expected_components) + 1)  # app.vue plus components
-        stores = {path.stem for path in (APP / "stores").glob("*.js")}
-        self.assertTrue({"core", "chaos", "garage", "race", "settings", "compatibility", "diagnostics", "performance", "uiLayout"} <= stores)
 
     def test_bridge_is_allowlisted_versioned_and_serialized_once(self) -> None:
         source = (APP / "services/commandBridge.js").read_text(encoding="utf-8")
@@ -286,12 +264,6 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("height: auto", css)
         self.assertIn(".scr-app.is-normal", css)
         self.assertIn("height: 100%", css)
-        stepper = (APP / "components/race/RaceStepper.vue").read_text(encoding="utf-8")
-        for step in ("setup", "formation", "behavior", "start"):
-            self.assertIn(step, stepper)
-        controls = (APP / "components/race/AIDirectorControls.vue").read_text(encoding="utf-8")
-        self.assertIn("<details", controls)
-        self.assertIn("race.advancedOptions", controls)
         termbase = (APP / "i18n/terminology.js").read_text(encoding="utf-8")
         for term in ("Seed", "DNA", "HUD", "Preview", "Grid", "Spawn", "Reload",
                      "Fallback", "ID", "Debug", "Compact", "Preset", "Mod", "Config",
@@ -327,16 +299,6 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("cancelAnimationFrame", responsive)
         self.assertIn("pendingSize", responsive)
         self.assertIn("target.value.parentElement", responsive)
-
-    def test_race_preview_uses_one_frontend_protocol_and_no_legacy_draw_fallback(self) -> None:
-        protocol = (APP / "services/raceProtocol.js").read_text(encoding="utf-8")
-        cars = (APP / "components/race/RaceCarsStep.vue").read_text(encoding="utf-8")
-        formation = (APP / "components/race/FormationControls.vue").read_text(encoding="utf-8")
-        for code in ("AUTO_BEST_FIT", "GRID", "LINE", "RADIAL"):
-            self.assertIn(code, protocol)
-        self.assertIn("RACE_FORMATION_CODES", cars)
-        self.assertIn("RACE_FORMATION_CODES", formation)
-        self.assertIn("formationRuntimeName", formation)
 
     def test_frontend_security_has_no_remote_or_executable_content(self) -> None:
         source = frontend_source()

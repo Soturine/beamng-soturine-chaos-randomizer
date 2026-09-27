@@ -51,19 +51,6 @@ const normalizePreview = (value, report, path) => {
   return { ...value, slots: normalizePreviewSlots(value.slots, report, `${path}.slots`) }
 }
 
-const normalizeLineup = (value, report, path = "lineup") => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return value ?? {}
-  const current = value.current && typeof value.current === "object" && !Array.isArray(value.current)
-    ? value.current : value.current
-  return {
-    ...value,
-    current: current && typeof current === "object" ? {
-      ...current,
-      worldPreview: normalizePreview(current.worldPreview, report, `${path}.current.worldPreview`),
-    } : current,
-  }
-}
-
 export function normalizeGarageEntries(value, report = () => {}) {
   if (value === undefined || value === null) return []
 
@@ -130,7 +117,6 @@ export function normalizeRaceState(value, report = () => {}) {
     )
   }
   const normalized = { ...race, spawnDirector: normalizedSpawnDirector }
-  if (hasOwn(race, "lineup")) normalized.lineup = normalizeLineup(race.lineup, report)
   return normalized
 }
 
@@ -147,7 +133,6 @@ export function normalizeFullState(value, report = () => {}) {
       managed: normalizeManagedVehicles(spawnDirector.managed, report),
       racePreview: normalizePreview(spawnDirector.racePreview, report, "spawnDirector.racePreview"),
     },
-    lineup: normalizeLineup(state.lineup, report),
   }
 }
 

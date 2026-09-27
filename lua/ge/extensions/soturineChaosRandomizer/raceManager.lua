@@ -965,7 +965,7 @@ local function summary(lineup)
   local result = {
     active = lineup and lineup.active == true, total = 0, ready = 0, partial = 0,
     failed = 0, cancelled = 0, removed = 0, skipped = 0, pending = 0, generated = 0,
-    generationReady = 0, placementReady = 0, drivable = 0, aiReady = 0,
+    generationReady = 0, placementReady = 0, positioned = 0, drivable = 0, aiReady = 0,
     generatedNotDrivable = 0, aiCommandDispatched = 0,
     retries = 0, quarantinedCandidates = 0,
     totalGenerationTime = lineup and math.max(0, os.time() - (tonumber(lineup.createdAt) or os.time())) or 0,
@@ -983,6 +983,7 @@ local function summary(lineup)
     if physicallyBound then result.generated = result.generated + 1 end
     if generationUsable then result.generationReady = result.generationReady + 1 end
     if generationUsable and competitor.placementReady == true then result.placementReady = result.placementReady + 1 end
+    if generationUsable and competitor.placementState == "placed" then result.positioned = result.positioned + 1 end
     if generationUsable and competitor.drivable == true then result.drivable = result.drivable + 1
     elseif generationUsable and competitor.drivable == false then
       result.generatedNotDrivable = result.generatedNotDrivable + 1

@@ -90,9 +90,19 @@
 .scr-thumbnail small { position: absolute; right: 2px; bottom: 2px; padding: 1px 3px; background: #000c; color: #ffcf8a; font-size: .55rem; }
 .scr-pagination { display: flex; justify-content: space-between; align-items: center; gap: 5px; }
 .scr-competitor-list, .scr-managed-ai { display: grid; gap: 5px; }
-.scr-race-counters { display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 4px; padding: 6px; background: #202328; border-radius: 5px; font-size: .72rem; }
 .scr-race-summary { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 10px; padding: 7px 8px; background: #202328; border-radius: 5px; font-size: .76rem; }
 .scr-race-summary strong { flex: 1 1 100%; color: var(--scr-orange-bright); }
+.scr-race-step { display: grid; gap: 7px; min-width: 0; }
+.scr-race-summary .is-warning, .scr-race-summary.is-warning strong { color: #ffb45c; }
+.scr-race-summary.is-blocked { border-left: 3px solid #ffb45c; }
+.scr-race-summary.is-blocked button { flex: 0 1 auto; }
+.scr-seed-inline { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; overflow-wrap: anywhere; }
+.scr-behavior-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(9rem, 100%), 1fr)); gap: 5px; }
+.scr-behavior-grid button.is-active { outline: 2px solid var(--scr-orange-bright); background: #3a2f22; }
+.scr-start-summary { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 4px 10px; margin: 0; font-size: .76rem; }
+.scr-start-summary dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.scr-slot-recovery { display: block; margin-block: 3px; color: #ffcf8a; font-size: .68rem; }
+.scr-width-narrow .scr-start-summary { grid-template-columns: minmax(0, 1fr); }
 .scr-progressive > summary { cursor: pointer; }
 .scr-competitor { padding: 6px; background: #292c31; border-left: 3px solid var(--scr-orange); }
 .scr-competitor header { display: grid; grid-template-columns: auto 1fr auto; gap: 5px; align-items: center; }
