@@ -1,13 +1,19 @@
 # Current validation
 
-Current release: **0.7.10 experimental prerelease**, targeting BeamNG.drive
+Current release: **0.7.11 experimental prerelease**, targeting BeamNG.drive
 0.39.4.x. Automated validation runs through `npm run verify` (static, UI, Lua
 and Python contracts, then the deterministic package).
 
-Owner live status for v0.7.10: **Pending owner validation; not executed** -
-0 executed / 0 passed / 0 failed / 15 pending / 0 blocked. Use the exact
+Owner live status for v0.7.11: **Pending owner validation; not executed** -
+0 executed / 0 passed / 0 failed / 13 pending / 0 blocked. Use the exact
 downloaded release asset and record results in
-[v0.7.10 live results](../testing/v0.7.10/LIVE_RESULTS.md).
+[v0.7.11 live results](../testing/v0.7.11/LIVE_RESULTS.md).
+
+The v0.7.10 owner session is historical evidence: world Preview geometry was
+visible (renderer confirmed), while Preview follow, UI after Preview,
+discoverability and the origin label fit failed. See
+[v0.7.10 live results](../testing/v0.7.10/LIVE_RESULTS.md) and the
+[v0.7.11 root cause report](../testing/v0.7.11/ROOT_CAUSE_REPORT.md).
 
 The v0.7.9 owner session (BeamNG 0.39.4.0.20972, Direct3D 11) is historical
 evidence: 5 executed / 0 passed / 2 failed / 10 pending / 3 blocked - Preview

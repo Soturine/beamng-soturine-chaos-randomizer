@@ -14,7 +14,12 @@ Terminal outcomes are `COMPLETED`, `COMPLETED_WITH_SKIPS`,
 Preview states are `PREVIEW_DISABLED`, `PREVIEW_DATA_READY`,
 `PREVIEW_RENDERING`, `PREVIEW_RENDERED`, `PREVIEW_FAILED` and `PREVIEW_STALE`.
 `PREVIEW_RENDERED` requires an `onPreRender` frame that drew at least one
-marker. A failed Preview names its cause: `preview_debug_drawer_missing`,
+marker. The preview is the top-level Race key `racePreview` (or `false` when
+hidden); its transitions arrive as a Race diff `{racePreview}` published from
+`onUpdate`, never from the render hook. Slots follow the anchor they were
+planned in (`anchorMode` `player`, `camera`, `custom` or `fixed`); `quality` is
+`estimated` before generation and `validated` with real bounds. A lost anchor
+reports `preview_anchor_unavailable`. A failed Preview names its cause: `preview_debug_drawer_missing`,
 `preview_color_api_missing`, `preview_vector_api_missing`,
 `preview_draw_method_missing`, `preview_render_callback_missing`,
 `preview_marker_draw_failed` or `preview_render_empty`; the renderer also

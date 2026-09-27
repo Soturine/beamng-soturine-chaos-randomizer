@@ -2,6 +2,28 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.11] - 2026-09-27
+
+Live Preview and Events UI experimental prerelease targeting BeamNG 0.39.4.x, derived from the owner's v0.7.10 live session.
+
+### Fixed
+
+- The formation preview stored absolute positions and stayed where it was calculated; slots are now offsets in the anchor frame and follow the player or camera every frame (Custom stays fixed).
+- `onPreRender` published the full application state from the render callback; it now only flags transitions and `onUpdate` sends a minimal Race diff. Full planning runs only on changes or after drift.
+- The app shell could be scrolled out of view by focus changes, leaving a dark rectangle; the shell is clipped, guarded, and state-application failures show a recoverable root panel.
+- A preview-only Race diff would have wiped the UI's placement state.
+
+### Changed
+
+- One Show/Hide formation preview that works before generation; preview and placement gates are independent; staging preview and its preference were removed from the UI.
+- Setup no longer renders an empty competitor card; origin labels are short with helper text; pt-BR uses "prévia".
+
+### Testing and live status
+
+- Added contracts for anchor follow, a light render hook, deferred Race diff, the Formation preview flow, shell stability and root recovery.
+- v0.7.10 owner results recorded: renderer visibility confirmed, preview follow, UI after preview, discoverability and origin label fit failed.
+- v0.7.11 live BeamNG status starts **Pending owner validation**: 0 executed / 13 pending.
+
 ## [0.7.10] - 2026-09-27
 
 Race stabilization and simplification experimental prerelease targeting BeamNG 0.39.4.x, derived from the owner's v0.7.9 live session.

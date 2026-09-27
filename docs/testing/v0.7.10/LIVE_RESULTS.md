@@ -1,45 +1,39 @@
 # v0.7.10 live results
 
-Authoritative status: **Pending owner validation; not executed**.
+Authoritative status: **Partially executed by the owner on 2026-09-27; failed**.
 
 | Field | Value |
 | --- | --- |
 | Release version | 0.7.10 |
 | Validation owner | repository owner |
-| Required artifact | exact ZIP downloaded from the GitHub v0.7.10 experimental prerelease |
-| Target | BeamNG.drive 0.39.4.x |
-| Prior owner evidence | v0.7.9 on BeamNG 0.39.4.0.20972 / Direct3D 11 (see v0.7.9 live results) |
+| Artifact | `soturine_chaos_randomizer_0.7.10.zip` mounted from the user mods folder |
+| Environment | BeamNG.drive 0.39.4.0.20972 / Direct3D 11, Gridmap V2 |
+| Evidence | owner report and screenshots; game log `beamng.log` (no Lua, Vue or CEF error recorded) |
 
 | Result | Count |
 | --- | ---: |
-| Executed | 0 |
+| Executed | 2 |
 | Passed | 0 |
-| Failed | 0 |
-| Pending | 15 |
+| Failed | 2 |
+| Pending | 13 |
 | Blocked | 0 |
 
-Run the cases in this order with the exact downloaded ZIP. Record the ZIP name,
-bytes and SHA-256, BeamNG build, renderer, map and language, and keep the game
-log (`race_preview_runtime_probe`, `race_slot_recovery`) with each result.
-
-| # | Case | Expected | Status |
+| # | Case | Status | Observation |
 | ---: | --- | --- | --- |
-| 1 | Balanced, 4 vehicles, player participates | 3/3 generated or explained per-slot recovery | Pending owner validation |
-| 2 | Preview visible | "Preview formation" shows spheres/footprints in the world; state `PREVIEW_RENDERED` | Pending owner validation |
-| 3 | Generate 3 NPCs | no orphan vehicle after a rejected candidate | Pending owner validation |
-| 4 | Position All, one click | "Positioning 1/3…3/3" in one run, all three move | Pending owner validation |
-| 5 | Line | straight line, not degraded | Pending owner validation |
-| 6 | Grid | rows and columns, not degraded | Pending owner validation |
-| 7 | Single File Ahead | one file ahead of the player | Pending owner validation |
-| 8 | Single File Behind | one file behind the player | Pending owner validation |
-| 9 | Follow me | NPCs follow the player | Pending owner validation |
-| 10 | Chase | NPCs chase the player | Pending owner validation |
-| 11 | Flee | NPCs flee the player | Pending owner validation |
-| 12 | Remove → regenerate | no cleanup/binding error, fresh lineup | Pending owner validation |
-| 13 | Custom (official off, no mods) | variety relaxes; opponents generated or a clear terminal reason | Pending owner validation |
-| 14 | Maximum Chaos | undrivable results reported honestly | Pending owner validation |
-| 15 | Narrow UI (320–720 px) | no overflow, cut select or dead space | Pending owner validation |
+| 1 | Balanced, 4 vehicles, player participates | Pending owner validation | not reported |
+| 2 | Preview visible | Failed | Partial pass: spheres, footprints, headings, `[OK]` labels and the player marker were visible in the world (renderer path, `debugDrawer`, `ColorF`/`vec3` bridge confirmed live). Failed: markers stayed at the planned coordinates when the car moved; after using the preview the whole app became a black rectangle without header, tabs or content and stopped responding; the preview a user finds first was hidden in Advanced options while "Preview formation" was disabled with 0 NPCs; the "Automatic (player when participating)" origin label was truncated. |
+| 3 | Generate 3 NPCs | Pending owner validation | not reported |
+| 4 | Position All, one click | Pending owner validation | not reported |
+| 5 | Line | Pending owner validation | not reported |
+| 6 | Grid | Pending owner validation | not reported |
+| 7 | Single File Ahead | Pending owner validation | not reported |
+| 8 | Single File Behind | Pending owner validation | not reported |
+| 9 | Follow me | Pending owner validation | not reported |
+| 10 | Chase | Pending owner validation | not reported |
+| 11 | Flee | Pending owner validation | not reported |
+| 12 | Remove → regenerate | Pending owner validation | not reported |
+| 13 | Custom (official off, no mods) | Pending owner validation | not reported |
+| 14 | Maximum Chaos | Pending owner validation | not reported |
+| 15 | Narrow UI (320–720 px) | Failed | origin select label truncated in the Formation step |
 
-Automated contract tests do not execute BeamNG, prove visible markers, physical
-AI movement, AppHost pixels or live performance. No v0.7.9 result is carried
-forward as a v0.7.10 pass or failure.
+Causes and fixes are in the [v0.7.11 root cause report](../v0.7.11/ROOT_CAUSE_REPORT.md).
