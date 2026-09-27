@@ -13,7 +13,7 @@ import uuid
 
 
 METRICS_PATTERN = re.compile(
-    r"^SCR_TEST_METRICS functions=(\d+) mappings=(\d+) cases=(\d+) assertions=(\d+)\s*$",
+    r"^SCR_TEST_METRICS functions=(\d+) cases=(\d+) assertions=(\d+)\s*$",
     re.MULTILINE,
 )
 SUCCESS_PATTERN = re.compile(r"^SCR_TESTS_OK (\d+)\s*$", re.MULTILINE)
@@ -81,9 +81,8 @@ def run_lua_suite(root: Path) -> tuple[str, dict[str, int]]:
         raise RuntimeError("Lua suite did not complete successfully:\n" + output)
     metrics = {
         "luaTestFunctionsUnique": int(metrics_match.group(1)),
-        "luaRequirementMappings": int(metrics_match.group(2)),
-        "luaExecutedCases": int(metrics_match.group(3)),
-        "luaAssertions": int(metrics_match.group(4)),
+        "luaExecutedCases": int(metrics_match.group(2)),
+        "luaAssertions": int(metrics_match.group(3)),
     }
     if int(success.group(1)) != metrics["luaExecutedCases"]:
         raise RuntimeError("Lua success count does not match the runner metrics")

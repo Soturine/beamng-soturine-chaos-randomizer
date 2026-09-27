@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import re
 import sys
 from pathlib import Path
@@ -28,13 +29,6 @@ class ReleaseGateError(RuntimeError):
 
 
 REPORT_STATUSES = ("Executed", "Passed", "Failed", "Pending", "Blocked")
-MANIFEST_STATUS_KEYS = {
-    "Executed": "interactiveExecuted",
-    "Passed": "interactivePassed",
-    "Failed": "interactiveFailed",
-    "Pending": "interactivePending",
-    "Blocked": "interactiveBlocked",
-}
 
 
 def _release_documents(root: Path, version: str) -> tuple[Path, Path]:
@@ -72,30 +66,27 @@ def _read_report_counts(source: str) -> dict[str, int]:
 
 
 def _validate_candidate_artifacts(archive: Path, root: Path, counts: dict[str, int]) -> dict[str, object]:
-    version = read_version(root)
-    validate_package.validate_archive(archive, version)
-    validate_package.validate_checksum(archive)
-    validate_package.validate_reproducible(archive, root)
-    manifest = validate_package.validate_release_manifest(archive, root)
-
-    if manifest.get("manifestVersion") != 3:
-        raise ReleaseGateError("Release manifest version must be 3")
+    """Release-specific checks only. The archive, checksum, reproducibility and
+    manifest structure are validated by validate_package.py in the same run."""
+    manifest_path = archive.with_name(f"{archive.stem}.manifest.json")
+    if not archive.is_file() or not manifest_path.is_file():
+        raise ReleaseGateError("Release ZIP or manifest is missing; run npm run verify first")
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    if manifest.get("sha256") != hashlib.sha256(archive.read_bytes()).hexdigest():
+        raise ReleaseGateError("Release manifest does not describe this ZIP")
     expected_commit = get_commit_sha(root)
     if expected_commit == "unknown" or manifest.get("commit") != expected_commit:
         raise ReleaseGateError("Release manifest commit does not match the current checkout")
-    identity = release_identity(version)
+    identity = release_identity(read_version(root))
     for key in ("tag", "releaseStage", "publicationAllowed", "releaseStatus", "prerelease"):
         if manifest.get(key) != identity[key]:
             raise ReleaseGateError(f"Release manifest {key} does not match the publication stage")
     if manifest.get("branch") != "main":
         raise ReleaseGateError("Release manifest branch must be main")
-
-    manifest_tests = manifest.get("tests")
-    if not isinstance(manifest_tests, dict):
-        raise ReleaseGateError("Release manifest test metrics are missing")
-    for status, key in MANIFEST_STATUS_KEYS.items():
-        if manifest_tests.get(key) != counts[status]:
-            raise ReleaseGateError(f"Release manifest {key} does not match the live report")
+    live = manifest.get("liveValidation") if isinstance(manifest.get("liveValidation"), dict) else {}
+    for status in ("Executed", "Passed", "Failed", "Pending", "Blocked"):
+        if live.get(status.lower()) != counts[status]:
+            raise ReleaseGateError(f"Release manifest {status.lower()} count does not match the live report")
     return manifest
 
 

@@ -60,14 +60,11 @@ Run from the repository root:
 
 ```text
 npm ci --ignore-scripts
-npm run validate:sfc
-npm run validate:graph
-npm run validate:styles
-npm run test:ui
-python -m unittest discover -s tests -v
-python tools/package_mod.py
-python tools/validate_package.py
-python tools/validate_release_gate.py --channel prerelease
+npm run verify           # every essential check once, then the package
+npm run verify:release   # verify + release-evidence checks before tagging
 ```
+
+`tools/verify.py` is the single validation path; CI and the package workflow
+call it. Do not add parallel gates that re-run the same checks.
 
 Publish only the deterministic ZIP, its `.zip.sha256`, and its manifest. Never use GitHub's source archive as the mod package.

@@ -25,19 +25,16 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install validation dependency
-        run: python -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
-
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
 
-      - name: Install Lua 5.1
-        run: sudo apt-get update && sudo apt-get install --yes lua5.1
-
-      - name: Install pinned Vue validation dependencies
-        run: npm ci --ignore-scripts
+      - name: Install toolchain
+        run: |
+          sudo apt-get update && sudo apt-get install --yes lua5.1
+          python -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
+          npm ci --ignore-scripts
 
       - name: Validate tag and VERSION
         if: startsWith(github.ref, 'refs/tags/')
@@ -53,47 +50,13 @@ jobs:
             exit 1
           fi
 
-      - name: Validate JSON files
-        run: python -m unittest tests.test_static.StaticValidationTests.test_json_files_parse -v
+      - name: Verify
+        if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+        run: npm run verify
 
-      - name: Compile native Vue SFC files
-        run: npm run validate:sfc
-
-      - name: Validate source Runtime UI module graph
-        run: npm run validate:graph
-
-      - name: Validate source Runtime UI style graph
-        run: npm run validate:styles
-
-      - name: Build deterministic ZIP for graph validation
-        run: python -c "from pathlib import Path; from tools.package_mod import package; package(Path('dist'))"
-
-      - name: Validate extracted ZIP Runtime UI module graph
-        run: python tools/validate_package.py --module-graph-only
-
-      - name: Validate extracted ZIP Runtime UI style graph
-        run: python tools/validate_package.py --style-graph-only
-
-      - name: Run Python tests
-        run: python -m unittest tests.test_architecture tests.test_package tests.test_static tests.test_vue_module_graph tests.test_vue_style_graph -v
-
-      - name: Run Lua syntax and regression tests
-        run: |
-          find lua -type f -name '*.lua' -print0 | xargs -0 luac5.1 -p
-          python -m unittest tests.test_lua -v
-
-      - name: Run JavaScript and Vue service tests
-        run: npm run test:ui
-
-      - name: Build deterministic package, checksum, and manifest
-        run: python tools/package_mod.py
-
-      - name: Validate package, checksum, manifest, and reproducibility
-        run: python tools/validate_package.py
-
-      - name: Validate experimental prerelease candidate
+      - name: Verify release candidate
         if: startsWith(github.ref, 'refs/tags/')
-        run: python tools/validate_release_gate.py --channel prerelease
+        run: npm run verify:release
 
       - name: Upload package artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -147,7 +110,7 @@ jobs:
             "dist/soturine_chaos_randomizer_${version}.zip.sha256" \
             "dist/soturine_chaos_randomizer_${version}.manifest.json" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "v${version} — Live-derived stabilization" \
+            --title "v${version} — Race stabilization and simplification" \
             --notes-file "$notes" \
             --verify-tag \
             --prerelease \

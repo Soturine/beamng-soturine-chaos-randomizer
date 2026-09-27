@@ -18,9 +18,8 @@ For a bug, first search existing issues and reduce the report to the smallest ve
 Use Python 3.10+, Node.js, and Lua 5.1 (or BeamNG's shipped console). BeamNG 0.38.6 is required for current adapter and interactive testing.
 
 ```powershell
-python -m unittest discover -s tests -v
-python tools/package_mod.py
-python tools/validate_package.py
+npm ci --ignore-scripts
+npm run verify
 python tools/profile_fixtures.py
 ```
 

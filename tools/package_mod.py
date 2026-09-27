@@ -11,12 +11,6 @@ from pathlib import Path
 import subprocess
 import zipfile
 import re
-import shutil
-
-try:
-    from tools.lua_metrics import run_lua_suite
-except ModuleNotFoundError:  # Direct execution: python tools/package_mod.py
-    from lua_metrics import run_lua_suite
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -199,67 +193,6 @@ def live_test_counts(root: Path = REPOSITORY_ROOT) -> dict[str, int]:
     return counts
 
 
-def test_counts(root: Path = REPOSITORY_ROOT) -> dict[str, int]:
-    python_methods = 0
-    for path in (root / "tests").glob("test_*.py"):
-        python_methods += len(re.findall(r"^\s+def test_[A-Za-z0-9_]+\(", path.read_text(encoding="utf-8"), re.MULTILINE))
-    _, lua_metrics = run_lua_suite(root.resolve())
-    interactive = live_test_counts(root)
-    node = shutil.which("node")
-    if not node:
-        raise RuntimeError("Node.js is required for native Vue release validation")
-    javascript = subprocess.run(
-        [node, str(root / "tests" / "js" / "vue_runtime.test.mjs")],
-        cwd=root, text=True, capture_output=True, check=False,
-    )
-    if javascript.returncode != 0:
-        raise RuntimeError("JavaScript/Vue checks failed:\n" + javascript.stdout + javascript.stderr)
-    javascript_total = re.search(r"SCR_UI_JS_TESTS_PASSED\s+(\d+)", javascript.stdout)
-    if not javascript_total:
-        raise RuntimeError("JavaScript/Vue checks did not report an assertion count")
-    graph = subprocess.run(
-        [node, str(root / "tools" / "validate_vue_module_graph.mjs"), "--json"],
-        cwd=root, text=True, capture_output=True, check=False,
-    )
-    if graph.returncode != 0:
-        raise RuntimeError("Static Runtime UI module graph validation failed:\n" + graph.stdout + graph.stderr)
-    try:
-        graph_report = json.loads(graph.stdout)
-    except json.JSONDecodeError as error:
-        raise RuntimeError("Module graph validator did not return JSON") from error
-    result = {
-        "pythonTestMethodsUnique": python_methods,
-        **lua_metrics,
-        "nodeSyntaxFiles": len(list((root / "ui").rglob("*.js"))) + len(list((root / "tests" / "js").glob("*.mjs"))),
-        "vueSFCFiles": len(list((root / "ui").rglob("*.vue"))),
-        "javaScriptChecks": int(javascript_total.group(1)),
-        "vueModuleGraphFiles": int(graph_report["filesScanned"]),
-        "vueModuleGraphReachableFiles": int(graph_report["reachableFiles"]),
-        "vueModuleGraphImports": int(graph_report["importsScanned"]),
-        "vueModuleGraphProjectImports": int(graph_report["projectImports"]),
-        "vueModuleGraphRuntimeAliases": int(graph_report["runtimeAliases"]),
-        "vueModuleGraphDirectoryImports": int(graph_report["directoryImports"]),
-        "vueModuleGraphMissingModules": int(graph_report["missingModules"]),
-        "vueModuleGraphCaseMismatches": int(graph_report["caseMismatches"]),
-        "vueModuleGraphCycles": int(graph_report["cycles"]),
-        "vueModuleGraphNamedExportErrors": int(graph_report["namedExportErrors"]),
-        "jsonFiles": len(project_json_files(root)),
-        "yamlFiles": len(list((root / ".github" / "workflows").glob("*.yml"))),
-        "packageTestMethods": len(re.findall(
-            r"^\s+def test_[A-Za-z0-9_]+\(",
-            (root / "tests" / "test_package.py").read_text(encoding="utf-8"),
-            re.MULTILINE,
-        )),
-        "interactiveExecuted": interactive["Executed"],
-        "interactivePassed": interactive["Passed"],
-        "interactiveFailed": interactive["Failed"],
-        "interactivePending": interactive["Pending"],
-        "interactiveBlocked": interactive["Blocked"],
-        "interactiveNotApplicable": interactive["Not applicable"],
-    }
-    return result
-
-
 def project_json_files(root: Path = REPOSITORY_ROOT) -> list[Path]:
     """Return repository JSON inputs without machine-installed dependencies."""
     return sorted(
@@ -269,32 +202,14 @@ def project_json_files(root: Path = REPOSITORY_ROOT) -> list[Path]:
 
 
 def write_release_manifest(archive: Path, output: Path | None = None, root: Path = REPOSITORY_ROOT) -> Path:
+    """Describe the artifact and its evidence. Tests run before packaging
+    (npm run verify); packaging never re-executes them."""
     report = build_report(archive, root)
     identity = release_identity(str(report["version"]))
-    tests = test_counts(root)
     compatibility = read_compatibility(root)
-    automated_tests = {
-        "status": "passed",
-        "pythonTestMethods": tests["pythonTestMethodsUnique"],
-        "luaExecutedCases": tests["luaExecutedCases"],
-        "luaRequirementMappings": tests["luaRequirementMappings"],
-        "javaScriptChecks": tests["javaScriptChecks"],
-        "vueSFCFiles": tests["vueSFCFiles"],
-        "vueModuleGraphFiles": tests["vueModuleGraphFiles"],
-        "vueModuleGraphImports": tests["vueModuleGraphImports"],
-        "vueModuleGraphProjectImports": tests["vueModuleGraphProjectImports"],
-    }
-    live_tests = {
-        "status": "Pending owner validation",
-        "executed": tests["interactiveExecuted"],
-        "passed": tests["interactivePassed"],
-        "failed": tests["interactiveFailed"],
-        "pending": tests["interactivePending"],
-        "blocked": tests["interactiveBlocked"],
-    }
+    live = live_test_counts(root)
     manifest = {
-        "manifestVersion": 3,
-        "modVersion": report["version"],
+        "manifestVersion": 4,
         "version": report["version"],
         "tag": identity["tag"],
         "releaseStage": identity["releaseStage"],
@@ -312,29 +227,18 @@ def write_release_manifest(archive: Path, output: Path | None = None, root: Path
         "minimumBeamNGVersion": compatibility["minimumBeamNGVersion"],
         "compatibilitySchemaVersion": compatibility.get("schemaVersion"),
         "uiRuntime": compatibility.get("uiRuntime"),
-        "detectedOrDeclaredCompatibility": {
-            "source": "COMPATIBILITY.json",
-            "testedGameVersions": compatibility.get("testedGameVersions", []),
-            "liveValidationStatus": compatibility["liveValidationStatus"],
-        },
-        "targetBeamNG": compatibility["primaryBeamNGTarget"],
-        "fileCount": report["entries"],
-        "zipSize": report["bytes"],
-        "zipSha256": report["sha256"],
+        "testedGameVersions": compatibility.get("testedGameVersions", []),
         "generatorVersion": GENERATOR_VERSION,
         "vehicleDNASchemaVersion": DNA_SCHEMA_VERSION,
         "vehicleDNAGeneratorVersion": DNA_GENERATOR_VERSION,
-        "tests": tests,
-        "automatedTests": automated_tests,
-        "liveTests": live_tests,
-        "automatedValidation": automated_tests,
+        "automatedValidation": {"command": "npm run verify", "commit": report["commit"]},
         "liveValidation": {
-            "status": "pending_owner_validation",
-            "executed": tests["interactiveExecuted"],
-            "passed": tests["interactivePassed"],
-            "failed": tests["interactiveFailed"],
-            "pending": tests["interactivePending"],
-            "blocked": tests["interactiveBlocked"],
+            "status": compatibility["liveValidationStatus"],
+            "executed": live["Executed"],
+            "passed": live["Passed"],
+            "failed": live["Failed"],
+            "pending": live["Pending"],
+            "blocked": live["Blocked"],
         },
     }
     output = output or archive.with_name(f"{archive.stem}.manifest.json")

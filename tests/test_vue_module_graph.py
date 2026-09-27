@@ -31,26 +31,6 @@ class VueModuleGraphTests(unittest.TestCase):
         shutil.copytree(APP, app)
         return app
 
-    def test_static_runtime_ui_module_graph_validation(self) -> None:
-        result = self.run_graph(APP)
-        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
-        report = json.loads(result.stdout)
-        self.assertGreater(report["filesScanned"], 0)
-        self.assertGreater(report["importsScanned"], 0)
-        self.assertEqual(
-            report["projectVueImports"] + report["projectJavaScriptImports"]
-            + report["projectJsonImports"] + report["projectCssImports"]
-            + report["projectScssImports"],
-            report["projectImports"],
-        )
-        self.assertEqual(report["projectCssImports"], 1)
-        self.assertEqual(report["projectScssImports"], 0)
-        self.assertEqual(report["directoryImports"], 0)
-        self.assertEqual(report["missingModules"], 0)
-        self.assertEqual(report["caseMismatches"], 0)
-        self.assertEqual(report["cycles"], 0)
-        self.assertEqual(report["namedExportErrors"], 0)
-
     def test_directory_import_is_rejected_even_when_index_exists(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             app = self.copy_app(Path(temporary))
@@ -98,23 +78,6 @@ class VueModuleGraphTests(unittest.TestCase):
             reasons = {item["reason"] for item in report["issues"]}
             self.assertIn("missing_module", reasons)
             self.assertIn("missing_named_export", reasons)
-
-    def test_extracted_zip_module_graph_validation(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            archive, _ = package_mod.package(root / "dist", ROOT)
-            extracted = root / "extracted"
-            with zipfile.ZipFile(archive) as value:
-                value.extractall(extracted)
-            app = extracted / "ui/modules/apps/soturineChaosRandomizer"
-            result = self.run_graph(app, mode="zip")
-            self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
-            report = json.loads(result.stdout)
-            self.assertEqual(report["zipMissingModules"], 0)
-            self.assertGreater(report["projectImports"], 0)
-            integrated = validate_package.validate_extracted_vue_module_graph(archive)
-            self.assertEqual(integrated["importsScanned"], report["importsScanned"])
-
 
 if __name__ == "__main__":
     unittest.main()

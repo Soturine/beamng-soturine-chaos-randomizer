@@ -36,20 +36,6 @@ class VueStyleGraphTests(unittest.TestCase):
         self.assertIn(reason, {item["reason"] for item in report["issues"]})
         return report
 
-    def test_source_style_graph_is_pure_complete_and_runtime_reachable(self) -> None:
-        result = self.run_graph(APP)
-        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
-        report = json.loads(result.stdout)
-        self.assertEqual(report["runtimeCssFiles"], 1)
-        self.assertEqual(report["cssFilesScanned"], 1)
-        self.assertEqual(report["assetReferences"], 1)
-        for field in (
-            "missingStyles", "missingAssets", "caseMismatches", "remoteReferences",
-            "rawScssRuntimePaths", "emptyCssFiles", "sourceMapReferences",
-            "criticalRuleFailures", "zipMissingStyles", "zipMissingAssets",
-        ):
-            self.assertEqual(report[field], 0, field)
-
     def test_missing_and_case_mismatched_styles_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             app = self.copy_app(Path(temporary))
@@ -92,15 +78,6 @@ class VueStyleGraphTests(unittest.TestCase):
             )
             report = self.assert_reason(self.run_graph(app), "critical_rule_missing")
             self.assertGreaterEqual(report["criticalRuleFailures"], 1)
-
-    def test_extracted_zip_style_graph_validation(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            archive, _ = package_mod.package(Path(temporary) / "dist", ROOT)
-            report = validate_package.validate_extracted_vue_style_graph(archive)
-            self.assertEqual(report["runtimeCssFiles"], 1)
-            self.assertEqual(report["zipMissingStyles"], 0)
-            self.assertEqual(report["zipMissingAssets"], 0)
-
 
 if __name__ == "__main__":
     unittest.main()

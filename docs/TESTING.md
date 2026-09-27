@@ -12,17 +12,16 @@ Testing is reported by evidence category. Counts from different categories are n
 
 ```powershell
 npm ci --ignore-scripts
-npm run validate:sfc
-npm run validate:graph
-npm run validate:styles
-npm run test:ui
-python -m unittest discover -s tests -v
-python tools/package_mod.py
-python tools/validate_package.py
-python tools/validate_release_gate.py --channel prerelease
+npm run verify
+npm run verify:release   # before tagging a prerelease
 ```
 
-The Python Lua wrapper uses a local Lua 5.1-compatible interpreter when available, otherwise the installed BeamNG console. The Lua suite prints unique function count, requirement mappings, executed cases, and assertion count separately.
+`tools/verify.py` runs each check exactly once: version metadata, Vue SFC
+compile and command parity, Runtime UI module/style graphs, UI runtime and
+mounted contracts, Lua 5.1 syntax (when `luac5.1` is installed), the Python and
+Lua suites, then one package build, validation and reproducibility rebuild.
+
+The Python Lua wrapper uses a local Lua 5.1-compatible interpreter when available, otherwise the installed BeamNG console. The Lua suite prints unique function count, executed cases, and assertion count.
 
 ## Evidence categories
 
@@ -35,7 +34,6 @@ The Python Lua wrapper uses a local Lua 5.1-compatible interpreter when availabl
 | JavaScript/Vue tests | bridge, store, state, i18n, layout and lifecycle contracts | CEF pixels, DPI, real controller input |
 | JSON/schema tests | manifest/settings/schema validity and migration | persistent game storage behavior |
 | Workflow/package tests | deterministic ZIP, root layout, manifests, release gates | successful live installation |
-| Requirement mappings | traceability to executed tests | additional executions |
 | Live BeamNG tests | actual packaged gameplay/UI/mod evidence | untested builds or content |
 
 Current exact automated results are recorded in

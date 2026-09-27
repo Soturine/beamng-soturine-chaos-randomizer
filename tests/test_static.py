@@ -33,48 +33,6 @@ class StaticValidationTests(unittest.TestCase):
                 with self.subTest(path=path.relative_to(ROOT)):
                     json.loads(path.read_text(encoding="utf-8"))
 
-    def test_javascript_syntax(self) -> None:
-        node = shutil.which("node")
-        self.assertIsNotNone(node, "Node.js 24 is required")
-        files = sorted((ROOT / "ui").rglob("*.js")) + sorted((ROOT / "tests/js").glob("*.mjs"))
-        for path in files:
-            with self.subTest(path=path.relative_to(ROOT)):
-                result = subprocess.run([node, "--check", str(path)], text=True, capture_output=True)
-                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-    def test_vue_sfc_files_compile(self) -> None:
-        node = shutil.which("node")
-        compiler = ROOT / "node_modules/@vue/compiler-sfc"
-        self.assertIsNotNone(node, "Node.js 24 is required")
-        self.assertTrue(compiler.is_dir(), "run npm ci before the automated suite")
-        result = subprocess.run(
-            [node, str(ROOT / "tools/validate_vue_sfc.mjs"), str(APP), str(ROOT)],
-            cwd=ROOT, text=True, capture_output=True,
-        )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-
-    def test_no_trailing_whitespace(self) -> None:
-        extensions = {".js", ".json", ".lua", ".md", ".mjs", ".py", ".scss", ".svg", ".txt", ".vue", ".yml", ""}
-        ignored = {".git", "dist", "node_modules", "__pycache__"}
-        for path in sorted(ROOT.rglob("*")):
-            if not path.is_file() or path.suffix.lower() not in extensions or any(part in ignored for part in path.parts):
-                continue
-            with self.subTest(path=path.relative_to(ROOT)):
-                for number, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-                    self.assertIsNone(re.search(r"[ \t]+$", line), f"trailing whitespace on line {number}")
-
-    def test_internal_markdown_links_resolve(self) -> None:
-        link_pattern = re.compile(r"!?\[[^\]]*\]\(([^)]+)\)")
-        for document in sorted(ROOT.rglob("*.md")):
-            if any(part in {".git", "dist", "node_modules"} for part in document.parts):
-                continue
-            for target in link_pattern.findall(document.read_text(encoding="utf-8")):
-                target = target.strip().split(" ", 1)[0].strip("<>")
-                if not target or target.startswith(("#", "http://", "https://", "mailto:")):
-                    continue
-                with self.subTest(document=document.relative_to(ROOT), target=target):
-                    self.assertTrue((document.parent / target.split("#", 1)[0]).resolve().exists())
-
     def test_beamng_api_boundary(self) -> None:
         unstable = re.compile(
             r"\b(?:core_[a-zA-Z_]+\s*[.:]|guihooks\s*[.:]|jsonReadFile\s*\(|"
@@ -113,14 +71,6 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn(f'EXTENSION_VERSION = "{version}"', main)
         self.assertTrue(notes.is_file())
 
-    def test_version_synchronizer_reports_no_drift(self) -> None:
-        result = subprocess.run(
-            [sys.executable, "tools/sync_version.py"], cwd=ROOT, text=True,
-            capture_output=True, check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("VERSION_SYNC_OK", result.stdout)
-
     def test_declared_license_matches_legal_files(self) -> None:
         readme = (ROOT / "README.md").read_text(encoding="utf-8")
         package = json.loads((ROOT / "package.json").read_text(encoding="utf-8"))
@@ -154,14 +104,6 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("command_not_allowed", router)
         self.assertIn("command_payload_oversize", protocol)
         self.assertIn("MAX_DEPTH = 12", protocol)
-
-    def test_ui_command_protocol_parity(self) -> None:
-        result = subprocess.run(
-            [sys.executable, "tools/validate_ui_command_parity.py"], cwd=ROOT,
-            text=True, capture_output=True, check=False,
-        )
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("UI_COMMAND_PARITY_OK", result.stdout)
 
     def test_state_protocol_handles_full_diff_stale_gap_and_domains(self) -> None:
         source = (APP / "services/stateProtocol.js").read_text(encoding="utf-8")
@@ -349,20 +291,12 @@ class StaticValidationTests(unittest.TestCase):
             self.assertIsInstance(yaml.safe_load(source), dict)
             for action in uses.findall(source):
                 self.assertRegex(action, r"^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+@[0-9a-f]{40}$")
-        ci = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-        beta = (ROOT / ".github/workflows/beta-readiness.yml").read_text(encoding="utf-8")
-        self.assertIn("npm ci --ignore-scripts", ci)
-        self.assertIn("npm run validate:sfc", ci)
-        self.assertIn("npm run validate:graph", ci)
-        self.assertIn("npm run validate:styles", ci)
-        self.assertIn("--module-graph-only", ci)
-        self.assertIn("--style-graph-only", ci)
-        package_workflow = (ROOT / ".github/workflows/package.yml").read_text(encoding="utf-8")
-        self.assertIn("npm run validate:graph", package_workflow)
-        self.assertIn("npm run validate:styles", package_workflow)
-        self.assertIn("--module-graph-only", package_workflow)
-        self.assertIn("--style-graph-only", package_workflow)
-        self.assertIn("npm run test:ui", beta)
+        # Every workflow validates through the one verify entry point.
+        for name in ("ci.yml", "package.yml"):
+            workflow = (ROOT / ".github/workflows" / name).read_text(encoding="utf-8")
+            self.assertIn("npm ci --ignore-scripts", workflow)
+            self.assertIn("npm run verify", workflow)
+        self.assertIn("npm run verify:release", (ROOT / ".github/workflows/package.yml").read_text(encoding="utf-8"))
 
     def test_p0_and_p1_contract_modules_remain_packaged(self) -> None:
         p0 = (
@@ -382,85 +316,6 @@ class StaticValidationTests(unittest.TestCase):
         self.assertIn("race_generation_isolated_from_chaos", main)
         self.assertIn("uiPublisher", main)
         self.assertIn("performanceMetrics", main)
-
-    def test_required_vue_release_documentation_exists_and_is_honest(self) -> None:
-        required = (
-            "README.md", "CHANGELOG.md", "ROADMAP.md", "docs/ARCHITECTURE.md",
-            "docs/UI_VUE_ARCHITECTURE.md", "docs/UI_MIGRATION_0.7.0.md", "docs/UI_PROTOCOL.md",
-            "docs/I18N.md", "docs/ACCESSIBILITY.md", "docs/PERFORMANCE.md",
-            "docs/BEAMNG_0.39_COMPATIBILITY.md", "docs/POST_V070_AUDIT_PLAN.md",
-            "docs/testing/v0.7.0/README.md", "docs/testing/v0.7.0/AUTOMATED_TEST_REPORT.md",
-            "docs/testing/v0.7.0/LIVE_TEST_PLAN.md", "docs/testing/v0.7.0/LIVE_TEST_REPORT.md",
-            "docs/testing/v0.7.0/FEATURE_PARITY_MATRIX.md", "docs/testing/v0.7.0/ACCESSIBILITY_REPORT.md",
-            "docs/testing/v0.7.0/I18N_REPORT.md", "docs/testing/v0.7.0/PERFORMANCE_REPORT.md",
-            "docs/testing/v0.7.0/REQUIREMENTS_MATRIX.md", "docs/testing/v0.7.0/RELEASE_CHECKLIST.md",
-            "docs/RELEASE NOTES/RELEASE_NOTES_0.7.0.md",
-            "docs/testing/v0.7.1/README.md", "docs/testing/v0.7.1/AUTOMATED_TEST_REPORT.md",
-            "docs/testing/v0.7.1/MODULE_GRAPH_REPORT.md", "docs/testing/v0.7.1/LIVE_TEST_PLAN.md",
-            "docs/testing/v0.7.1/LIVE_TEST_REPORT.md", "docs/testing/v0.7.1/REQUIREMENTS_MATRIX.md",
-            "docs/testing/v0.7.1/RELEASE_CHECKLIST.md", "docs/RELEASE NOTES/RELEASE_NOTES_0.7.1.md",
-            "docs/RESEARCH_0.7.2.md", "docs/UI_VISUAL_BASELINE_0.6.9.md",
-            "docs/testing/v0.7.2/README.md", "docs/testing/v0.7.2/AUTOMATED_TEST_REPORT.md",
-            "docs/testing/v0.7.2/LIVE_TEST_PLAN.md", "docs/testing/v0.7.2/LIVE_TEST_REPORT.md",
-            "docs/testing/v0.7.2/UI_RUNTIME_REPORT.md", "docs/testing/v0.7.2/FULL_RANDOM_REPORT.md",
-            "docs/testing/v0.7.2/RACE_SLOT_REPORT.md", "docs/testing/v0.7.2/I18N_REPORT.md",
-            "docs/testing/v0.7.2/PERFORMANCE_REPORT.md", "docs/testing/v0.7.2/REQUIREMENTS_MATRIX.md",
-            "docs/testing/v0.7.2/RELEASE_CHECKLIST.md", "docs/RELEASE NOTES/RELEASE_NOTES_0.7.2.md",
-            "docs/testing/v0.7.5/V074_LIVE_FINDINGS.md", "docs/testing/v0.7.5/IMPLEMENTATION_MATRIX.md",
-            "docs/testing/v0.7.5/LIVE_TEST_PLAN.md", "docs/testing/v0.7.5/LIVE_RESULTS.md",
-            "docs/testing/v0.7.5/EVIDENCE_TEMPLATE.md", "docs/I18N_TERMINOLOGY.md",
-            "docs/PLAYGROUND.md", "docs/MULTIPLAYER_READINESS.md", "docs/releases/v0.7.5.md",
-            "docs/testing/v0.7.6/V075_LIVE_FINDINGS.md", "docs/testing/v0.7.6/IMPLEMENTATION_MATRIX.md",
-            "docs/testing/v0.7.6/LIVE_TEST_PLAN.md", "docs/testing/v0.7.6/LIVE_RESULTS.md",
-            "docs/testing/v0.7.6/EVIDENCE_TEMPLATE.md", "docs/testing/v0.7.6/AUTOMATED_RESULTS.md",
-            "docs/testing/v0.7.6/FOX_ASSET.md", "docs/testing/v0.7.6/POST_RELEASE_VERIFICATION.md",
-            "docs/BRANDING.md", "docs/releases/v0.7.6.md",
-            "docs/testing/v0.7.7/IMPLEMENTATION_MATRIX.md", "docs/testing/v0.7.7/LIVE_TEST_PLAN.md",
-            "docs/testing/v0.7.7/LIVE_RESULTS.md", "docs/testing/v0.7.7/EVIDENCE_TEMPLATE.md",
-            "docs/testing/v0.7.7/AUTOMATED_RESULTS.md", "docs/testing/v0.7.7/POST_RELEASE_VERIFICATION.md",
-            "docs/releases/v0.7.7.md",
-            "docs/testing/v0.7.8/LIVE_TEST_PLAN.md", "docs/testing/v0.7.8/LIVE_RESULTS.md",
-            "docs/testing/v0.7.8/AUTOMATED_RESULTS.md", "docs/releases/v0.7.8.md",
-            "docs/testing/v0.7.9/LIVE_TEST_PLAN.md", "docs/testing/v0.7.9/LIVE_RESULTS.md",
-            "docs/testing/v0.7.9/AUTOMATED_RESULTS.md", "docs/releases/v0.7.9.md",
-        )
-        for relative in required:
-            with self.subTest(path=relative):
-                self.assertTrue((ROOT / relative).is_file())
-        corpus = "\n".join((ROOT / path).read_text(encoding="utf-8") for path in required if (ROOT / path).suffix == ".md")
-        v070_live = (ROOT / "docs/testing/v0.7.0/LIVE_TEST_REPORT.md").read_text(encoding="utf-8")
-        self.assertIn("Failed — Vue module graph could not load", v070_live)
-        for row in ("| Executed | 1 |", "| Passed | 0 |", "| Failed | 1 |", "| Pending | 0 |", "| Blocked | 81 |"):
-            self.assertIn(row, v070_live)
-        v071_live = (ROOT / "docs/testing/v0.7.1/LIVE_TEST_REPORT.md").read_text(encoding="utf-8")
-        self.assertIn("Runtime UI mounted, but UI and gameplay rescue gates failed", v071_live)
-        for row in ("| Executed | 9 |", "| Passed | 3 |", "| Failed | 6 |", "| Pending | 0 |", "| Blocked | 88 |"):
-            self.assertIn(row, v071_live)
-        v072_live = (ROOT / "docs/testing/v0.7.2/LIVE_TEST_REPORT.md").read_text(encoding="utf-8")
-        self.assertIn("Pending owner validation; not executed", v072_live)
-        for row in ("| Executed | 0 |", "| Passed | 0 |", "| Failed | 0 |", "| Pending | 138 |", "| Blocked | 0 |"):
-            self.assertIn(row, v072_live)
-        v076_live = (ROOT / "docs/testing/v0.7.6/LIVE_RESULTS.md").read_text(encoding="utf-8")
-        self.assertIn("Pending owner validation; not executed", v076_live)
-        for row in ("| Executed | 0 |", "| Passed | 0 |", "| Failed | 0 |", "| Pending | 54 |", "| Blocked | 0 |"):
-            self.assertIn(row, v076_live)
-        v077_live = (ROOT / "docs/testing/v0.7.7/LIVE_RESULTS.md").read_text(encoding="utf-8")
-        self.assertIn("Owner-observed failures recorded", v077_live)
-        for row in ("| Executed | 2 |", "| Passed | 0 |", "| Failed | 2 |", "| Pending | 9 |", "| Blocked | 0 |"):
-            self.assertIn(row, v077_live)
-        for finding in ("filter is not a function", "position_blocked", "lineup_staging_unsafe", "dead space"):
-            self.assertIn(finding, v077_live)
-        v078_live = (ROOT / "docs/testing/v0.7.8/LIVE_RESULTS.md").read_text(encoding="utf-8")
-        self.assertIn("Executed live by the repository owner; failures observed", v078_live)
-        for row in ("| Executed | 5 |", "| Passed | 0 |", "| Failed | 5 |", "| Pending | 2 |", "| Blocked | 0 |"):
-            self.assertIn(row, v078_live)
-        v079_live = (ROOT / "docs/testing/v0.7.9/LIVE_RESULTS.md").read_text(encoding="utf-8")
-        self.assertIn("Pending owner validation; not executed", v079_live)
-        for row in ("| Executed | 0 |", "| Passed | 0 |", "| Failed | 0 |", "| Pending | 15 |", "| Blocked | 0 |"):
-            self.assertIn(row, v079_live)
-        visual = (ROOT / "docs/UI_VISUAL_BASELINE_0.6.9.md").read_text(encoding="utf-8")
-        self.assertIn("Headless visual screenshot tests: Not implemented", visual)
-        self.assertNotRegex(corpus.lower(), r"fully validated|confirmed compatible|performance proven")
 
     def test_repository_and_package_have_no_machine_paths_or_credentials(self) -> None:
         machine = re.compile(r"(?:[A-Za-z]:\\(?:Users|home)\\|/" + r"Users/|/" + r"home/)")

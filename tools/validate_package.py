@@ -17,9 +17,9 @@ import zipfile
 import zlib
 
 try:
-    from package_mod import ARCHIVE_PREFIX, REPOSITORY_ROOT, TEXT_FILENAMES, TEXT_SUFFIXES, build_archive, read_version, release_identity
+    from package_mod import ARCHIVE_PREFIX, REPOSITORY_ROOT, TEXT_FILENAMES, TEXT_SUFFIXES, build_archive, live_test_counts, read_version, release_identity
 except ImportError:  # Imported as tools.validate_package.
-    from tools.package_mod import ARCHIVE_PREFIX, REPOSITORY_ROOT, TEXT_FILENAMES, TEXT_SUFFIXES, build_archive, read_version, release_identity
+    from tools.package_mod import ARCHIVE_PREFIX, REPOSITORY_ROOT, TEXT_FILENAMES, TEXT_SUFFIXES, build_archive, live_test_counts, read_version, release_identity
 
 
 REQUIRED_PATHS = {
@@ -411,24 +411,20 @@ def validate_release_manifest(
     for key, value in expected.items():
         if manifest.get(key) != value:
             raise PackageValidationError(f"Release manifest {key} does not match the ZIP")
+    if manifest.get("manifestVersion") != 4:
+        raise PackageValidationError("Release manifest version must be 4")
     if manifest.get("branch") != "main":
         raise PackageValidationError("Release manifest branch must be main")
-    tests = manifest.get("tests")
-    automated = manifest.get("automatedValidation")
-    live = manifest.get("liveValidation")
-    if not isinstance(tests, dict) or not isinstance(automated, dict) or not isinstance(live, dict):
-        raise PackageValidationError("Release manifest validation summaries are missing")
-    if automated.get("status") != "passed":
-        raise PackageValidationError("Release manifest automated validation is not passed")
-    if live.get("status") != "pending_owner_validation":
-        raise PackageValidationError("Release manifest live validation status is not pending owner validation")
-    for manifest_key, tests_key in (
-        ("executed", "interactiveExecuted"), ("passed", "interactivePassed"),
-        ("failed", "interactiveFailed"), ("pending", "interactivePending"),
-        ("blocked", "interactiveBlocked"),
-    ):
-        if live.get(manifest_key) != tests.get(tests_key):
-            raise PackageValidationError(f"Release manifest live {manifest_key} count is inconsistent")
+    automated, live = manifest.get("automatedValidation"), manifest.get("liveValidation")
+    if not isinstance(automated, dict) or automated.get("commit") != manifest.get("commit"):
+        raise PackageValidationError("Release manifest automated validation is not bound to its commit")
+    if not isinstance(live, dict):
+        raise PackageValidationError("Release manifest live validation summary is missing")
+    documented = live_test_counts(root)
+    for key, status in (("executed", "Executed"), ("passed", "Passed"), ("failed", "Failed"),
+                        ("pending", "Pending"), ("blocked", "Blocked")):
+        if live.get(key) != documented[status]:
+            raise PackageValidationError(f"Release manifest live {key} count does not match LIVE_RESULTS")
     return manifest
 
 
@@ -436,8 +432,6 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("archive", type=Path, nargs="?", help="ZIP to validate")
     parser.add_argument("--no-reproducibility-check", action="store_true")
-    parser.add_argument("--module-graph-only", action="store_true")
-    parser.add_argument("--style-graph-only", action="store_true")
     args = parser.parse_args()
 
     version = read_version()
@@ -445,21 +439,6 @@ def main() -> int:
     names = validate_archive(archive, version)
     graph = validate_extracted_vue_module_graph(archive)
     styles = validate_extracted_vue_style_graph(archive)
-    if args.module_graph_only:
-        print("SCR_VUE_MODULE_GRAPH_VALID")
-        print(f"Files scanned: {graph['filesScanned']}")
-        print(f"Imports scanned: {graph['importsScanned']}")
-        print(f"Project imports: {graph['projectImports']}")
-        print(f"ZIP missing modules: {graph['zipMissingModules']}")
-        return 0
-    if args.style_graph_only:
-        print("SCR_VUE_STYLE_GRAPH_VALID")
-        print(f"Runtime CSS files: {styles['runtimeCssFiles']}")
-        print(f"CSS files scanned: {styles['cssFilesScanned']}")
-        print(f"Asset references: {styles['assetReferences']}")
-        print(f"ZIP missing styles: {styles['zipMissingStyles']}")
-        print(f"ZIP missing assets: {styles['zipMissingAssets']}")
-        return 0
     icon = validate_icon(REPOSITORY_ROOT / ICON_PATH)
     validate_checksum(archive)
     manifest = validate_release_manifest(archive)

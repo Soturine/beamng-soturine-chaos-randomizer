@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  validate:
+  verify:
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -24,57 +24,19 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install validation dependency
-        run: python -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
-
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
 
-      - name: Install Lua 5.1
-        run: sudo apt-get update && sudo apt-get install --yes lua5.1
-
-      - name: Install pinned Vue validation dependencies
-        run: npm ci --ignore-scripts
-
-      - name: Validate JSON files
-        run: python -m unittest tests.test_static.StaticValidationTests.test_json_files_parse -v
-
-      - name: Compile native Vue SFC files
-        run: npm run validate:sfc
-
-      - name: Validate source Runtime UI module graph
-        run: npm run validate:graph
-
-      - name: Validate source Runtime UI style graph
-        run: npm run validate:styles
-
-      - name: Build deterministic ZIP for graph validation
-        run: python -c "from pathlib import Path; from tools.package_mod import package; package(Path('dist'))"
-
-      - name: Validate extracted ZIP Runtime UI module graph
-        run: python tools/validate_package.py --module-graph-only
-
-      - name: Validate extracted ZIP Runtime UI style graph
-        run: python tools/validate_package.py --style-graph-only
-
-      - name: Run Python tests
-        run: python -m unittest tests.test_architecture tests.test_package tests.test_static tests.test_vue_module_graph tests.test_vue_style_graph -v
-
-      - name: Run Lua syntax and regression tests
+      - name: Install toolchain
         run: |
-          find lua -type f -name '*.lua' -print0 | xargs -0 luac5.1 -p
-          python -m unittest tests.test_lua -v
+          sudo apt-get update && sudo apt-get install --yes lua5.1
+          python -m pip install --disable-pip-version-check --no-input PyYAML==6.0.3
+          npm ci --ignore-scripts
 
-      - name: Run JavaScript and Vue service tests
-        run: npm run test:ui
-
-      - name: Build deterministic mod package and manifest
-        run: python tools/package_mod.py
-
-      - name: Validate mod package
-        run: python tools/validate_package.py
+      - name: Verify
+        run: npm run verify
 
       - name: Upload validated package
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

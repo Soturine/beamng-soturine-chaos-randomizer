@@ -103,7 +103,7 @@ Read [Security](SECURITY.md), [Safety model](docs/SAFETY_MODEL.md), and
 - [User guide](docs/USER_GUIDE.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [UI protocol](docs/UI_PROTOCOL.md)
-- [AI and Playground](docs/PLAYGROUND.md)
+- [AI behaviors](docs/PLAYGROUND.md)
 - [Multiplayer readiness](docs/MULTIPLAYER_READINESS.md)
 - [Localization terminology](docs/I18N_TERMINOLOGY.md)
 - [Brand assets](docs/BRANDING.md)
@@ -118,16 +118,11 @@ runtime CSS, Node-based UI checks, and Python packaging tests. Start with:
 
 ```text
 npm ci --ignore-scripts
-npm run validate:version
-npm run validate:sfc
-npm run validate:graph
-npm run validate:styles
-npm run test:ui
-python -m unittest discover -s tests -v
+npm run verify
 ```
 
-Build and validate the deterministic mod asset with
-`python tools/package_mod.py` and `python tools/validate_package.py`.
+`npm run verify` runs the static, UI, Lua and Python checks once and then
+builds and validates the deterministic mod package in `dist/`.
 
 ## Contributing
 

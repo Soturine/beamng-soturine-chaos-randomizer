@@ -35,152 +35,69 @@ class PackageTests(unittest.TestCase):
             with mock.patch.dict("os.environ", {}, clear=True):
                 self.assertEqual(package_mod.get_branch_name(ROOT), "main")
 
-    def test_package_paths_and_reproducibility(self) -> None:
-        version = package_mod.read_version(ROOT)
-        with tempfile.TemporaryDirectory() as temporary:
-            output = Path(temporary)
-            archive, checksum = package_mod.package(output, ROOT)
-            names = validate_package.validate_archive(archive, version)
-            validate_package.validate_checksum(archive)
-            validate_package.validate_reproducible(archive, ROOT)
-            self.assertTrue(checksum.is_file())
-            self.assertIn("lua/ge/extensions/soturineChaosRandomizer.lua", names)
-            self.assertIn("ui/modules/apps/soturineChaosRandomizer/app.png", names)
-            self.assertIn("ui/modules/apps/soturineChaosRandomizer/assets/branding/fox-1024.png", names)
-            self.assertIn("ui/modules/apps/soturineChaosRandomizer/assets/branding/fox-256.png", names)
-            self.assertIn("ui/modules/apps/soturineChaosRandomizer/assets/branding/fox-64.png", names)
-            self.assertFalse(any("fox-mark" in name or "app-icon" in name for name in names))
-            self.assertIn("locales/translations/en-US/main.translation.json", names)
-            self.assertIn("locales/translations/pt-BR/main.translation.json", names)
-            self.assertIn("locales/translations/es-ES/main.translation.json", names)
-            self.assertFalse(any(name.startswith("soturine_chaos_randomizer/") for name in names))
+    @classmethod
+    def setUpClass(cls) -> None:
+        # One build serves every artifact assertion; one rebuild proves determinism.
+        cls._temporary = tempfile.TemporaryDirectory()
+        cls.version = package_mod.read_version(ROOT)
+        cls.archive, cls.checksum = package_mod.package(Path(cls._temporary.name) / "first", ROOT)
+        cls.manifest_path = package_mod.write_release_manifest(cls.archive, root=ROOT)
 
-    def test_rejects_backslash_paths(self) -> None:
-        version = package_mod.read_version(ROOT)
-        with tempfile.TemporaryDirectory() as temporary:
-            archive = Path(temporary) / f"{package_mod.ARCHIVE_PREFIX}{version}.zip"
-            with zipfile.ZipFile(archive, "w") as value:
-                value.writestr("lua\\unsafe.lua", "return {}")
-            with self.assertRaises(validate_package.PackageValidationError):
-                validate_package.validate_archive(archive, version)
+    @classmethod
+    def tearDownClass(cls) -> None:
+        cls._temporary.cleanup()
 
-    def test_rejects_development_content(self) -> None:
-        with self.assertRaises(validate_package.PackageValidationError):
-            validate_package._validate_member_name("tests/test_something.py")
+    def test_package_contents_are_the_mod_allowlist_without_wrapper(self) -> None:
+        names = validate_package.validate_archive(self.archive, self.version)
+        for required in (
+            "lua/ge/extensions/soturineChaosRandomizer.lua",
+            "ui/modules/apps/soturineChaosRandomizer/app.png",
+            "ui/modules/apps/soturineChaosRandomizer/assets/branding/fox-64.png",
+            "locales/translations/pt-BR/main.translation.json",
+        ):
+            self.assertIn(required, names)
+        roots = {name.split("/", 1)[0] for name in names}
+        self.assertTrue({"lua", "ui", "settings", "locales"}.issubset(roots))
+        self.assertNotIn("soturine_chaos_randomizer", roots)
+        with zipfile.ZipFile(self.archive) as value:
+            self.assertEqual(value.read("VERSION").decode("utf-8").strip(), self.version)
 
-    def test_package_is_reproducible_twice(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            output = Path(temporary)
-            first, _ = package_mod.package(output / "first", ROOT)
-            second, _ = package_mod.package(output / "second", ROOT)
-            self.assertEqual(first.read_bytes(), second.read_bytes())
-
-    def test_sha256_file_matches_zip(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            archive, checksum = package_mod.package(Path(temporary), ROOT)
-            expected = hashlib.sha256(archive.read_bytes()).hexdigest()
-            self.assertEqual(checksum.name, f"{archive.name}.sha256")
-            self.assertEqual(checksum.read_text(encoding="ascii"), f"{expected}  {archive.name}\n")
-
-    def test_package_contains_expected_version(self) -> None:
-        version = package_mod.read_version(ROOT)
-        with tempfile.TemporaryDirectory() as temporary:
-            archive, _ = package_mod.package(Path(temporary), ROOT)
-            with zipfile.ZipFile(archive) as value:
-                self.assertEqual(value.read("VERSION").decode("utf-8").strip(), version)
-
-    def test_package_contains_no_machine_paths(self) -> None:
+    def test_package_metadata_is_normalized_and_free_of_machine_paths(self) -> None:
         pattern = re.compile(rb"(?:[A-Za-z]:\\|/" + rb"Users/|/" + rb"home/)")
-        with tempfile.TemporaryDirectory() as temporary:
-            archive, _ = package_mod.package(Path(temporary), ROOT)
-            with zipfile.ZipFile(archive) as value:
-                for info in value.infolist():
-                    if not info.filename.endswith(".png"):
-                        self.assertIsNone(pattern.search(value.read(info)), info.filename)
+        with zipfile.ZipFile(self.archive) as value:
+            names = [info.filename for info in value.infolist()]
+            self.assertEqual(names, sorted(names))
+            for info in value.infolist():
+                self.assertEqual(info.date_time, package_mod.FIXED_TIMESTAMP)
+                self.assertEqual(info.create_system, 3)
+                self.assertEqual(info.external_attr >> 16, 0o100644)
+                data = value.read(info)
+                if not info.filename.endswith(".png"):
+                    self.assertIsNone(pattern.search(data), info.filename)
+                path = Path(info.filename)
+                if path.suffix.lower() in package_mod.TEXT_SUFFIXES or info.filename in package_mod.TEXT_FILENAMES:
+                    self.assertNotIn(b"\r", data)
 
-    def test_package_root_has_no_wrapper(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            archive, _ = package_mod.package(Path(temporary), ROOT)
-            names = validate_package.validate_archive(archive, package_mod.read_version(ROOT))
-            roots = {name.split("/", 1)[0] for name in names}
-            self.assertTrue({"lua", "ui", "settings", "locales"}.issubset(roots))
-            self.assertNotIn("soturine_chaos_randomizer", roots)
+    def test_checksum_and_manifest_describe_the_zip(self) -> None:
+        expected = hashlib.sha256(self.archive.read_bytes()).hexdigest()
+        self.assertEqual(self.checksum.read_text(encoding="ascii"), f"{expected}  {self.archive.name}\n")
+        validate_package.validate_checksum(self.archive)
+        manifest = validate_package.validate_release_manifest(self.archive)
+        identity = package_mod.release_identity(self.version)
+        self.assertEqual(manifest["tag"], identity["tag"])
+        self.assertEqual(manifest["sha256"], expected)
+        self.assertEqual(manifest["manifestVersion"], 4)
+        self.assertEqual(manifest["primaryBeamNGTarget"], "0.39.4")
+        self.assertEqual(manifest["minimumBeamNGVersion"], "0.39")
+        self.assertEqual(manifest["automatedValidation"]["command"], "npm run verify")
+        self.assertEqual(manifest["liveValidation"]["executed"], 0)
 
-    def test_package_metadata_is_normalized(self) -> None:
+    def test_package_and_manifest_are_reproducible(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            archive, _ = package_mod.package(Path(temporary), ROOT)
-            with zipfile.ZipFile(archive) as value:
-                names = [info.filename for info in value.infolist()]
-                self.assertEqual(names, sorted(names))
-                for info in value.infolist():
-                    self.assertEqual(info.date_time, package_mod.FIXED_TIMESTAMP)
-                    self.assertEqual(info.create_system, 3)
-                    self.assertEqual(info.external_attr >> 16, 0o100644)
-                    path = Path(info.filename)
-                    if path.suffix.lower() in package_mod.TEXT_SUFFIXES or info.filename in package_mod.TEXT_FILENAMES:
-                        self.assertNotIn(b"\r", value.read(info))
-
-    def test_release_manifest_matches_zip(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            archive, _ = package_mod.package(Path(temporary), ROOT)
-            manifest_path = package_mod.write_release_manifest(archive, root=ROOT)
-            self.assertEqual(manifest_path.name, f"{archive.stem}.manifest.json")
-            manifest = validate_package.validate_release_manifest(archive)
-            identity = package_mod.release_identity(package_mod.read_version(ROOT))
-            self.assertEqual(manifest["tag"], identity["tag"])
-            self.assertEqual(manifest["publicationAllowed"], identity["publicationAllowed"])
-            self.assertEqual(manifest["releaseStatus"], "published")
-            self.assertTrue(manifest["prerelease"])
-            self.assertEqual(manifest["branch"], "main")
-            self.assertEqual(manifest["generatorVersion"], 8)
-            self.assertEqual(manifest["vehicleDNASchemaVersion"], 1)
-            self.assertEqual(manifest["vehicleDNAGeneratorVersion"], 6)
-            expected_counts = package_mod.test_counts(ROOT)
-            self.assertEqual(manifest["tests"], expected_counts)
-            self.assertEqual(manifest["tests"]["luaTestFunctionsUnique"], manifest["tests"]["luaExecutedCases"])
-            self.assertGreater(manifest["tests"]["luaRequirementMappings"], 0)
-            self.assertGreater(manifest["tests"]["javaScriptChecks"], 0)
-            self.assertGreater(manifest["tests"]["vueModuleGraphFiles"], 0)
-            self.assertGreater(manifest["tests"]["vueModuleGraphReachableFiles"], 0)
-            self.assertGreater(manifest["tests"]["vueModuleGraphImports"], 0)
-            self.assertGreater(manifest["tests"]["vueModuleGraphProjectImports"], 0)
-            self.assertEqual(manifest["tests"]["vueModuleGraphDirectoryImports"], 0)
-            self.assertEqual(manifest["tests"]["vueModuleGraphMissingModules"], 0)
-            self.assertEqual(manifest["tests"]["vueModuleGraphCaseMismatches"], 0)
-            self.assertEqual(manifest["tests"]["vueModuleGraphCycles"], 0)
-            self.assertEqual(manifest["tests"]["vueModuleGraphNamedExportErrors"], 0)
-            self.assertGreater(manifest["tests"]["luaAssertions"], manifest["tests"]["luaExecutedCases"])
-            self.assertEqual(manifest["tests"]["interactiveExecuted"], 0)
-            self.assertEqual(manifest["tests"]["interactivePassed"], 0)
-            self.assertEqual(manifest["tests"]["interactiveFailed"], 0)
-            self.assertEqual(manifest["automatedValidation"]["status"], "passed")
-            self.assertEqual(manifest["liveValidation"]["status"], "pending_owner_validation")
-            self.assertEqual(manifest["liveValidation"]["executed"], 0)
-            for field in (
-                "modVersion", "commit", "branch", "tag", "releaseStage",
-                "primaryBeamNGTarget", "minimumBeamNGVersion",
-                "detectedOrDeclaredCompatibility", "automatedTests", "liveTests",
-                "fileCount", "zipSize", "zipSha256", "buildTimestamp",
-            ):
-                self.assertIn(field, manifest)
-            self.assertEqual(manifest["primaryBeamNGTarget"], "0.39.4")
-            self.assertEqual(manifest["minimumBeamNGVersion"], "0.39")
-            self.assertEqual(manifest["liveTests"]["status"], "Pending owner validation")
-            if package_mod.read_version(ROOT) == "0.6.3":
-                self.assertEqual(manifest["tests"]["interactivePending"], 110)
-            if package_mod.read_version(ROOT) == "0.6.7":
-                self.assertEqual(manifest["tests"]["interactivePending"], 48)
-            self.assertEqual(manifest["tests"]["interactiveBlocked"], 0)
-
-    def test_release_manifest_is_reproducible(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            first_dir = Path(temporary) / "first"
-            second_dir = Path(temporary) / "second"
-            first, _ = package_mod.package(first_dir, ROOT)
-            second, _ = package_mod.package(second_dir, ROOT)
-            first_manifest = package_mod.write_release_manifest(first, root=ROOT)
+            second, _ = package_mod.package(Path(temporary), ROOT)
             second_manifest = package_mod.write_release_manifest(second, root=ROOT)
-            self.assertEqual(first_manifest.read_bytes(), second_manifest.read_bytes())
+            self.assertEqual(second.read_bytes(), self.archive.read_bytes())
+            self.assertEqual(second_manifest.read_bytes(), self.manifest_path.read_bytes())
 
     def _write_release_gate_fixture(
         self,
