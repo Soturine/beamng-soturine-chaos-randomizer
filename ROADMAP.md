@@ -24,7 +24,7 @@ belong in [CHANGELOG.md](CHANGELOG.md) and [versioned testing](docs/testing/).
 - Evaluate additional Runtime UI host capabilities through public BeamNG APIs.
 - Improve Garage and Race authoring workflows while preserving data schemas and
   deterministic replay.
-- Promote Pega-Pega/Tag beyond its contact/state-machine foundation only after
+- Build Pega-Pega/Tag (contact detection and a playground state machine) only after
   Race P0, gentle-contact behavior and exact-package live gates pass. Group Tag,
   Infection, Hot Potato and team modes remain later work.
 

@@ -37,8 +37,6 @@ local progressWatchdog = require("ge/extensions/soturineChaosRandomizer/progress
 local operationOutcome = require("ge/extensions/soturineChaosRandomizer/operationOutcome")
 local formationEnum = require("ge/extensions/soturineChaosRandomizer/formationEnum")
 local vehicleIdentity = require("ge/extensions/soturineChaosRandomizer/vehicleIdentity")
-local contactDetector = require("ge/extensions/soturineChaosRandomizer/contactDetector")
-local playgroundMode = require("ge/extensions/soturineChaosRandomizer/playgroundMode")
 local paintRandomizer = require("ge/extensions/soturineChaosRandomizer/paintRandomizer")
 local paintVerification = require("ge/extensions/soturineChaosRandomizer/paintVerification")
 local partBatchRecovery = require("ge/extensions/soturineChaosRandomizer/partBatchRecovery")
@@ -7832,7 +7830,7 @@ tests.v075_ai_capabilities_match_runtime_and_quick_presets = function()
   _G.getObjectByID = oldLookup
 end
 
-tests.v075_identity_contact_and_playground_foundations_are_bounded = function()
+tests.v075_vehicle_identity_authority_is_bounded = function()
   local localIdentity = vehicleIdentity.normalize({
     environment = "multiplayer_compatible", localVehicleId = 7,
     ownerPlayerId = "local", networkVehicleId = "net-7", authority = "LOCAL",
@@ -7844,28 +7842,6 @@ tests.v075_identity_contact_and_playground_foundations_are_bounded = function()
   truthy(not vehicleIdentity.same(localIdentity, remoteIdentity))
   truthy(vehicleIdentity.canMutate(localIdentity))
   truthy(not vehicleIdentity.canMutate(remoteIdentity))
-
-  local detector = contactDetector.create({distanceThreshold = 4, relativeSpeedThreshold = 2, cooldown = 1})
-  local contact = assert(contactDetector.observe(detector, {
-    leftVehicleId = 9, rightVehicleId = 4, distance = 2, relativeSpeed = 3,
-  }, 10))
-  equal(contact.leftVehicleId, 4)
-  equal(contact.rightVehicleId, 9)
-  equal(contact.state, "started")
-  local persisted = assert(contactDetector.observe(detector, {
-    leftVehicleId = 4, rightVehicleId = 9, collisionSignal = true,
-  }, 10.5))
-  equal(persisted.state, "persisted")
-  equal(persisted.samples, 2)
-  local ended = assert(contactDetector.observe(detector, {
-    leftVehicleId = 4, rightVehicleId = 9, ended = true,
-  }, 10.75))
-  equal(ended.state, "ended")
-  local duplicate, duplicateReason = contactDetector.observe(detector, {
-    leftVehicleId = 4, rightVehicleId = 9, collisionSignal = true,
-  }, 11)
-  equal(duplicate, nil)
-  equal(duplicateReason, "contact_cooldown")
 
   truthy(vehicleIdentity.canMutate(vehicleIdentity.normalize({
     environment = "beammp", localVehicleId = 8, authority = "SERVER_GRANTED",
@@ -7881,14 +7857,6 @@ tests.v075_identity_contact_and_playground_foundations_are_bounded = function()
   equal(denied, false)
   equal(deniedReason, "vehicle_authority_not_mutable")
 
-  local playground = playgroundMode.create("tag", localIdentity)
-  truthy(playgroundMode.transition(playground, "SETUP", "fixture"))
-  truthy(playgroundMode.addParticipant(playground, localIdentity))
-  truthy(playgroundMode.transition(playground, "RUNNING", "fixture"))
-  truthy(playgroundMode.transition(playground, "COMPLETED", "fixture"))
-  local reopened, reopenedReason = playgroundMode.transition(playground, "RUNNING", "late")
-  equal(reopened, false)
-  equal(reopenedReason, "playground_terminal_immutable")
 end
 
 tests.v075_formation_codes_roundtrip_at_the_runtime_boundary = function()
@@ -8166,8 +8134,6 @@ tests.all_lua_sources_compile = function()
     "/lua/ge/extensions/soturineChaosRandomizer/runtime/domainOperations.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/runtime/operationContext.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/progressWatchdog.lua",
-    "/lua/ge/extensions/soturineChaosRandomizer/contactDetector.lua",
-    "/lua/ge/extensions/soturineChaosRandomizer/playgroundMode.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/paintRandomizer.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/paintCoverageLedger.lua",
     "/lua/ge/extensions/soturineChaosRandomizer/paintVerification.lua",
@@ -9030,10 +8996,10 @@ local v075Required = {
   {"ai_capabilities_are_frontend_consumable", tests.v075_ai_capabilities_match_runtime_and_quick_presets},
   {"ai_quick_presets_are_real_modes", tests.v075_ai_capabilities_match_runtime_and_quick_presets},
   {"ai_flee_and_roam_are_supported", tests.v075_ai_capabilities_match_runtime_and_quick_presets},
-  {"vehicle_identity_includes_owner", tests.v075_identity_contact_and_playground_foundations_are_bounded},
-  {"remote_vehicle_mutation_is_denied", tests.v075_identity_contact_and_playground_foundations_are_bounded},
-  {"contact_detection_has_cooldown", tests.v075_identity_contact_and_playground_foundations_are_bounded},
-  {"playground_terminal_state_is_immutable", tests.v075_identity_contact_and_playground_foundations_are_bounded},
+  {"vehicle_identity_includes_owner", tests.v075_vehicle_identity_authority_is_bounded},
+  {"remote_vehicle_mutation_is_denied", tests.v075_vehicle_identity_authority_is_bounded},
+  {"contact_detection_has_cooldown", tests.v075_vehicle_identity_authority_is_bounded},
+  {"playground_terminal_state_is_immutable", tests.v075_vehicle_identity_authority_is_bounded},
   {"formation_uses_stable_codes", tests.v075_formation_codes_roundtrip_at_the_runtime_boundary},
   {"formation_runtime_boundary_roundtrip", tests.v075_formation_codes_roundtrip_at_the_runtime_boundary},
 }

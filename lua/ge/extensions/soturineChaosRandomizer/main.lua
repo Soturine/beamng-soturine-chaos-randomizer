@@ -90,8 +90,6 @@ local productionModules = {
   safetyModel = require("ge/extensions/soturineChaosRandomizer/runtime/safetyModel"),
   operationOutcome = require("ge/extensions/soturineChaosRandomizer/operationOutcome"),
   formationEnum = require("ge/extensions/soturineChaosRandomizer/formationEnum"),
-  contactDetector = require("ge/extensions/soturineChaosRandomizer/contactDetector"),
-  playgroundMode = require("ge/extensions/soturineChaosRandomizer/playgroundMode"),
   raceScheduler = require("ge/extensions/soturineChaosRandomizer/raceScheduler"),
 }
 

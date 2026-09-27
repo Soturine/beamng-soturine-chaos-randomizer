@@ -10,8 +10,7 @@ flag. `formationEnum` and the UI Race protocol are stable protocol boundaries.
 
 `vehicleIdentity` adds owner/network/environment/authority evidence to local
 vehicle IDs. `domainOperations` still owns mutation/cleanup authorization and
-rejects remote or unknown-authority cleanup. `contactDetector` and
-`playgroundMode` are packaged foundations, not a user-facing Tag implementation.
+rejects remote or unknown-authority cleanup.
 Broad `main.lua` composition remains v0.8.0 decomposition debt.
 
 Race slots bind generation, episode/slot seeds, concrete vehicle, managed
