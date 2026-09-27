@@ -1,7 +1,16 @@
-<template><ErrorBoundary scope="application" area-key="app.name"><AppShell /></ErrorBoundary></template>
+<template>
+  <section v-if="rootFailure" class="scr-app scr-state scr-root-failure" role="alert" :data-error-code="rootFailure.code">
+    <strong>{{ stores.i18n.t("errors.panelFailed") }}</strong>
+    <div class="scr-actions">
+      <button type="button" class="is-hot" @click="reloadPanel">{{ stores.i18n.t("errors.reloadPanel") }}</button>
+      <button type="button" @click="copyFailure">{{ stores.i18n.t("errors.copyDiagnostic") }}</button>
+    </div>
+  </section>
+  <ErrorBoundary v-else scope="application" area-key="app.name"><AppShell /></ErrorBoundary>
+</template>
 
 <script setup>
-import { onMounted, onUnmounted, provide, watch } from "vue"
+import { onMounted, onUnmounted, provide, ref, watch } from "vue"
 import { lua, useBridge } from "@/bridge"
 import { useEvents } from "@/services/events"
 import { useSettings as useGameSettings } from "@/services/settings"
@@ -36,7 +45,30 @@ function subscribe(name, handler) {
   lifecycle.add(typeof returnedCleanup === "function" ? returnedCleanup : () => events.off?.(name, handler))
 }
 
-const applyState = envelope => { if (mounted) protocol.apply(envelope) }
+// State arrives from Lua events, outside Vue's error boundaries. A failure while
+// applying it must never leave an empty panel: show a recoverable root fallback.
+const rootFailure = ref(null)
+const recordUIError = (code, error) => {
+  const failure = { code, message: String(error?.message || error || "unknown"), stack: String(error?.stack || "").slice(0, 2000) }
+  stores.diagnostics.state.lastUIError = failure
+  return failure
+}
+const applyState = envelope => {
+  if (!mounted) return
+  try { protocol.apply(envelope) } catch (error) { rootFailure.value = recordUIError("ui_state_apply_failed", error) }
+}
+function reloadPanel() {
+  rootFailure.value = null
+  protocol.reset()
+  command.send("requestState")
+}
+async function copyFailure() { await copyText(JSON.stringify(rootFailure.value, null, 2)) }
+// Only errors raised by this app's own code are recorded (for Details).
+const ownError = event => {
+  const error = event?.error || event?.reason
+  const source = `${event?.filename || ""} ${error?.stack || ""}`
+  if (source.includes("soturineChaosRandomizer")) recordUIError("ui_window_error", error || event?.message)
+}
 const copyDiagnostics = async payload => {
   if (!mounted) return
   const copied = await copyText(payload?.text)
@@ -48,6 +80,12 @@ onMounted(async () => {
   subscribe("SoturineChaosRandomizerState", applyState)
   subscribe("SoturineChaosRandomizerStateDiff", applyState)
   subscribe("SoturineChaosRandomizerDiagnostics", copyDiagnostics)
+  window.addEventListener("error", ownError)
+  window.addEventListener("unhandledrejection", ownError)
+  lifecycle.add(() => {
+    window.removeEventListener("error", ownError)
+    window.removeEventListener("unhandledrejection", ownError)
+  })
   await lua.extensions.load("soturineChaosRandomizer")
   if (!mounted) return
   await command.send("requestState")

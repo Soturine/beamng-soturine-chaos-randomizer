@@ -66,7 +66,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, ref } from "vue"
+import { computed, nextTick, onMounted, onUnmounted, ref } from "vue"
 import { vBngOnUiNav, vBngScopedNav } from "@/common/directives"
 import { useStores } from "../../stores/index.js"
 import { useResponsiveLayout, widthClassFor } from "../../composables/useResponsiveLayout.js"
@@ -96,6 +96,16 @@ const { t } = stores.i18n
 const root = ref(null)
 const garageIndex = ref(0)
 useResponsiveLayout(root, stores.uiLayout)
+// Defence in depth for the clipped shell: if anything scrolls the shell itself
+// (not the body), put the header and tabs back in view.
+const keepShellInView = event => {
+  const target = event.target
+  if ((target === root.value || target?.classList?.contains("scr-normal-layout")) && target.scrollTop !== 0) {
+    target.scrollTop = 0
+  }
+}
+onMounted(() => root.value?.addEventListener("scroll", keepShellInView, true))
+onUnmounted(() => root.value?.removeEventListener("scroll", keepShellInView, true))
 
 const percent = computed(() => Math.round(Number(core.progress?.overallProgress ?? core.progress?.value ?? 0) * 100))
 const widthClass = computed(() => widthClassFor(layout.width))
