@@ -1,12 +1,19 @@
 # Troubleshooting
 
-## v0.7.9 diagnostic distinctions
+## Diagnostic distinctions
 
 - A completed operation with unsupported telemetry is a warning, not a partial
   mutation. Compare `terminalOutcome`, `appliedState` and
   `verificationConfidence` in Details.
-- For Preview, inspect renderer availability, requested/rendered marker counts
-  and the last error; `PREVIEW_DATA_READY` does not mean visible.
+- For Preview, find `race_preview_runtime_probe` in the game log: it lists
+  which of `debugDrawer`, `ColorF`, `ColorI`, `vec3`, `drawSphere`, `drawLine`
+  and `drawTextAdvanced` responded. `PREVIEW_DATA_READY` does not mean visible;
+  only `PREVIEW_RENDERED` reports a drawn frame.
+- A Race slot that is rejected by policy or fails is retried automatically with
+  another vehicle, then replaced by one verified official vehicle when the
+  policy allows official vehicles; `race_slot_recovery` log lines show each
+  step. An empty pool relaxes variety only (traits, repeated model, repeated
+  configuration) before giving up.
 - For a Race stuck at Planned, capture scheduler, pending-next, active operation,
   slot generation and persistence state. The self-heal must schedule a planned
   slot or explicitly close an abandoned slot.

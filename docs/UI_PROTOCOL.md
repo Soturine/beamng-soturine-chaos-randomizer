@@ -1,6 +1,6 @@
 # UI protocol v2
 
-## v0.7.9 stable result and Preview codes
+## Stable result and Preview codes
 
 Terminal outcomes are `COMPLETED`, `COMPLETED_WITH_SKIPS`,
 `COMPLETED_WITH_WARNING`, `PARTIAL_APPLIED`, `FAILED_TIMEOUT`,
@@ -12,8 +12,14 @@ Terminal outcomes are `COMPLETED`, `COMPLETED_WITH_SKIPS`,
 `CONFIRMED`, `UNCERTAIN`, `NOT_APPLICABLE` or `UNSUPPORTED_TELEMETRY`.
 
 Preview states are `PREVIEW_DISABLED`, `PREVIEW_DATA_READY`,
-`PREVIEW_RENDER_AVAILABLE`, `PREVIEW_RENDERING`, `PREVIEW_RENDERED`,
-`PREVIEW_FAILED` and `PREVIEW_STALE`. Formation business values are the stable
+`PREVIEW_RENDERING`, `PREVIEW_RENDERED`, `PREVIEW_FAILED` and `PREVIEW_STALE`.
+`PREVIEW_RENDERED` requires an `onPreRender` frame that drew at least one
+marker. A failed Preview names its cause: `preview_debug_drawer_missing`,
+`preview_color_api_missing`, `preview_vector_api_missing`,
+`preview_draw_method_missing`, `preview_render_callback_missing`,
+`preview_marker_draw_failed` or `preview_render_empty`; the renderer also
+reports the missing binding names. Text labels are optional and a text failure
+never removes geometric markers. Formation business values are the stable
 `AUTO_BEST_FIT`, `GRID`, `LINE`, `SIDE_BY_SIDE_GRID`, `STAGGERED_GRID`,
 `SPLIT_LEFT_RIGHT`, `SINGLE_FILE_BEHIND`, `SINGLE_FILE_AHEAD` and `RADIAL`
 codes. Legacy runtime or translated values normalize only at ingress; runtime
@@ -22,8 +28,12 @@ Preview codes are translated by the frontend and appear raw only in explicit
 technical disclosure.
 
 Race readiness publishes separate generation, placement, drivability and AI
-axes. Policy failures include profile, rule, severity, evidence and decision;
-placement readiness never implies renderer visibility.
+axes, all derived in Lua from `raceManager.isGenerationUsable`,
+`isPlacementUsable` and `isAIUsable`; the summary adds `positioned`. The UI
+presents these counts and never re-derives them. Policy failures include
+profile, rule, severity, evidence and decision; placement readiness never
+implies renderer visibility. `lineup.presetPolicies` publishes the fixed preset
+templates; Custom persists its own `customPolicy` in UI preferences.
 
 The native Vue UI and GE Lua backend communicate through a centralized,
 versioned protocol. Public compatibility methods remain backend-only; Vue calls

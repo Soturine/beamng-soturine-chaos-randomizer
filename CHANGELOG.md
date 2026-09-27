@@ -2,6 +2,31 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.10] - 2026-09-27
+
+Race stabilization and simplification experimental prerelease targeting BeamNG 0.39.4.x, derived from the owner's v0.7.9 live session.
+
+### Fixed
+
+- World Preview never drew because the renderer required `type(ColorF) == "function"` while BeamNG binds it as a callable class; bindings are injected, probed by calling them, and missing ones are named. The AI destination marker shared the bug.
+- Race Custom inherited the previous preset's policy, rejected partial slots constrained later slots, empty pools failed without relaxation and recovery needed manual clicks; Custom now owns `customPolicy`, pools relax variety only, and slots retry then fall back to one verified official vehicle.
+- A candidate rejected by Race policy after a completed run stayed in the world; it is now removed after proving operation ownership.
+- Position All is one batch with parallel, settling-tolerant readback and a retry of only the failed slot.
+- Formation neighbours were treated as overlaps, deforming Line/Grid even on empty maps.
+- AI no longer refuses to start because another slot failed; results report how many NPCs started.
+
+### Changed
+
+- Events redesigned into Setup, Formation, Behavior and Start with progressive disclosure; readiness is canonical in Lua and presented by the UI.
+- `npm run verify` replaces overlapping gates; packaging no longer re-runs tests; manifest v4 describes the artifact and its live evidence.
+- Removed the legacy lineup facade, unused playground/contact modules, separate lineup storage, duplicate Preview code and payloads, and orphaned translations/CSS.
+
+### Testing and live status
+
+- Added contract tests for the Preview frame loop with engine-like bindings, pool relaxation, recovery, discard authorization, Custom policy, canonical readiness, batch placement, empty-map formation geometry and the Events UI flow.
+- v0.7.10 live BeamNG status starts **Pending owner validation**: 0 executed / 15 pending.
+- v0.7.9 owner results are recorded as history: Preview visibility and Position All failed; Behavior cases were blocked.
+
 ## [0.7.9] - 2026-08-30
 
 Race end-to-end stabilization experimental prerelease targeting BeamNG 0.39.4.x.
