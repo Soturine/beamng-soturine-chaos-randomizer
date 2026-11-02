@@ -21,7 +21,7 @@ export const createDefaultState = () => ({
   history: [],
   lineup: { current: null, stored: 0 },
   spawnDirector: { managed: [], run: null, placement: {}, preview: null },
-  aiDirector: { capabilities: {}, vehicles: [], destination: { status: "empty" }, route: { points: [] } },
+  aiDirector: { capabilities: {}, vehicles: [], destination: { status: "empty" }, route: { points: [] }, recording: { status: "idle", points: 0 } },
   performance: {},
   migration: {},
   settings: {

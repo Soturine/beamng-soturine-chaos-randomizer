@@ -7888,7 +7888,7 @@ tests.v075_ai_capabilities_match_runtime_and_quick_presets = function()
   end
   _G.be = {getPlayerVehicleID = function() return 11 end}
   local caps = aiAdapter.capabilities()
-  local expectedModes = {"Destination", "Route", "Follow", "Chase", "Flee", "Traffic", "Roam"}
+  local expectedModes = {"Destination", "Route", "Recorded", "Follow", "Chase", "Flee", "Traffic", "Roam"}
   local expectedPresets = {"Follow", "Convoy", "Chase", "Flee", "Traffic", "Roam", "Swarm"}
   equal(table.concat(caps.supportedModes, ","), table.concat(expectedModes, ","))
   equal(table.concat(caps.quickPresets, ","), table.concat(expectedPresets, ","))
@@ -8033,6 +8033,86 @@ tests.v040_ai_mode_probe_round_trips_through_vehicle_lua = function()
   setfenv(geChunk, {extensions = {soturineChaosRandomizer = {onAIModeProbe = function(...) observed = {...} end}}})
   geChunk()
   equal(observed[1], 10); equal(observed[2], "slot-1:7"); equal(observed[3], "manual")
+end
+
+local function loadVehicleExtension(name, env)
+  local chunk = assert(loadfile(root .. "/lua/vehicle/extensions/" .. name .. ".lua"))
+  setfenv(chunk, setmetatable(env, {__index = _G}))
+  return chunk()
+end
+
+tests.v040_path_recorder_bounds_and_returns_the_driven_path = function()
+  local samples = {}
+  for index = 1, 1500 do
+    samples[index] = {x = index * 0.5, y = 2, z = 0.25, t = index * 0.05, v = 12.345}
+  end
+  local recording, sent = false, nil
+  local recorder = loadVehicleExtension("soturineChaosRandomizerPathRecorder", {
+    ai = {
+      startRecording = function(withSpeed) recording = withSpeed end,
+      stopRecording = function() return {path = samples} end,
+    },
+    obj = {getID = function() return 31 end, queueGameEngineLua = function(_, text) sent = text end},
+    serialize = function(value) return "PAYLOAD" end,
+  })
+  recorder.start()
+  equal(recording, true)
+  local captured
+  local recorderEnv = getfenv(recorder.stop)
+  recorderEnv.serialize = function(value) captured = value; return "PAYLOAD" end
+  recorder.stop("path:3")
+  truthy(sent:find("onRecordedPath%(PAYLOAD%)") ~= nil)
+  equal(captured.requestId, "path:3"); equal(captured.vehicleId, 31); equal(captured.sourceCount, 1500)
+  truthy(#captured.points <= recorder.MAX_POINTS)
+  equal(captured.points[1].x, 0.5)
+  equal(captured.points[#captured.points].x, 750)
+  equal(captured.points[1].v, 12.35)
+end
+
+tests.v040_recorded_playback_starts_each_car_from_its_own_position = function()
+  local world = {drivers = {[0] = 1}}
+  local origin = {x = 100, y = 50, z = 3}
+  withWorld040(world, function()
+    local missing, reason = aiAdapter.start(12, "Recorded", {})
+    equal(missing, false); equal(reason, "ai_recording_missing")
+    truthy(aiAdapter.start(12, "Recorded", {
+      script = {origin, {x = 110, y = 50, z = 3, v = 8}, {x = 120, y = 52, z = 3, v = 9}},
+      aggression = 0.6,
+    }))
+  end)
+  local driven
+  local vehicleChunk = assert(loadstring(world.commands[#world.commands].command))
+  setfenv(vehicleChunk, {ai = {driveUsingPath = function(arguments) driven = arguments end}})
+  vehicleChunk()
+  equal(#driven.script, 3)
+  equal(driven.script[1].x, 100); equal(driven.script[1].v, nil)
+  equal(driven.script[3].v, 9)
+  equal(driven.driveInLane, "off"); equal(driven.aggression, 0.6)
+end
+
+tests.v040_recorded_route_lifecycle_accepts_only_its_own_reply = function()
+  local harness = pipelineHarness.new({})
+  local world = {drivers = {[0] = harness.vehicleId}}
+  withWorld040(world, function()
+    truthy(harness.main.setAIRecording(true))
+    equal(harness.main.requestState().aiDirector.recording.status, "recording")
+    truthy(harness.main.setAIRecording(false))
+  end)
+  equal(harness.main.requestState().aiDirector.recording.status, "processing")
+  local requestId = world.commands[#world.commands].command:match('%.stop%("([^"]+)"%)')
+  equal(requestId, "path:1")
+  local points = {{x = 0, y = 0, z = 0, t = 0}, {x = 30, y = 0, z = 0, t = 4, v = 9}}
+  -- A stale request or another vehicle never completes the recording.
+  equal(harness.main.onRecordedPath({requestId = "path:0", vehicleId = harness.vehicleId, points = points}), false)
+  equal(harness.main.onRecordedPath({requestId = requestId, vehicleId = 999, points = points}), false)
+  truthy(harness.main.onRecordedPath({requestId = requestId, vehicleId = harness.vehicleId, points = points}))
+  local recording = harness.main.requestState().aiDirector.recording
+  equal(recording.status, "ready"); equal(recording.points, 2); equal(recording.duration, 4)
+  -- A walking player cannot start a recording.
+  local walking = pipelineHarness.new({})
+  walking.onFoot = true
+  truthy(not walking.main.setAIRecording(true))
+  equal(walking.main.requestState().lastResult.code, "player_on_foot")
 end
 
 tests.v040_chaos_refuses_walking_player_and_shared_vehicles = function()

@@ -3,7 +3,7 @@ local util = require("ge/extensions/soturineChaosRandomizer/util")
 local M = {}
 local MODES = {
   Destination = true, Route = true, Chase = true, Follow = true,
-  Flee = true, Traffic = true, Roam = true,
+  Flee = true, Traffic = true, Roam = true, Recorded = true,
 }
 local FINISH_ACTIONS = {stop = true, brake = true, keep = true, loop = true, disable = true}
 local STUCK_ACTIONS = {none = true, replan = true, reset = true, respawn = true, dnf = true}
@@ -134,9 +134,23 @@ local function controlAll(state, action, now, controller)
   return affected
 end
 
+-- Public projection for the UI and diagnostics. Route nodes and recorded
+-- scripts stay out: they can be hundreds of points per vehicle and would be
+-- re-encoded on every state publish.
 local function list(state)
   local result = {}
-  for _, handle in ipairs(state.order) do if state.entries[handle] then result[#result + 1] = util.deepCopy(state.entries[handle]) end end
+  for _, handle in ipairs(state.order) do
+    local entry = state.entries[handle]
+    if entry then
+      result[#result + 1] = {
+        handle = entry.handle, vehicleId = entry.vehicleId, mode = entry.mode,
+        status = entry.status, reason = entry.reason,
+        dispatchResult = entry.dispatchResult, dispatchFailureReason = entry.dispatchFailureReason,
+        modeConfirmation = entry.modeConfirmation and entry.modeConfirmation.status or nil,
+        startAt = entry.startAt, startedAt = entry.startedAt, targetGeneration = entry.targetGeneration,
+      }
+    end
+  end
   return result
 end
 

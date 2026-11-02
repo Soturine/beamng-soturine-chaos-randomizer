@@ -638,6 +638,12 @@ local function publicState()
       vehicles = productionModules.aiDirector.list(runtime.aiDirector),
       destination = util.deepCopy(runtime.destination),
       route = util.deepCopy(runtime.aiRoute),
+      recording = {
+        status = runtime.aiRecording and runtime.aiRecording.status or "idle",
+        points = runtime.aiRecording and runtime.aiRecording.pointCount or 0,
+        duration = runtime.aiRecording and runtime.aiRecording.duration or nil,
+        reason = runtime.aiRecording and runtime.aiRecording.reason or nil,
+      },
       diagnostics = runtime.uiMode == "collapsed" and {}
         or {count = #(runtime.aiDirector.diagnostics or {})},
     },
@@ -8687,6 +8693,21 @@ function production.startManagedAI(options)
         if route then
           currentOptions.nodes, currentOptions.destination, currentOptions.nodesArePath = route.nodes, route.destination, true
         else failures[#failures + 1] = {handle = handle, reason = reason or "route_points_missing"} end
+      elseif currentMode == "Recorded" then
+        local recorded = runtime.aiRecording
+        local okPos, origin = productionModules.spawnAdapter.objectPosition(managed.vehicleId)
+        if not (recorded and recorded.status == "ready") then
+          failures[#failures + 1] = {handle = handle, reason = "ai_recording_missing"}
+        elseif not okPos then
+          failures[#failures + 1] = {handle = handle, reason = "vehicle_position_unavailable"}
+        else
+          -- driveUsingPath places the car at script[1]; starting at its own
+          -- position keeps every opponent in its slot instead of stacking them.
+          local script = {{x = origin.x, y = origin.y, z = origin.z}}
+          for _, point in ipairs(recorded.points) do script[#script + 1] = point end
+          local last = recorded.points[#recorded.points]
+          currentOptions.script, currentOptions.destination = script, {x = last.x, y = last.y, z = last.z}
+        end
       elseif currentMode == "Chase" or currentMode == "Follow" or currentMode == "Flee" then
         local targetId = math.floor(tonumber(options.targetVehicleId) or -1)
         if options.preset == "Convoy" then
@@ -8701,7 +8722,8 @@ function production.startManagedAI(options)
           currentOptions.targetVehicleId = nil
         else currentOptions.targetVehicleId = targetId end
       end
-      local routeReady = (currentMode ~= "Destination" and currentMode ~= "Route") or currentOptions.nodes
+      local routeReady = ((currentMode ~= "Destination" and currentMode ~= "Route") or currentOptions.nodes)
+        and (currentMode ~= "Recorded" or currentOptions.script)
       local targetReady = (currentMode ~= "Chase" and currentMode ~= "Follow" and currentMode ~= "Flee")
         or currentOptions.targetVehicleId
       if routeReady and targetReady then
@@ -8829,13 +8851,66 @@ function production.controlManagedAI(action)
   return true
 end
 
-function production.setAIRecording(handle, enabled)
-  local managed = runtime.managedVehicles.entries[handle]
-  if not managed then return false end
-  local ok, reason = productionModules.aiAdapter.recording(managed.vehicleId, enabled == true)
-  setResult(ok, ok and "ai_recording_updated" or reason, ok and (enabled and "AI recording started" or "AI recording stopped") or "AI recording command failed")
+-- The local player drives a route on their own vehicle; "Recorded" replays it
+-- on Race opponents. States: idle -> recording -> processing -> ready|failed.
+function production.setAIRecording(enabled)
+  local recording = runtime.aiRecording or {status = "idle", sequence = 0}
+  runtime.aiRecording = recording
+  local function finish(ok, code, message)
+    setResult(ok, code, message); publishState(); return ok
+  end
+  if enabled == true then
+    if recording.status == "recording" then return true end
+    local okId, vehicleId = adapter.getCurrentVehicleId()
+    if not okId or type(vehicleId) ~= "number" then
+      return finish(false, "no_active_vehicle", "Enter a vehicle to record a route")
+    end
+    if adapter.isPlayerCharacter(vehicleId) then
+      return finish(false, "player_on_foot", "Enter a vehicle to record a route")
+    end
+    local ok, reason = productionModules.aiAdapter.recording(vehicleId, true)
+    if not ok then return finish(false, reason, "Route recording could not start") end
+    runtime.aiRecording = {
+      status = "recording", vehicleId = vehicleId, sequence = (recording.sequence or 0) + 1,
+      startedAt = adapter.clock(),
+    }
+    return finish(true, "ai_recording_started", "Recording your route")
+  end
+  if recording.status ~= "recording" then return true end
+  local requestId = "path:" .. tostring(recording.sequence)
+  local ok, reason = productionModules.aiAdapter.recording(recording.vehicleId, false, requestId)
+  if not ok then
+    recording.status, recording.reason = "failed", reason
+    return finish(false, reason, "Route recording could not be stopped")
+  end
+  recording.status, recording.requestId = "processing", requestId
+  return finish(true, "ai_recording_processing", "Reading the recorded route")
+end
+
+-- Reply from the Vehicle Lua path recorder. Only the pending request from the
+-- recording vehicle is accepted; every point must be finite.
+production.onRecordedPath = function(payload)
+  local recording = runtime.aiRecording
+  if type(payload) ~= "table" or not recording or recording.status ~= "processing"
+    or payload.requestId ~= recording.requestId or tonumber(payload.vehicleId) ~= recording.vehicleId
+  then return false end
+  local points = {}
+  for _, point in ipairs(type(payload.points) == "table" and payload.points or {}) do
+    local x, y, z = tonumber(point.x), tonumber(point.y), tonumber(point.z)
+    if not (util.isFinite(x) and util.isFinite(y) and util.isFinite(z)) then points = {}; break end
+    points[#points + 1] = {x = x, y = y, z = z, v = util.isFinite(tonumber(point.v)) and tonumber(point.v) or nil}
+  end
+  if not productionModules.aiAdapter.encodeScript(points) then
+    recording.status, recording.reason, recording.points = "failed", "ai_recording_too_short", nil
+    setResult(false, "ai_recording_too_short", "The recorded route is too short or invalid; drive a little further")
+  else
+    local last = payload.points[#payload.points]
+    recording.status, recording.reason, recording.points = "ready", nil, points
+    recording.pointCount, recording.duration = #points, util.isFinite(tonumber(last.t)) and tonumber(last.t) or nil
+    setResult(true, "ai_recording_ready", "Recorded route ready for Race opponents", {points = #points})
+  end
   publishState()
-  return ok
+  return true
 end
 
 function production.processAIDirector()
@@ -9868,6 +9943,7 @@ M.onVehicleSwitched = onVehicleSwitched
 M.onVehicleDestroyed = onVehicleDestroyed
 M.onFluidProbe = production.onFluidProbe
 M.onAIModeProbe = production.onAIModeProbe
+M.onRecordedPath = production.onRecordedPath
 M.onClientEndMission = onClientEndMission
 M.onModActivated = onModStateChanged
 M.onModDeactivated = onModStateChanged

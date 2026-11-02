@@ -28,7 +28,7 @@ export const COMMAND_SCHEMAS = Object.freeze({
   addAIRoutePoint: [0, 0], editAIRoute: [1, 1], startManagedAI: [1, 1],
   startAIQuickPreset: [1, 1],
   pauseManagedAI: [0, 0], resumeManagedAI: [0, 0], stopManagedAI: [0, 0],
-  resetManagedAI: [0, 0], setAIRecording: [2, 2],
+  resetManagedAI: [0, 0], setAIRecording: [1, 1],
 })
 
 const safeView = value => /^[A-Za-z0-9_.:-]{1,32}$/.test(String(value || ""))

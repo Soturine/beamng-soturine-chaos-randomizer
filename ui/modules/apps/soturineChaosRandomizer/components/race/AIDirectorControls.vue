@@ -17,6 +17,11 @@
         <button type="button" @click="send('editAIRoute', ['reverse'])">{{ t('race.reverseRoute') }}</button>
         <button type="button" @click="send('editAIRoute', ['clear'])">{{ t('race.clearRoute') }}</button>
       </div>
+      <h3>{{ t('race.recordedRoute') }}</h3>
+      <StatusBanner>{{ t(`race.recordingState.${recording.status || 'idle'}`, { points: recording.points || 0 }) }}</StatusBanner>
+      <div class="scr-actions">
+        <button type="button" :disabled="recording.status === 'processing'" @click="send('setAIRecording', [recording.status !== 'recording'])">{{ recording.status === 'recording' ? t('race.stopRecording') : t('race.recordRoute') }}</button>
+      </div>
     </div>
     <div class="scr-card scr-form-grid">
       <ScrSelect v-model="options.mode" :label="t('race.aiMode')" :items="aiModeItems" />
@@ -34,7 +39,7 @@
     <div class="scr-actions">
       <button type="button" @click="send('startManagedAI', [{ ...options }])">{{ t('race.startWithOptions') }}</button>
     </div>
-    <div class="scr-managed-ai"><article v-for="vehicle in director.vehicles || []" :key="vehicle.handle"><strong>{{ vehicle.name || t('race.managedVehicle') }}</strong><span>{{ t(`race.aiState.${vehicle.status || 'idle'}`) }}</span><ToggleField :model-value="vehicle.recording === true" :label="t('race.recording')" @update:model-value="value => send('setAIRecording', [vehicle.handle, value])" /></article></div>
+    <div class="scr-managed-ai"><article v-for="vehicle in director.vehicles || []" :key="vehicle.handle"><strong>{{ vehicle.name || t('race.managedVehicle') }}</strong><span>{{ t(`race.aiState.${vehicle.status || 'idle'}`) }}</span></article></div>
   </section>
 </template>
 <script setup>
@@ -45,6 +50,7 @@ import ScrSelect from "../common/ScrSelect.vue"
 import ToggleField from "../common/ToggleField.vue"
 import StatusBanner from "../common/StatusBanner.vue"
 const stores = useStores(); const director = stores.race.state.aiDirector; const options = stores.race.state.aiOptions; const { t } = stores.i18n
+const recording = computed(() => director.recording || { status: "idle", points: 0 })
 const aiModes = computed(() => director.capabilities?.supportedModes || [])
 const aiModeItems = computed(() => aiModes.value.map(value => ({ value, label: t(`race.aiModeValue.${value}`) })))
 const speedModeItems = computed(() => [{ value: "limit", label: t("race.speedLimit") }, { value: "set", label: t("race.speedSet") }])

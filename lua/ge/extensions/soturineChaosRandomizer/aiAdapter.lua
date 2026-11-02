@@ -5,7 +5,7 @@ local M = {}
 
 local MODES = {
   Destination = true, Route = true, Chase = true, Follow = true,
-  Flee = true, Traffic = true, Roam = true,
+  Flee = true, Traffic = true, Roam = true, Recorded = true,
 }
 local SPEED_MODES = {set = true, limit = true}
 
@@ -39,6 +39,21 @@ local function encodeNodeList(nodes)
   return "{" .. table.concat(values, ",") .. "}"
 end
 
+-- ai.driveUsingPath{script = ...} first places the vehicle at script[1], so
+-- callers start the script at the vehicle's own position.
+local function encodeScript(points)
+  if type(points) ~= "table" or #points < 2 or #points > 1024 then return nil end
+  local values = {}
+  for _, point in ipairs(points) do
+    local x, y, z = tonumber(point.x), tonumber(point.y), tonumber(point.z)
+    if not util.isFinite(x) or not util.isFinite(y) or not util.isFinite(z) then return nil end
+    local v = tonumber(point.v)
+    values[#values + 1] = string.format("{x=%.2f,y=%.2f,z=%.2f%s}", x, y, z,
+      util.isFinite(v) and string.format(",v=%.2f", math.max(0, v)) or "")
+  end
+  return "{" .. table.concat(values, ",") .. "}"
+end
+
 local function configure(vehicleId, options)
   options = type(options) == "table" and options or {}
   local speed = util.clamp(tonumber(options.speed) or 15, 0, 120)
@@ -57,7 +72,7 @@ end
 
 local function start(vehicleId, mode, options)
   if not MODES[mode] then
-    return false, (mode == "Scripted" or mode == "Recorded") and "ai_mode_scripted_unavailable" or "ai_mode_unsupported"
+    return false, mode == "Scripted" and "ai_mode_scripted_unavailable" or "ai_mode_unsupported"
   end
   -- AI never takes over a car a local player has entered (0.40 seat occupants).
   local occupancy = apiAdapter.humanOccupancy(vehicleId)
@@ -79,6 +94,13 @@ local function start(vehicleId, mode, options)
     if targetId < 0 or targetId == vehicleId then return false, "ai_target_invalid" end
     return queue(vehicleId, "ai.setTargetObjectID(" .. tostring(targetId) .. ");ai.setMode(" .. quote(mode:lower()) .. ")")
   end
+  if mode == "Recorded" then
+    local script = encodeScript(options.script)
+    if not script then return false, "ai_recording_missing" end
+    return queue(vehicleId, "ai.driveUsingPath{script=" .. script .. ",driveInLane=\"off\",avoidCars="
+      .. quote(options.avoidCars == false and "off" or "on") .. ",aggression="
+      .. tostring(util.clamp(tonumber(options.aggression) or 0.5, 0.3, 1)) .. "}")
+  end
   if mode == "Traffic" then return queue(vehicleId, "ai.setMode('traffic')") end
   if mode == "Roam" then return queue(vehicleId, "ai.setMode('random')") end
   return false, "ai_mode_unsupported"
@@ -88,8 +110,13 @@ local function stop(vehicleId, disable)
   return queue(vehicleId, disable == true and "ai.setMode('disabled')" or "ai.setMode('stop')")
 end
 
-local function recording(vehicleId, enabled)
-  return queue(vehicleId, enabled and "ai.startRecording()" or "ai.stopRecording()")
+local RECORDER = "soturineChaosRandomizerPathRecorder"
+
+-- Records the player's own driving on its vehicle; stopping sends the bounded
+-- path back to GE through onRecordedPath (see the Vehicle Lua extension).
+local function recording(vehicleId, enabled, requestId)
+  return queue(vehicleId, "extensions.load(" .. quote(RECORDER) .. "); if extensions." .. RECORDER
+    .. " then extensions." .. RECORDER .. (enabled and ".start()" or ".stop(" .. quote(requestId) .. ")") .. " end")
 end
 
 local function targetExists(vehicleId)
@@ -130,17 +157,17 @@ local function capabilities()
     Destination = nav and vehicleQueue, Route = nav and vehicleQueue,
     Chase = vehicleQueue, Follow = vehicleQueue, Flee = vehicleQueue,
     Traffic = vehicleQueue, Roam = vehicleQueue,
-    Recording = vehicleQueue, Recorded = false, Scripted = false,
+    Recording = vehicleQueue, Recorded = vehicleQueue, Scripted = false,
     driveInLane = vehicleQueue,
     ModeReadback = modeReadback,
     modeConfirmationReason = modeReadback and nil or "mode_confirmation_unavailable",
     driveInLaneDefault = "explicit_per_request",
     driveInLaneReason = vehicleQueue and nil or "Vehicle Lua command queue is unavailable.",
     navgraphReason = nav and nil or "No reachable NavGraph API is available in this map/build.",
-    scriptedReason = "Scripted path unavailable in this build: no bounded portable path-transfer contract is enabled by the mod.",
-    recordedReason = "Recorded playback is unavailable until a validated path can be transferred back to GE Lua.",
+    scriptedReason = "Not offered: Route already drives user-placed points; a free-form scripted path is not exposed.",
+    recordedReason = vehicleQueue and nil or "Vehicle Lua command queue is unavailable.",
     supportedModes = vehicleQueue and {
-      "Destination", "Route", "Follow", "Chase", "Flee", "Traffic", "Roam",
+      "Destination", "Route", "Recorded", "Follow", "Chase", "Flee", "Traffic", "Roam",
     } or {},
     quickPresets = vehicleQueue and {
       "Follow", "Convoy", "Chase", "Flee", "Traffic", "Roam", "Swarm",
@@ -154,6 +181,7 @@ M.configure = configure
 M.start = start
 M.stop = stop
 M.recording = recording
+M.encodeScript = encodeScript
 M.targetExists = targetExists
 M.requestMode = requestMode
 M.findClosestRoad = findClosestRoad
