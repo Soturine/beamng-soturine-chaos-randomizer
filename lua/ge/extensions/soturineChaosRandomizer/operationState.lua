@@ -329,7 +329,6 @@ M.isOperationExpired = isOperationExpired
 M.finish = finish
 M.reset = reset
 M.summary = summary
-M.allowedTransitions = ALLOWED
 M.phases = PHASES
 
 return M

@@ -1761,7 +1761,7 @@ local function beginOperation(kind, context)
     local owner = productionModules.domainOperations.ownership(runtime.domainOperations, vehicleId)
     if owner and owner.domain ~= domain and owner.role == "race_competitor" then
       return false, adapter.errorValue("race_competitor_transfer_required",
-        "This vehicle belongs to Race. Remove it from Race or explicitly transfer ownership before using Chaos.", {
+        "This vehicle belongs to Race. Remove it from Race before using Chaos on it.", {
           vehicleId = vehicleId, ownerDomain = owner.domain, requestedDomain = domain,
         })
     end

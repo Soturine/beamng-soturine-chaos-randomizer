@@ -108,12 +108,6 @@ local function deepEqual(left, right, epsilon, seen)
   return true
 end
 
-local function arrayToSet(values)
-  local result = {}
-  for _, value in ipairs(values or {}) do result[value] = true end
-  return result
-end
-
 M.clamp = clamp
 M.isFinite = isFinite
 M.deepCopy = deepCopy
@@ -125,6 +119,5 @@ M.shallowMerge = shallowMerge
 M.roundToStep = roundToStep
 M.normalizeText = normalizeText
 M.deepEqual = deepEqual
-M.arrayToSet = arrayToSet
 
 return M

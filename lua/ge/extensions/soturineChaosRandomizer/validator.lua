@@ -222,13 +222,6 @@ local function selectedEvidence(slot, candidate)
   return fallbackEvidence(slot, candidate, true)
 end
 
-local function isCritical(slot)
-  if slot.coreSlot or slot.required then return true, "required_or_core" end
-  local evidence = selectedEvidence(slot)
-  if #evidence.roles > 0 then return true, evidence.roles[1] end
-  return false
-end
-
 local function canEmpty(slot, protectCriticalParts)
   if slot.coreSlot or slot.required or slot.depth == 0 then return false, "required_or_core" end
   if protectCriticalParts then
@@ -519,20 +512,11 @@ local function validateGraph(graph, baseline, protectCriticalParts)
     missingParts = util.deepCopy(graph.missingParts or {})})
 end
 
-local function validateProtectedScan(scan, protectCriticalParts, context, baseline, options)
-  local graph = buildGraph(scan, context, options)
-  local result = validateGraph(graph, baseline or graph, protectCriticalParts)
-  return result.valid, result.failures, result, graph
-end
-
-M.roleOrder = ROLE_ORDER
 M.evidenceFromPart = evidenceFromPart
 M.selectedEvidence = selectedEvidence
-M.isCritical = isCritical
 M.canEmpty = canEmpty
 M.validateSelection = validateSelection
 M.protectedSelection = protectedSelection
-M.validateProtectedScan = validateProtectedScan
 M.buildGraph = buildGraph
 M.validateGraph = validateGraph
 M.DECISIONS = DECISIONS

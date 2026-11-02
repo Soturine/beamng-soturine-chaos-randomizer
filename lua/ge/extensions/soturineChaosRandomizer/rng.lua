@@ -120,7 +120,6 @@ end
 
 M.new = new
 M.normalizeSeed = formatSeed
-M.seedToNumber = parseSeed
 M.hashText = hashText
 M.MODULUS = MODULUS
 

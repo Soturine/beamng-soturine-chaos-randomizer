@@ -186,10 +186,6 @@ local function setNotes(library, id, notes)
   return updateEntry(library, id, function(entry) entry.notes = value; return entry end)
 end
 
-local function setLockProfile(library, id, lockProfile)
-  return updateEntry(library, id, function(entry) entry.lockProfile = util.deepCopy(lockProfile); return entry end)
-end
-
 local function setThumbnail(library, id, thumbnail)
   return updateEntry(library, id, function(entry) entry.thumbnail = thumbnail and util.deepCopy(thumbnail) or nil; return entry end)
 end
@@ -309,7 +305,6 @@ M.setRating = setRating
 M.setTags = setTags
 M.setCollection = setCollection
 M.setNotes = setNotes
-M.setLockProfile = setLockProfile
 M.setThumbnail = setThumbnail
 M.updateEntry = updateEntry
 M.duplicate = duplicate

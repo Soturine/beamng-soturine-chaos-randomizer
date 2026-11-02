@@ -307,13 +307,6 @@ local function ownership(state, vehicleId)
   return key and state.vehicleOwnership[key] or nil
 end
 
-local function transferVehicle(state, vehicleId, target)
-  local current = ownership(state, vehicleId)
-  if not current then return false, "vehicle_ownership_missing" end
-  target = util.shallowMerge(target or {}, {transfer = true, created = current.created, managed = current.managed})
-  return ownVehicle(state, vehicleId, target)
-end
-
 local function registerCandidate(state, token, vehicleId, metadata)
   local valid, contextOrReason = validateCallback(state, token, vehicleId, true)
   if not valid then return false, contextOrReason end
@@ -384,22 +377,6 @@ local function canCreateTemporary(state, context, replacingVehicleId)
   end
   if count >= 1 then return false, "owned_temporary_cardinality_violation" end
   return true, "temporary_capacity_available"
-end
-
-local function addPendingCallback(context, token)
-  local key = tostring(token.kind or "callback") .. ":" .. tostring(context.pendingCallbackCount + 1)
-  context.pendingCallbacks[key] = util.deepCopy(token)
-  context.pendingCallbackCount = context.pendingCallbackCount + 1
-  return key
-end
-
-local function resolvePendingCallback(context, key, disposition)
-  if context.pendingCallbacks[key] then
-    context.pendingCallbacks[key] = nil
-    context.pendingCallbackCount = math.max(0, context.pendingCallbackCount - 1)
-  end
-  context.callbackDisposition = disposition or "callback_resolved"
-  return true
 end
 
 local function acceptVehicle(state, context, vehicleId, role, playerVehicleIdAfter)
@@ -865,11 +842,8 @@ M.validateCallback = validateCallback
 M.setPhase = setPhase
 M.ownVehicle = ownVehicle
 M.ownership = ownership
-M.transferVehicle = transferVehicle
 M.registerCandidate = registerCandidate
 M.canCreateTemporary = canCreateTemporary
-M.addPendingCallback = addPendingCallback
-M.resolvePendingCallback = resolvePendingCallback
 M.acceptVehicle = acceptVehicle
 M.expectRemoval = expectRemoval
 M.expectAddition = expectAddition

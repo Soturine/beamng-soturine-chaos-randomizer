@@ -28,11 +28,6 @@ local function mark(state, name)
   return true
 end
 
-local function markMany(state, names)
-  for _, name in ipairs(names or {}) do mark(state, name) end
-  return true
-end
-
 local function requestFull(state)
   state.fullRequested = true
   state.flags = freshFlags(true)
@@ -88,7 +83,6 @@ end
 M.FLAG_NAMES = FLAG_NAMES
 M.create = create
 M.mark = mark
-M.markMany = markMany
 M.requestFull = requestFull
 M.due = due
 M.note = note

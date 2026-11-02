@@ -79,6 +79,7 @@
   "result.target_shared_with_other_player": "Otro jugador está en este vehículo, así que no se modificó.",
   "result.vehicle_occupancy_unknown": "No se pudo comprobar quién está en este vehículo, así que no se modificó.",
   "result.managed_vehicle_human_occupied": "Un jugador está dentro de este coche del evento, así que no se modificó.",
+  "result.race_competitor_transfer_required": "Este coche pertenece al evento. Quítalo del evento antes de usar el Caos en él.",
   "result.race_preview_hidden": "Vista previa oculta.",
   "result.race_zero_pool_mods_showcase": "No hay vehículos de mods elegibles instalados para Exhibición de mods. Cambia el preset o los filtros.",
   "result.race_zero_pool": "Ningún vehículo coincide con el preset y los filtros seleccionados.",

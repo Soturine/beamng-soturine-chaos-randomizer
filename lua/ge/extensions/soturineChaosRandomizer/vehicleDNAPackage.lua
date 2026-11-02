@@ -230,6 +230,5 @@ M.inspect = inspect
 M.validateManifest = validateManifest
 M.crc32 = crc32.digest
 M.envelope = envelope
-M.allowedEntry = safeName
 
 return M

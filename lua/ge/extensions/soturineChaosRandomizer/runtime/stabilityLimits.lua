@@ -62,16 +62,8 @@ local function operationTimeoutMs(state, kind, domain)
   return state.maxOperationWallClockMs
 end
 
-local function allows(state, metric, current)
-  local limit = state and state[metric]
-  if type(limit) ~= "number" then return false, "stability_limit_unknown" end
-  if (tonumber(current) or 0) >= limit then return false, metric .. "_reached" end
-  return true
-end
-
 M.DEFAULTS = DEFAULTS
 M.normalize = normalize
-M.allows = allows
 M.operationTimeoutMs = operationTimeoutMs
 
 return M

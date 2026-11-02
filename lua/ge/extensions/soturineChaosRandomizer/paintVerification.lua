@@ -130,7 +130,6 @@ local function expired(state, now)
   return now >= state.deadline or state.attempts >= state.maxAttempts
 end
 
-M.supportedFields = SUPPORTED_FIELDS
 M.normalizeColor = normalizeColor
 M.normalizeRecord = normalizeRecord
 M.normalizePaints = normalizePaints

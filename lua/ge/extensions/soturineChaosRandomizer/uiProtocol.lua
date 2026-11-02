@@ -109,6 +109,5 @@ M.validateCommand = validateCommand
 M.createSequence = createSequence
 M.envelope = envelope
 M.rejection = rejection
-M.isDomain = function(value) return DOMAINS[value] == true end
 
 return M

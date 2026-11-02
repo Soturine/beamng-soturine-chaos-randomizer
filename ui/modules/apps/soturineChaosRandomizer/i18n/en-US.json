@@ -79,6 +79,7 @@
   "result.target_shared_with_other_player": "Another player is in this vehicle, so it was not changed.",
   "result.vehicle_occupancy_unknown": "Who is inside this vehicle could not be checked, so it was not changed.",
   "result.managed_vehicle_human_occupied": "A player is inside this event car, so it was not changed.",
+  "result.race_competitor_transfer_required": "This car belongs to the event. Remove it from the event before using Chaos on it.",
   "result.race_preview_hidden": "Preview hidden.",
   "result.race_zero_pool_mods_showcase": "No eligible mod vehicles are installed for Mods Showcase. Change the preset or content filters.",
   "result.race_zero_pool": "No vehicles match the selected Race preset and filters.",
