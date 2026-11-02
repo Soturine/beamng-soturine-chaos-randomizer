@@ -510,6 +510,7 @@
   "race.destinationState.confirmed_snap": "Destino vial confirmado",
   "race.aiState.idle": "Inactivo",
   "race.aiState.scheduled": "Programado",
+  "race.aiState.confirming": "Comprobando la IA",
   "race.aiState.running": "En ejecución",
   "race.aiState.paused": "Pausado",
   "race.aiState.stopped": "Detenido",

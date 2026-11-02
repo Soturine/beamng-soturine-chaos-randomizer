@@ -5856,15 +5856,17 @@ end
 
 tests.v069_ai_mode_confirmation_handles_all_terminal_outcomes = function()
   local confirmed = p1.aiConfirmation.create(10, 2, "Destination", 0, 1)
-  equal(confirmed.expectedMode, "traffic")
-  equal(p1.aiConfirmation.observe(confirmed, "traffic", 0.1, 2), "confirmed")
+  equal(confirmed.expectedMode, "manual")
+  -- ai.driveUsingPath leaves Vehicle Lua ai.mode at "manual" (0.40.4 ai.lua).
+  equal(p1.aiConfirmation.observe(confirmed, "traffic", 0.05, 2), "pending")
+  equal(p1.aiConfirmation.observe(confirmed, "manual", 0.1, 2), "confirmed")
+  equal(p1.aiConfirmation.observe(p1.aiConfirmation.create(16, 2, "Roam", 0, 1), "random", 0.1, 2), "confirmed")
+  equal(p1.aiConfirmation.observe(p1.aiConfirmation.create(17, 2, "Recorded", 0, 1), "manual", 0.1, 2), "confirmed")
   local mismatch = p1.aiConfirmation.create(11, 3, "Chase", 0, 0.5)
   equal(p1.aiConfirmation.observe(mismatch, "follow", 0.1, 3), "pending")
   equal(p1.aiConfirmation.observe(mismatch, "follow", 0.5, 3), "mismatch")
   local timeout = p1.aiConfirmation.create(12, 4, "Follow", 0, 0.5)
   equal(p1.aiConfirmation.observe(timeout, nil, 0.5, 4), "timeout")
-  local unavailable = p1.aiConfirmation.create(13, 5, "Traffic", 0, 1)
-  equal(p1.aiConfirmation.unavailable(unavailable), "unavailable")
   local destroyed = p1.aiConfirmation.create(14, 6, "Route", 0, 1)
   equal(p1.aiConfirmation.destroyed(destroyed), "destroyed")
   local stale = p1.aiConfirmation.create(15, 7, "Chase", 0, 1)
@@ -8007,6 +8009,30 @@ tests.v040_foreign_config_target_never_redirects_player_writes = function()
     truthy(adapter.applyPartsTree({chosenPartName = "root", children = {}}, 42))
   end)
   equal(implicitWrites, 1)
+end
+
+-- Executes the queued text as Vehicle Lua, then its reply as GE Lua, so the
+-- probe is proven by running it, not by matching its source.
+tests.v040_ai_mode_probe_round_trips_through_vehicle_lua = function()
+  local world = {drivers = {[0] = 1}}
+  withWorld040(world, function()
+    truthy(aiAdapter.requestMode(10, "slot-1:7"))
+  end)
+  equal(#world.commands, 1)
+  equal(world.commands[1].id, 10)
+  local geReply
+  local vehicleChunk = assert(loadstring(world.commands[1].command))
+  setfenv(vehicleChunk, {
+    string = string, tostring = tostring,
+    obj = {getID = function() return 10 end, queueGameEngineLua = function(_, text) geReply = text end},
+    ai = {mode = "manual"},
+  })
+  vehicleChunk()
+  local observed = {}
+  local geChunk = assert(loadstring(geReply))
+  setfenv(geChunk, {extensions = {soturineChaosRandomizer = {onAIModeProbe = function(...) observed = {...} end}}})
+  geChunk()
+  equal(observed[1], 10); equal(observed[2], "slot-1:7"); equal(observed[3], "manual")
 end
 
 tests.v040_chaos_refuses_walking_player_and_shared_vehicles = function()

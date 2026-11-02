@@ -2,11 +2,13 @@ local util = require("ge/extensions/soturineChaosRandomizer/util")
 
 local M = {}
 
-local TERMINAL = {confirmed = true, unavailable = true, mismatch = true, timeout = true, destroyed = true, stale = true}
+local TERMINAL = {confirmed = true, mismatch = true, timeout = true, destroyed = true, stale = true}
 
 local function normalize(mode)
   mode = tostring(mode or ""):lower()
-  local aliases = {destination = "traffic", route = "traffic", chase = "chase",
+  -- Vehicle Lua ai.mode values: ai.driveUsingPath sets "manual" for
+  -- Destination, Route and Recorded playback; Roam is setMode("random").
+  local aliases = {destination = "manual", route = "manual", recorded = "manual", chase = "chase",
     follow = "follow", flee = "flee", traffic = "traffic", roam = "random", random = "random"}
   return aliases[mode] or mode
 end
@@ -36,11 +38,6 @@ local function observe(state, mode, now, generation)
   return "pending"
 end
 
-local function unavailable(state)
-  if not TERMINAL[state.status] then state.status = "unavailable" end
-  return state.status
-end
-
 local function destroyed(state)
   if not TERMINAL[state.status] then state.status = "destroyed" end
   return state.status
@@ -49,7 +46,6 @@ end
 M.normalize = normalize
 M.create = create
 M.observe = observe
-M.unavailable = unavailable
 M.destroyed = destroyed
 
 return M

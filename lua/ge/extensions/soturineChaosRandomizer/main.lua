@@ -8880,18 +8880,14 @@ function production.processAIDirector()
       entry.dispatchFailureReason = ok and nil or reason
       if ok then
         entry.startedAt, entry.lastProgressAt = now, now
-        local readOk, observedMode, method = productionModules.aiAdapter.readMode(entry.vehicleId)
-        if readOk then
+        runtime.aiModeProbeSequence = (runtime.aiModeProbeSequence or 0) + 1
+        entry.modeProbeRequestId = handle .. ":" .. tostring(runtime.aiModeProbeSequence)
+        if productionModules.aiAdapter.requestMode(entry.vehicleId, entry.modeProbeRequestId) then
           entry.modeConfirmation = productionModules.aiModeConfirmation.create(
-            entry.vehicleId, entry.targetGeneration, entry.mode, now, 2
+            entry.vehicleId, entry.targetGeneration, entry.mode, now, 3
           )
-          entry.modeConfirmation.method = method
-          local confirmation = productionModules.aiModeConfirmation.observe(
-            entry.modeConfirmation, observedMode, now, entry.targetGeneration
-          )
-          productionModules.aiDirector.setStatus(runtime.aiDirector, handle,
-            confirmation == "confirmed" and "running" or "confirming",
-            confirmation == "confirmed" and "mode_confirmed" or "mode_confirmation_pending")
+          entry.modeConfirmation.method = "vehicle_lua_probe"
+          productionModules.aiDirector.setStatus(runtime.aiDirector, handle, "confirming", "mode_confirmation_pending")
         else
           productionModules.aiDirector.setStatus(runtime.aiDirector, handle, "running", "mode_confirmation_unavailable")
           productionModules.aiDirector.log(runtime.aiDirector, "mode_confirmation_unavailable", {
@@ -8909,20 +8905,18 @@ function production.processAIDirector()
         if entry.modeConfirmation then productionModules.aiModeConfirmation.destroyed(entry.modeConfirmation) end
         productionModules.aiDirector.setStatus(runtime.aiDirector, handle, "failed", "vehicle_destroyed")
       else
-        local readOk, observedMode = productionModules.aiAdapter.readMode(entry.vehicleId)
-        local confirmation
-        if readOk then
-          confirmation = productionModules.aiModeConfirmation.observe(
-            entry.modeConfirmation, observedMode, now, entry.targetGeneration
-          )
-        else
-          confirmation = productionModules.aiModeConfirmation.unavailable(entry.modeConfirmation)
-        end
+        local probe = runtime.aiModeProbes and runtime.aiModeProbes[entry.vehicleId]
+        local observedMode = probe and probe.requestId == entry.modeProbeRequestId and probe.mode or nil
+        local confirmation = productionModules.aiModeConfirmation.observe(
+          entry.modeConfirmation, observedMode, now, entry.targetGeneration
+        )
         if confirmation == "confirmed" then
           productionModules.aiDirector.setStatus(runtime.aiDirector, handle, "running", "mode_confirmed")
-        elseif confirmation == "unavailable" then
+        elseif confirmation == "timeout" then
+          -- No reply is unknown, not failure: the command was accepted and
+          -- movement monitoring still applies, but nothing is claimed confirmed.
           productionModules.aiDirector.setStatus(runtime.aiDirector, handle, "running", "mode_confirmation_unavailable")
-        elseif confirmation == "mismatch" or confirmation == "timeout" or confirmation == "stale" then
+        elseif confirmation == "mismatch" or confirmation == "stale" then
           productionModules.aiAdapter.stop(entry.vehicleId, false)
           productionModules.aiDirector.setStatus(runtime.aiDirector, handle, "failed", "ai_mode_" .. confirmation)
         end
@@ -9186,6 +9180,18 @@ production.resumeEngineFluidContinuation = function(active, continuation)
   else
     completeChaos(active)
   end
+end
+
+-- Reply from aiAdapter.requestMode, sent by Vehicle Lua with its own ID.
+production.onAIModeProbe = function(vehicleId, requestId, mode)
+  vehicleId = tonumber(vehicleId)
+  if not vehicleId or type(requestId) ~= "string" or type(mode) ~= "string" then return false end
+  runtime.aiModeProbes = runtime.aiModeProbes or {}
+  runtime.aiModeProbes[vehicleId] = {requestId = requestId, mode = mode}
+  if runtime.aiDirector and runtime.aiDirector.polling then
+    productionModules.adaptivePolling.wake(runtime.aiDirector.polling, adapter.clock())
+  end
+  return true
 end
 
 production.onFluidProbe = function(evidence)
@@ -9861,6 +9867,7 @@ M.onVehicleSpawned = onVehicleSpawned
 M.onVehicleSwitched = onVehicleSwitched
 M.onVehicleDestroyed = onVehicleDestroyed
 M.onFluidProbe = production.onFluidProbe
+M.onAIModeProbe = production.onAIModeProbe
 M.onClientEndMission = onClientEndMission
 M.onModActivated = onModStateChanged
 M.onModDeactivated = onModStateChanged

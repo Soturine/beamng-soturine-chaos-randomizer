@@ -510,6 +510,7 @@
   "race.destinationState.confirmed_snap": "Road destination confirmed",
   "race.aiState.idle": "Idle",
   "race.aiState.scheduled": "Scheduled",
+  "race.aiState.confirming": "Checking AI",
   "race.aiState.running": "Running",
   "race.aiState.paused": "Paused",
   "race.aiState.stopped": "Stopped",

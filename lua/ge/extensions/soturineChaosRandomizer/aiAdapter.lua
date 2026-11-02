@@ -97,20 +97,16 @@ local function targetExists(vehicleId)
   return vehicle ~= nil, vehicle and "vehicle_target_confirmed" or reason
 end
 
-local function readMode(vehicleId)
-  local vehicle, reason = object(vehicleId)
-  if not vehicle then return false, reason end
-  for _, name in ipairs({"getAIMode", "getAiMode", "getAIState"}) do
-    local readable, callback = pcall(function() return vehicle[name] end)
-    if readable and type(callback) == "function" then
-      local ok, value = pcall(callback, vehicle)
-      if ok then
-        if type(value) == "table" then value = value.mode or value.aiMode or value.state end
-        if type(value) == "string" and value ~= "" then return true, value, name end
-      end
-    end
-  end
-  return false, "mode_confirmation_unavailable"
+-- BeamNG keeps the AI mode inside Vehicle Lua (ai.mode); GE vehicle objects
+-- have no AI-mode getter, and the game's own flowgraph getAIMode node reads it
+-- the same way. The probe is queued after the start command on the same
+-- vehicle queue, so the reply describes the mode that command produced.
+local PROBE_REPLY = "if extensions.soturineChaosRandomizer then "
+  .. "extensions.soturineChaosRandomizer.onAIModeProbe(%d,%q,%q) end"
+
+local function requestMode(vehicleId, requestId)
+  return queue(vehicleId, "obj:queueGameEngineLua(string.format(" .. string.format("%q", PROBE_REPLY)
+    .. ", obj:getID(), " .. quote(requestId) .. ", tostring(ai.mode)))")
 end
 
 local function findClosestRoad(position)
@@ -129,19 +125,7 @@ end
 local function capabilities()
   local nav = type(map) == "table" and type(map.findClosestRoad) == "function" and type(map.getPath) == "function"
   local vehicleQueue = type(getObjectByID) == "function"
-  local modeReadback = false
-  if type(getObjectByID) == "function" and (type(be) == "table" or type(be) == "userdata") then
-    local readable, callback = pcall(function() return be.getPlayerVehicleID end)
-    local okId, id = false, nil
-    if readable and type(callback) == "function" then okId, id = pcall(callback, be, 0) end
-    local vehicle = okId and id and object(id) or nil
-    if vehicle then
-      for _, name in ipairs({"getAIMode", "getAiMode", "getAIState"}) do
-        local readable, callback = pcall(function() return vehicle[name] end)
-        if readable and type(callback) == "function" then modeReadback = true; break end
-      end
-    end
-  end
+  local modeReadback = vehicleQueue
   return {
     Destination = nav and vehicleQueue, Route = nav and vehicleQueue,
     Chase = vehicleQueue, Follow = vehicleQueue, Flee = vehicleQueue,
@@ -171,7 +155,7 @@ M.start = start
 M.stop = stop
 M.recording = recording
 M.targetExists = targetExists
-M.readMode = readMode
+M.requestMode = requestMode
 M.findClosestRoad = findClosestRoad
 M.getPath = getPath
 M.capabilities = capabilities
