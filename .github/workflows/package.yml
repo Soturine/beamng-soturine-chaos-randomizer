@@ -105,12 +105,15 @@ jobs:
           version="$(tr -d '\r\n' < VERSION)"
           notes="docs/releases/v${version}.md"
           test -f "$notes"
+          # The title is the notes' own heading, so it can never go stale.
+          title="$(head -n 1 "$notes" | sed 's/^# *//')"
+          test -n "$title"
           gh release create "$GITHUB_REF_NAME" \
             "dist/soturine_chaos_randomizer_${version}.zip" \
             "dist/soturine_chaos_randomizer_${version}.zip.sha256" \
             "dist/soturine_chaos_randomizer_${version}.manifest.json" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "v${version} — Race stabilization and simplification" \
+            --title "$title" \
             --notes-file "$notes" \
             --verify-tag \
             --prerelease \
