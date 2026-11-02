@@ -1,4 +1,5 @@
 local util = require("ge/extensions/soturineChaosRandomizer/util")
+local apiAdapter = require("ge/extensions/soturineChaosRandomizer/apiAdapter")
 
 local M = {}
 
@@ -57,6 +58,11 @@ end
 local function start(vehicleId, mode, options)
   if not MODES[mode] then
     return false, (mode == "Scripted" or mode == "Recorded") and "ai_mode_scripted_unavailable" or "ai_mode_unsupported"
+  end
+  -- AI never takes over a car a local player has entered (0.40 seat occupants).
+  local occupancy = apiAdapter.humanOccupancy(vehicleId)
+  if occupancy ~= "free" then
+    return false, occupancy == "occupied" and "vehicle_human_occupied" or "vehicle_occupancy_unknown"
   end
   options = type(options) == "table" and options or {}
   local configured, reason = configure(vehicleId, options)

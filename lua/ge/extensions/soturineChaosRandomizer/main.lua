@@ -304,6 +304,29 @@ function production.publicPerformance()
   return result
 end
 
+-- No mutation may land on the walking character or on a vehicle another local
+-- human occupies (BeamNG 0.40 split-screen players and seat occupants). Race
+-- targets are managed NPCs, so any human aboard - player 0 included - blocks
+-- them. Unreadable occupancy is not treated as free.
+production.humanTargetRefusal = function(vehicleId, domain)
+  if adapter.isPlayerCharacter(vehicleId) then
+    return adapter.errorValue("player_on_foot", "Enter a vehicle before randomizing", {vehicleId = vehicleId})
+  end
+  local occupancy, players = adapter.humanOccupancy(vehicleId)
+  if occupancy == "unknown" then
+    return adapter.errorValue("vehicle_occupancy_unknown", "Local player occupancy could not be read", {vehicleId = vehicleId})
+  end
+  for _, player in ipairs(players) do
+    if domain == "race" or player ~= 0 then
+      local race = domain == "race"
+      return adapter.errorValue(race and "managed_vehicle_human_occupied" or "target_shared_with_other_player",
+        race and "A player is inside this Race vehicle" or "Another player is inside this vehicle",
+        {vehicleId = vehicleId, players = util.deepCopy(players)})
+    end
+  end
+  return nil
+end
+
 production.operationDomain = function(kind, context)
   context = type(context) == "table" and context or {}
   if context.domain == "chaos" or context.domain == "race" or context.domain == "garage" then
@@ -1727,6 +1750,8 @@ local function beginOperation(kind, context)
   if not okId and context.startWithoutVehicle ~= true then vehicleId = nil end
   local domain = production.operationDomain(kind, context)
   if type(vehicleId) == "number" then
+    local refusal = production.humanTargetRefusal(vehicleId, domain)
+    if refusal then return false, refusal end
     local owner = productionModules.domainOperations.ownership(runtime.domainOperations, vehicleId)
     if owner and owner.domain ~= domain and owner.role == "race_competitor" then
       return false, adapter.errorValue("race_competitor_transfer_required",

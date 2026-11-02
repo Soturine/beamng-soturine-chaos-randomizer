@@ -1,4 +1,5 @@
 local util = require("ge/extensions/soturineChaosRandomizer/util")
+local apiAdapter = require("ge/extensions/soturineChaosRandomizer/apiAdapter")
 local spawnOutcome = require("ge/extensions/soturineChaosRandomizer/spawnOutcome")
 local dimensionCacheModule = require("ge/extensions/soturineChaosRandomizer/dimensionCache")
 local vehicleBufferPool = require("ge/extensions/soturineChaosRandomizer/vehicleBufferPool")
@@ -136,6 +137,15 @@ local function spawnVehicle(modelKey, config, placement)
   return false, transaction.reason or "UNKNOWN_FAILURE", transaction
 end
 
+-- Local authority for a physical side effect: nobody may be aboard. Ownership
+-- is proven by the caller; this only refuses vehicles a local human occupies.
+local function humanAboardReason(vehicleId)
+  local occupancy = apiAdapter.humanOccupancy(vehicleId)
+  if occupancy == "occupied" then return "vehicle_human_occupied" end
+  if occupancy == "unknown" then return "vehicle_occupancy_unknown" end
+  return nil
+end
+
 local function placeVehicle(vehicleId, placement)
   if type(getObjectByID) ~= "function" or type(spawn) ~= "table"
     or type(spawn.safeTeleport) ~= "function" or type(placement) ~= "table"
@@ -143,6 +153,8 @@ local function placeVehicle(vehicleId, placement)
   then return false, "vehicle_placement_unavailable" end
   local okObject, vehicle = pcall(getObjectByID, vehicleId)
   if not okObject or not vehicle then return false, "vehicle_missing" end
+  local aboard = humanAboardReason(vehicleId)
+  if aboard then return false, aboard end
   local direction = placement.forward or {x = 0, y = 1, z = 0}
   local rotation
   if type(quatFromDir) == "function" then
@@ -228,6 +240,8 @@ local function deleteVehicle(vehicleId)
   if type(getObjectByID) ~= "function" then return false, "vehicle_lookup_unavailable" end
   local ok, object = pcall(getObjectByID, vehicleId)
   if not ok or not object then return false, "vehicle_missing" end
+  local aboard = humanAboardReason(vehicleId)
+  if aboard then return false, aboard end
   local readable, method = pcall(function() return object.delete end)
   if not readable or type(method) ~= "function" then return false, "vehicle_delete_unavailable" end
   local deleted = pcall(method, object)
@@ -314,6 +328,7 @@ M.vehicleIds = vehicleIds
 M.objectSpeed = objectSpeed
 M.occupiedVehiclePositions = occupiedVehiclePositions
 M.deleteVehicle = deleteVehicle
+M.humanAboardReason = humanAboardReason
 M.readVehicleState = readVehicleState
 M.verifySpawnTarget = verifySpawnTarget
 M.performanceSnapshot = performanceSnapshot

@@ -4984,15 +4984,16 @@ tests.v060_route_editor_ai_progress_and_isolation = function()
   local removed, removedReason = aiDirector.observe(chaseDirector, "chase", {targetMissing = true}, 1)
   equal(removed, "stopped"); equal(removedReason, "ai_target_removed")
 
-  local oldLookup = getObjectByID
+  local oldLookup, oldBe = getObjectByID, rawget(_G, "be")
   local commands = {}
   getObjectByID = function(id)
     return {queueLuaCommand = function(_, command) commands[id] = (commands[id] or "") .. command end}
   end
+  _G.be = {getPlayerVehicleID = function() return 20 end}
   local chaseOk = aiAdapter.start(10, "Chase", {
     targetVehicleId = 20, speed = 15, speedMode = "limit", aggression = 0.5,
   })
-  getObjectByID = oldLookup
+  getObjectByID, _G.be = oldLookup, oldBe
   truthy(chaseOk)
   truthy(commands[10]:find("setTargetObjectID%(20%)") ~= nil)
   equal(commands[20], nil)
@@ -7878,11 +7879,12 @@ end
 tests.v075_ai_capabilities_match_runtime_and_quick_presets = function()
   for mode in pairs(aiAdapter.MODES) do truthy(aiDirector.MODES[mode], "director missing " .. mode) end
   for mode in pairs(aiDirector.MODES) do truthy(aiAdapter.MODES[mode], "adapter missing " .. mode) end
-  local oldLookup = rawget(_G, "getObjectByID")
+  local oldLookup, oldBe = rawget(_G, "getObjectByID"), rawget(_G, "be")
   local commands = {}
   _G.getObjectByID = function()
     return {queueLuaCommand = function(_, command) commands[#commands + 1] = command end}
   end
+  _G.be = {getPlayerVehicleID = function() return 11 end}
   local caps = aiAdapter.capabilities()
   local expectedModes = {"Destination", "Route", "Follow", "Chase", "Flee", "Traffic", "Roam"}
   local expectedPresets = {"Follow", "Convoy", "Chase", "Flee", "Traffic", "Roam", "Swarm"}
@@ -7892,7 +7894,134 @@ tests.v075_ai_capabilities_match_runtime_and_quick_presets = function()
   truthy(commands[#commands]:find("ai.setMode%(\"flee\"%)") ~= nil)
   truthy(aiAdapter.start(10, "Roam", {aggression = 0.8}))
   truthy(commands[#commands]:find("ai.setMode%('random'%)") ~= nil)
-  _G.getObjectByID = oldLookup
+  _G.getObjectByID, _G.be = oldLookup, oldBe
+end
+
+-- BeamNG 0.40.4 contracts read from the installed game source:
+-- core_multiseat.getPlayers(), be:getPlayerVehicleID(player),
+-- gameplay_seatOccupants.getVehiclePresences(vehId) and
+-- core_vehicle_configTarget.getTargetVehicleId().
+local WORLD040_GLOBALS = {"be", "getObjectByID", "core_multiseat", "gameplay_seatOccupants",
+  "core_vehicle_configTarget", "core_vehicle_partmgmt", "core_vehicle_manager", "spawn"}
+local function withWorld040(world, callback)
+  local saved = {}
+  for _, name in ipairs(WORLD040_GLOBALS) do saved[name] = rawget(_G, name) end
+  _G.be = {getPlayerVehicleID = function(_, player)
+    if world.throwPlayerRead then error("fixture be failure") end
+    return world.drivers[player] or -1
+  end}
+  _G.getObjectByID = world.getObjectByID or function(id)
+    return world.objects and world.objects[id] or {
+      getJBeamFilename = function() return id == world.walkingId and "unicycle" or "fixture_car" end,
+      queueLuaCommand = function(_, command) world.commands[#world.commands + 1] = {id = id, command = command} end,
+      delete = function() world.deleted[#world.deleted + 1] = id end,
+    }
+  end
+  _G.core_multiseat = world.players and {getPlayers = function()
+    if world.throwPlayers then error("fixture multiseat failure") end
+    return util.deepCopy(world.players)
+  end} or nil
+  _G.gameplay_seatOccupants = world.presences and {getVehiclePresences = function(vehId)
+    return util.deepCopy(world.presences[vehId] or {})
+  end} or nil
+  _G.core_vehicle_configTarget = {getTargetVehicleId = function() return world.configTarget end}
+  world.commands, world.deleted = world.commands or {}, world.deleted or {}
+  local ok, failure = pcall(callback)
+  for _, name in ipairs(WORLD040_GLOBALS) do _G[name] = saved[name] end
+  if not ok then error(failure, 0) end
+end
+
+tests.v040_split_screen_occupancy_covers_every_local_player_and_passenger = function()
+  withWorld040({players = {0, 1, 2}, drivers = {[0] = 10, [1] = 42, [2] = 50},
+    presences = {[60] = {{player = 2, seatId = "passenger"}}}}, function()
+    local state, players = adapter.humanOccupancy(42)
+    equal(state, "occupied"); equal(players[1], 1)
+    -- Player 2 drives 50 but also has a seat presence in 60.
+    state, players = adapter.humanOccupancy(60)
+    equal(state, "occupied"); equal(players[1], 2)
+    equal(adapter.humanOccupancy(77), "free")
+  end)
+  -- Single player 0.39 world: no multiseat or seat modules, only player 0.
+  withWorld040({drivers = {[0] = 10, [1] = 42}}, function()
+    equal(adapter.humanOccupancy(42), "free")
+    equal(adapter.humanOccupancy(10), "occupied")
+  end)
+  -- Unreadable occupancy is never reported as free.
+  withWorld040({players = {0, 1}, drivers = {}, throwPlayers = true}, function()
+    equal(adapter.humanOccupancy(42), "unknown")
+  end)
+  withWorld040({drivers = {}, throwPlayerRead = true}, function()
+    equal(adapter.humanOccupancy(42), "unknown")
+  end)
+end
+
+tests.v040_physical_side_effects_refuse_vehicles_with_humans_aboard = function()
+  local world = {players = {0, 1}, drivers = {[0] = 10, [1] = 42}}
+  withWorld040(world, function()
+    local deleted, reason = spawnApiAdapter.deleteVehicle(42)
+    equal(deleted, false); equal(reason, "vehicle_human_occupied")
+    _G.spawn = {safeTeleport = function() error("teleport must not run") end}
+    local placed, placeReason = spawnApiAdapter.placeVehicle(42, {position = {x = 0, y = 0, z = 0}})
+    equal(placed, false); equal(placeReason, "vehicle_human_occupied")
+    local started, aiReason = aiAdapter.start(42, "Roam", {})
+    equal(started, false); equal(aiReason, "vehicle_human_occupied")
+    equal(#world.commands, 0)
+    -- Negative control: an unoccupied managed car is still removable.
+    truthy(spawnApiAdapter.deleteVehicle(77))
+    equal(world.deleted[1], 77)
+    equal(#world.deleted, 1)
+  end)
+end
+
+tests.v040_foreign_config_target_never_redirects_player_writes = function()
+  local writes = {}
+  local playerCar = {getJBeamFilename = function() return "fixture_car" end, getID = function() return 42 end}
+  local config = {partConfigFilename = "/vehicles/fixture_car/base.pc", partsTree = {children = {}}, vars = {}, paints = {}}
+  withWorld040({players = {0, 1}, drivers = {[0] = 42, [1] = 77}, configTarget = 77,
+    getObjectByID = function(id) if id == 42 then return playerCar end end}, function()
+    _G.core_vehicle_manager = {getVehicleData = function(id) if id == 42 then return {config = config} end end}
+    _G.core_vehicle_partmgmt = {
+      getConfig = function() error("implicit read would return player 1's car") end,
+      setPartsTreeConfig = function() error("implicit write would hit player 1's car") end,
+      setConfigVars = function() error("implicit write would hit player 1's car") end,
+      setConfigOfVehicle = function(vehicle, patch) writes[#writes + 1] = {vehicle = vehicle, patch = patch} end,
+    }
+    truthy(adapter.applyPartsTree({chosenPartName = "root", children = {}}, 42))
+    truthy(adapter.applyTuning({boost = 1}, 42))
+    equal(#writes, 2)
+    equal(writes[1].vehicle, playerCar); equal(writes[2].vehicle, playerCar)
+    local readOk, readError = adapter.getCurrentConfig(nil)
+    equal(readOk, false); equal(readError.code, "config_target_foreign")
+    local observedOk, observed = adapter.getVerificationState(42)
+    truthy(observedOk)
+    equal(#observed.configCandidates, 1)
+    equal(observed.configCandidates[1].source, "manager_by_id")
+  end)
+  -- Negative control: without a foreign target the 0.39 implicit API is kept.
+  local implicitWrites = 0
+  withWorld040({drivers = {[0] = 42}, getObjectByID = function(id) if id == 42 then return playerCar end end}, function()
+    _G.core_vehicle_partmgmt = {
+      setPartsTreeConfig = function() implicitWrites = implicitWrites + 1 end,
+      setConfigOfVehicle = function() error("ID-bound write is not needed") end,
+    }
+    truthy(adapter.applyPartsTree({chosenPartName = "root", children = {}}, 42))
+  end)
+  equal(implicitWrites, 1)
+end
+
+tests.v040_chaos_refuses_walking_player_and_shared_vehicles = function()
+  local walking = pipelineHarness.new({})
+  walking.onFoot = true
+  truthy(not walking.main.scramble({manualSeed = "walking"}))
+  equal(walking.main.requestState().lastResult.code, "player_on_foot")
+  local shared = pipelineHarness.new({})
+  shared.occupants = {[shared.vehicleId] = {0, 1}}
+  truthy(not shared.main.scramble({manualSeed = "shared"}))
+  equal(shared.main.requestState().lastResult.code, "target_shared_with_other_player")
+  truthy(#shared.calls == 0 or shared.calls[#shared.calls] ~= "capture")
+  -- Negative control: player 0 alone in the car is the normal Scramble path.
+  local solo = pipelineHarness.new({})
+  truthy(solo.main.scramble({manualSeed = "solo"}))
 end
 
 tests.v075_vehicle_identity_authority_is_bounded = function()

@@ -152,6 +152,69 @@ local function getCurrentVehicleId()
   end)
 end
 
+-- BeamNG 0.40 local split-screen: players come from core_multiseat (absent or
+-- {0} in single player). Human presence in a vehicle is a driver binding
+-- (be:getPlayerVehicleID) or a seat presence from gameplay_seatOccupants.
+-- Returns "occupied", "free" or "unknown", plus the occupying player indices.
+local function humanOccupancy(vehicleId)
+  if type(vehicleId) ~= "number" then return "unknown", {} end
+  if type(be) ~= "table" and type(be) ~= "userdata" then return "unknown", {} end
+  local players = {0}
+  local multiseat = rawget(_G, "core_multiseat")
+  if type(multiseat) == "table" and type(multiseat.getPlayers) == "function" then
+    local ok, value = pcall(multiseat.getPlayers)
+    if not ok or type(value) ~= "table" then return "unknown", {} end
+    if #value > 0 then players = value end
+  end
+  local occupants, seen = {}, {}
+  for _, player in ipairs(players) do
+    local ok, id = pcall(function() return be:getPlayerVehicleID(player) end)
+    if not ok then return "unknown", occupants end
+    if id == vehicleId and not seen[player] then
+      seen[player] = true
+      occupants[#occupants + 1] = player
+    end
+  end
+  local seats = rawget(_G, "gameplay_seatOccupants")
+  if type(seats) == "table" and type(seats.getVehiclePresences) == "function" then
+    local ok, presences = pcall(seats.getVehiclePresences, vehicleId)
+    if not ok or type(presences) ~= "table" then return "unknown", occupants end
+    for _, presence in ipairs(presences) do
+      local player = type(presence) == "table" and tonumber(presence.player)
+      if player and not seen[player] then
+        seen[player] = true
+        occupants[#occupants + 1] = player
+      end
+    end
+  end
+  table.sort(occupants)
+  return #occupants > 0 and "occupied" or "free", occupants
+end
+
+-- The walking player is a "unicycle" vehicle; it is never a mutation target.
+local function isPlayerCharacter(vehicleId)
+  if type(getObjectByID) ~= "function" or type(vehicleId) ~= "number" then return false end
+  local ok, model = pcall(function()
+    local vehicle = getObjectByID(vehicleId)
+    return vehicle and vehicle:getJBeamFilename()
+  end)
+  return ok and model == "unicycle"
+end
+
+-- BeamNG 0.40 routes the implicit part-manager API (getConfig,
+-- setPartsTreeConfig, setConfigVars, setConfigPaints) to
+-- core_vehicle_configTarget while a split-screen participant configures a
+-- vehicle. Implicit calls are safe only while no target is set or the target
+-- is the operation's own vehicle.
+local function foreignConfigTarget(vehicleId)
+  local configTarget = rawget(_G, "core_vehicle_configTarget")
+  if type(configTarget) ~= "table" or type(configTarget.getTargetVehicleId) ~= "function" then return nil end
+  local ok, targetId = pcall(configTarget.getTargetVehicleId)
+  targetId = ok and tonumber(targetId) or nil
+  if targetId ~= nil and targetId ~= vehicleId then return targetId end
+  return nil
+end
+
 local function targetError(expectedVehicleId, currentVehicleId, source)
   return errorValue("target_id_changed", "The active player vehicle no longer matches the operation target", {
     expectedVehicleId = expectedVehicleId,
@@ -277,6 +340,13 @@ local function getCurrentConfig(expectedVehicleId, allowBackgroundTarget)
   end
   if type(core_vehicle_partmgmt) ~= "table" or type(core_vehicle_partmgmt.getConfig) ~= "function" then
     return false, errorValue("unsupported_api", "The current configuration API is unavailable")
+  end
+  local okPlayer, playerVehicleId = getCurrentVehicleId()
+  local foreignTarget = foreignConfigTarget(okPlayer and playerVehicleId or nil)
+  if foreignTarget then
+    return false, errorValue("config_target_foreign", "Another player's vehicle is open in the configuration menu", {
+      configTargetVehicleId = foreignTarget,
+    })
   end
   local ok, config = safeCall("core_vehicle_partmgmt.getConfig", function()
     return core_vehicle_partmgmt.getConfig()
@@ -584,6 +654,26 @@ local function ensureWriteTarget(expectedVehicleId, source, allowBackgroundTarge
   return true
 end
 
+-- Background (Race) writes are always bound by ID. Player writes keep the
+-- implicit part-manager API, which fires the game's own config hooks, unless a
+-- foreign BeamNG 0.40 config target would redirect them to another vehicle.
+-- Returns ok, vehicle (nil = use the implicit API).
+local function idBoundWriteVehicle(expectedVehicleId, allowBackgroundTarget, action)
+  if allowBackgroundTarget ~= true then
+    local vehicleId = expectedVehicleId
+    if type(vehicleId) ~= "number" then
+      local okId, currentId = getCurrentVehicleId()
+      vehicleId = okId and currentId or nil
+    end
+    if not foreignConfigTarget(vehicleId) then return true, nil end
+  end
+  if type(core_vehicle_partmgmt.setConfigOfVehicle) ~= "function" then
+    return false, errorValue(allowBackgroundTarget == true and "background_write_unsupported" or "config_target_foreign",
+      "This BeamNG build cannot " .. action .. " a vehicle by ID")
+  end
+  return getCurrentVehicleObject(expectedVehicleId, allowBackgroundTarget)
+end
+
 local function applyPartsTree(tree, expectedVehicleId, allowBackgroundTarget)
   if type(core_vehicle_partmgmt) ~= "table" or type(core_vehicle_partmgmt.setPartsTreeConfig) ~= "function" then
     return false, errorValue("unsupported_api", "Hierarchical part configuration is unavailable")
@@ -593,18 +683,10 @@ local function applyPartsTree(tree, expectedVehicleId, allowBackgroundTarget)
     expectedVehicleId, "parts_write", allowBackgroundTarget
   )
   if not targetOk then return false, targetFailure end
-  local operationName = "core_vehicle_partmgmt.setPartsTreeConfig"
-  local targetVehicle
-  if allowBackgroundTarget == true then
-    if type(core_vehicle_partmgmt.setConfigOfVehicle) ~= "function" then
-      return false, errorValue("background_write_unsupported",
-        "This BeamNG build cannot mutate a non-player Race vehicle by ID")
-    end
-    local targetResolved, vehicleOrError = getCurrentVehicleObject(expectedVehicleId, true)
-    if not targetResolved then return false, vehicleOrError end
-    targetVehicle = vehicleOrError
-    operationName = "core_vehicle_partmgmt.setConfigOfVehicle.partsTree"
-  end
+  local resolved, targetVehicle = idBoundWriteVehicle(expectedVehicleId, allowBackgroundTarget, "mutate")
+  if not resolved then return false, targetVehicle end
+  local operationName = targetVehicle and "core_vehicle_partmgmt.setConfigOfVehicle.partsTree"
+    or "core_vehicle_partmgmt.setPartsTreeConfig"
   local ok, result = callContract(operationName, "parts_apply_rejected", "nil_then_event", function()
     if targetVehicle then
       return core_vehicle_partmgmt.setConfigOfVehicle(
@@ -625,18 +707,10 @@ local function applyTuning(values, expectedVehicleId, allowBackgroundTarget)
     expectedVehicleId, "tuning_write", allowBackgroundTarget
   )
   if not targetOk then return false, targetFailure end
-  local operationName = "core_vehicle_partmgmt.setConfigVars"
-  local targetVehicle
-  if allowBackgroundTarget == true then
-    if type(core_vehicle_partmgmt.setConfigOfVehicle) ~= "function" then
-      return false, errorValue("background_write_unsupported",
-        "This BeamNG build cannot tune a non-player Race vehicle by ID")
-    end
-    local targetResolved, vehicleOrError = getCurrentVehicleObject(expectedVehicleId, true)
-    if not targetResolved then return false, vehicleOrError end
-    targetVehicle = vehicleOrError
-    operationName = "core_vehicle_partmgmt.setConfigOfVehicle.vars"
-  end
+  local resolved, targetVehicle = idBoundWriteVehicle(expectedVehicleId, allowBackgroundTarget, "tune")
+  if not resolved then return false, targetVehicle end
+  local operationName = targetVehicle and "core_vehicle_partmgmt.setConfigOfVehicle.vars"
+    or "core_vehicle_partmgmt.setConfigVars"
   local ok, result = callContract(operationName, "tuning_apply_rejected", "nil_then_event", function()
     if targetVehicle then
       return core_vehicle_partmgmt.setConfigOfVehicle(
@@ -662,18 +736,10 @@ local function applyPaints(paints, expectedVehicleId, allowBackgroundTarget)
   )
   if not targetOk then return false, targetFailure end
   local payload = util.deepCopy(paints or {})
-  local operationName = "core_vehicle_partmgmt.setConfigPaints"
-  local targetVehicle
-  if allowBackgroundTarget == true then
-    if type(core_vehicle_partmgmt.setConfigOfVehicle) ~= "function" then
-      return false, errorValue("background_write_unsupported",
-        "This BeamNG build cannot paint a non-player Race vehicle by ID")
-    end
-    local targetResolved, vehicleOrError = getCurrentVehicleObject(expectedVehicleId, true)
-    if not targetResolved then return false, vehicleOrError end
-    targetVehicle = vehicleOrError
-    operationName = "core_vehicle_partmgmt.setConfigOfVehicle.paints"
-  end
+  local resolved, targetVehicle = idBoundWriteVehicle(expectedVehicleId, allowBackgroundTarget, "paint")
+  if not resolved then return false, targetVehicle end
+  local operationName = targetVehicle and "core_vehicle_partmgmt.setConfigOfVehicle.paints"
+    or "core_vehicle_partmgmt.setConfigPaints"
   local ok, result = callContract(operationName, "paint_apply_rejected", "nil_then_readback", function()
     if targetVehicle then
       return core_vehicle_partmgmt.setConfigOfVehicle(
@@ -1452,6 +1518,8 @@ end
 M.errorValue = errorValue
 M.getCapabilities = getCapabilities
 M.getCurrentVehicleId = getCurrentVehicleId
+M.humanOccupancy = humanOccupancy
+M.isPlayerCharacter = isPlayerCharacter
 M.getCurrentVehicleObject = getCurrentVehicleObject
 M.getCurrentVehicleData = getCurrentVehicleData
 M.getCurrentModelKey = getCurrentModelKey

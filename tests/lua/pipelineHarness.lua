@@ -151,6 +151,16 @@ local function new(options)
     }
   end
   function adapter.getCurrentVehicleId() return true, harness.vehicleId end
+  -- Single player by default: player 0 drives harness.vehicleId. Tests add
+  -- split-screen occupants with harness.occupants[vehicleId] = {players}.
+  function adapter.humanOccupancy(vehicleId)
+    local players = harness.occupants and harness.occupants[vehicleId]
+      or (vehicleId == harness.vehicleId and {0} or {})
+    return #players > 0 and "occupied" or "free", util.deepCopy(players)
+  end
+  function adapter.isPlayerCharacter(vehicleId)
+    return harness.onFoot == true and vehicleId == harness.vehicleId
+  end
   function adapter.getCurrentModelKey() return true, harness.modelKey end
   function adapter.getCurrentConfig() return true, {partConfigFilename = harness.configPath} end
   function adapter.captureCurrentState(kind, seed)
