@@ -1,0 +1,43 @@
+{
+  "schema": "soturine-dogfood-feedback/1",
+  "consumer": {"project": "beamng-soturine-chaos-randomizer", "revision": "e1610ed", "date": "2026-11-02"},
+  "instruments": [
+    {"name": "assertiva", "version": "0.10.1", "revision": "2618d95"},
+    {"name": "derivanta-engine", "version": "0.1.0", "milestone": "M3", "revision": "17fa564"}
+  ],
+  "runs": [
+    {"instrument": "assertiva", "command": "audit <repo>", "exit": 0, "runId": "979406beddba4089", "seconds": 49},
+    {"instrument": "assertiva", "command": "audit <repo> --execute --python <python.exe> --timeout-s 600 --ctrf", "exit": 0, "runId": "d45ddf58bf63486c", "seconds": 49, "outcomes": {"pytest-native": "51 PASS", "vitest": "38 PASS"}},
+    {"instrument": "assertiva", "command": "audit <repo> --junit-xml lua-junit.xml", "exit": 0, "runId": "4c7ce0f7efb74c9c", "ingested": {"cases": 458, "sha256": "492f6380977063c2b890087411dbdc47d782c13651f0e787269c649be4394b81"}},
+    {"instrument": "derivanta-engine", "command": "inspect <repo> --maintainability --format json", "exit": 0, "seconds": 1},
+    {"instrument": "derivanta-engine", "command": "compare before.json after.json", "exit": 0, "comparability": "COMPARABLE", "summary": {"new": 0, "persisting": 13, "absent": 2}}
+  ],
+  "findingReview": [
+    {"instrument": "assertiva", "code": "LOCAL_CHECK_NOT_OBSERVED_IN_CI", "severity": "high", "verdict": "false_positive", "evidence": "ci.yml runs npm run verify; same run's NESTED_SCRIPT_REPETITION lists that step"},
+    {"instrument": "assertiva", "code": "CI_PYTEST_NOT_OBSERVED", "severity": "medium", "verdict": "false_positive", "evidence": "unittest suite reached through npm run verify -> tools/verify.py -> unittest discover"},
+    {"instrument": "assertiva", "code": "FALSE_GREEN_CANDIDATE", "test": "tests/test_static.py::StaticValidationTests::test_beamng_api_boundary", "verdict": "rejected", "evidence": "negative control in a disposable copy: unmodified exit 0, mutated exit 1 (KILLED)"},
+    {"instrument": "assertiva", "code": "NESTED_SCRIPT_REPETITION", "severity": "info", "verdict": "false_positive", "evidence": "three separate workflows with different triggers"},
+    {"instrument": "assertiva", "code": "CI_ONLY_CHECK", "severity": "medium", "verdict": "partly_valid"},
+    {"instrument": "assertiva", "code": "UNCLASSIFIED_VERIFICATION", "severity": "info", "verdict": "valid_limitation"},
+    {"instrument": "assertiva", "code": "ARTIFACT_LINEAGE_UNKNOWN", "severity": "medium", "verdict": "partly_valid", "evidence": "manifest binds commit and sha256 and is checked by validate_release_gate.py; not read by the instrument"},
+    {"instrument": "derivanta-engine", "code": "deadness_candidate", "files": ["tools/profile_fixtures.py", "tools/benchmark_v069.py"], "verdict": "candidate_resolved_by_merge", "evidence": "working CLI entry points merged into tools/lua_benchmarks.py"},
+    {"instrument": "derivanta-engine", "code": "duplication_candidate", "files": ["tests/test_static.py", "tests/test_package.py", "tools/package_mod.py"], "verdict": "rejected", "evidence": "tests repeat expected values on purpose"}
+  ],
+  "proposals": [
+    {"target": "assertiva", "kind": "false_negative", "title": "Recognise Lua in the technology inventory", "reproduction": "static audit of this repo reports JavaScript 40/56 and no Lua", "expected": "Lua listed (106 modules)", "proposedFix": "file-pattern detection for *.lua"},
+    {"target": "assertiva", "kind": "granularity", "title": "Nested custom runners counted as one test", "reproduction": "--execute shows 51 pytest invocations; one of them runs 458 Lua cases", "expected": "per-case evidence or an explicit NESTED_RUNNER note", "proposedFix": "document --junit-xml bridging (proven with a 30-line converter) or parse runner summaries"},
+    {"target": "assertiva", "kind": "false_positive", "title": "Follow package scripts into python/node scripts", "reproduction": "npm run verify -> python tools/verify.py -> unittest", "expected": "no CI_PYTEST_NOT_OBSERVED / LOCAL_CHECK_NOT_OBSERVED_IN_CI", "proposedFix": "resolve one level of script indirection before declaring absence"},
+    {"target": "assertiva", "kind": "consistency", "title": "HIGH finding contradicts an INFO finding in the same run", "proposedFix": "share script identity between the two analyses"},
+    {"target": "assertiva", "kind": "install", "title": "Windows checkout needs core.longpaths", "reproduction": "longest path 106 chars under a %TEMP% prefix exceeds MAX_PATH"},
+    {"target": "assertiva", "kind": "install", "title": "pip install fails when PIP_NO_BUILD_ISOLATION=0 is set"},
+    {"target": "assertiva", "kind": "ux", "title": "--python rejects a Windows path without .exe"},
+    {"target": "assertiva", "kind": "false_negative", "title": "Node contract scripts outside Vitest not classified", "reproduction": "node tests/js/vue_runtime.test.mjs (1190 checks) via package script test:ui and verify"},
+    {"target": "derivanta-engine", "kind": "coverage", "title": "Lua maintainability adapter (require graph, M.name exports)", "evidence": "prototype flagged 19 candidates; 10 dead functions and 9 unused aliases confirmed and removed"},
+    {"target": "derivanta-engine", "kind": "docs", "title": "README status says M2 after M3 closed"},
+    {"target": "derivanta-engine", "kind": "ux", "title": "DIFFERENT_TARGET could explain how to build a comparable baseline"}
+  ],
+  "notRun": [
+    {"what": "assertiva --mutate", "reason": "needs a mutation tool installed in the project environment; Lua unsupported; package build per mutant out of proportion"},
+    {"what": "pull requests or issues on instrument repositories", "reason": "not created in this session; this file is the carry-over"}
+  ]
+}

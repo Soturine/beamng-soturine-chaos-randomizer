@@ -24,11 +24,23 @@ speed mode, aggression, lane/avoidance settings, path driving, target object,
 traffic, stop/disable, and recording; GE Lua confirms NavGraph road/path calls.
 Every mode is capability-gated at runtime.
 
-Destination, Route, Chase, Follow, and Traffic are exposed when their required
-boundary exists. Recorded playback and Scripted path are deliberately disabled:
-the audited build does not give this mod a bounded portable contract for
-transferring a recorded path back into these GE-Lua-managed assignments. The UI
-shows the reason instead of a working-looking stub.
+Destination, Route, Recorded, Chase, Follow, and Traffic are exposed when
+their required boundary exists. Recorded uses the contract BeamNG ships
+(0.40.4 `lua/vehicle/scriptai.lua`): `ai.startRecording(true)` samples the
+player's own car without taking control, `ai.stopRecording()` returns the path,
+and the Vehicle Lua extension `soturineChaosRandomizerPathRecorder` compacts it
+to at most 600 points and returns it through `queueGameEngineLua`. GE accepts
+only the pending request from the recording vehicle. Playback calls
+`ai.driveUsingPath{script = ...}`, which first places the car at `script[1]`,
+so each opponent's script starts at its own position. Scripted (free-form)
+paths are not offered; Route covers user-placed points.
+
+The AI mode is confirmed by a probe queued after the start command on the same
+vehicle queue; it replies with Vehicle Lua `ai.mode`. Destination, Route and
+Recorded confirm against `manual` (what `ai.driveUsingPath` sets), Roam
+against `random`. A different mode fails the slot; no reply within 3 s is
+reported as running with `mode_confirmation_unavailable`, never as confirmed.
+A car any local player has entered is never started.
 
 ## Modes
 
@@ -58,8 +70,8 @@ route editor; stop/reset clean the temporary destination marker. Finish actions
 are Stop, Apply brakes (the audited stop behavior), Keep driving, Loop, and
 Disable AI.
 
-Recording start/stop is a compact per-vehicle command. It does not imply that
-Recorded playback is supported.
+Record my route starts and stops recording on the local player's vehicle (not
+on opponents, whose AI would be switched off by recording).
 
 ## Arrival, stuck, and finish
 

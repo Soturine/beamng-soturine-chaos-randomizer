@@ -1,13 +1,18 @@
 # Current validation
 
-Current release: **0.7.11 experimental prerelease**, targeting BeamNG.drive
-0.39.4.x. Automated validation runs through `npm run verify` (static, UI, Lua
-and Python contracts, then the deterministic package).
+Current release: **0.7.12 experimental prerelease**, targeting BeamNG.drive
+0.40.4 (minimum 0.39). Automated validation runs through `npm run verify`
+(static, UI, Lua and Python contracts, then the deterministic package).
 
-Owner live status for v0.7.11: **Pending owner validation; not executed** -
-0 executed / 0 passed / 0 failed / 13 pending / 0 blocked. Use the exact
+Owner live status for v0.7.12: **Pending owner validation; not executed** -
+0 executed / 0 passed / 0 failed / 18 pending / 0 blocked. Use the exact
 downloaded release asset and record results in
-[v0.7.11 live results](../testing/v0.7.11/LIVE_RESULTS.md).
+[v0.7.12 live results](../testing/v0.7.12/LIVE_RESULTS.md). The 0.40 source
+audit, functional matrix and assurance dogfood are in the
+[v0.7.12 audit report](../testing/v0.7.12/AUDIT_REPORT.md).
+
+v0.7.11 was never run live (0 executed / 13 pending); its cases are folded
+into the v0.7.12 list.
 
 The v0.7.10 owner session is historical evidence: world Preview geometry was
 visible (renderer confirmed), while Preview follow, UI after Preview,

@@ -16,9 +16,11 @@ native Runtime UI Vue app.
 - **Events** previews Race generation and final-grid footprints without world mutation,
   generates isolated competitor slots, places owned vehicles, and controls only
   their managed AI.
-- Verified AI presets include Follow, Convoy, Chase, Flee, Traffic, Roam and
-  mixed-role Swarm. Tag/contact orchestration is foundation-only and is not a
-  user-facing game mode.
+- AI presets include Follow, Convoy, Chase, Flee, Traffic, Roam and mixed-role
+  Swarm, plus Destination, Route and **Recorded route** (opponents replay a path
+  you drove). Each car's AI mode is confirmed from the vehicle, not assumed.
+- **Split-screen aware (BeamNG 0.40):** no Chaos, Race cleanup, placement or AI
+  action touches a car another local player is in.
 - Reproducible seeds, locks, progress, diagnostics, cancellation, and Undo are
   available throughout the app.
 
@@ -69,13 +71,14 @@ recovery controls are advanced.
 
 ## Compatibility
 
-The declared target and minimum version live in
+The declared target (BeamNG 0.40.4) and minimum (0.39) live in
 [`COMPATIBILITY.json`](COMPATIBILITY.json). Compatibility claims are
 evidence-based: automated validation can pass while in-game validation remains
 **Pending owner validation**. See
-[BeamNG 0.39 compatibility](docs/BEAMNG_0.39_COMPATIBILITY.md) and
+[BeamNG 0.40 compatibility](docs/BEAMNG_0.40_COMPATIBILITY.md) and
 [current validation](docs/status/CURRENT_VALIDATION.md). The current owner-live
-retest is the focused [v0.7.9 A-O plan](docs/testing/v0.7.9/LIVE_TEST_PLAN.md).
+checklist is [v0.7.12 live results](docs/testing/v0.7.12/LIVE_RESULTS.md).
+The ZIP is for PC; BeamNG does not support mods on PS5.
 
 ## Data and safety
 

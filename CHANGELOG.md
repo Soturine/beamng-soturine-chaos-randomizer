@@ -2,6 +2,36 @@
 
 All notable changes are documented here using [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.12] - 2026-11-02
+
+BeamNG.drive 0.40 compatibility experimental prerelease targeting BeamNG 0.40.4 (minimum 0.39), audited against the installed 0.40.4.0 (build 296339) source.
+
+### Fixed
+
+- Split-screen safety: occupancy now covers every `core_multiseat` player and `gameplay_seatOccupants` presence; Race delete, teleport and AI start refuse occupied cars, Chaos refuses cars shared with another player and the walking `unicycle` character, and unreadable occupancy is never treated as free.
+- The 0.40 per-player config target (`core_vehicle_configTarget`) redirected the implicit part-manager API to another player's car; player writes are bound by ID when that target is foreign, and the foreign implicit read is refused instead of being used as verification evidence.
+- AI mode confirmation probed GE getters BeamNG does not have, so every dispatch showed as running; the mode is now read from Vehicle Lua `ai.mode`, and Destination/Route confirm against `manual` (the old `traffic` mapping and its test were wrong).
+- `resetManagedAI` had no control; Reset AI is in the Start step.
+- `race_competitor_transfer_required` pointed to a transfer action that never existed.
+- The release workflow hard-coded the v0.7.10 title (v0.7.11 was published under it); it now uses the notes heading.
+
+### Added
+
+- Recorded route: record the player's driven path with BeamNG's scriptai recorder (Vehicle Lua extension, bounded to 600 points) and replay it on opponents with `ai.driveUsingPath{script}`, each from its own slot. Replaces a per-NPC Recording toggle that switched the NPC's AI off and discarded the path.
+
+### Changed
+
+- `COMPATIBILITY.json` targets 0.40.4; the package check enforces the Runtime UI version contract instead of the literal string `0.39`.
+- Runtime UI named imports are checked against a snapshot of the 0.40.4 host exports.
+- The prerelease gate requires disclosure, not zero live failures: notes must repeat the live report's exact counts and disclose failed or blocked cases.
+- The public AI list is a projection; route nodes no longer cross the UI bridge on every publish.
+- Removed proven-dead Lua functions and unused export aliases; merged the duplicate model/configuration anti-repeat selectors; one Lua runner serves the suite and both benchmarks.
+
+### Testing and live status
+
+- 458 Lua cases (8 new for 0.40 contracts), 7 deliberate defects killed by them; Assertiva 0.10.1 and Derivanta-Engine 0.1.0 (M3) dogfood reports in `docs/assurance/`.
+- v0.7.12 live BeamNG status starts **Pending owner validation**: 0 executed / 18 pending. No 0.40 session has run the mod yet.
+
 ## [0.7.11] - 2026-09-27
 
 Live Preview and Events UI experimental prerelease targeting BeamNG 0.39.4.x, derived from the owner's v0.7.10 live session.

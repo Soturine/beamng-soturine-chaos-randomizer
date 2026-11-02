@@ -2,6 +2,6 @@
 
 Race generates 2–16 competitors sequentially through the central Full Random pipeline. Each competitor receives independent deterministic substreams, target generations, bounded retries, acceptance policy, checkpointed status, and a terminal result.
 
-`raceManager.lua` is canonical. Historical Lineup JSON/storage keys and public methods remain compatible through `compat/legacyLineupFacade.lua`.
+`raceManager.lua` is canonical. Historical Lineup JSON keys are read by `lineupSchema.lua`/`lineupPersistence.lua`; the former `compat/legacyLineupFacade.lua` was removed in v0.7.10 after it had no consumers.
 
 See the detailed [Race guide](../RACE.md), [Placement](PLACEMENT.md), and [AI Director](AI_DIRECTOR.md).

@@ -16,6 +16,16 @@ belong in [CHANGELOG.md](CHANGELOG.md) and [versioned testing](docs/testing/).
 - Add a separately validated BeamMP adapter for discovery, server authority and
   replication; the current release only provides the fail-closed identity envelope.
 - Replace remaining compatibility facades after migration and live evidence.
+- Give the AI Director glue in `main.lua` (dispatch, Vehicle Lua mode probe,
+  confirmation) an integration seam; today it is covered only at module level.
+
+## After the 0.40 owner session
+
+- Promote split-screen protection from source-contract evidence to live
+  evidence with two physical players, and extend it to any further local
+  multiplayer API BeamNG adds.
+- Decide whether the Lua runner should emit JUnit/CTRF results so external
+  assurance tools see individual Lua cases.
 
 ## Later
 
