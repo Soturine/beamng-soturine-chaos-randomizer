@@ -70,7 +70,6 @@ local aiAdapter = require("ge/extensions/soturineChaosRandomizer/aiAdapter")
 local aiDirector = require("ge/extensions/soturineChaosRandomizer/aiDirector")
 local util = require("ge/extensions/soturineChaosRandomizer/util")
 local validator = require("ge/extensions/soturineChaosRandomizer/validator")
-local vehicleSelector = require("ge/extensions/soturineChaosRandomizer/vehicleSelector")
 local vehicleDNA = require("ge/extensions/soturineChaosRandomizer/vehicleDNA")
 local vehicleDNACompatibility = require("ge/extensions/soturineChaosRandomizer/vehicleDNACompatibility")
 local vehicleDNAFingerprint = require("ge/extensions/soturineChaosRandomizer/vehicleDNAFingerprint")
@@ -241,13 +240,20 @@ end
 
 tests.anti_repeat_selection = function()
   local generator = rng.new("anti-repeat")
-  local model = vehicleSelector.select({{key = "a"}, {key = "b"}}, generator, {"a"})
+  local model = configSelector.selectModel({{key = "a"}, {key = "b"}}, generator, {"a"})
   equal(model.key, "b")
   local config = configSelector.select({
     {modelKey = "a", key = "one"},
     {modelKey = "a", key = "two"},
   }, generator, {"a/one"})
   equal(config.key, "two")
+  -- Everything recent falls back to the whole pool, with the same single draw
+  -- a direct choice would make, so seeds keep reproducing the same vehicle.
+  local pool = {{key = "a"}, {key = "b"}, {key = "c"}}
+  equal(configSelector.selectModel(pool, rng.new("seeded"), {"a", "b", "c"}).key, rng.new("seeded"):choice(pool).key)
+  local empty, reason = configSelector.selectModel({}, generator, {})
+  equal(empty, nil); equal(reason, "no_eligible_vehicles")
+  equal(select(2, configSelector.select({}, generator, {})), "no_eligible_configurations")
 end
 
 tests.chaos_policy_boundaries = function()

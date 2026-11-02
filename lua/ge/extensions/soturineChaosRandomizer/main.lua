@@ -28,7 +28,6 @@ local tuningCoverageLedger = require("ge/extensions/soturineChaosRandomizer/tuni
 local tuningPipeline = require("ge/extensions/soturineChaosRandomizer/tuningPipeline")
 local util = require("ge/extensions/soturineChaosRandomizer/util")
 local validator = require("ge/extensions/soturineChaosRandomizer/validator")
-local vehicleSelector = require("ge/extensions/soturineChaosRandomizer/vehicleSelector")
 local vehicleDNA = require("ge/extensions/soturineChaosRandomizer/vehicleDNA")
 local vehicleDNACompatibility = require("ge/extensions/soturineChaosRandomizer/vehicleDNACompatibility")
 local vehicleDNAImport = require("ge/extensions/soturineChaosRandomizer/vehicleDNAImport")
@@ -2113,7 +2112,7 @@ local function chooseConfiguration(active)
     end
     return nil, nil, adapter.errorValue("model_config_mismatch", "The selected configuration has no eligible model")
   end
-  local model, modelError = vehicleSelector.select(models, active.rng:fork("vehicle"), recentModels)
+  local model, modelError = configSelector.selectModel(models, active.rng:fork("vehicle"), recentModels)
   if not model then return nil, nil, adapter.errorValue(modelError, "No vehicles match the current filters") end
   active.selectionContext.eligibleConfigurations = #model.configs
   local selectableConfigs = model.configs
