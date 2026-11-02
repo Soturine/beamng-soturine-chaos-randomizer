@@ -1,7 +1,7 @@
 {
   "schemaVersion": 2,
   "modVersion": "0.7.11",
-  "primaryBeamNGTarget": "0.39.4",
+  "primaryBeamNGTarget": "0.40.4",
   "minimumBeamNGVersion": "0.39",
   "testedGameVersions": [],
   "liveValidationStatus": "Pending owner validation",

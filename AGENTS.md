@@ -2,9 +2,10 @@
 
 ## Runtime and package
 
-- Production Lua must remain compatible with BeamNG.drive 0.39 and the Lua 5.1 fixture runner.
+- Production Lua must remain compatible with BeamNG.drive 0.39 and the Lua 5.1 fixture runner. BeamNG 0.40 modules (`core_multiseat`, `gameplay_seatOccupants`, `core_vehicle_configTarget`) are read with `rawget` and an explicit single-player fallback.
 - The HUD App is a native Vue 3 Runtime UI app. Runtime code must not use CDNs, remote assets, `node_modules`, source maps, or raw Sass.
-- Release compatibility targets BeamNG 0.39.4; 0.39.2.1 remains historical live-failure evidence and 0.39.3 is the minimum documented Runtime UI baseline.
+- Release compatibility targets BeamNG 0.40.4; 0.39.4 and 0.39.2.1 remain historical live evidence and 0.39.3 is the minimum documented Runtime UI baseline. `testedGameVersions` lists only builds executed live with the published ZIP.
+- Every local player is protected, not only player 0: occupancy covers all `core_multiseat` players and seat presences, and unreadable occupancy is never free. Implicit part-manager calls are used only while no foreign config target would redirect them.
 - Only `lua/`, `ui/`, `settings/`, `locales/` (when present), `mod_info/` (when present), `COMPATIBILITY.json`, `LICENSE`, `NOTICE`, and `VERSION` may enter the mod ZIP.
 
 ## Evidence

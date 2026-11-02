@@ -117,6 +117,26 @@ class PackageValidationError(ValueError):
     """Raised when a package violates the release layout contract."""
 
 
+def version_tuple(value: object) -> tuple[int, ...] | None:
+    if not isinstance(value, str) or not re.fullmatch(r"\d+(?:\.\d+){1,3}", value):
+        return None
+    return tuple(int(part) for part in value.split("."))
+
+
+def validate_compatibility_versions(compatibility: dict) -> None:
+    """The native Runtime UI app needs BeamNG 0.39 or newer. The declared
+    minimum may rise, but never below that or above the primary target, and
+    a tested build can never be older than the minimum."""
+    minimum = version_tuple(compatibility.get("minimumBeamNGVersion"))
+    target = version_tuple(compatibility.get("primaryBeamNGTarget"))
+    if minimum is None or target is None or minimum < (0, 39) or minimum > target:
+        raise PackageValidationError("Native Vue package must declare a minimum of BeamNG 0.39+ not above its target")
+    for tested in compatibility.get("testedGameVersions", []):
+        tested_version = version_tuple(tested)
+        if tested_version is None or tested_version < minimum:
+            raise PackageValidationError(f"Tested game version is invalid or below the minimum: {tested!r}")
+
+
 def _validate_member_name(name: str) -> PurePosixPath:
     if not name or "\\" in name or name.startswith("/"):
         raise PackageValidationError(f"Invalid ZIP path: {name!r}")
@@ -202,8 +222,7 @@ def validate_archive(archive_path: Path, expected_version: str | None = None) ->
             raise PackageValidationError("Native Vue app metadata is inconsistent")
         if compatibility.get("schemaVersion") != 2 or compatibility.get("uiRuntime") != "native-runtime-ui-vue":
             raise PackageValidationError("Compatibility metadata does not declare the native Vue runtime")
-        if compatibility.get("minimumBeamNGVersion") != "0.39":
-            raise PackageValidationError("Native Vue package must require BeamNG 0.39")
+        validate_compatibility_versions(compatibility)
 
         packaged_version = archive.read("VERSION").decode("utf-8").strip()
         if packaged_version != expected_version:

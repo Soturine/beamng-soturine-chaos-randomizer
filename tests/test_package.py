@@ -87,10 +87,22 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(manifest["tag"], identity["tag"])
         self.assertEqual(manifest["sha256"], expected)
         self.assertEqual(manifest["manifestVersion"], 4)
-        self.assertEqual(manifest["primaryBeamNGTarget"], "0.39.4")
+        self.assertEqual(manifest["primaryBeamNGTarget"], "0.40.4")
         self.assertEqual(manifest["minimumBeamNGVersion"], "0.39")
         self.assertEqual(manifest["automatedValidation"]["command"], "npm run verify")
         self.assertEqual(manifest["liveValidation"]["executed"], 0)
+
+    def test_compatibility_versions_follow_the_runtime_ui_contract(self) -> None:
+        base = {"minimumBeamNGVersion": "0.39", "primaryBeamNGTarget": "0.40.4", "testedGameVersions": ["0.40.4.0"]}
+        validate_package.validate_compatibility_versions(base)
+        for override in (
+            {"minimumBeamNGVersion": "0.38"},
+            {"minimumBeamNGVersion": "0.41"},
+            {"primaryBeamNGTarget": "latest"},
+            {"testedGameVersions": ["0.38.6"]},
+        ):
+            with self.subTest(override=override), self.assertRaises(validate_package.PackageValidationError):
+                validate_package.validate_compatibility_versions({**base, **override})
 
     def test_package_and_manifest_are_reproducible(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
