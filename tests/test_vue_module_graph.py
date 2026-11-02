@@ -59,6 +59,26 @@ class VueModuleGraphTests(unittest.TestCase):
             self.assertEqual(report["caseMismatches"], 1)
             self.assertIn("case_mismatch", {item["reason"] for item in report["issues"]})
 
+    def test_host_export_removed_by_beamng_is_rejected(self) -> None:
+        # BeamNG 0.40 removed the v-bng-panel directive; importing it must fail
+        # here, not blank the app in game.
+        with tempfile.TemporaryDirectory() as temporary:
+            app = self.copy_app(Path(temporary))
+            shell = app / "components/shell/AppShell.vue"
+            source = shell.read_text(encoding="utf-8")
+            self.assertIn("import { vBngOnUiNav, vBngScopedNav }", source)
+            shell.write_text(
+                source.replace("import { vBngOnUiNav, vBngScopedNav }", "import { vBngOnUiNav, vBngScopedNav, vBngPanel }"),
+                encoding="utf-8",
+            )
+            result = self.run_graph(app)
+            self.assertNotEqual(result.returncode, 0)
+            report = json.loads(result.stdout)
+            self.assertIn(
+                ("@/common/directives#vBngPanel", "runtime_export_not_in_host"),
+                {(item["specifier"], item["reason"]) for item in report["issues"]},
+            )
+
     def test_missing_module_and_named_export_are_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             app = self.copy_app(Path(temporary))

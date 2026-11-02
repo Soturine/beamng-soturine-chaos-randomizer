@@ -8,13 +8,14 @@ import { parse as parseSfc } from "@vue/compiler-sfc"
 const DEFAULT_APP_ROOT = "ui/modules/apps/soturineChaosRandomizer"
 const AUDITED_EXTENSIONS = new Set([".vue", ".js", ".json", ".css", ".scss"])
 const PROJECT_EXTENSIONS = new Set([".vue", ".js", ".mjs", ".json", ".css", ".scss"])
-const RUNTIME_ALIASES = new Set([
-  "@/bridge",
-  "@/services/events",
-  "@/services/settings",
-  "@/common/directives",
-  "@/common/components/base",
-])
+// Named exports of the BeamNG Runtime UI host, read from the installed game's
+// ui/ui-vue/src (see the snapshot's beamngVersion). An import of a name the
+// host no longer exports - like the v-bng-panel directive removed in 0.40 -
+// fails here instead of blanking the app in game.
+const HOST_EXPORTS = JSON.parse(await readFile(new URL("./beamng_host_exports.json", import.meta.url), "utf8"))
+const RUNTIME_ALIASES = new Map(
+  Object.entries(HOST_EXPORTS.exports).map(([specifier, names]) => [specifier, new Set(names)]),
+)
 
 function parseArguments(argv) {
   let appRoot = DEFAULT_APP_ROOT
@@ -210,8 +211,14 @@ async function validateGraph(appRoot, mode) {
         continue
       }
       if (specifier.startsWith("@/")) {
-        if (RUNTIME_ALIASES.has(specifier)) report.runtimeAliases += 1
-        else issue(report, relativeSource, specifier, "runtime_alias_not_allowlisted")
+        const hostNames = RUNTIME_ALIASES.get(specifier)
+        if (!hostNames) issue(report, relativeSource, specifier, "runtime_alias_not_allowlisted")
+        else {
+          report.runtimeAliases += 1
+          for (const name of item.named) {
+            if (!hostNames.has(name)) issue(report, relativeSource, `${specifier}#${name}`, "runtime_export_not_in_host")
+          }
+        }
         continue
       }
       if (!specifier.startsWith("./") && !specifier.startsWith("../")) {
