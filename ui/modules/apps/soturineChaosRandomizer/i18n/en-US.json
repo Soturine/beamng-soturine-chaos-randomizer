@@ -440,6 +440,7 @@
   "race.pauseAll": "Pause all",
   "race.resumeAll": "Resume all",
   "race.stopAll": "Stop all",
+  "race.resetAll": "Reset AI",
   "race.managedVehicles": "Managed vehicles",
   "settings.seed": "Seed & Reproducibility",
   "settings.content": "Content",

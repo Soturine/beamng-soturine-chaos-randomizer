@@ -21,6 +21,7 @@
       <button v-if="running" type="button" @click="stores.command.send('pauseManagedAI')">{{ t('race.pauseAll') }}</button>
       <button v-if="running" type="button" @click="stores.command.send('resumeManagedAI')">{{ t('race.resumeAll') }}</button>
       <button v-if="running" type="button" @click="stores.command.send('stopManagedAI')">{{ t('race.stopAll') }}</button>
+      <button v-if="hasAI" type="button" @click="stores.command.send('resetManagedAI')">{{ t('race.resetAll') }}</button>
     </div>
     <div v-if="startResult" class="scr-race-summary" :class="{ 'is-warning': startResult.failed > 0 }" role="status" aria-live="polite">
       <strong>{{ t('race.summary.aiStarted', { count: startResult.started, total: startResult.requested }) }}</strong>
@@ -43,6 +44,7 @@ const { lineup, summary, aiReady, plannedOpponents, blocked } = useRaceReadiness
 const behavior = computed(() => stores.race.state.aiOptions.behaviorPreset || "")
 const formation = computed(() => normalizeFormationCode(stores.race.state.placementOptions.mode))
 const warningCount = computed(() => (lineup.value?.warnings?.length || 0) + Number(summary.value.failed || 0))
+const hasAI = computed(() => (stores.race.state.aiDirector?.vehicles || []).length > 0)
 const running = computed(() => (stores.race.state.aiDirector?.vehicles || []).some(vehicle => vehicle.status && vehicle.status !== "idle" && vehicle.status !== "stopped"))
 const startResult = computed(() => {
   const result = core.lastResult

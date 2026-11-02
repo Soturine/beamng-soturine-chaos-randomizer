@@ -440,6 +440,7 @@
   "race.pauseAll": "Pausar todos",
   "race.resumeAll": "Continuar todos",
   "race.stopAll": "Parar todos",
+  "race.resetAll": "Redefinir IA",
   "race.managedVehicles": "Veículos gerenciados",
   "settings.seed": "Seed e Reprodutibilidade",
   "settings.content": "Conteúdo",
