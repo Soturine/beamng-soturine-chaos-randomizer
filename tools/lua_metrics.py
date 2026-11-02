@@ -1,4 +1,10 @@
-"""Run the Lua suite and parse its self-reported, de-duplicated metrics."""
+"""Run repository Lua scripts (suite and benchmarks) and parse their metrics.
+
+Without a standalone Lua 5.1/LuaJIT interpreter, scripts run in BeamNG's
+shipped console. Its virtual filesystem is rooted at the game folder, so the
+scripts are staged in a uniquely named temporary folder there and always
+removed afterwards; nothing else in the game folder is touched.
+"""
 
 from __future__ import annotations
 
@@ -29,52 +35,54 @@ def find_beamng_console() -> Path | None:
     return next((path for path in candidates if path and path.is_file()), None)
 
 
-@lru_cache(maxsize=4)
-def run_lua_suite(root: Path) -> tuple[str, dict[str, int]]:
-    runner = root / "tests" / "lua" / "run.lua"
+STAGED_DIRECTORIES = ("lua", "tests/lua", "tests/fixtures", "ui")
+
+
+def run_lua_file(root: Path, script: str) -> tuple[int, str]:
+    """Run tests/lua/<script> from the repository root; return (exit code, output)."""
     lua_command = os.environ.get("LUA") or next(
         (command for command in ("lua5.1", "lua", "luajit") if shutil.which(command)),
         None,
     )
     if lua_command:
         result = subprocess.run(
-            [lua_command, str(runner)], cwd=root, text=True, capture_output=True, check=False,
+            [lua_command, str(root / "tests" / "lua" / script)],
+            cwd=root, text=True, capture_output=True, check=False,
         )
-    else:
-        console = find_beamng_console()
-        if not console:
-            raise RuntimeError("No Lua 5.1-compatible interpreter found; set LUA or BEAMNG_CONSOLE")
-        game_root = console.parent.parent
-        stage = game_root / f"scr_metrics_{os.getpid()}_{uuid.uuid4().hex[:8]}"
-        if stage.parent.resolve() != game_root.resolve():
-            raise RuntimeError("Lua test staging path escaped the BeamNG root")
-        try:
-            shutil.copytree(root / "lua", stage / "lua")
-            shutil.copytree(root / "tests" / "lua", stage / "tests" / "lua")
-            shutil.copytree(root / "tests" / "fixtures", stage / "tests" / "fixtures")
-            shutil.copytree(root / "ui", stage / "ui")
-            bootstrap = stage / "run_tests.lua"
-            virtual_root = "/" + stage.name
-            bootstrap.write_text(
-                "SCR_TEST_ROOT = " + json.dumps(virtual_root) + "\n"
-                + "dofile(" + json.dumps(virtual_root + "/tests/lua/run.lua") + ")\n",
-                encoding="utf-8",
-                newline="\n",
-            )
-            result = subprocess.run(
-                [str(console), "file", str(bootstrap)],
-                cwd=game_root,
-                text=True,
-                capture_output=True,
-                check=False,
-            )
-        finally:
-            if stage.exists():
-                if stage.parent.resolve() != game_root.resolve():
-                    raise RuntimeError("Refusing to remove an unsafe Lua test staging path")
-                shutil.rmtree(stage)
+        return result.returncode, result.stdout + result.stderr
+    console = find_beamng_console()
+    if not console:
+        raise RuntimeError("No Lua 5.1-compatible interpreter found; set LUA or BEAMNG_CONSOLE")
+    game_root = console.parent.parent
+    stage = game_root / f"scr_lua_{os.getpid()}_{uuid.uuid4().hex[:8]}"
+    if stage.parent.resolve() != game_root.resolve():
+        raise RuntimeError("Lua staging path escaped the BeamNG root")
+    try:
+        for directory in STAGED_DIRECTORIES:
+            shutil.copytree(root / directory, stage / directory)
+        bootstrap = stage / "bootstrap.lua"
+        virtual_root = "/" + stage.name
+        bootstrap.write_text(
+            "SCR_TEST_ROOT = " + json.dumps(virtual_root) + "\n"
+            + "dofile(" + json.dumps(f"{virtual_root}/tests/lua/{script}") + ")\n",
+            encoding="utf-8",
+            newline="\n",
+        )
+        result = subprocess.run(
+            [str(console), "file", str(bootstrap)],
+            cwd=game_root, text=True, capture_output=True, check=False,
+        )
+        return result.returncode, result.stdout + result.stderr
+    finally:
+        if stage.exists():
+            if stage.parent.resolve() != game_root.resolve():
+                raise RuntimeError("Refusing to remove an unsafe Lua staging path")
+            shutil.rmtree(stage)
 
-    output = result.stdout + result.stderr
+
+@lru_cache(maxsize=4)
+def run_lua_suite(root: Path) -> tuple[str, dict[str, int]]:
+    _, output = run_lua_file(root, "run.lua")
     success = SUCCESS_PATTERN.search(output)
     metrics_match = METRICS_PATTERN.search(output)
     if not success or not metrics_match:

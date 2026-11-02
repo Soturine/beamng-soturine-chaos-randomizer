@@ -15,12 +15,12 @@ For a bug, first search existing issues and reduce the report to the smallest ve
 
 ## Development environment
 
-Use Python 3.10+, Node.js, and Lua 5.1 (or BeamNG's shipped console). BeamNG 0.38.6 is required for current adapter and interactive testing.
+Use Python 3.10+, Node.js 24, and Lua 5.1 (or BeamNG's shipped console). Interactive testing targets BeamNG 0.40.4; 0.39 remains the declared minimum.
 
 ```powershell
 npm ci --ignore-scripts
 npm run verify
-python tools/profile_fixtures.py
+python tools/lua_benchmarks.py   # optional, non-gating Lua microbenchmarks
 ```
 
 For an unpacked install, place the three content roots beneath:
