@@ -106,6 +106,8 @@ class PackageTests(unittest.TestCase):
         *,
         pending_owner: bool,
         include_identity: bool = True,
+        notes_counts: dict[str, int] | None = None,
+        known_failures: bool = False,
     ) -> Path:
         (root / "VERSION").write_text("0.6.3\n", encoding="utf-8")
         report_dir = root / "docs/testing/v0.6.3"
@@ -144,7 +146,9 @@ class PackageTests(unittest.TestCase):
                 "Status: **Experimental prerelease — live validation pending owner test**.",
                 "Automated validation: Passed",
                 "Live BeamNG validation: Pending owner validation",
-                "Live cases: 0 executed / 0 passed / 0 failed / 110 pending / 0 blocked",
+                "Live cases: {Executed} executed / {Passed} passed / {Failed} failed / "
+                "{Pending} pending / {Blocked} blocked".format(**(notes_counts or counts)),
+                *(("## Known live failures", "- Case 4 failed on the exact ZIP.") if known_failures else ()),
             )) + "\n",
             encoding="utf-8",
         )
@@ -158,21 +162,48 @@ class PackageTests(unittest.TestCase):
             with mock.patch.object(validate_release_gate, "_validate_candidate_artifacts", return_value={}):
                 self.assertEqual(validate_release_gate.validate_prerelease_candidate(archive, root), counts)
 
-    def test_prerelease_gate_rejects_failed_cases(self) -> None:
+    def test_prerelease_gate_accepts_disclosed_live_failures(self) -> None:
+        # A real failure must be publishable as a known failure, so nobody is
+        # pushed to relabel it Pending to get a prerelease out.
+        for counts in (
+            {"Executed": 5, "Passed": 3, "Failed": 1, "Pending": 105, "Blocked": 1},
+            {"Executed": 2, "Passed": 1, "Failed": 1, "Pending": 0, "Blocked": 0},
+        ):
+            with self.subTest(counts=counts), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                archive = self._write_release_gate_fixture(root, counts, pending_owner=True, known_failures=True)
+                with mock.patch.object(validate_release_gate, "_validate_candidate_artifacts", return_value={}):
+                    self.assertEqual(validate_release_gate.validate_prerelease_candidate(archive, root), counts)
+
+    def test_prerelease_gate_rejects_undisclosed_failed_or_blocked_cases(self) -> None:
+        for counts in (
+            {"Executed": 1, "Passed": 0, "Failed": 1, "Pending": 109, "Blocked": 0},
+            {"Executed": 1, "Passed": 0, "Failed": 0, "Pending": 109, "Blocked": 1},
+        ):
+            with self.subTest(counts=counts), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                archive = self._write_release_gate_fixture(root, counts, pending_owner=True)
+                with self.assertRaises(validate_release_gate.ReleaseGateError):
+                    validate_release_gate.validate_prerelease_candidate(archive, root)
+
+    def test_prerelease_gate_rejects_notes_that_hide_a_failure(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             counts = {"Executed": 1, "Passed": 0, "Failed": 1, "Pending": 109, "Blocked": 0}
-            archive = self._write_release_gate_fixture(root, counts, pending_owner=True)
+            hidden = {"Executed": 0, "Passed": 0, "Failed": 0, "Pending": 110, "Blocked": 0}
+            archive = self._write_release_gate_fixture(
+                root, counts, pending_owner=True, notes_counts=hidden, known_failures=True,
+            )
             with self.assertRaises(validate_release_gate.ReleaseGateError):
                 validate_release_gate.validate_prerelease_candidate(archive, root)
 
-    def test_prerelease_gate_rejects_blocked_cases(self) -> None:
+    def test_validated_gate_rejects_failed_cases(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            counts = {"Executed": 1, "Passed": 0, "Failed": 0, "Pending": 109, "Blocked": 1}
-            archive = self._write_release_gate_fixture(root, counts, pending_owner=True)
+            counts = {"Executed": 2, "Passed": 1, "Failed": 1, "Pending": 0, "Blocked": 0}
+            archive = self._write_release_gate_fixture(root, counts, pending_owner=False, known_failures=True)
             with self.assertRaises(validate_release_gate.ReleaseGateError):
-                validate_release_gate.validate_prerelease_candidate(archive, root)
+                validate_release_gate.validate_live_release(archive, root)
 
     def test_prerelease_gate_rejects_inconsistent_counts(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

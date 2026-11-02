@@ -103,19 +103,17 @@ def _reject_false_live_claims(source: str) -> None:
 
 
 def validate_prerelease_candidate(archive: Path, root: Path = REPOSITORY_ROOT) -> dict[str, int]:
+    """An experimental prerelease may ship with known live failures, never with
+    hidden ones: the notes must repeat the report's exact counts and disclose
+    any failed or blocked case. Only the validated channel requires all-pass."""
     version = read_version(root)
-    identity = release_identity(version)
     report, notes = _release_documents(root, version)
     report_source = report.read_text(encoding="utf-8")
     notes_source = notes.read_text(encoding="utf-8")
     counts = _read_report_counts(report_source)
 
-    if counts["Failed"] != 0:
-        raise ReleaseGateError(f"Prerelease report contains {counts['Failed']} failed live case(s)")
-    if counts["Blocked"] != 0:
-        raise ReleaseGateError(f"Prerelease report contains {counts['Blocked']} blocked live case(s)")
     report_normalized = report_source.casefold()
-    if "pending owner validation" not in report_normalized:
+    if counts["Pending"] > 0 and "pending owner validation" not in report_normalized:
         raise ReleaseGateError("Live report must declare Pending owner validation")
     if "not executed" not in report_normalized and counts["Executed"] == 0:
         raise ReleaseGateError("Live report must state clearly that live validation was not executed")
@@ -126,13 +124,16 @@ def validate_prerelease_candidate(archive: Path, root: Path = REPOSITORY_ROOT) -
         raise ReleaseGateError("Live report must identify the repository owner as validation owner")
 
     notes_normalized = notes_source.casefold()
-    stage_disclosure = "experimental prerelease"
-    required_notes = (
-        stage_disclosure,
+    required_notes = [
+        "experimental prerelease",
         "automated validation: passed",
-        "live beamng validation: pending owner validation",
-        f"0 executed / 0 passed / 0 failed / {counts['Pending']} pending / 0 blocked",
-    )
+        f"{counts['Executed']} executed / {counts['Passed']} passed / {counts['Failed']} failed / "
+        f"{counts['Pending']} pending / {counts['Blocked']} blocked",
+    ]
+    if counts["Pending"] > 0:
+        required_notes.append("live beamng validation: pending owner validation")
+    if counts["Failed"] + counts["Blocked"] > 0:
+        required_notes.append("known live failures")
     for required in required_notes:
         if required not in notes_normalized:
             raise ReleaseGateError(f"Release notes are missing required prerelease disclosure: {required}")
